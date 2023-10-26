@@ -1,9 +1,339 @@
+#include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include <sys/time.h>
+#include <unistd.h>
+
+// Stretchy buffer
+// This is implementation of type-safe generic vector in C based on
+// std_stretchy_buffer.
+
+struct cs_sb_header {
+    size_t size;
+    size_t capacity;
+};
+
+#define cs_sb_header(_a)                                                       \
+    ((struct cs_sb_header *)((char *)(_a) - sizeof(struct cs_sb_header)))
+#define cs_sb_size(_a) (cs_sb_header(_a)->size)
+#define cs_sb_capacity(_a) (cs_sb_header(_a)->capacity)
+
+#define cs_sb_needgrow(_a, _n)                                                 \
+    (((_a) == NULL) || (cs_sb_size(_a) + (_n) >= cs_sb_capacity(_a)))
+#define cs_sb_maybegrow(_a, _n)                                                \
+    (cs_sb_needgrow(_a, _n) ? cs_sb_grow(_a, _n) : 0)
+#define cs_sb_grow(_a, _b)                                                     \
+    (*(void **)(&(_a)) = cs_sb_grow_impl((_a), (_b), sizeof(*(_a))))
+
+#define cs_sb_free(_a)                                                         \
+    (((_a) != NULL)                                                            \
+     ? cs_free(cs_sb_header(_a), cs_sb_capacity(_a) * sizeof(*(_a)) +          \
+                                     sizeof(struct cs_sb_header)),             \
+     0 : 0)
+#define cs_sb_push(_a, _v)                                                     \
+    (cs_sb_maybegrow(_a, 1), (_a)[cs_sb_size(_a)++] = (_v))
+#define cs_sb_last(_a) ((_a)[cs_sb_size(_a) - 1])
+#define cs_sb_len(_a) (((_a) != NULL) ? cs_sb_size(_a) : 0)
+#define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
+#define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
+
+static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride);
+static void *cs_realloc(void *ptr, size_t old_size, size_t new_size);
+
+#define cs_free(_ptr, _size) (void)cs_realloc(_ptr, _size, 0)
+#define cs_alloc(_size) cs_realloc(NULL, 0, _size)
+
+// realloc that hololisp uses for all memory allocations internally.
+// If new_size is 0, behaves as 'free'.
+// If old_size is 0, behaves as 'calloc'
+// Otherwise behaves as 'realloc'
+static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
+    if (arr == NULL) {
+        void *result = cs_alloc(sizeof(struct cs_sb_header) + stride * inc);
+        struct cs_sb_header *header = result;
+        header->size = 0;
+        header->capacity = inc;
+        return header + 1;
+    }
+
+    struct cs_sb_header *header = cs_sb_header(arr);
+    size_t double_current = header->capacity * 2;
+    size_t min_needed = header->size + inc;
+
+    size_t new_capacity =
+        double_current > min_needed ? double_current : min_needed;
+    void *result = cs_realloc(
+        header, sizeof(struct cs_sb_header) + stride * header->capacity,
+        sizeof(struct cs_sb_header) + stride * new_capacity);
+    header = result;
+    header->capacity = new_capacity;
+    return header + 1;
+}
+
+static void *cs_realloc(void *ptr, size_t old_size, size_t new_size) {
+    (void)old_size;
+    if (old_size == 0) {
+        assert(ptr == NULL);
+        void *result = calloc(1, new_size);
+        if (result == NULL) {
+            perror("failed to allocate memory");
+            exit(EXIT_FAILURE);
+        }
+        return result;
+    }
+
+    if (new_size == 0) {
+        free(ptr);
+        return NULL;
+    }
+
+    void *result = realloc(ptr, new_size);
+    if (result == NULL) {
+        perror("failed to allocate memory");
+        exit(EXIT_FAILURE);
+    }
+    return result;
+}
+
+// These are the settings used by application.
+// They are parsed from command line.
+//
+struct cs_settings {
+    // Array of commands to time
+    const char **commands;
+
+    int runs;
+};
+
+static void cs_print_help_and_exit(int rc) {
+    printf("A command-line benchmarking tool\n"
+           "\n"
+           "Usage: csbench [OPTIONS] <command> ...\n");
+    exit(rc);
+}
+
+static void cs_print_version_and_exit(void) {
+    printf("csbench 0.1\n");
+    exit(EXIT_SUCCESS);
+}
+
+static void cs_parse_cli_args(int argc, char **argv,
+                              struct cs_settings *settings) {
+    settings->runs = 10;
+
+    int cursor = 1;
+    while (cursor < argc) {
+        const char *opt = argv[cursor++];
+        if (strcmp(opt, "--help") == 0 || strcmp(opt, "-h") == 0) {
+            cs_print_help_and_exit(EXIT_SUCCESS);
+        } else if (strcmp(opt, "--version") == 0) {
+            cs_print_version_and_exit();
+        } else if (strcmp(opt, "--runs") == 0 || strcmp(opt, "-r") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *runs_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(runs_str, &str_end, 10);
+            if (str_end == runs_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            settings->runs = value;
+        } else {
+            cs_sb_push(settings->commands, opt);
+        }
+    }
+
+    if (cs_sb_len(settings->commands) == 0) {
+        cs_print_help_and_exit(EXIT_FAILURE);
+    }
+}
+
+struct cs_timing_result {
+    double units;
+};
+
+struct cs_timer_operations {
+    void *(*allocate_state)(void);
+    void (*begin_timing)(void *state);
+    void (*end_timing)(void *state);
+    void (*free_state)(void *state);
+    double (*get_units)(void *state);
+};
+
+struct cs_timer_gettimeofday_state {
+    struct timeval start;
+    struct timeval end;
+};
+
+static void *cs_timer_gettimeofday_allocate_state(void) {
+    struct cs_timer_gettimeofday_state *state = cs_alloc(sizeof(*state));
+    return state;
+}
+
+static void cs_timer_gettimeofday_begin_timing(void *s) {
+    struct cs_timer_gettimeofday_state *state = s;
+    gettimeofday(&state->start, NULL);
+}
+static void cs_timer_gettimeofday_end_timing(void *s) {
+    struct cs_timer_gettimeofday_state *state = s;
+    gettimeofday(&state->end, NULL);
+}
+static void cs_timer_gettimeofday_free_state(void *s) {
+    struct cs_timer_gettimeofday_state *state = s;
+    cs_free(state, sizeof(*state));
+}
+static double cs_timer_gettimeofday_get_units(void *s) {
+    struct cs_timer_gettimeofday_state *state = s;
+    double start = (double)state->start.tv_sec +
+                   ((double)state->start.tv_usec / 1000000.0);
+    double end =
+        (double)state->end.tv_sec + ((double)state->end.tv_usec / 1000000.0);
+    return end - start;
+}
+
+static const struct cs_timer_operations cs_timer_gettimeofday_impl = {
+    cs_timer_gettimeofday_allocate_state, cs_timer_gettimeofday_begin_timing,
+    cs_timer_gettimeofday_end_timing,     cs_timer_gettimeofday_free_state,
+    cs_timer_gettimeofday_get_units,
+};
+
+struct cs_benchmark {
+    const char *command;
+    size_t runs;
+    const struct cs_timer_operations *timer;
+    double *times;
+    int *exit_codes;
+};
+
+static int cs_execute_command(const char *command) {
+    int rc = system(command);
+    return rc;
+}
+
+static void cs_bench_command(struct cs_benchmark *bench) {
+    for (size_t run_idx = 0; run_idx < bench->runs; ++run_idx) {
+        void *state = bench->timer->allocate_state();
+        bench->timer->begin_timing(state);
+
+        int rc = cs_execute_command(bench->command);
+
+        bench->timer->end_timing(state);
+        double unit = bench->timer->get_units(state);
+        bench->timer->free_state(state);
+
+        cs_sb_push(bench->exit_codes, rc);
+        cs_sb_push(bench->times, unit);
+    }
+}
+
+struct cs_statistics {
+    double min;
+    double max;
+    double sum;
+    size_t count;
+    double mean;
+
+    double q1;
+    double median;
+    double q3;
+    double iqr;
+
+    double st_deviation;
+    double max_deviation;
+    double confidence_interval;
+};
+
+int cs_compare_doubles(const void *a, const void *b) {
+    double arg1 = *(const double *)a;
+    double arg2 = *(const double *)b;
+
+    if (arg1 < arg2)
+        return -1;
+    if (arg1 > arg2)
+        return 1;
+    return 0;
+}
+
+static void cs_calculate_statistics(double *values, size_t count,
+                                    struct cs_statistics *stats) {
+    double *sorted_array = malloc(sizeof(*values) * count);
+    for (size_t i = 0; i < count; ++i)
+        sorted_array[i] = values[i];
+
+    qsort(sorted_array, count, sizeof(*values), cs_compare_doubles);
+    stats->min = sorted_array[0];
+    stats->max = sorted_array[count - 1];
+
+    double sum = 0;
+    for (size_t i = 0; i < count; ++i)
+        sum += sorted_array[i];
+
+    stats->sum = sum;
+    stats->count = count;
+    stats->mean = sum / count;
+
+    stats->q1 = sorted_array[count / 4];
+    stats->median = sorted_array[count / 2];
+    stats->q3 = sorted_array[count * 3 / 4];
+    stats->iqr = stats->q3 - stats->q1;
+
+    double st_deviation = 0;
+    for (size_t i = 0; i < count; ++i) {
+        double temp = sorted_array[i] - stats->mean;
+        st_deviation += temp * temp;
+    }
+    st_deviation /= count;
+    st_deviation = sqrt(st_deviation);
+    stats->st_deviation = st_deviation;
+    stats->max_deviation = fmax(fabs(stats->mean - sorted_array[0]),
+                                fabs(stats->mean - sorted_array[count - 1]));
+    stats->confidence_interval = 0.95 * stats->st_deviation / sqrt(count);
+}
+
+static void cs_execute_csbench(struct cs_settings *settings) {
+    size_t command_count = cs_sb_len(settings->commands);
+    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
+        const char *command = settings->commands[command_idx];
+
+        struct cs_benchmark benchmark;
+        memset(&benchmark, 0, sizeof(benchmark));
+        benchmark.command = command;
+        benchmark.timer = &cs_timer_gettimeofday_impl;
+        benchmark.runs = settings->runs;
+
+        cs_bench_command(&benchmark);
+        struct cs_statistics stats;
+        for (size_t i = 0; i < benchmark.runs; ++i) {
+            printf("%lf ", benchmark.times[i]);
+        }
+        printf("\n");
+        cs_calculate_statistics(benchmark.times, benchmark.runs, &stats);
+        printf("command '%s'\n"
+               "count=%zu sum=%lf\n"
+               "min=%lf max=%lf\n"
+               "mean=%lf median=%lf\n"
+               "q1=%lf q3=%lf\n"
+               "iqr=%lf\n"
+               "st_deviation=%lf\n"
+               "max_deviation=%lf\n"
+               "confidence_interval=%lf\n",
+               command, stats.count, stats.sum, stats.min, stats.max,
+               stats.mean, stats.median, stats.q1, stats.q3, stats.iqr,
+               stats.st_deviation, stats.max_deviation,
+               stats.confidence_interval);
+    }
+}
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-    printf("hello world\n");
+    struct cs_settings settings;
+    memset(&settings, 0, sizeof(settings));
+    cs_parse_cli_args(argc, argv, &settings);
+
+    cs_execute_csbench(&settings);
+
     return EXIT_SUCCESS;
 }
