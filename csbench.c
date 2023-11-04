@@ -121,8 +121,11 @@ static double cs_getcputime(void) {
     kern_return_t kr =
         task_info(mach_task_self(), TASK_THREAD_TIMES_INFO,
                   (task_info_t)&thread_info_data, &thread_info_count);
-    return (cs_to_double(thread_info_data.user_time) +
-            cs_to_double(thread_info_data.system_time));
+    (void)kr;
+    return thread_info_data.user_time.seconds +
+           thread_info_data.user_time.microseconds / 1e6 +
+           thread_info_data.system_time.seconds +
+           thread_info_data.system_time.microseconds / 1e6;
 }
 #else
 static void cs_init_time(void) {
@@ -147,7 +150,7 @@ struct cs_settings {
     // Array of commands to time
     const char **commands;
 
-    int runs;
+    double time_limit;
 };
 
 static void cs_print_help_and_exit(int rc) {
@@ -164,7 +167,7 @@ static void cs_print_version_and_exit(void) {
 
 static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_settings *settings) {
-    settings->runs = 10;
+    settings->time_limit = 1.0;
 
     int cursor = 1;
     while (cursor < argc) {
@@ -173,17 +176,17 @@ static void cs_parse_cli_args(int argc, char **argv,
             cs_print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(opt, "--version") == 0) {
             cs_print_version_and_exit();
-        } else if (strcmp(opt, "--runs") == 0 || strcmp(opt, "-r") == 0) {
+        } else if (strcmp(opt, "--time-limit") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *runs_str = argv[cursor++];
             char *str_end;
-            long value = strtol(runs_str, &str_end, 10);
+            double value = strtod(runs_str, &str_end);
             if (str_end == runs_str)
                 cs_print_help_and_exit(EXIT_FAILURE);
 
-            settings->runs = value;
+            settings->time_limit = value;
         } else {
             cs_sb_push(settings->commands, opt);
         }
@@ -241,7 +244,6 @@ static const struct cs_measurement_ops cs_timer_gettimeofday_impl = {
 
 struct cs_benchmark {
     const char *command;
-    size_t runs;
     const struct cs_measurement_ops *timer;
     double *times;
     int *exit_codes;
@@ -250,22 +252,6 @@ struct cs_benchmark {
 static int cs_execute_command(const char *command) {
     int rc = system(command);
     return rc;
-}
-
-static void cs_bench_command(struct cs_benchmark *bench) {
-    for (size_t run_idx = 0; run_idx < bench->runs; ++run_idx) {
-        void *state = bench->timer->allocate_state();
-        bench->timer->begin_timing(state);
-
-        int rc = cs_execute_command(bench->command);
-
-        bench->timer->end_timing(state);
-        double unit = bench->timer->get_units(state);
-        bench->timer->free_state(state);
-
-        cs_sb_push(bench->exit_codes, rc);
-        cs_sb_push(bench->times, unit);
-    }
 }
 
 struct cs_outliers {
@@ -331,12 +317,12 @@ struct cs_statistics {
     double q3;
     double iqr;
 
-    double st_deviation;
+    double st_dev;
     double max_deviation;
     double confidence_interval;
 };
 
-static void cs_calculate_statistics(double *values, size_t count,
+static void cs_calculate_statistics(const double *values, size_t count,
                                     struct cs_statistics *stats) {
     double *sorted_array = malloc(sizeof(*values) * count);
     for (size_t i = 0; i < count; ++i)
@@ -359,17 +345,17 @@ static void cs_calculate_statistics(double *values, size_t count,
     stats->q3 = sorted_array[count * 3 / 4];
     stats->iqr = stats->q3 - stats->q1;
 
-    double st_deviation = 0;
+    double st_dev = 0;
     for (size_t i = 0; i < count; ++i) {
         double temp = sorted_array[i] - stats->mean;
-        st_deviation += temp * temp;
+        st_dev += temp * temp;
     }
-    st_deviation /= count;
-    st_deviation = sqrt(st_deviation);
-    stats->st_deviation = st_deviation;
+    st_dev /= count;
+    st_dev = sqrt(st_dev);
+    stats->st_dev = st_dev;
     stats->max_deviation = fmax(fabs(stats->mean - sorted_array[0]),
                                 fabs(stats->mean - sorted_array[count - 1]));
-    stats->confidence_interval = 0.95 * stats->st_deviation / sqrt(count);
+    stats->confidence_interval = 0.95 * stats->st_dev / sqrt(count);
 
     free(sorted_array);
 }
@@ -411,18 +397,37 @@ static int print_time(char *dst, size_t sz, double t) {
     return count;
 }
 
-static void cs_measure(struct cs_benchmark *benchmark, size_t niter) {
+static void cs_measure(struct cs_benchmark *bench, size_t niter) {
+    for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
+        void *state = bench->timer->allocate_state();
+        bench->timer->begin_timing(state);
+
+        int rc = cs_execute_command(bench->command);
+
+        bench->timer->end_timing(state);
+        double unit = bench->timer->get_units(state);
+        bench->timer->free_state(state);
+
+        cs_sb_push(bench->exit_codes, rc);
+        cs_sb_push(bench->times, unit);
+    }
 }
 
-static void cs_run_benchmark(struct cs_benchmark *benchmark,
-                             double time_limit) {
+static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     double niter_accum = 1;
     size_t niter = 1;
 
-    for (;;) {
-        cs_measure(benchmark, niter);
+    cs_init_time();
+    double start_time = cs_get_time();
+    for (size_t count = 0;; ++count) {
+        cs_measure(bench, niter);
 
-        // Select new iteration count
+        // The only loop exit policy is time elapsed
+        double end_time = cs_get_time();
+        if (end_time - start_time > time_limit && count >= 4)
+            break;
+
+        // Select new niter
         {
             niter_accum *= 1.05;
             size_t new_niter = (size_t)floor(niter_accum);
@@ -432,35 +437,20 @@ static void cs_run_benchmark(struct cs_benchmark *benchmark,
     }
 }
 
-static void cs_execute_csbench(struct cs_settings *settings) {
-    size_t command_count = cs_sb_len(settings->commands);
-    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
-        const char *command = settings->commands[command_idx];
+static void cs_analyze_benchmark(struct cs_benchmark *bench) {
+    const double *data = bench->times;
+    size_t data_size = cs_sb_len(bench->times);
 
-        struct cs_benchmark benchmark;
-        memset(&benchmark, 0, sizeof(benchmark));
-        benchmark.command = command;
-        benchmark.timer = &cs_timer_gettimeofday_impl;
-        benchmark.runs = settings->runs;
+    struct cs_statistics stats;
+    memset(&stats, 0, sizeof(stats));
 
-        cs_bench_command(&benchmark);
-        struct cs_statistics stats;
+    cs_calculate_statistics(data, data_size, &stats);
 
-        cs_calculate_statistics(benchmark.times, benchmark.runs, &stats);
-        printf("command '%s'\n"
-               "count=%zu sum=%lf\n"
-               "min=%lf max=%lf\n"
-               "mean=%lf median=%lf\n"
-               "q1=%lf q3=%lf\n"
-               "iqr=%lf\n"
-               "st_deviation=%lf\n"
-               "max_deviation=%lf\n"
-               "confidence_interval=%lf\n",
-               command, stats.count, stats.sum, stats.min, stats.max,
-               stats.mean, stats.median, stats.q1, stats.q3, stats.iqr,
-               stats.st_deviation, stats.max_deviation,
-               stats.confidence_interval);
-    }
+    char buf[256];
+    print_time(buf, sizeof(buf), stats.mean);
+    printf("mean\t%s\n", buf);
+    print_time(buf, sizeof(buf), stats.st_dev);
+    printf("std dev\t%s\n", buf);
 }
 
 int main(int argc, char **argv) {
@@ -468,7 +458,13 @@ int main(int argc, char **argv) {
     memset(&settings, 0, sizeof(settings));
     cs_parse_cli_args(argc, argv, &settings);
 
-    cs_execute_csbench(&settings);
+    struct cs_benchmark bench;
+    memset(&bench, 0, sizeof(bench));
+    bench.command = settings.commands[0];
+    bench.timer = &cs_timer_gettimeofday_impl;
+
+    cs_run_benchmark(&bench, settings.time_limit);
+    cs_analyze_benchmark(&bench);
 
     return EXIT_SUCCESS;
 }
