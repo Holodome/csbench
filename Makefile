@@ -1,7 +1,7 @@
 CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -g
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 
-OBJS := main.o
+OBJS := csbench.o
 
 all: csbench
 

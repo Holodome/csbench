@@ -7,6 +7,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
+
 // Stretchy buffer
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
@@ -98,6 +102,44 @@ static void *cs_realloc(void *ptr, size_t old_size, size_t new_size) {
     return result;
 }
 
+static void cs_init_time(void);
+static double cs_get_time(void);
+static double cs_get_cputime(void);
+
+#if defined(__APPLE__)
+static void cs_init_time(void) {
+}
+static double cs_get_time(void) {
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
+}
+static double cs_to_double(time_value_t time) {
+    return time.seconds + time.microseconds / 1e6;
+}
+static double cs_getcputime(void) {
+    struct task_thread_times_info thread_info_data;
+    mach_msg_type_number_t thread_info_count = TASK_THREAD_TIMES_INFO_COUNT;
+    kern_return_t kr =
+        task_info(mach_task_self(), TASK_THREAD_TIMES_INFO,
+                  (task_info_t)&thread_info_data, &thread_info_count);
+    return (cs_to_double(thread_info_data.user_time) +
+            cs_to_double(thread_info_data.system_time));
+}
+#else
+static void cs_init_time(void) {
+}
+static double cs_get_time(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+static double cs_getcputime(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+#endif
+
 // These are the settings used by application.
 // They are parsed from command line.
 //
@@ -152,11 +194,7 @@ static void cs_parse_cli_args(int argc, char **argv,
     }
 }
 
-struct cs_timing_result {
-    double units;
-};
-
-struct cs_timer_operations {
+struct cs_measurement_ops {
     void *(*allocate_state)(void);
     void (*begin_timing)(void *state);
     void (*end_timing)(void *state);
@@ -195,7 +233,7 @@ static double cs_timer_gettimeofday_get_units(void *s) {
     return end - start;
 }
 
-static const struct cs_timer_operations cs_timer_gettimeofday_impl = {
+static const struct cs_measurement_ops cs_timer_gettimeofday_impl = {
     cs_timer_gettimeofday_allocate_state, cs_timer_gettimeofday_begin_timing,
     cs_timer_gettimeofday_end_timing,     cs_timer_gettimeofday_free_state,
     cs_timer_gettimeofday_get_units,
@@ -204,7 +242,7 @@ static const struct cs_timer_operations cs_timer_gettimeofday_impl = {
 struct cs_benchmark {
     const char *command;
     size_t runs;
-    const struct cs_timer_operations *timer;
+    const struct cs_measurement_ops *timer;
     double *times;
     int *exit_codes;
 };
@@ -249,7 +287,8 @@ static int cs_compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static struct cs_outliers cs_classify_outliers(const double *data, size_t count) {
+static struct cs_outliers cs_classify_outliers(const double *data,
+                                               size_t count) {
     double *ssa = malloc(count * sizeof(*ssa));
     memcpy(ssa, data, count * sizeof(*ssa));
     qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
@@ -267,7 +306,7 @@ static struct cs_outliers cs_classify_outliers(const double *data, size_t count)
     result.samples_seen = count;
     for (size_t i = 0; i < count; ++i) {
         double v = data[i];
-        if (v >= los && v < him) 
+        if (v >= los && v < him)
             ++result.low_severe;
         if (v > los && v < lom)
             ++result.low_mild;
@@ -335,6 +374,64 @@ static void cs_calculate_statistics(double *values, size_t count,
     free(sorted_array);
 }
 
+static int print_time(char *dst, size_t sz, double t) {
+    int count = 0;
+    if (t < 0) {
+        t = -t;
+        count = snprintf(dst, sz, "-");
+        dst += count;
+        sz -= count;
+    }
+
+    const char *units = "s";
+    if (t >= 1) {
+    } else if (t >= 1e-3) {
+        units = "ms";
+        t *= 1e3;
+    } else if (t >= 1e-6) {
+        units = "μs";
+        t *= 1e6;
+    } else if (t >= 1e-9) {
+        units = "ns";
+        t *= 1e9;
+    }
+
+    if (t >= 1e9) {
+        count += snprintf(dst, sz, "%.4g %s", t, units);
+    } else if (t >= 1e3) {
+        count += snprintf(dst, sz, "%.0f %s", t, units);
+    } else if (t >= 1e2) {
+        count += snprintf(dst, sz, "%.1f %s", t, units);
+    } else if (t >= 1e1) {
+        count += snprintf(dst, sz, "%.2f %s", t, units);
+    } else {
+        count += snprintf(dst, sz, "%.3f %s", t, units);
+    }
+
+    return count;
+}
+
+static void cs_measure(struct cs_benchmark *benchmark, size_t niter) {
+}
+
+static void cs_run_benchmark(struct cs_benchmark *benchmark,
+                             double time_limit) {
+    double niter_accum = 1;
+    size_t niter = 1;
+
+    for (;;) {
+        cs_measure(benchmark, niter);
+
+        // Select new iteration count
+        {
+            niter_accum *= 1.05;
+            size_t new_niter = (size_t)floor(niter_accum);
+            if (new_niter != niter)
+                break;
+        }
+    }
+}
+
 static void cs_execute_csbench(struct cs_settings *settings) {
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
@@ -348,10 +445,7 @@ static void cs_execute_csbench(struct cs_settings *settings) {
 
         cs_bench_command(&benchmark);
         struct cs_statistics stats;
-        for (size_t i = 0; i < benchmark.runs; ++i) {
-            printf("%lf ", benchmark.times[i]);
-        }
-        printf("\n");
+
         cs_calculate_statistics(benchmark.times, benchmark.runs, &stats);
         printf("command '%s'\n"
                "count=%zu sum=%lf\n"
