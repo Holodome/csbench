@@ -230,6 +230,56 @@ static void cs_bench_command(struct cs_benchmark *bench) {
     }
 }
 
+struct cs_outliers {
+    size_t samples_seen;
+    size_t low_severe;
+    size_t low_mild;
+    size_t high_mild;
+    size_t high_severe;
+};
+
+static int cs_compare_doubles(const void *a, const void *b) {
+    double arg1 = *(const double *)a;
+    double arg2 = *(const double *)b;
+
+    if (arg1 < arg2)
+        return -1;
+    if (arg1 > arg2)
+        return 1;
+    return 0;
+}
+
+static struct cs_outliers cs_classify_outliers(const double *data, size_t count) {
+    double *ssa = malloc(count * sizeof(*ssa));
+    memcpy(ssa, data, count * sizeof(*ssa));
+    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
+
+    double q1 = ssa[count / 4];
+    double q3 = ssa[count * 3 / 4];
+    double iqr = q3 - q1;
+    double los = q1 - (iqr * 3.0);
+    double lom = q1 - (iqr * 1.5);
+    double him = q3 + (iqr * 1.5);
+    double his = q3 + (iqr * 3.0);
+
+    struct cs_outliers result;
+    memset(&result, 0, sizeof(result));
+    result.samples_seen = count;
+    for (size_t i = 0; i < count; ++i) {
+        double v = data[i];
+        if (v >= los && v < him) 
+            ++result.low_severe;
+        if (v > los && v < lom)
+            ++result.low_mild;
+        if (v >= him && v < his)
+            ++result.high_mild;
+        if (v >= his && v > lom)
+            ++result.high_severe;
+    }
+
+    return result;
+}
+
 struct cs_statistics {
     double min;
     double max;
@@ -246,17 +296,6 @@ struct cs_statistics {
     double max_deviation;
     double confidence_interval;
 };
-
-int cs_compare_doubles(const void *a, const void *b) {
-    double arg1 = *(const double *)a;
-    double arg2 = *(const double *)b;
-
-    if (arg1 < arg2)
-        return -1;
-    if (arg1 > arg2)
-        return 1;
-    return 0;
-}
 
 static void cs_calculate_statistics(double *values, size_t count,
                                     struct cs_statistics *stats) {
@@ -292,6 +331,8 @@ static void cs_calculate_statistics(double *values, size_t count,
     stats->max_deviation = fmax(fabs(stats->mean - sorted_array[0]),
                                 fabs(stats->mean - sorted_array[count - 1]));
     stats->confidence_interval = 0.95 * stats->st_deviation / sqrt(count);
+
+    free(sorted_array);
 }
 
 static void cs_execute_csbench(struct cs_settings *settings) {
