@@ -78,6 +78,20 @@ struct cs_settings {
     struct cs_output_policy output_policy;
 };
 
+struct cs_command {
+    const char *str;
+
+    char *executable;
+
+    char **argv;
+    struct cs_input_policy input_policy;
+    struct cs_output_policy output_policy;
+};
+
+struct cs_app {
+    struct cs_command *commands;
+};
+
 struct cs_measurement_ops {
     void *(*allocate_state)(void);
     void (*begin_timing)(void *state);
@@ -212,7 +226,6 @@ static double cs_getcputime(void) {
     clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
-
 #endif
 
 static void cs_print_help_and_exit(int rc) {
@@ -321,8 +334,7 @@ static struct cs_outliers cs_classify_outliers(const double *data,
     double him = q3 + (iqr * 1.5);
     double his = q3 + (iqr * 3.0);
 
-    struct cs_outliers result;
-    memset(&result, 0, sizeof(result));
+    struct cs_outliers result = {0};
     result.samples_seen = count;
     for (size_t i = 0; i < count; ++i) {
         double v = data[i];
@@ -458,8 +470,7 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
     const double *data = bench->times;
     size_t data_size = cs_sb_len(bench->times);
 
-    struct cs_statistics stats;
-    memset(&stats, 0, sizeof(stats));
+    struct cs_statistics stats = {0};
 
     cs_calculate_statistics(data, data_size, &stats);
 
@@ -470,18 +481,226 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
     printf("std dev\t%s\n", buf);
 }
 
+static char **cs_split_shell_words(const char *command) {
+    char **words = NULL;
+    char *current_word = NULL;
+
+    enum {
+        STATE_DELIMETER,
+        STATE_BACKSLASH,
+        STATE_UNQUOTED,
+        STATE_UNQUOTED_BACKSLASH,
+        STATE_SINGLE_QUOTED,
+        STATE_DOUBLE_QUOTED,
+        STATE_DOUBLE_QUOTED_BACKSLASH,
+        STATE_COMMENT
+    } state = STATE_DELIMETER;
+
+    for (;;) {
+        int c = *command++;
+        switch (state) {
+        case STATE_DELIMETER:
+            switch (c) {
+            case '\0':
+                goto out;
+            case '\'':
+                state = STATE_SINGLE_QUOTED;
+                break;
+            case '"':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '\\':
+                state = STATE_BACKSLASH;
+                break;
+            case '\t':
+            case ' ':
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            case '#':
+                state = STATE_COMMENT;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_BACKSLASH:
+            switch (c) {
+            case '\0':
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_UNQUOTED:
+            switch (c) {
+            case '\0':
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\'':
+                state = STATE_SINGLE_QUOTED;
+                break;
+            case '"':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '\\':
+                state = STATE_UNQUOTED_BACKSLASH;
+                break;
+            case '\t':
+            case ' ':
+            case '\n':
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                state = STATE_DELIMETER;
+                break;
+            case '#':
+                state = STATE_COMMENT;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_UNQUOTED_BACKSLASH:
+            switch (c) {
+            case '\0':
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\n':
+                state = STATE_UNQUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_SINGLE_QUOTED:
+            switch (c) {
+            case '\0':
+                assert(0);
+                break;
+            case '\'':
+                state = STATE_UNQUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_DOUBLE_QUOTED:
+            switch (c) {
+            case '\0':
+                assert(0);
+                break;
+            case '"':
+                state = STATE_UNQUOTED;
+                break;
+            case '\\':
+                state = STATE_DOUBLE_QUOTED_BACKSLASH;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_DOUBLE_QUOTED_BACKSLASH:
+            switch (c) {
+            case '\0':
+                assert(0);
+                break;
+            case '\n':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '$':
+            case '`':
+            case '"':
+            case '\\':
+                cs_sb_push(current_word, c);
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, c);
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            }
+            break;
+        case STATE_COMMENT:
+            switch (c) {
+            case '\0':
+                goto out;
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            default:
+                break;
+            }
+            break;
+        }
+    }
+out:
+    return words;
+}
+
+static void extract_executable_and_argv(const char *command_str,
+                                        char **executable, char ***argv) {
+    size_t command_str_len = strlen(command_str);
+
+    const char *end_of_first_word = strchr(command_str, ' ');
+    if (end_of_first_word == NULL)
+        end_of_first_word = command_str + command_str_len;
+
+    char buffer[4096];
+    memcpy(buffer, command_str, end_of_first_word - command_str);
+    buffer[end_of_first_word - command_str] = '\0';
+    *executable = realpath(buffer, NULL);
+
+    char **argv_temp = NULL;
+
+    *argv = argv_temp;
+}
+
+static void init_app(const struct cs_settings *settings, struct cs_app *app) {
+    size_t command_count = cs_sb_len(settings->commands);
+    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
+        struct cs_command command = {0};
+        const char *command_str = settings->commands[command_idx];
+        command.str = command_str;
+        extract_executable_and_argv(command_str, &command.executable,
+                                    &command.argv);
+        command.input_policy = settings->input_policy;
+        command.output_policy = settings->output_policy;
+
+        cs_sb_push(app->commands, command);
+    }
+}
+
 int main(int argc, char **argv) {
-    struct cs_settings settings;
-    memset(&settings, 0, sizeof(settings));
+    struct cs_settings settings = {0};
     cs_parse_cli_args(argc, argv, &settings);
 
-    struct cs_benchmark bench;
-    memset(&bench, 0, sizeof(bench));
-    bench.command = settings.commands[0];
-    bench.timer = &cs_timer_gettimeofday_impl;
+    struct cs_app app = {0};
+    init_app(&settings, &app);
 
-    cs_run_benchmark(&bench, settings.time_limit);
-    cs_analyze_benchmark(&bench);
+    size_t command_count = cs_sb_len(app.resolved_commands);
+    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
+        struct cs_benchmark bench = {0};
+        bench.command = app.resolved_commands[command_idx];
+        bench.timer = &cs_timer_gettimeofday_impl;
+        cs_run_benchmark(&bench, settings.time_limit);
+        cs_analyze_benchmark(&bench);
+    }
 
     return EXIT_SUCCESS;
 }
