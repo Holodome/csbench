@@ -50,6 +50,78 @@ static void *cs_realloc(void *ptr, size_t old_size, size_t new_size);
 #define cs_free(_ptr, _size) (void)cs_realloc(_ptr, _size, 0)
 #define cs_alloc(_size) cs_realloc(NULL, 0, _size)
 
+enum cs_input_policy_kind {
+    CS_INPUT_POLICY_NULL,
+    CS_INPUT_POLICY_FILE
+};
+
+struct cs_input_policy {
+    enum cs_input_policy_kind kind;
+    const char *file;
+};
+
+enum cs_output_policy_kind {
+    CS_OUTPUT_POLICY_NULL,
+    CS_OUTPUT_POLICY_INHERIT
+};
+
+struct cs_output_policy {
+    enum cs_output_policy_kind kind;
+};
+
+struct cs_settings {
+    // Array of commands to benchmark
+    const char **commands;
+    double time_limit;
+
+    struct cs_input_policy input_policy;
+    struct cs_output_policy output_policy;
+};
+
+struct cs_measurement_ops {
+    void *(*allocate_state)(void);
+    void (*begin_timing)(void *state);
+    void (*end_timing)(void *state);
+    void (*free_state)(void *state);
+    double (*get_units)(void *state);
+};
+
+struct cs_timer_gettimeofday_state {
+    struct timeval start;
+    struct timeval end;
+};
+struct cs_benchmark {
+    const char *command;
+    const struct cs_measurement_ops *timer;
+    double *times;
+    int *exit_codes;
+};
+
+struct cs_statistics {
+    double min;
+    double max;
+    double sum;
+    size_t count;
+    double mean;
+
+    double q1;
+    double median;
+    double q3;
+    double iqr;
+
+    double st_dev;
+    double max_deviation;
+    double confidence_interval;
+};
+
+struct cs_outliers {
+    size_t samples_seen;
+    size_t low_severe;
+    size_t low_mild;
+    size_t high_mild;
+    size_t high_severe;
+};
+
 // realloc that hololisp uses for all memory allocations internally.
 // If new_size is 0, behaves as 'free'.
 // If old_size is 0, behaves as 'calloc'
@@ -143,34 +215,6 @@ static double cs_getcputime(void) {
 
 #endif
 
-enum cs_input_policy_kind {
-    CS_INPUT_POLICY_NULL,
-    CS_INPUT_POLICY_FILE
-};
-
-struct cs_input_policy {
-    enum cs_input_policy_kind kind;
-    const char *file;
-};
-
-enum cs_output_policy_kind {
-    CS_OUTPUT_POLICY_NULL,
-    CS_OUTPUT_POLICY_INHERIT
-};
-
-struct cs_output_policy {
-    enum cs_output_policy_kind kind;
-};
-
-struct cs_settings {
-    // Array of commands to benchmark
-    const char **commands;
-    double time_limit;
-
-    struct cs_input_policy input_policy;
-    struct cs_output_policy output_policy;
-};
-
 static void cs_print_help_and_exit(int rc) {
     printf("A command-line benchmarking tool\n"
            "\n"
@@ -215,19 +259,6 @@ static void cs_parse_cli_args(int argc, char **argv,
     }
 }
 
-struct cs_measurement_ops {
-    void *(*allocate_state)(void);
-    void (*begin_timing)(void *state);
-    void (*end_timing)(void *state);
-    void (*free_state)(void *state);
-    double (*get_units)(void *state);
-};
-
-struct cs_timer_gettimeofday_state {
-    struct timeval start;
-    struct timeval end;
-};
-
 static void *cs_timer_gettimeofday_allocate_state(void) {
     struct cs_timer_gettimeofday_state *state = cs_alloc(sizeof(*state));
     return state;
@@ -260,25 +291,10 @@ static const struct cs_measurement_ops cs_timer_gettimeofday_impl = {
     cs_timer_gettimeofday_get_units,
 };
 
-struct cs_benchmark {
-    const char *command;
-    const struct cs_measurement_ops *timer;
-    double *times;
-    int *exit_codes;
-};
-
 static int cs_execute_command(const char *command) {
     int rc = system(command);
     return rc;
 }
-
-struct cs_outliers {
-    size_t samples_seen;
-    size_t low_severe;
-    size_t low_mild;
-    size_t high_mild;
-    size_t high_severe;
-};
 
 static int cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
@@ -322,23 +338,6 @@ static struct cs_outliers cs_classify_outliers(const double *data,
 
     return result;
 }
-
-struct cs_statistics {
-    double min;
-    double max;
-    double sum;
-    size_t count;
-    double mean;
-
-    double q1;
-    double median;
-    double q3;
-    double iqr;
-
-    double st_dev;
-    double max_deviation;
-    double confidence_interval;
-};
 
 static void cs_calculate_statistics(const double *values, size_t count,
                                     struct cs_statistics *stats) {
