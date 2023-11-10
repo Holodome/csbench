@@ -143,14 +143,32 @@ static double cs_getcputime(void) {
 
 #endif
 
-// These are the settings used by application.
-// They are parsed from command line.
-//
-struct cs_settings {
-    // Array of commands to time
-    const char **commands;
+enum cs_input_policy_kind {
+    CS_INPUT_POLICY_NULL,
+    CS_INPUT_POLICY_FILE
+};
 
+struct cs_input_policy {
+    enum cs_input_policy_kind kind;
+    const char *file;
+};
+
+enum cs_output_policy_kind {
+    CS_OUTPUT_POLICY_NULL,
+    CS_OUTPUT_POLICY_INHERIT
+};
+
+struct cs_output_policy {
+    enum cs_output_policy_kind kind;
+};
+
+struct cs_settings {
+    // Array of commands to benchmark
+    const char **commands;
     double time_limit;
+
+    struct cs_input_policy input_policy;
+    struct cs_output_policy output_policy;
 };
 
 static void cs_print_help_and_exit(int rc) {
