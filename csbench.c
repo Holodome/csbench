@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <fcntl.h>
 #include <sys/time.h>
 #include <unistd.h>
 
@@ -105,7 +106,7 @@ struct cs_timer_gettimeofday_state {
     struct timeval end;
 };
 struct cs_benchmark {
-    const char *command;
+    const struct cs_command *command;
     const struct cs_measurement_ops *timer;
     double *times;
     int *exit_codes;
@@ -304,9 +305,87 @@ static const struct cs_measurement_ops cs_timer_gettimeofday_impl = {
     cs_timer_gettimeofday_get_units,
 };
 
-static int cs_execute_command(const char *command) {
-    int rc = system(command);
-    return rc;
+static int cs_execute_command_do_exec(const struct cs_command *command) {
+    close(STDIN_FILENO);
+    close(STDOUT_FILENO);
+    close(STDERR_FILENO);
+
+    switch (command->input_policy.kind) {
+    case CS_INPUT_POLICY_NULL: {
+        int fd = open("/dev/null", O_RDONLY);
+        if (fd == -1) {
+            perror("open");
+            return -1;
+        }
+
+        if (dup2(fd, STDIN_FILENO) == -1) {
+            perror("dup2");
+            return -1;
+        }
+        close(fd);
+        break;
+    }
+    case CS_INPUT_POLICY_FILE: {
+        int fd = open(command->input_policy.file, O_RDONLY);
+        if (fd == -1) {
+            perror("open");
+            return -1;
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+            perror("dup2");
+            return -1;
+        }
+        close(fd);
+        break;
+    }
+    }
+
+    switch (command->output_policy.kind) {
+    case CS_OUTPUT_POLICY_NULL: {
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd == -1) {
+            perror("open");
+            return -1;
+        }
+
+        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1) {
+            perror("dup2");
+            return -1;
+        }
+        close(fd);
+        break;
+    }
+    case CS_OUTPUT_POLICY_INHERIT:
+        break;
+    }
+
+    if (execv(command->executable, command->argv) == -1) {
+        perror("execv");
+        return -1;
+    }
+
+    return 0;
+}
+
+static int cs_execute_command(const struct cs_command *command) {
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return -1;
+    }
+
+    if (pid == 0) {
+        int child_rc = cs_execute_command_do_exec(command);
+        exit(child_rc);
+    }
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        return -1;
+    }
+
+    return status;
 }
 
 static int cs_compare_doubles(const void *a, const void *b) {
@@ -502,6 +581,10 @@ static char **cs_split_shell_words(const char *command) {
         case STATE_DELIMETER:
             switch (c) {
             case '\0':
+                if (current_word != NULL) {
+                    cs_sb_push(current_word, '\0');
+                    cs_sb_push(words, current_word);
+                }
                 goto out;
             case '\'':
                 state = STATE_SINGLE_QUOTED;
@@ -529,6 +612,7 @@ static char **cs_split_shell_words(const char *command) {
             switch (c) {
             case '\0':
                 cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
                 current_word = NULL;
                 goto out;
@@ -543,6 +627,7 @@ static char **cs_split_shell_words(const char *command) {
         case STATE_UNQUOTED:
             switch (c) {
             case '\0':
+                cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
                 current_word = NULL;
                 goto out;
@@ -558,6 +643,7 @@ static char **cs_split_shell_words(const char *command) {
             case '\t':
             case ' ':
             case '\n':
+                cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
                 current_word = NULL;
                 state = STATE_DELIMETER;
@@ -574,6 +660,7 @@ static char **cs_split_shell_words(const char *command) {
             switch (c) {
             case '\0':
                 cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
                 current_word = NULL;
                 goto out;
@@ -588,8 +675,7 @@ static char **cs_split_shell_words(const char *command) {
         case STATE_SINGLE_QUOTED:
             switch (c) {
             case '\0':
-                assert(0);
-                break;
+                goto error;
             case '\'':
                 state = STATE_UNQUOTED;
                 break;
@@ -601,8 +687,7 @@ static char **cs_split_shell_words(const char *command) {
         case STATE_DOUBLE_QUOTED:
             switch (c) {
             case '\0':
-                assert(0);
-                break;
+                goto error;
             case '"':
                 state = STATE_UNQUOTED;
                 break;
@@ -617,8 +702,7 @@ static char **cs_split_shell_words(const char *command) {
         case STATE_DOUBLE_QUOTED_BACKSLASH:
             switch (c) {
             case '\0':
-                assert(0);
-                break;
+                goto error;
             case '\n':
                 state = STATE_DOUBLE_QUOTED;
                 break;
@@ -649,41 +733,93 @@ static char **cs_split_shell_words(const char *command) {
             break;
         }
     }
+error:
+    for (size_t i = 0; i < cs_sb_len(words); ++i)
+        cs_sb_free(words[i]);
+    cs_sb_free(words);
+    words = NULL;
 out:
     return words;
 }
 
-static void extract_executable_and_argv(const char *command_str,
-                                        char **executable, char ***argv) {
-    size_t command_str_len = strlen(command_str);
+static int cs_extract_executable_and_argv(const char *command_str,
+                                          char **executable, char ***argv) {
+    char **words = cs_split_shell_words(command_str);
+    if (words == NULL) {
+        fprintf(stderr, "Invalid command syntax\n");
+        return -1;
+    }
 
-    const char *end_of_first_word = strchr(command_str, ' ');
-    if (end_of_first_word == NULL)
-        end_of_first_word = command_str + command_str_len;
+    char *real_exec_path = NULL;
+    const char *exec_path = words[0];
+    if (*exec_path == '/') {
+        real_exec_path = strdup(exec_path);
+    } else if (strchr(exec_path, '/') != NULL) {
+        char path[4096];
+        if (getcwd(path, sizeof(path)) == NULL) {
+            perror("getcwd");
+            goto error;
+        }
 
-    char buffer[4096];
-    memcpy(buffer, command_str, end_of_first_word - command_str);
-    buffer[end_of_first_word - command_str] = '\0';
-    *executable = realpath(buffer, NULL);
+        size_t cwd_len = strlen(path);
+        snprintf(path + cwd_len, sizeof(path) - cwd_len, "/%s", exec_path);
 
-    char **argv_temp = NULL;
+        real_exec_path = strdup(path);
+    } else {
+        const char *path_var = getenv("PATH");
+        if (path_var == NULL) {
+            fprintf(stderr, "$PATH variable is not set\n");
+            goto error;
+        }
+        const char *path_var_end = path_var + strlen(path_var);
+        const char *cursor = path_var;
+        while (*cursor) {
+            const char *next_sep = strchr(cursor, ':');
+            if (next_sep == NULL)
+                next_sep = path_var_end;
 
-    *argv = argv_temp;
+            char path[4096];
+            snprintf(path, sizeof(path), "%.*s/%s", (int)(next_sep - cursor),
+                     cursor, exec_path);
+
+            if (access(path, X_OK) == 0) {
+                real_exec_path = strdup(path);
+                break;
+            }
+
+            cursor = next_sep + 1;
+        }
+    }
+
+    *executable = real_exec_path;
+    *argv = words;
+
+    return 0;
+error:
+    for (size_t i = 0; i < cs_sb_len(words); ++i)
+        cs_sb_free(words[i]);
+    cs_sb_free(words);
+    return -1;
 }
 
-static void init_app(const struct cs_settings *settings, struct cs_app *app) {
+static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_command command = {0};
         const char *command_str = settings->commands[command_idx];
         command.str = command_str;
-        extract_executable_and_argv(command_str, &command.executable,
-                                    &command.argv);
+        if (cs_extract_executable_and_argv(command_str, &command.executable,
+                                           &command.argv) != 0) {
+            cs_sb_free(app->commands);
+            return -1;
+        }
         command.input_policy = settings->input_policy;
         command.output_policy = settings->output_policy;
 
         cs_sb_push(app->commands, command);
     }
+
+    return -1;
 }
 
 int main(int argc, char **argv) {
@@ -693,10 +829,10 @@ int main(int argc, char **argv) {
     struct cs_app app = {0};
     init_app(&settings, &app);
 
-    size_t command_count = cs_sb_len(app.resolved_commands);
+    size_t command_count = cs_sb_len(app.commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark bench = {0};
-        bench.command = app.resolved_commands[command_idx];
+        bench.command = app.commands + command_idx;
         bench.timer = &cs_timer_gettimeofday_impl;
         cs_run_benchmark(&bench, settings.time_limit);
         cs_analyze_benchmark(&bench);
