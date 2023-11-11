@@ -530,13 +530,11 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     for (size_t count = 0;; ++count) {
         cs_measure(bench, niter);
 
-        // The only loop exit policy is time elapsed
         double end_time = cs_get_time();
         if (end_time - start_time > time_limit && count >= 4)
             break;
 
-        // Select new niter
-        {
+        for (;;) {
             niter_accum *= 1.05;
             size_t new_niter = (size_t)floor(niter_accum);
             if (new_niter != niter)
@@ -550,9 +548,10 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
     size_t data_size = cs_sb_len(bench->times);
 
     struct cs_statistics stats = {0};
-
     cs_calculate_statistics(data, data_size, &stats);
 
+    printf("command\t'%s'\n", bench->command->str);
+    printf("runs\t%zu\n", data_size);
     char buf[256];
     print_time(buf, sizeof(buf), stats.mean);
     printf("mean\t%s\n", buf);
