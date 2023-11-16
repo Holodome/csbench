@@ -127,10 +127,10 @@ struct cs_statistics {
     double st_dev;
     double max_deviation;
     double confidence_interval;
+    double cv;
 };
 
 struct cs_outliers {
-    size_t samples_seen;
     size_t low_severe;
     size_t low_mild;
     size_t high_mild;
@@ -414,17 +414,16 @@ static struct cs_outliers cs_classify_outliers(const double *data,
     double his = q3 + (iqr * 3.0);
 
     struct cs_outliers result = {0};
-    result.samples_seen = count;
     for (size_t i = 0; i < count; ++i) {
         double v = data[i];
-        if (v >= los && v < him)
+        if (v < los)
             ++result.low_severe;
-        if (v > los && v < lom)
-            ++result.low_mild;
-        if (v >= him && v < his)
-            ++result.high_mild;
-        if (v >= his && v > lom)
+        else if (v > his)
             ++result.high_severe;
+        else if (v < lom)
+            ++result.low_mild;
+        else if (v > him)
+            ++result.high_mild;
     }
 
     return result;
@@ -464,11 +463,72 @@ static void cs_calculate_statistics(const double *values, size_t count,
     stats->max_deviation = fmax(fabs(stats->mean - sorted_array[0]),
                                 fabs(stats->mean - sorted_array[count - 1]));
     stats->confidence_interval = 0.95 * stats->st_dev / sqrt(count);
+    stats->cv = stats->st_dev / stats->mean;
 
     free(sorted_array);
 }
 
-static int print_time(char *dst, size_t sz, double t) {
+uint32_t xorshift32(uint32_t *state) {
+    /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
+    uint32_t x = *state;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return *state = x;
+}
+
+// Resample with replacement
+static void cs_resample(const double *src, size_t count, double *dst,
+                        uint32_t entropy) {
+    for (size_t i = 0; i < count; ++i)
+        dst[i] = src[xorshift32(&entropy) % count];
+}
+
+#define cs_bootstrap(_name, _stat_fn)                                          \
+    static void cs_bootstrap_##_name(const double *src, size_t count,          \
+                                     size_t resamples, uint32_t entropy,       \
+                                     double *min_d, double *max_d) {           \
+        double min = INFINITY;                                                 \
+        double max = -INFINITY;                                                \
+        double *tmp = malloc(sizeof(*tmp) * count);                            \
+        for (size_t sample = 0; sample < resamples; ++sample) {                \
+            cs_resample(src, count, tmp, xorshift32(&entropy));                \
+            double stat = _stat_fn(tmp, count);                                \
+            if (stat < min)                                                    \
+                min = stat;                                                    \
+            if (stat > max)                                                    \
+                max = stat;                                                    \
+        }                                                                      \
+        *min_d = min;                                                          \
+        *max_d = max;                                                          \
+        free(tmp);                                                             \
+    }
+
+static double cs_stat_mean(const double *v, size_t count) {
+    double result = 0.0;
+    for (size_t i = 0; i < count; ++i)
+        result += v[i];
+    return result / (double)count;
+}
+
+static double cs_stat_std_dev(const double *v, size_t count) {
+    double mean = cs_stat_mean(v, count);
+    double result = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        double t = v[i] - mean;
+        result += t * t;
+    }
+    return sqrt(result / (double)count);
+}
+
+// clang-format off
+
+cs_bootstrap(mean, cs_stat_mean)
+cs_bootstrap(std_dev, cs_stat_std_dev)
+
+    // clang-format on
+
+    static int print_time(char *dst, size_t sz, double t) {
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -550,13 +610,45 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
     struct cs_statistics stats = {0};
     cs_calculate_statistics(data, data_size, &stats);
 
+    size_t nresamples = 100000;
+    double min_mean, max_mean;
+    cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
+                      &max_mean);
+    double min_std_dev, max_std_dev;
+    cs_bootstrap_std_dev(data, data_size, nresamples, time(NULL), &min_std_dev,
+                         &max_std_dev);
+
     printf("command\t'%s'\n", bench->command->str);
-    printf("runs\t%zu\n", data_size);
-    char buf[256];
-    print_time(buf, sizeof(buf), stats.mean);
-    printf("mean\t%s\n", buf);
-    print_time(buf, sizeof(buf), stats.st_dev);
-    printf("std dev\t%s\n", buf);
+    char buf1[256], buf2[256], buf3[256];
+    print_time(buf1, sizeof(buf1), min_mean);
+    print_time(buf2, sizeof(buf2), stats.mean);
+    print_time(buf3, sizeof(buf3), max_mean);
+    printf("mean   \t%s\t%s\t%s\n", buf1, buf2, buf3);
+    print_time(buf1, sizeof(buf1), min_std_dev);
+    print_time(buf2, sizeof(buf1), stats.st_dev);
+    print_time(buf3, sizeof(buf1), max_std_dev);
+    printf("std dev\t%s\t%s\t%s\n", buf1, buf2, buf3);
+
+    struct cs_outliers outliers = cs_classify_outliers(data, data_size);
+    size_t outlier_count = outliers.low_mild + outliers.high_mild +
+                           outliers.low_severe + outliers.high_severe;
+    if (outlier_count != 0) {
+        printf("found %zu outliers across %zu measurements (%.2f%%)\n",
+               outlier_count, data_size,
+               (double)outlier_count / data_size * 100.0);
+        if (outliers.low_severe)
+            printf("%zu (%.2f%%) low severe\n", outliers.low_severe,
+                   (double)outliers.low_severe / data_size * 100.0);
+        if (outliers.low_mild)
+            printf("%zu (%.2f%%) low mild\n", outliers.low_mild,
+                   (double)outliers.low_mild / data_size * 100.0);
+        if (outliers.high_mild)
+            printf("%zu (%.2f%%) high mild\n", outliers.high_mild,
+                   (double)outliers.high_mild / data_size * 100.0);
+        if (outliers.high_severe)
+            printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
+                   (double)outliers.high_severe / data_size * 100.0);
+    }
 }
 
 static char **cs_split_shell_words(const char *command) {
@@ -739,6 +831,39 @@ error:
     words = NULL;
 out:
     return words;
+}
+
+// https://en.wikipedia.org/wiki/Ordinary_least_squares?Matrix/vector_formulation#:~:text=Matrix/vector-,formulation,-%5Bedit%5D
+static double cs_ols_regress(double *x, double *y, size_t count) {
+    double xy = 0.0;
+    for (size_t i = 0; i < count; ++i)
+        xy += x[i] * y[i];
+
+    double xx = 0.0;
+    for (size_t i = 0; i < count; ++i)
+        xx += x[i] * x[i];
+
+    return xy / xx;
+}
+
+static double cs_r_squared(double *x, double *y, size_t count, double slope) {
+    double m = slope;
+    double n = (double)count;
+    double y_bar = 0.0;
+    for (size_t i = 0; i < count; ++i)
+        y_bar += y[i];
+    y_bar /= n;
+
+    double rss = 0.0;
+    double tss = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        double t = y[i] - m;
+        rss += t * t;
+        t = y[i] - y_bar;
+        tss += t * t;
+    }
+
+    return 1.0 - rss / tss;
 }
 
 static int cs_extract_executable_and_argv(const char *command_str,
