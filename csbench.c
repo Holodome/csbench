@@ -74,6 +74,7 @@ struct cs_settings {
     // Array of commands to benchmark
     const char **commands;
     double time_limit;
+    double warmup_time;
 
     struct cs_input_policy input_policy;
     struct cs_output_policy output_policy;
@@ -137,6 +138,8 @@ struct cs_outliers {
     size_t high_severe;
 };
 
+static int is_verbose;
+
 // realloc that hololisp uses for all memory allocations internally.
 // If new_size is 0, behaves as 'free'.
 // If old_size is 0, behaves as 'calloc'
@@ -189,18 +192,9 @@ static void *cs_realloc(void *ptr, size_t old_size, size_t new_size) {
     return result;
 }
 
-static void cs_init_time(void);
-static double cs_get_time(void);
-static double cs_get_cputime(void);
-
 #if defined(__APPLE__)
-static void cs_init_time(void) {
-}
 static double cs_get_time(void) {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
-}
-static double cs_to_double(time_value_t time) {
-    return time.seconds + time.microseconds / 1e6;
 }
 static double cs_getcputime(void) {
     struct task_thread_times_info thread_info_data;
@@ -215,8 +209,6 @@ static double cs_getcputime(void) {
            thread_info_data.system_time.microseconds / 1e6;
 }
 #else
-static void cs_init_time(void) {
-}
 static double cs_get_time(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -243,7 +235,8 @@ static void cs_print_version_and_exit(void) {
 
 static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_settings *settings) {
-    settings->time_limit = 1.0;
+    settings->time_limit = 5.0;
+    settings->warmup_time = 1.0;
 
     int cursor = 1;
     while (cursor < argc) {
@@ -252,6 +245,24 @@ static void cs_parse_cli_args(int argc, char **argv,
             cs_print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(opt, "--version") == 0) {
             cs_print_version_and_exit();
+        } else if (strcmp(opt, "--verbose") == 0) {
+            is_verbose = 1;
+        } else if (strcmp(opt, "--warmup") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *runs_str = argv[cursor++];
+            char *str_end;
+            double value = strtod(runs_str, &str_end);
+            if (str_end == runs_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value < 0.0) {
+                fprintf(stderr, "time limit must be positive number or zero\n");
+                exit(EXIT_FAILURE);
+            }
+
+            settings->warmup_time = value;
         } else if (strcmp(opt, "--time-limit") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -261,6 +272,11 @@ static void cs_parse_cli_args(int argc, char **argv,
             double value = strtod(runs_str, &str_end);
             if (str_end == runs_str)
                 cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value <= 0.0) {
+                fprintf(stderr, "time limit must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
 
             settings->time_limit = value;
         } else {
@@ -468,8 +484,7 @@ static void cs_calculate_statistics(const double *values, size_t count,
     free(sorted_array);
 }
 
-uint32_t xorshift32(uint32_t *state) {
-    /* Algorithm "xor" from p. 4 of Marsaglia, "Xorshift RNGs" */
+static uint32_t xorshift32(uint32_t *state) {
     uint32_t x = *state;
     x ^= x << 13;
     x ^= x >> 17;
@@ -565,30 +580,56 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
     return count;
 }
 
-static void cs_measure(struct cs_benchmark *bench, size_t niter) {
-    for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-        void *state = bench->timer->allocate_state();
-        bench->timer->begin_timing(state);
+static void cs_measure(struct cs_benchmark *bench) {
+    void *state = bench->timer->allocate_state();
+    bench->timer->begin_timing(state);
 
-        int rc = cs_execute_command(bench->command);
+    int rc = cs_execute_command(bench->command);
 
-        bench->timer->end_timing(state);
-        double unit = bench->timer->get_units(state);
-        bench->timer->free_state(state);
+    bench->timer->end_timing(state);
+    double unit = bench->timer->get_units(state);
+    bench->timer->free_state(state);
 
-        cs_sb_push(bench->exit_codes, rc);
-        cs_sb_push(bench->times, unit);
-    }
+    cs_sb_push(bench->exit_codes, rc);
+    cs_sb_push(bench->times, unit);
 }
 
-static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
+static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
+    if (time_limit == 0.0) {
+        if (is_verbose)
+            printf("LOG: skipping warmup\n");
+        return;
+    }
+
+    if (is_verbose)
+        printf("LOG: starting warmup\n");
+
+    double start_time = cs_get_time();
+    size_t count = 0;
+    for (;; ++count) {
+        cs_execute_command(bench->command);
+
+        double end_time = cs_get_time();
+        if (end_time - start_time > time_limit)
+            break;
+    }
+
+    if (is_verbose)
+        printf("LOG: finihsed warmup, %zu runs\n", count);
+}
+
+static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
+                             double warmup_time) {
+    cs_warmup(bench, warmup_time);
+
     double niter_accum = 1;
     size_t niter = 1;
 
-    cs_init_time();
     double start_time = cs_get_time();
     for (size_t count = 0;; ++count) {
-        cs_measure(bench, niter);
+        for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
+            cs_measure(bench);
+        }
 
         double end_time = cs_get_time();
         if (end_time - start_time > time_limit && count >= 4)
@@ -833,7 +874,6 @@ out:
     return words;
 }
 
-// https://en.wikipedia.org/wiki/Ordinary_least_squares?Matrix/vector_formulation#:~:text=Matrix/vector-,formulation,-%5Bedit%5D
 static double cs_ols_regress(double *x, double *y, size_t count) {
     double xy = 0.0;
     for (size_t i = 0; i < count; ++i)
@@ -846,7 +886,7 @@ static double cs_ols_regress(double *x, double *y, size_t count) {
     return xy / xx;
 }
 
-static double cs_r_squared(double *x, double *y, size_t count, double slope) {
+static double cs_r_squared(double *y, size_t count, double slope) {
     double m = slope;
     double n = (double)count;
     double y_bar = 0.0;
@@ -897,7 +937,7 @@ static int cs_extract_executable_and_argv(const char *command_str,
         }
         const char *path_var_end = path_var + strlen(path_var);
         const char *cursor = path_var;
-        while (*cursor) {
+        while (cursor != path_var_end + 1) {
             const char *next_sep = strchr(cursor, ':');
             if (next_sep == NULL)
                 next_sep = path_var_end;
@@ -913,6 +953,11 @@ static int cs_extract_executable_and_argv(const char *command_str,
 
             cursor = next_sep + 1;
         }
+    }
+
+    if (real_exec_path == NULL) {
+        fprintf(stderr, "failed to find command\n");
+        goto error;
     }
 
     *executable = real_exec_path;
@@ -958,7 +1003,7 @@ int main(int argc, char **argv) {
         struct cs_benchmark bench = {0};
         bench.command = app.commands + command_idx;
         bench.timer = &cs_timer_gettimeofday_impl;
-        cs_run_benchmark(&bench, settings.time_limit);
+        cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
         cs_analyze_benchmark(&bench);
     }
 
