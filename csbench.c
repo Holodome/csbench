@@ -15,11 +15,129 @@
 // Stretchy buffer
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
-
 struct cs_sb_header {
     size_t size;
     size_t capacity;
 };
+
+enum cs_input_policy_kind {
+    // /dev/null as input
+    CS_INPUT_POLICY_NULL,
+    // load input from file (supplied later)
+    CS_INPUT_POLICY_FILE
+};
+
+// How to handle input of command?
+struct cs_input_policy {
+    enum cs_input_policy_kind kind;
+    // CS_INPUT_POLICY_FILE
+    const char *file;
+};
+
+enum cs_output_policy_kind {
+    // /dev/null as output
+    CS_OUTPUT_POLICY_NULL,
+    // Print output to controlling terminal
+    CS_OUTPUT_POLICY_INHERIT
+};
+
+// How to handle output of command?
+struct cs_output_policy {
+    enum cs_output_policy_kind kind;
+};
+
+// This structure contains all information
+// supplied by user prior to benchmark start.
+struct cs_settings {
+    // Array of commands to benchmark
+    const char **commands;
+    double time_limit;
+    double warmup_time;
+
+    struct cs_input_policy input_policy;
+    struct cs_output_policy output_policy;
+};
+
+// Description of command to benchmark.
+// This structure should contain all
+// information needed to benchmark it (all the corresponding
+// stuff from settings) as it behaves as interface for benchmark.
+struct cs_command {
+    // Command string as supplied by user.
+    const char *str;
+    // Parsed executable path. If command is not a shell one (called by execve),
+    // we need to get full path to executable.
+    char *executable;
+    // Argv supplied to execve.
+    char **argv;
+
+    struct cs_input_policy input_policy;
+    struct cs_output_policy output_policy;
+};
+
+// Information gethered from user input (settings), parsed
+// and prepared for benchmarking.
+struct cs_app {
+    struct cs_settings settings;
+    // List of commands to benchmark
+    struct cs_command *commands;
+};
+
+struct cs_measurement_ops {
+    void *(*allocate_state)(void);
+    void (*begin_timing)(void *state);
+    void (*end_timing)(void *state);
+    void (*free_state)(void *state);
+    double (*get_units)(void *state);
+};
+
+struct cs_timer_gettimeofday_state {
+    struct timeval start;
+    struct timeval end;
+};
+
+struct cs_statistics {
+    double min;
+    double max;
+    double sum;
+    size_t count;
+    double mean;
+
+    double q1;
+    double median;
+    double q3;
+    double iqr;
+
+    double st_dev;
+    double max_deviation;
+    double confidence_interval;
+    double cv;
+};
+
+struct cs_sample {
+    double *values;
+    struct cs_statistics statistics;
+};
+
+// Input/output of benchmark.
+struct cs_benchmark {
+    const struct cs_command *command;
+    const struct cs_measurement_ops *timer;
+
+    struct cs_sample sample;
+    int *exit_codes;
+};
+
+struct cs_outliers {
+    size_t low_severe;
+    size_t low_mild;
+    size_t high_mild;
+    size_t high_severe;
+};
+
+//
+// cs_sb interface
+//
 
 #define cs_sb_header(_a)                                                       \
     ((struct cs_sb_header *)((char *)(_a) - sizeof(struct cs_sb_header)))
@@ -51,94 +169,15 @@ static void *cs_realloc(void *ptr, size_t old_size, size_t new_size);
 #define cs_free(_ptr, _size) (void)cs_realloc(_ptr, _size, 0)
 #define cs_alloc(_size) cs_realloc(NULL, 0, _size)
 
-enum cs_input_policy_kind {
-    CS_INPUT_POLICY_NULL,
-    CS_INPUT_POLICY_FILE
-};
-
-struct cs_input_policy {
-    enum cs_input_policy_kind kind;
-    const char *file;
-};
-
-enum cs_output_policy_kind {
-    CS_OUTPUT_POLICY_NULL,
-    CS_OUTPUT_POLICY_INHERIT
-};
-
-struct cs_output_policy {
-    enum cs_output_policy_kind kind;
-};
-
-struct cs_settings {
-    // Array of commands to benchmark
-    const char **commands;
-    double time_limit;
-    double warmup_time;
-
-    struct cs_input_policy input_policy;
-    struct cs_output_policy output_policy;
-};
-
-struct cs_command {
-    const char *str;
-
-    char *executable;
-
-    char **argv;
-    struct cs_input_policy input_policy;
-    struct cs_output_policy output_policy;
-};
-
-struct cs_app {
-    struct cs_command *commands;
-};
-
-struct cs_measurement_ops {
-    void *(*allocate_state)(void);
-    void (*begin_timing)(void *state);
-    void (*end_timing)(void *state);
-    void (*free_state)(void *state);
-    double (*get_units)(void *state);
-};
-
-struct cs_timer_gettimeofday_state {
-    struct timeval start;
-    struct timeval end;
-};
-struct cs_benchmark {
-    const struct cs_command *command;
-    const struct cs_measurement_ops *timer;
-    double *times;
-    int *exit_codes;
-};
-
-struct cs_statistics {
-    double min;
-    double max;
-    double sum;
-    size_t count;
-    double mean;
-
-    double q1;
-    double median;
-    double q3;
-    double iqr;
-
-    double st_dev;
-    double max_deviation;
-    double confidence_interval;
-    double cv;
-};
-
-struct cs_outliers {
-    size_t low_severe;
-    size_t low_mild;
-    size_t high_mild;
-    size_t high_severe;
-};
+//
+// static vars
+//
 
 static int is_verbose;
+
+//
+// Begin function definitions
+//
 
 // realloc that hololisp uses for all memory allocations internally.
 // If new_size is 0, behaves as 'free'.
@@ -224,7 +263,14 @@ static double cs_getcputime(void) {
 static void cs_print_help_and_exit(int rc) {
     printf("A command-line benchmarking tool\n"
            "\n"
-           "Usage: csbench [OPTIONS] <command> ...\n");
+           "Usage: csbench [OPTIONS] <command> ...\n"
+           "\n"
+           "Where options is one of:\n"
+           "--warmup <n>     - specify warmup time in seconds\n"
+           "--time-limit <n> - specify how long to run benchmarks\n"
+           "--verbose        - print debug information\n"
+           "--help           - print this message\n"
+           "--version        - print version\n");
     exit(rc);
 }
 
@@ -403,6 +449,189 @@ static int cs_execute_command(const struct cs_command *command) {
 
     return status;
 }
+
+static char **cs_split_shell_words(const char *command) {
+    char **words = NULL;
+    char *current_word = NULL;
+
+    enum {
+        STATE_DELIMETER,
+        STATE_BACKSLASH,
+        STATE_UNQUOTED,
+        STATE_UNQUOTED_BACKSLASH,
+        STATE_SINGLE_QUOTED,
+        STATE_DOUBLE_QUOTED,
+        STATE_DOUBLE_QUOTED_BACKSLASH,
+        STATE_COMMENT
+    } state = STATE_DELIMETER;
+
+    for (;;) {
+        int c = *command++;
+        switch (state) {
+        case STATE_DELIMETER:
+            switch (c) {
+            case '\0':
+                if (current_word != NULL) {
+                    cs_sb_push(current_word, '\0');
+                    cs_sb_push(words, current_word);
+                }
+                goto out;
+            case '\'':
+                state = STATE_SINGLE_QUOTED;
+                break;
+            case '"':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '\\':
+                state = STATE_BACKSLASH;
+                break;
+            case '\t':
+            case ' ':
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            case '#':
+                state = STATE_COMMENT;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_BACKSLASH:
+            switch (c) {
+            case '\0':
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, '\0');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_UNQUOTED:
+            switch (c) {
+            case '\0':
+                cs_sb_push(current_word, '\0');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\'':
+                state = STATE_SINGLE_QUOTED;
+                break;
+            case '"':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '\\':
+                state = STATE_UNQUOTED_BACKSLASH;
+                break;
+            case '\t':
+            case ' ':
+            case '\n':
+                cs_sb_push(current_word, '\0');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                state = STATE_DELIMETER;
+                break;
+            case '#':
+                state = STATE_COMMENT;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_UNQUOTED_BACKSLASH:
+            switch (c) {
+            case '\0':
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, '\0');
+                cs_sb_push(words, current_word);
+                current_word = NULL;
+                goto out;
+            case '\n':
+                state = STATE_UNQUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_SINGLE_QUOTED:
+            switch (c) {
+            case '\0':
+                goto error;
+            case '\'':
+                state = STATE_UNQUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_DOUBLE_QUOTED:
+            switch (c) {
+            case '\0':
+                goto error;
+            case '"':
+                state = STATE_UNQUOTED;
+                break;
+            case '\\':
+                state = STATE_DOUBLE_QUOTED_BACKSLASH;
+                break;
+            default:
+                cs_sb_push(current_word, c);
+                break;
+            }
+            break;
+        case STATE_DOUBLE_QUOTED_BACKSLASH:
+            switch (c) {
+            case '\0':
+                goto error;
+            case '\n':
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            case '$':
+            case '`':
+            case '"':
+            case '\\':
+                cs_sb_push(current_word, c);
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            default:
+                cs_sb_push(current_word, '\\');
+                cs_sb_push(current_word, c);
+                state = STATE_DOUBLE_QUOTED;
+                break;
+            }
+            break;
+        case STATE_COMMENT:
+            switch (c) {
+            case '\0':
+                goto out;
+            case '\n':
+                state = STATE_DELIMETER;
+                break;
+            default:
+                break;
+            }
+            break;
+        }
+    }
+error:
+    for (size_t i = 0; i < cs_sb_len(words); ++i)
+        cs_sb_free(words[i]);
+    cs_sb_free(words);
+    words = NULL;
+out:
+    return words;
+}
+
 
 static int cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
@@ -591,7 +820,7 @@ static void cs_measure(struct cs_benchmark *bench) {
     bench->timer->free_state(state);
 
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->times, unit);
+    cs_sb_push(bench->sample.values, unit);
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
@@ -645,8 +874,8 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
 }
 
 static void cs_analyze_benchmark(struct cs_benchmark *bench) {
-    const double *data = bench->times;
-    size_t data_size = cs_sb_len(bench->times);
+    const double *data = bench->sample.values;
+    size_t data_size = cs_sb_len(bench->sample.values);
 
     struct cs_statistics stats = {0};
     cs_calculate_statistics(data, data_size, &stats);
@@ -690,188 +919,6 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
             printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
                    (double)outliers.high_severe / data_size * 100.0);
     }
-}
-
-static char **cs_split_shell_words(const char *command) {
-    char **words = NULL;
-    char *current_word = NULL;
-
-    enum {
-        STATE_DELIMETER,
-        STATE_BACKSLASH,
-        STATE_UNQUOTED,
-        STATE_UNQUOTED_BACKSLASH,
-        STATE_SINGLE_QUOTED,
-        STATE_DOUBLE_QUOTED,
-        STATE_DOUBLE_QUOTED_BACKSLASH,
-        STATE_COMMENT
-    } state = STATE_DELIMETER;
-
-    for (;;) {
-        int c = *command++;
-        switch (state) {
-        case STATE_DELIMETER:
-            switch (c) {
-            case '\0':
-                if (current_word != NULL) {
-                    cs_sb_push(current_word, '\0');
-                    cs_sb_push(words, current_word);
-                }
-                goto out;
-            case '\'':
-                state = STATE_SINGLE_QUOTED;
-                break;
-            case '"':
-                state = STATE_DOUBLE_QUOTED;
-                break;
-            case '\\':
-                state = STATE_BACKSLASH;
-                break;
-            case '\t':
-            case ' ':
-            case '\n':
-                state = STATE_DELIMETER;
-                break;
-            case '#':
-                state = STATE_COMMENT;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_BACKSLASH:
-            switch (c) {
-            case '\0':
-                cs_sb_push(current_word, '\\');
-                cs_sb_push(current_word, '\0');
-                cs_sb_push(words, current_word);
-                current_word = NULL;
-                goto out;
-            case '\n':
-                state = STATE_DELIMETER;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_UNQUOTED:
-            switch (c) {
-            case '\0':
-                cs_sb_push(current_word, '\0');
-                cs_sb_push(words, current_word);
-                current_word = NULL;
-                goto out;
-            case '\'':
-                state = STATE_SINGLE_QUOTED;
-                break;
-            case '"':
-                state = STATE_DOUBLE_QUOTED;
-                break;
-            case '\\':
-                state = STATE_UNQUOTED_BACKSLASH;
-                break;
-            case '\t':
-            case ' ':
-            case '\n':
-                cs_sb_push(current_word, '\0');
-                cs_sb_push(words, current_word);
-                current_word = NULL;
-                state = STATE_DELIMETER;
-                break;
-            case '#':
-                state = STATE_COMMENT;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_UNQUOTED_BACKSLASH:
-            switch (c) {
-            case '\0':
-                cs_sb_push(current_word, '\\');
-                cs_sb_push(current_word, '\0');
-                cs_sb_push(words, current_word);
-                current_word = NULL;
-                goto out;
-            case '\n':
-                state = STATE_UNQUOTED;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_SINGLE_QUOTED:
-            switch (c) {
-            case '\0':
-                goto error;
-            case '\'':
-                state = STATE_UNQUOTED;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_DOUBLE_QUOTED:
-            switch (c) {
-            case '\0':
-                goto error;
-            case '"':
-                state = STATE_UNQUOTED;
-                break;
-            case '\\':
-                state = STATE_DOUBLE_QUOTED_BACKSLASH;
-                break;
-            default:
-                cs_sb_push(current_word, c);
-                break;
-            }
-            break;
-        case STATE_DOUBLE_QUOTED_BACKSLASH:
-            switch (c) {
-            case '\0':
-                goto error;
-            case '\n':
-                state = STATE_DOUBLE_QUOTED;
-                break;
-            case '$':
-            case '`':
-            case '"':
-            case '\\':
-                cs_sb_push(current_word, c);
-                state = STATE_DOUBLE_QUOTED;
-                break;
-            default:
-                cs_sb_push(current_word, '\\');
-                cs_sb_push(current_word, c);
-                state = STATE_DOUBLE_QUOTED;
-                break;
-            }
-            break;
-        case STATE_COMMENT:
-            switch (c) {
-            case '\0':
-                goto out;
-            case '\n':
-                state = STATE_DELIMETER;
-                break;
-            default:
-                break;
-            }
-            break;
-        }
-    }
-error:
-    for (size_t i = 0; i < cs_sb_len(words); ++i)
-        cs_sb_free(words[i]);
-    cs_sb_free(words);
-    words = NULL;
-out:
-    return words;
 }
 
 static double cs_ols_regress(double *x, double *y, size_t count) {
@@ -972,6 +1019,8 @@ error:
 }
 
 static int init_app(const struct cs_settings *settings, struct cs_app *app) {
+    app->settings = *settings;
+
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_command command = {0};
