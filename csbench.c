@@ -54,6 +54,9 @@ struct cs_settings {
     double time_limit;
     double warmup_time;
 
+    // Command to run before each timing run
+    const char *prepare;
+
     struct cs_input_policy input_policy;
     struct cs_output_policy output_policy;
 };
@@ -81,6 +84,9 @@ struct cs_app {
     struct cs_settings settings;
     // List of commands to benchmark
     struct cs_command *commands;
+
+    int has_prepare_command;
+    struct cs_command prepare_command;
 };
 
 struct cs_measurement_ops {
@@ -121,6 +127,7 @@ struct cs_sample {
 
 // Input/output of benchmark.
 struct cs_benchmark {
+    const struct cs_command *prepare;
     const struct cs_command *command;
     const struct cs_measurement_ops *timer;
 
@@ -325,6 +332,12 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
 
             settings->time_limit = value;
+        } else if (strcmp(opt, "--prepare") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *prepare_str = argv[cursor++];
+            settings->prepare = prepare_str;
         } else {
             cs_sb_push(settings->commands, opt);
         }
@@ -495,6 +508,7 @@ static char **cs_split_shell_words(const char *command) {
                 break;
             default:
                 cs_sb_push(current_word, c);
+                state = STATE_UNQUOTED;
                 break;
             }
             break;
@@ -631,7 +645,6 @@ error:
 out:
     return words;
 }
-
 
 static int cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
@@ -847,6 +860,13 @@ static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
         printf("LOG: finihsed warmup, %zu runs\n", count);
 }
 
+static void cs_execute_prepare(const struct cs_command *prepare) {
+    if (prepare == NULL)
+        return;
+
+    cs_execute_command(prepare);
+}
+
 static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
                              double warmup_time) {
     cs_warmup(bench, warmup_time);
@@ -857,6 +877,7 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
     double start_time = cs_get_time();
     for (size_t count = 0;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
+            cs_execute_prepare(bench->prepare);
             cs_measure(bench);
         }
 
@@ -889,6 +910,7 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
                          &max_std_dev);
 
     printf("command\t'%s'\n", bench->command->str);
+    printf("%zu runs\n", data_size);
     char buf1[256], buf2[256], buf3[256];
     print_time(buf1, sizeof(buf1), min_mean);
     print_time(buf2, sizeof(buf2), stats.mean);
@@ -961,6 +983,14 @@ static int cs_extract_executable_and_argv(const char *command_str,
         return -1;
     }
 
+    if (is_verbose) {
+        printf("LOG: split command '%s' into words [", command_str);
+        for (size_t i = 0; i < cs_sb_len(words); ++i) {
+            printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
+        }
+        printf("]\n");
+    }
+
     char *real_exec_path = NULL;
     const char *exec_path = words[0];
     if (*exec_path == '/') {
@@ -1003,8 +1033,18 @@ static int cs_extract_executable_and_argv(const char *command_str,
     }
 
     if (real_exec_path == NULL) {
-        fprintf(stderr, "failed to find command\n");
+        fprintf(stderr, "error: failed to find executable path for command '%s'\n",
+                command_str);
         goto error;
+    }
+
+    if (is_verbose) {
+        printf("LOG: command '%s' has executable path '%s' and arguments [",
+               command_str, real_exec_path);
+        for (size_t i = 1; i < cs_sb_len(words); ++i) {
+            printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
+        }
+        printf("]\n");
     }
 
     *executable = real_exec_path;
@@ -1037,6 +1077,22 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
         cs_sb_push(app->commands, command);
     }
 
+    if (settings->prepare) {
+        if (is_verbose)
+            printf("LOG: has prepare command: '%s'\n", settings->prepare);
+
+        const char *command_str = settings->prepare;
+
+        app->has_prepare_command = 1;
+        if (cs_extract_executable_and_argv(command_str,
+                                           &app->prepare_command.executable,
+                                           &app->prepare_command.argv) != 0) {
+            return -1;
+        }
+        app->prepare_command.input_policy.kind = CS_INPUT_POLICY_NULL;
+        app->prepare_command.output_policy.kind = CS_OUTPUT_POLICY_NULL;
+    }
+
     return -1;
 }
 
@@ -1050,6 +1106,8 @@ int main(int argc, char **argv) {
     size_t command_count = cs_sb_len(app.commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark bench = {0};
+        if (app.has_prepare_command)
+            bench.prepare = &app.prepare_command;
         bench.command = app.commands + command_idx;
         bench.timer = &cs_timer_gettimeofday_impl;
         cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
