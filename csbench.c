@@ -458,6 +458,10 @@ static int cs_execute_command(const struct cs_command *command) {
     if (waitpid(pid, &status, 0) == -1) {
         perror("waitpid");
         return -1;
+    } else {
+        if (is_verbose && status)
+            printf("LOG: command '%s' returned non-zero status code: %d\n",
+                   command->str, status);
     }
 
     return status;
@@ -1033,7 +1037,8 @@ static int cs_extract_executable_and_argv(const char *command_str,
     }
 
     if (real_exec_path == NULL) {
-        fprintf(stderr, "error: failed to find executable path for command '%s'\n",
+        fprintf(stderr,
+                "error: failed to find executable path for command '%s'\n",
                 command_str);
         goto error;
     }
@@ -1041,14 +1046,20 @@ static int cs_extract_executable_and_argv(const char *command_str,
     if (is_verbose) {
         printf("LOG: command '%s' has executable path '%s' and arguments [",
                command_str, real_exec_path);
-        for (size_t i = 1; i < cs_sb_len(words); ++i) {
+        for (size_t i = 1; i < cs_sb_len(words); ++i) 
             printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
-        }
         printf("]\n");
     }
 
     *executable = real_exec_path;
-    *argv = words;
+    cs_sb_push(*argv, real_exec_path);
+    for (size_t i = 1; i < cs_sb_len(words); ++i)
+        cs_sb_push(*argv, words[i]);
+    cs_sb_push(*argv, NULL);
+
+    for (size_t i = 0; i < cs_sb_len(words); ++i)
+        cs_sb_free(words[i]);
+    cs_sb_free(words);
 
     return 0;
 error:
