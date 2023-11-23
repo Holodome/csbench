@@ -89,19 +89,6 @@ struct cs_app {
     struct cs_command prepare_command;
 };
 
-struct cs_measurement_ops {
-    void *(*allocate_state)(void);
-    void (*begin_timing)(void *state);
-    void (*end_timing)(void *state);
-    void (*free_state)(void *state);
-    double (*get_units)(void *state);
-};
-
-struct cs_timer_gettimeofday_state {
-    struct timeval start;
-    struct timeval end;
-};
-
 struct cs_statistics {
     double min;
     double max;
@@ -129,7 +116,7 @@ struct cs_sample {
 struct cs_benchmark {
     const struct cs_command *prepare;
     const struct cs_command *command;
-    const struct cs_measurement_ops *timer;
+    const struct cs_exec_and_measurement_ops *timer;
 
     struct cs_sample sample;
     int *exit_codes;
@@ -158,11 +145,7 @@ struct cs_outliers {
 #define cs_sb_grow(_a, _b)                                                     \
     (*(void **)(&(_a)) = cs_sb_grow_impl((_a), (_b), sizeof(*(_a))))
 
-#define cs_sb_free(_a)                                                         \
-    (((_a) != NULL)                                                            \
-     ? cs_free(cs_sb_header(_a), cs_sb_capacity(_a) * sizeof(*(_a)) +          \
-                                     sizeof(struct cs_sb_header)),             \
-     0 : 0)
+#define cs_sb_free(_a) free((_a) != NULL ? cs_sb_header(_a) : NULL)
 #define cs_sb_push(_a, _v)                                                     \
     (cs_sb_maybegrow(_a, 1), (_a)[cs_sb_size(_a)++] = (_v))
 #define cs_sb_last(_a) ((_a)[cs_sb_size(_a) - 1])
@@ -171,10 +154,6 @@ struct cs_outliers {
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride);
-static void *cs_realloc(void *ptr, size_t old_size, size_t new_size);
-
-#define cs_free(_ptr, _size) (void)cs_realloc(_ptr, _size, 0)
-#define cs_alloc(_size) cs_realloc(NULL, 0, _size)
 
 //
 // static vars
@@ -192,7 +171,7 @@ static int is_verbose;
 // Otherwise behaves as 'realloc'
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
-        void *result = cs_alloc(sizeof(struct cs_sb_header) + stride * inc);
+        void *result = calloc(sizeof(struct cs_sb_header) + stride * inc, 1);
         struct cs_sb_header *header = result;
         header->size = 0;
         header->capacity = inc;
@@ -205,37 +184,11 @@ static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
 
     size_t new_capacity =
         double_current > min_needed ? double_current : min_needed;
-    void *result = cs_realloc(
-        header, sizeof(struct cs_sb_header) + stride * header->capacity,
-        sizeof(struct cs_sb_header) + stride * new_capacity);
+    void *result =
+        realloc(header, sizeof(struct cs_sb_header) + stride * new_capacity);
     header = result;
     header->capacity = new_capacity;
     return header + 1;
-}
-
-static void *cs_realloc(void *ptr, size_t old_size, size_t new_size) {
-    (void)old_size;
-    if (old_size == 0) {
-        assert(ptr == NULL);
-        void *result = calloc(1, new_size);
-        if (result == NULL) {
-            perror("failed to allocate memory");
-            exit(EXIT_FAILURE);
-        }
-        return result;
-    }
-
-    if (new_size == 0) {
-        free(ptr);
-        return NULL;
-    }
-
-    void *result = realloc(ptr, new_size);
-    if (result == NULL) {
-        perror("failed to allocate memory");
-        exit(EXIT_FAILURE);
-    }
-    return result;
 }
 
 #if defined(__APPLE__)
@@ -347,38 +300,6 @@ static void cs_parse_cli_args(int argc, char **argv,
         cs_print_help_and_exit(EXIT_FAILURE);
     }
 }
-
-static void *cs_timer_gettimeofday_allocate_state(void) {
-    struct cs_timer_gettimeofday_state *state = cs_alloc(sizeof(*state));
-    return state;
-}
-
-static void cs_timer_gettimeofday_begin_timing(void *s) {
-    struct cs_timer_gettimeofday_state *state = s;
-    gettimeofday(&state->start, NULL);
-}
-static void cs_timer_gettimeofday_end_timing(void *s) {
-    struct cs_timer_gettimeofday_state *state = s;
-    gettimeofday(&state->end, NULL);
-}
-static void cs_timer_gettimeofday_free_state(void *s) {
-    struct cs_timer_gettimeofday_state *state = s;
-    cs_free(state, sizeof(*state));
-}
-static double cs_timer_gettimeofday_get_units(void *s) {
-    struct cs_timer_gettimeofday_state *state = s;
-    double start = (double)state->start.tv_sec +
-                   ((double)state->start.tv_usec / 1000000.0);
-    double end =
-        (double)state->end.tv_sec + ((double)state->end.tv_usec / 1000000.0);
-    return end - start;
-}
-
-static const struct cs_measurement_ops cs_timer_gettimeofday_impl = {
-    cs_timer_gettimeofday_allocate_state, cs_timer_gettimeofday_begin_timing,
-    cs_timer_gettimeofday_end_timing,     cs_timer_gettimeofday_free_state,
-    cs_timer_gettimeofday_get_units,
-};
 
 static int cs_execute_command_do_exec(const struct cs_command *command) {
     close(STDIN_FILENO);
@@ -826,18 +747,16 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
     return count;
 }
 
-static void cs_measure(struct cs_benchmark *bench) {
-    void *state = bench->timer->allocate_state();
-    bench->timer->begin_timing(state);
+static void cs_exec_and_measure(struct cs_benchmark *bench) {
+    double wall_clock_start = cs_get_time();
 
     int rc = cs_execute_command(bench->command);
 
-    bench->timer->end_timing(state);
-    double unit = bench->timer->get_units(state);
-    bench->timer->free_state(state);
+    double wall_clock_end = cs_get_time();
+    double wall_clock_delta = wall_clock_end - wall_clock_start;
 
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->sample.values, unit);
+    cs_sb_push(bench->sample.values, wall_clock_delta);
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
@@ -882,7 +801,7 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
     for (size_t count = 0;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             cs_execute_prepare(bench->prepare);
-            cs_measure(bench);
+            cs_exec_and_measure(bench);
         }
 
         double end_time = cs_get_time();
@@ -1046,7 +965,7 @@ static int cs_extract_executable_and_argv(const char *command_str,
     if (is_verbose) {
         printf("LOG: command '%s' has executable path '%s' and arguments [",
                command_str, real_exec_path);
-        for (size_t i = 1; i < cs_sb_len(words); ++i) 
+        for (size_t i = 1; i < cs_sb_len(words); ++i)
             printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
         printf("]\n");
     }
@@ -1120,7 +1039,6 @@ int main(int argc, char **argv) {
         if (app.has_prepare_command)
             bench.prepare = &app.prepare_command;
         bench.command = app.commands + command_idx;
-        bench.timer = &cs_timer_gettimeofday_impl;
         cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
         cs_analyze_benchmark(&bench);
     }
