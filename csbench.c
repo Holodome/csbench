@@ -1,11 +1,18 @@
+#if !defined(__APPLE__)
+#define _POSIX_C_SOURCE 200809L 
+#endif 
+
 #include <assert.h>
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include <fcntl.h>
 #include <sys/time.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
@@ -609,6 +616,8 @@ static struct cs_outliers cs_classify_outliers(const double *data,
             ++result.high_mild;
     }
 
+    free(ssa);
+
     return result;
 }
 
@@ -971,9 +980,9 @@ static int cs_extract_executable_and_argv(const char *command_str,
     }
 
     *executable = real_exec_path;
-    cs_sb_push(*argv, real_exec_path);
+    cs_sb_push(*argv, strdup(real_exec_path));
     for (size_t i = 1; i < cs_sb_len(words); ++i)
-        cs_sb_push(*argv, words[i]);
+        cs_sb_push(*argv, strdup(words[i]));
     cs_sb_push(*argv, NULL);
 
     for (size_t i = 0; i < cs_sb_len(words); ++i)
@@ -1026,6 +1035,19 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     return -1;
 }
 
+static void free_app(struct cs_app *app) {
+    size_t command_count = cs_sb_len(app->commands);
+    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
+        struct cs_command *command = app->commands + command_idx;
+        free(command->executable);
+        for (char **word = command->argv; *word; ++word)
+            free(*word);
+        cs_sb_free(command->argv);
+    }
+    cs_sb_free(app->commands);
+    cs_sb_free(app->settings.commands);
+}
+
 int main(int argc, char **argv) {
     struct cs_settings settings = {0};
     cs_parse_cli_args(argc, argv, &settings);
@@ -1041,7 +1063,11 @@ int main(int argc, char **argv) {
         bench.command = app.commands + command_idx;
         cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
         cs_analyze_benchmark(&bench);
+
+        cs_sb_free(bench.sample.values);
+        cs_sb_free(bench.exit_codes);
     }
 
+    free_app(&app);
     return EXIT_SUCCESS;
 }
