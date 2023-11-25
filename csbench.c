@@ -1,6 +1,6 @@
 #if !defined(__APPLE__)
-#define _POSIX_C_SOURCE 200809L 
-#endif 
+#define _POSIX_C_SOURCE 200809L
+#endif
 
 #include <assert.h>
 #include <math.h>
@@ -125,7 +125,9 @@ struct cs_benchmark {
     const struct cs_command *command;
     const struct cs_exec_and_measurement_ops *timer;
 
-    struct cs_sample sample;
+    struct cs_sample wallclock_sample;
+    struct cs_sample systime_sample;
+    struct cs_sample usertime_sample;
     int *exit_codes;
 };
 
@@ -134,6 +136,11 @@ struct cs_outliers {
     size_t low_mild;
     size_t high_mild;
     size_t high_severe;
+};
+
+struct cs_cpu_time {
+    double user_time;
+    double system_time;
 };
 
 //
@@ -202,30 +209,21 @@ static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
 static double cs_get_time(void) {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
 }
-static double cs_getcputime(void) {
-    struct task_thread_times_info thread_info_data;
-    mach_msg_type_number_t thread_info_count = TASK_THREAD_TIMES_INFO_COUNT;
-    kern_return_t kr =
-        task_info(mach_task_self(), TASK_THREAD_TIMES_INFO,
-                  (task_info_t)&thread_info_data, &thread_info_count);
-    (void)kr;
-    return thread_info_data.user_time.seconds +
-           thread_info_data.user_time.microseconds / 1e6 +
-           thread_info_data.system_time.seconds +
-           thread_info_data.system_time.microseconds / 1e6;
-}
 #else
 static double cs_get_time(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
-static double cs_getcputime(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ts);
-    return ts.tv_sec + ts.tv_nsec * 1e-9;
-}
 #endif
+static struct cs_cpu_time cs_getcputime(void) {
+    struct rusage rus = {0};
+    getrusage(RUSAGE_CHILDREN, &rus);
+    struct cs_cpu_time time;
+    time.user_time = rus.ru_utime.tv_sec + (double)rus.ru_utime.tv_usec / 1e6;
+    time.system_time = rus.ru_stime.tv_sec + (double)rus.ru_stime.tv_usec / 1e6;
+    return time;
+}
 
 static void cs_print_help_and_exit(int rc) {
     printf("A command-line benchmarking tool\n"
@@ -728,7 +726,7 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
         sz -= count;
     }
 
-    const char *units = "s";
+    const char *units = "s ";
     if (t >= 1) {
     } else if (t >= 1e-3) {
         units = "ms";
@@ -758,14 +756,20 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
 
 static void cs_exec_and_measure(struct cs_benchmark *bench) {
     double wall_clock_start = cs_get_time();
+    struct cs_cpu_time cpu_start = cs_getcputime();
 
     int rc = cs_execute_command(bench->command);
 
     double wall_clock_end = cs_get_time();
-    double wall_clock_delta = wall_clock_end - wall_clock_start;
+    struct cs_cpu_time cpu_end = cs_getcputime();
 
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->sample.values, wall_clock_delta);
+    cs_sb_push(bench->wallclock_sample.values,
+               wall_clock_end - wall_clock_start);
+    cs_sb_push(bench->systime_sample.values,
+               cpu_end.system_time - cpu_start.system_time);
+    cs_sb_push(bench->usertime_sample.values,
+               cpu_end.user_time - cpu_start.user_time);
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
@@ -827,51 +831,72 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
 }
 
 static void cs_analyze_benchmark(struct cs_benchmark *bench) {
-    const double *data = bench->sample.values;
-    size_t data_size = cs_sb_len(bench->sample.values);
+    size_t data_size = cs_sb_len(bench->systime_sample.values);
+    {
+        const double *data = bench->wallclock_sample.values;
+        struct cs_statistics stats = {0};
+        cs_calculate_statistics(data, data_size, &stats);
 
-    struct cs_statistics stats = {0};
-    cs_calculate_statistics(data, data_size, &stats);
+        size_t nresamples = 100000;
+        double min_mean, max_mean;
+        cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
+                          &max_mean);
+        double min_std_dev, max_std_dev;
+        cs_bootstrap_std_dev(data, data_size, nresamples, time(NULL),
+                             &min_std_dev, &max_std_dev);
 
-    size_t nresamples = 100000;
-    double min_mean, max_mean;
-    cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
-                      &max_mean);
-    double min_std_dev, max_std_dev;
-    cs_bootstrap_std_dev(data, data_size, nresamples, time(NULL), &min_std_dev,
-                         &max_std_dev);
+        printf("command\t'%s'\n", bench->command->str);
+        printf("%zu runs\n", data_size);
+        char buf1[256], buf2[256], buf3[256];
+        print_time(buf1, sizeof(buf1), min_mean);
+        print_time(buf2, sizeof(buf2), stats.mean);
+        print_time(buf3, sizeof(buf3), max_mean);
+        printf("mean    %s %s %s\n", buf1, buf2, buf3);
+        print_time(buf1, sizeof(buf1), min_std_dev);
+        print_time(buf2, sizeof(buf1), stats.st_dev);
+        print_time(buf3, sizeof(buf1), max_std_dev);
+        printf("std dev %s %s %s\n", buf1, buf2, buf3);
+    }
+    {
+        struct cs_statistics systime_stats = {0};
+        cs_calculate_statistics(bench->systime_sample.values, data_size,
+                                &systime_stats);
+        char buf1[256], buf2[256], buf3[256];
+        print_time(buf1, sizeof(buf1), systime_stats.min);
+        print_time(buf2, sizeof(buf2), systime_stats.mean);
+        print_time(buf3, sizeof(buf3), systime_stats.max);
+        printf("systime %s %s %s\n", buf1, buf2, buf3);
 
-    printf("command\t'%s'\n", bench->command->str);
-    printf("%zu runs\n", data_size);
-    char buf1[256], buf2[256], buf3[256];
-    print_time(buf1, sizeof(buf1), min_mean);
-    print_time(buf2, sizeof(buf2), stats.mean);
-    print_time(buf3, sizeof(buf3), max_mean);
-    printf("mean   \t%s\t%s\t%s\n", buf1, buf2, buf3);
-    print_time(buf1, sizeof(buf1), min_std_dev);
-    print_time(buf2, sizeof(buf1), stats.st_dev);
-    print_time(buf3, sizeof(buf1), max_std_dev);
-    printf("std dev\t%s\t%s\t%s\n", buf1, buf2, buf3);
-
-    struct cs_outliers outliers = cs_classify_outliers(data, data_size);
-    size_t outlier_count = outliers.low_mild + outliers.high_mild +
-                           outliers.low_severe + outliers.high_severe;
-    if (outlier_count != 0) {
-        printf("found %zu outliers across %zu measurements (%.2f%%)\n",
-               outlier_count, data_size,
-               (double)outlier_count / data_size * 100.0);
-        if (outliers.low_severe)
-            printf("%zu (%.2f%%) low severe\n", outliers.low_severe,
-                   (double)outliers.low_severe / data_size * 100.0);
-        if (outliers.low_mild)
-            printf("%zu (%.2f%%) low mild\n", outliers.low_mild,
-                   (double)outliers.low_mild / data_size * 100.0);
-        if (outliers.high_mild)
-            printf("%zu (%.2f%%) high mild\n", outliers.high_mild,
-                   (double)outliers.high_mild / data_size * 100.0);
-        if (outliers.high_severe)
-            printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
-                   (double)outliers.high_severe / data_size * 100.0);
+        struct cs_statistics usertime_stats = {0};
+        cs_calculate_statistics(bench->usertime_sample.values, data_size,
+                                &usertime_stats);
+        print_time(buf1, sizeof(buf1), usertime_stats.min);
+        print_time(buf2, sizeof(buf2), usertime_stats.mean);
+        print_time(buf3, sizeof(buf3), usertime_stats.max);
+        printf("usrtime %s %s %s\n", buf1, buf2, buf3);
+    }
+    {
+        const double *data = bench->wallclock_sample.values;
+        struct cs_outliers outliers = cs_classify_outliers(data, data_size);
+        size_t outlier_count = outliers.low_mild + outliers.high_mild +
+                               outliers.low_severe + outliers.high_severe;
+        if (outlier_count != 0) {
+            printf("found %zu outliers across %zu measurements (%.2f%%)\n",
+                   outlier_count, data_size,
+                   (double)outlier_count / data_size * 100.0);
+            if (outliers.low_severe)
+                printf("%zu (%.2f%%) low severe\n", outliers.low_severe,
+                       (double)outliers.low_severe / data_size * 100.0);
+            if (outliers.low_mild)
+                printf("%zu (%.2f%%) low mild\n", outliers.low_mild,
+                       (double)outliers.low_mild / data_size * 100.0);
+            if (outliers.high_mild)
+                printf("%zu (%.2f%%) high mild\n", outliers.high_mild,
+                       (double)outliers.high_mild / data_size * 100.0);
+            if (outliers.high_severe)
+                printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
+                       (double)outliers.high_severe / data_size * 100.0);
+        }
     }
 }
 
@@ -1032,7 +1057,7 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
         app->prepare_command.output_policy.kind = CS_OUTPUT_POLICY_NULL;
     }
 
-    return -1;
+    return 0;
 }
 
 static void free_app(struct cs_app *app) {
@@ -1053,7 +1078,8 @@ int main(int argc, char **argv) {
     cs_parse_cli_args(argc, argv, &settings);
 
     struct cs_app app = {0};
-    init_app(&settings, &app);
+    if (init_app(&settings, &app) == -1) 
+        return EXIT_FAILURE;
 
     size_t command_count = cs_sb_len(app.commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
@@ -1064,7 +1090,9 @@ int main(int argc, char **argv) {
         cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
         cs_analyze_benchmark(&bench);
 
-        cs_sb_free(bench.sample.values);
+        cs_sb_free(bench.wallclock_sample.values);
+        cs_sb_free(bench.systime_sample.values);
+        cs_sb_free(bench.usertime_sample.values);
         cs_sb_free(bench.exit_codes);
     }
 
