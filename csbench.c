@@ -131,6 +131,19 @@ struct cs_benchmark {
     int *exit_codes;
 };
 
+enum cs_outlier_effect {
+    CS_OUTLIERS_UNAFFECTED,
+    CS_OUTLIERS_SLIGHT,
+    CS_OUTLIERS_MODERATE,
+    CS_OUTLIERS_SEVERE
+};
+
+struct cs_outlier_variance {
+    enum cs_outlier_effect effect;
+    const char *desc;
+    double fraction;
+};
+
 struct cs_outliers {
     size_t low_severe;
     size_t low_mild;
@@ -375,19 +388,13 @@ static int cs_execute_command(const struct cs_command *command) {
         return -1;
     }
 
-    if (pid == 0) {
-        int child_rc = cs_execute_command_do_exec(command);
-        exit(child_rc);
-    }
+    if (pid == 0)
+        exit(cs_execute_command_do_exec(command));
 
     int status = 0;
     if (waitpid(pid, &status, 0) == -1) {
         perror("waitpid");
         return -1;
-    } else {
-        if (is_verbose && status)
-            printf("LOG: command '%s' returned non-zero status code: %d\n",
-                   command->str, status);
     }
 
     return status;
@@ -619,6 +626,55 @@ static struct cs_outliers cs_classify_outliers(const double *data,
     return result;
 }
 
+static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
+                       double sigma_g_2) {
+    double k = u_a - x;
+    double d = k * k;
+    double ad = a * d;
+    double k1 = sigma_b_2 - a * sigma_g_2 + ad;
+    double k0 = -a * ad;
+    double det = k1 * k1 - 4 * sigma_g_2 * k0;
+    return floor(-2.0 * k0 / (k1 + sqrt(det)));
+}
+
+static double cs_var_out(double c, double a, double sigma_b_2,
+                         double sigma_g_2) {
+    double ac = a - c;
+    return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
+}
+
+static struct cs_outlier_variance cs_outlier_variance(double mean,
+                                                      double st_dev, double a) {
+    struct cs_outlier_variance variance;
+    double sigma_b = st_dev;
+    double u_a = mean / a;
+    double u_g_min = u_a / 2.0;
+    double sigma_g = fmin(u_g_min / 4.0, sigma_b / sqrt(a));
+    double sigma_g_2 = sigma_g * sigma_g;
+    double sigma_b_2 = sigma_b * sigma_b;
+    double var_out_min =
+        fmin(cs_var_out(1, a, sigma_b_2, sigma_g_2),
+             cs_var_out(fmin(cs_c_max(0, u_a, a, sigma_b_2, sigma_g_2),
+                             cs_c_max(u_g_min, u_a, a, sigma_b_2, sigma_g_2)),
+                        a, sigma_b_2, sigma_g_2));
+
+    variance.fraction = var_out_min;
+    if (var_out_min < 0.01) {
+        variance.effect = CS_OUTLIERS_UNAFFECTED;
+        variance.desc = "no";
+    } else if (var_out_min < 0.1) {
+        variance.effect = CS_OUTLIERS_SLIGHT;
+        variance.desc = "a slight";
+    } else if (var_out_min < 0.5) {
+        variance.effect = CS_OUTLIERS_MODERATE;
+        variance.desc = "a moderate";
+    } else {
+        variance.effect = CS_OUTLIERS_SEVERE;
+        variance.desc = "a severe";
+    }
+    return variance;
+}
+
 static void cs_calculate_statistics(const double *values, size_t count,
                                     struct cs_statistics *stats) {
     double *sorted_array = malloc(sizeof(*values) * count);
@@ -755,13 +811,11 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
 }
 
 static void cs_exec_and_measure(struct cs_benchmark *bench) {
-    double wall_clock_start = cs_get_time();
-    struct cs_cpu_time cpu_start = cs_getcputime();
-
-    int rc = cs_execute_command(bench->command);
-
-    double wall_clock_end = cs_get_time();
-    struct cs_cpu_time cpu_end = cs_getcputime();
+    volatile struct cs_cpu_time cpu_start = cs_getcputime();
+    volatile double wall_clock_start = cs_get_time();
+    volatile int rc = cs_execute_command(bench->command);
+    volatile double wall_clock_end = cs_get_time();
+    volatile struct cs_cpu_time cpu_end = cs_getcputime();
 
     cs_sb_push(bench->exit_codes, rc);
     cs_sb_push(bench->wallclock_sample.values,
@@ -1078,7 +1132,7 @@ int main(int argc, char **argv) {
     cs_parse_cli_args(argc, argv, &settings);
 
     struct cs_app app = {0};
-    if (init_app(&settings, &app) == -1) 
+    if (init_app(&settings, &app) == -1)
         return EXIT_FAILURE;
 
     size_t command_count = cs_sb_len(app.commands);

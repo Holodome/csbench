@@ -1,4 +1,4 @@
-CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -g -fsanitize=address
+CFLAGS += -std=c99 -Wall -Wextra -pedantic -O0 -g -fsanitize=address
 LDFLAGS += -fsanitize=address
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 
