@@ -643,9 +643,7 @@ static double cs_var_out(double c, double a, double sigma_b_2,
     return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
 }
 
-static struct cs_outlier_variance cs_outlier_variance(double mean,
-                                                      double st_dev, double a) {
-    struct cs_outlier_variance variance;
+static double cs_outlier_variance(double mean, double st_dev, double a) {
     double sigma_b = st_dev;
     double u_a = mean / a;
     double u_g_min = u_a / 2.0;
@@ -656,16 +654,22 @@ static struct cs_outlier_variance cs_outlier_variance(double mean,
         fmin(cs_var_out(1, a, sigma_b_2, sigma_g_2),
              cs_var_out(fmin(cs_c_max(0, u_a, a, sigma_b_2, sigma_g_2),
                              cs_c_max(u_g_min, u_a, a, sigma_b_2, sigma_g_2)),
-                        a, sigma_b_2, sigma_g_2));
+                        a, sigma_b_2, sigma_g_2)) /
+        sigma_b_2;
+    return var_out_min;
+}
 
-    variance.fraction = var_out_min;
-    if (var_out_min < 0.01) {
+static struct cs_outlier_variance
+cs_classify_outlier_variance(double fraction) {
+    struct cs_outlier_variance variance;
+    variance.fraction = fraction;
+    if (fraction < 0.01) {
         variance.effect = CS_OUTLIERS_UNAFFECTED;
         variance.desc = "no";
-    } else if (var_out_min < 0.1) {
+    } else if (fraction < 0.1) {
         variance.effect = CS_OUTLIERS_SLIGHT;
         variance.desc = "a slight";
-    } else if (var_out_min < 0.5) {
+    } else if (fraction < 0.5) {
         variance.effect = CS_OUTLIERS_MODERATE;
         variance.desc = "a moderate";
     } else {
@@ -951,6 +955,16 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
                 printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
                        (double)outliers.high_severe / data_size * 100.0);
         }
+    }
+    {
+        const double *data = bench->wallclock_sample.values;
+        struct cs_statistics stats = {0};
+        cs_calculate_statistics(data, data_size, &stats);
+        struct cs_outlier_variance outlier_var = cs_classify_outlier_variance(
+            cs_outlier_variance(stats.mean, stats.st_dev, (double)data_size));
+        printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
+               "standard deviation.\n",
+               outlier_var.desc, outlier_var.fraction * 100.0);
     }
 }
 
