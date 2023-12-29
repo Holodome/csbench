@@ -108,39 +108,10 @@ struct cs_app {
     struct cs_command prepare_command;
 };
 
-struct cs_statistics {
+struct cs_estimate {
     double min;
-    double max;
-    double sum;
-    size_t count;
     double mean;
-
-    double q1;
-    double median;
-    double q3;
-    double iqr;
-
-    double st_dev;
-    double max_deviation;
-    double confidence_interval;
-    double cv;
-};
-
-struct cs_sample {
-    double *values;
-    struct cs_statistics statistics;
-};
-
-// Input/output of benchmark.
-struct cs_benchmark {
-    const struct cs_command *prepare;
-    const struct cs_command *command;
-    const struct cs_exec_and_measurement_ops *timer;
-
-    struct cs_sample wallclock_sample;
-    struct cs_sample systime_sample;
-    struct cs_sample usertime_sample;
-    int *exit_codes;
+    double max;
 };
 
 enum cs_outlier_effect {
@@ -161,6 +132,27 @@ struct cs_outliers {
     size_t low_mild;
     size_t high_mild;
     size_t high_severe;
+};
+
+// Input/output of benchmark.
+struct cs_benchmark {
+    // These fields are input options
+    const struct cs_command *prepare;
+    const struct cs_command *command;
+    const struct cs_exec_and_measurement_ops *timer;
+    // These fields are collected data
+    size_t run_count;
+    double *wallclock_sample;
+    double *systime_sample;
+    double *usertime_sample;
+    int *exit_codes;
+    // These fields are output
+    struct cs_estimate mean_estimate;
+    struct cs_estimate st_dev_estimate;
+    struct cs_estimate systime_estimate;
+    struct cs_estimate usertime_estimate;
+    struct cs_outliers outliers;
+    double outlier_variance_fraction;
 };
 
 struct cs_cpu_time {
@@ -694,45 +686,6 @@ cs_classify_outlier_variance(double fraction) {
     return variance;
 }
 
-static void cs_calculate_statistics(const double *values, size_t count,
-                                    struct cs_statistics *stats) {
-    double *sorted_array = malloc(sizeof(*values) * count);
-    for (size_t i = 0; i < count; ++i)
-        sorted_array[i] = values[i];
-
-    qsort(sorted_array, count, sizeof(*values), cs_compare_doubles);
-    stats->min = sorted_array[0];
-    stats->max = sorted_array[count - 1];
-
-    double sum = 0;
-    for (size_t i = 0; i < count; ++i)
-        sum += sorted_array[i];
-
-    stats->sum = sum;
-    stats->count = count;
-    stats->mean = sum / count;
-
-    stats->q1 = sorted_array[count / 4];
-    stats->median = sorted_array[count / 2];
-    stats->q3 = sorted_array[count * 3 / 4];
-    stats->iqr = stats->q3 - stats->q1;
-
-    double st_dev = 0;
-    for (size_t i = 0; i < count; ++i) {
-        double temp = sorted_array[i] - stats->mean;
-        st_dev += temp * temp;
-    }
-    st_dev /= count;
-    st_dev = sqrt(st_dev);
-    stats->st_dev = st_dev;
-    stats->max_deviation = fmax(fabs(stats->mean - sorted_array[0]),
-                                fabs(stats->mean - sorted_array[count - 1]));
-    stats->confidence_interval = 0.95 * stats->st_dev / sqrt(count);
-    stats->cv = stats->st_dev / stats->mean;
-
-    free(sorted_array);
-}
-
 static uint32_t xorshift32(uint32_t *state) {
     uint32_t x = *state;
     x ^= x << 13;
@@ -775,7 +728,7 @@ static double cs_stat_mean(const double *v, size_t count) {
     return result / (double)count;
 }
 
-static double cs_stat_std_dev(const double *v, size_t count) {
+static double cs_stat_st_dev(const double *v, size_t count) {
     double mean = cs_stat_mean(v, count);
     double result = 0.0;
     for (size_t i = 0; i < count; ++i) {
@@ -788,7 +741,7 @@ static double cs_stat_std_dev(const double *v, size_t count) {
 // clang-format off
 
 cs_bootstrap(mean, cs_stat_mean)
-cs_bootstrap(std_dev, cs_stat_std_dev)
+cs_bootstrap(st_dev, cs_stat_st_dev)
 
     // clang-format on
 
@@ -832,17 +785,16 @@ cs_bootstrap(std_dev, cs_stat_std_dev)
 static void cs_exec_and_measure(struct cs_benchmark *bench) {
     volatile struct cs_cpu_time cpu_start = cs_getcputime();
     volatile double wall_clock_start = cs_get_time();
-    volatile int rc = cs_execute_command(bench->command);
+    volatile int rc = cs_exec_command(bench->command);
     volatile double wall_clock_end = cs_get_time();
     volatile struct cs_cpu_time cpu_end = cs_getcputime();
 
+    ++bench->run_count;
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->wallclock_sample.values,
-               wall_clock_end - wall_clock_start);
-    cs_sb_push(bench->systime_sample.values,
+    cs_sb_push(bench->wallclock_sample, wall_clock_end - wall_clock_start);
+    cs_sb_push(bench->systime_sample,
                cpu_end.system_time - cpu_start.system_time);
-    cs_sb_push(bench->usertime_sample.values,
-               cpu_end.user_time - cpu_start.user_time);
+    cs_sb_push(bench->usertime_sample, cpu_end.user_time - cpu_start.user_time);
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
@@ -858,7 +810,7 @@ static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
     double start_time = cs_get_time();
     size_t count = 0;
     for (;; ++count) {
-        cs_execute_command(bench->command);
+        cs_exec_command(bench->command);
 
         double end_time = cs_get_time();
         if (end_time - start_time > time_limit)
@@ -903,84 +855,105 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
     }
 }
 
+static struct cs_estimate cs_estimate_mean(const double *data, size_t data_size,
+                                           size_t nresamples) {
+    double mean = cs_stat_mean(data, data_size);
+    double min_mean, max_mean;
+    cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
+                      &max_mean);
+    return (struct cs_estimate){min_mean, mean, max_mean};
+}
+
+static struct cs_estimate
+cs_estimate_st_dev(const double *data, size_t data_size, size_t nresamples) {
+    double mean_st_dev = cs_stat_st_dev(data, data_size);
+    double min_st_dev, max_st_dev;
+    cs_bootstrap_st_dev(data, data_size, nresamples, time(NULL), &min_st_dev,
+                        &max_st_dev);
+    return (struct cs_estimate){min_st_dev, mean_st_dev, max_st_dev};
+}
+
+static struct cs_estimate cs_strict_estimate(const double *data,
+                                             size_t data_size) {
+    double min = data[0];
+    double max = data[0];
+    double mean = data[0];
+    for (size_t i = 1; i < data_size; ++i) {
+        double v = data[i];
+        mean += v;
+        if (v < min)
+            min = v;
+        if (v > max)
+            max = v;
+    }
+    mean /= (double)data_size;
+    return (struct cs_estimate){min, mean, max};
+}
+
+static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
+    char buf1[256], buf2[256], buf3[256];
+    print_time(buf1, sizeof(buf1), est->min);
+    print_time(buf2, sizeof(buf2), est->mean);
+    print_time(buf3, sizeof(buf3), est->max);
+    printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
+}
+
+static void cs_print_outliers(const struct cs_outliers *outliers,
+                              size_t run_count) {
+    size_t outlier_count = outliers->low_mild + outliers->high_mild +
+                           outliers->low_severe + outliers->high_severe;
+    if (outlier_count != 0) {
+        printf("found %zu outliers across %zu measurements (%.2f%%)\n",
+               outlier_count, run_count,
+               (double)outlier_count / run_count * 100.0);
+        if (outliers->low_severe)
+            printf("%zu (%.2f%%) low severe\n", outliers->low_severe,
+                   (double)outliers->low_severe / run_count * 100.0);
+        if (outliers->low_mild)
+            printf("%zu (%.2f%%) low mild\n", outliers->low_mild,
+                   (double)outliers->low_mild / run_count * 100.0);
+        if (outliers->high_mild)
+            printf("%zu (%.2f%%) high mild\n", outliers->high_mild,
+                   (double)outliers->high_mild / run_count * 100.0);
+        if (outliers->high_severe)
+            printf("%zu (%.2f%%) high severe\n", outliers->high_severe,
+                   (double)outliers->high_severe / run_count * 100.0);
+    }
+}
+
+static void cs_print_outlier_variance(double fraction) {
+    struct cs_outlier_variance var = cs_classify_outlier_variance(fraction);
+    printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
+           "standard deviation.\n",
+           var.desc, var.fraction * 100.0);
+}
+
 static void cs_analyze_benchmark(struct cs_benchmark *bench) {
-    size_t data_size = cs_sb_len(bench->systime_sample.values);
-    {
-        const double *data = bench->wallclock_sample.values;
-        struct cs_statistics stats = {0};
-        cs_calculate_statistics(data, data_size, &stats);
+    size_t run_count = bench->run_count;
+    size_t nresamples = 100000;
+    bench->mean_estimate =
+        cs_estimate_mean(bench->wallclock_sample, run_count, nresamples);
+    bench->st_dev_estimate =
+        cs_estimate_st_dev(bench->wallclock_sample, run_count, nresamples);
+    bench->systime_estimate =
+        cs_strict_estimate(bench->systime_sample, run_count);
+    bench->usertime_estimate =
+        cs_strict_estimate(bench->usertime_sample, run_count);
+    bench->outliers = cs_classify_outliers(bench->wallclock_sample, run_count);
+    bench->outlier_variance_fraction =
+        cs_outlier_variance(bench->mean_estimate.mean,
+                            bench->st_dev_estimate.mean, (double)run_count);
+}
 
-        size_t nresamples = 100000;
-        double min_mean, max_mean;
-        cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
-                          &max_mean);
-        double min_std_dev, max_std_dev;
-        cs_bootstrap_std_dev(data, data_size, nresamples, time(NULL),
-                             &min_std_dev, &max_std_dev);
-
-        printf("command\t'%s'\n", bench->command->str);
-        printf("%zu runs\n", data_size);
-        char buf1[256], buf2[256], buf3[256];
-        print_time(buf1, sizeof(buf1), min_mean);
-        print_time(buf2, sizeof(buf2), stats.mean);
-        print_time(buf3, sizeof(buf3), max_mean);
-        printf("mean    %s %s %s\n", buf1, buf2, buf3);
-        print_time(buf1, sizeof(buf1), min_std_dev);
-        print_time(buf2, sizeof(buf1), stats.st_dev);
-        print_time(buf3, sizeof(buf1), max_std_dev);
-        printf("std dev %s %s %s\n", buf1, buf2, buf3);
-    }
-    {
-        struct cs_statistics systime_stats = {0};
-        cs_calculate_statistics(bench->systime_sample.values, data_size,
-                                &systime_stats);
-        char buf1[256], buf2[256], buf3[256];
-        print_time(buf1, sizeof(buf1), systime_stats.min);
-        print_time(buf2, sizeof(buf2), systime_stats.mean);
-        print_time(buf3, sizeof(buf3), systime_stats.max);
-        printf("systime %s %s %s\n", buf1, buf2, buf3);
-
-        struct cs_statistics usertime_stats = {0};
-        cs_calculate_statistics(bench->usertime_sample.values, data_size,
-                                &usertime_stats);
-        print_time(buf1, sizeof(buf1), usertime_stats.min);
-        print_time(buf2, sizeof(buf2), usertime_stats.mean);
-        print_time(buf3, sizeof(buf3), usertime_stats.max);
-        printf("usrtime %s %s %s\n", buf1, buf2, buf3);
-    }
-    {
-        const double *data = bench->wallclock_sample.values;
-        struct cs_outliers outliers = cs_classify_outliers(data, data_size);
-        size_t outlier_count = outliers.low_mild + outliers.high_mild +
-                               outliers.low_severe + outliers.high_severe;
-        if (outlier_count != 0) {
-            printf("found %zu outliers across %zu measurements (%.2f%%)\n",
-                   outlier_count, data_size,
-                   (double)outlier_count / data_size * 100.0);
-            if (outliers.low_severe)
-                printf("%zu (%.2f%%) low severe\n", outliers.low_severe,
-                       (double)outliers.low_severe / data_size * 100.0);
-            if (outliers.low_mild)
-                printf("%zu (%.2f%%) low mild\n", outliers.low_mild,
-                       (double)outliers.low_mild / data_size * 100.0);
-            if (outliers.high_mild)
-                printf("%zu (%.2f%%) high mild\n", outliers.high_mild,
-                       (double)outliers.high_mild / data_size * 100.0);
-            if (outliers.high_severe)
-                printf("%zu (%.2f%%) high severe\n", outliers.high_severe,
-                       (double)outliers.high_severe / data_size * 100.0);
-        }
-    }
-    {
-        const double *data = bench->wallclock_sample.values;
-        struct cs_statistics stats = {0};
-        cs_calculate_statistics(data, data_size, &stats);
-        struct cs_outlier_variance outlier_var = cs_classify_outlier_variance(
-            cs_outlier_variance(stats.mean, stats.st_dev, (double)data_size));
-        printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
-               "standard deviation.\n",
-               outlier_var.desc, outlier_var.fraction * 100.0);
-    }
+static void cs_print_benchmark_info(const struct cs_benchmark *bench) {
+    printf("command\t'%s'\n", bench->command->str);
+    printf("%zu runs\n", bench->run_count);
+    cs_print_estimate("mean", &bench->mean_estimate);
+    cs_print_estimate("st dev", &bench->st_dev_estimate);
+    cs_print_estimate("systime", &bench->systime_estimate);
+    cs_print_estimate("usrtime", &bench->usertime_estimate);
+    cs_print_outliers(&bench->outliers, bench->run_count);
+    cs_print_outlier_variance(bench->outlier_variance_fraction);
 }
 
 static int cs_extract_executable_and_argv(const char *command_str,
@@ -1112,9 +1085,9 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
 }
 
 static void cs_free_bench(struct cs_benchmark *bench) {
-    cs_sb_free(bench->wallclock_sample.values);
-    cs_sb_free(bench->systime_sample.values);
-    cs_sb_free(bench->usertime_sample.values);
+    cs_sb_free(bench->wallclock_sample);
+    cs_sb_free(bench->systime_sample);
+    cs_sb_free(bench->usertime_sample);
     cs_sb_free(bench->exit_codes);
 }
 
@@ -1131,6 +1104,9 @@ static void cs_free_app(struct cs_app *app) {
     cs_sb_free(app->settings.commands);
 }
 
+static void cs_compare_benches(struct cs_benchmark *benches) {
+}
+
 int main(int argc, char **argv) {
     struct cs_settings settings = {0};
     cs_parse_cli_args(argc, argv, &settings);
@@ -1140,6 +1116,7 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
 
     size_t command_count = cs_sb_len(app.commands);
+    struct cs_benchmark *benches = NULL;
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark bench = {0};
         if (app.has_prepare_command)
@@ -1148,8 +1125,16 @@ int main(int argc, char **argv) {
 
         cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
         cs_analyze_benchmark(&bench);
-        cs_free_bench(&bench);
+        cs_print_benchmark_info(&bench);
+        cs_sb_push(benches, bench);
     }
+
+    if (command_count != 1)
+        cs_compare_benches(benches);
+
+    for (size_t i = 0; i < cs_sb_len(benches); ++i)
+        cs_free_bench(benches + i);
+    cs_sb_free(benches);
 
     cs_free_app(&app);
     return EXIT_SUCCESS;
