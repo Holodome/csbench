@@ -968,38 +968,6 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench) {
     }
 }
 
-static double cs_ols_regress(double *x, double *y, size_t count) {
-    double xy = 0.0;
-    for (size_t i = 0; i < count; ++i)
-        xy += x[i] * y[i];
-
-    double xx = 0.0;
-    for (size_t i = 0; i < count; ++i)
-        xx += x[i] * x[i];
-
-    return xy / xx;
-}
-
-static double cs_r_squared(double *y, size_t count, double slope) {
-    double m = slope;
-    double n = (double)count;
-    double y_bar = 0.0;
-    for (size_t i = 0; i < count; ++i)
-        y_bar += y[i];
-    y_bar /= n;
-
-    double rss = 0.0;
-    double tss = 0.0;
-    for (size_t i = 0; i < count; ++i) {
-        double t = y[i] - m;
-        rss += t * t;
-        t = y[i] - y_bar;
-        tss += t * t;
-    }
-
-    return 1.0 - rss / tss;
-}
-
 static int cs_extract_executable_and_argv(const char *command_str,
                                           char **executable, char ***argv) {
     char **words = cs_split_shell_words(command_str);
