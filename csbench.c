@@ -924,7 +924,7 @@ static void cs_print_outliers(const struct cs_outliers *outliers,
 static void cs_print_outlier_variance(double fraction) {
     struct cs_outlier_variance var = cs_classify_outlier_variance(fraction);
     printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
-           "standard deviation.\n",
+           "standard deviation\n",
            var.desc, var.fraction * 100.0);
 }
 
@@ -1104,7 +1104,35 @@ static void cs_free_app(struct cs_app *app) {
     cs_sb_free(app->settings.commands);
 }
 
-static void cs_compare_benches(struct cs_benchmark *benches) {
+static void cs_compare_benches(const struct cs_benchmark *benches) {
+    size_t bench_count = cs_sb_capacity(benches);
+    assert(bench_count > 1);
+    size_t best_idx = 0;
+    double best_mean = benches[0].mean_estimate.mean;
+    for (size_t i = 1; i < bench_count; ++i) {
+        const struct cs_benchmark *bench = benches + i;
+        double mean = bench->mean_estimate.mean;
+        if (mean < best_mean) {
+            best_idx = i;
+            best_mean = mean;
+        }
+    }
+
+    const struct cs_benchmark *best = benches + best_idx;
+    printf("Fastest command '%s'\n", best->command->str);
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_benchmark *bench = benches + i;
+        if (bench == best)
+            continue;
+
+        double ref = bench->mean_estimate.mean / best->mean_estimate.mean;
+        double a = bench->st_dev_estimate.mean / bench->mean_estimate.mean;
+        double b = best->st_dev_estimate.mean / best->mean_estimate.mean;
+        double ref_st_dev = ref * sqrt(a * a + b * b);
+
+        printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
+               bench->command->str);
+    }
 }
 
 int main(int argc, char **argv) {
