@@ -100,12 +100,15 @@ struct cs_command {
 // Information gethered from user input (settings), parsed
 // and prepared for benchmarking.
 struct cs_app {
-    struct cs_settings settings;
     // List of commands to benchmark
     struct cs_command *commands;
 
+    double time_limit;
+    double warmup_time;
+
     int has_prepare_command;
     struct cs_command prepare_command;
+    struct cs_export_policy export;
 };
 
 struct cs_estimate {
@@ -139,7 +142,6 @@ struct cs_benchmark {
     // These fields are input options
     const struct cs_command *prepare;
     const struct cs_command *command;
-    const struct cs_exec_and_measurement_ops *timer;
     // These fields are collected data
     size_t run_count;
     double *wallclock_sample;
@@ -314,7 +316,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *export_filename = argv[cursor++];
-            settings->export.kind = CS_NO_EXPORT;
+            settings->export.kind = CS_EXPORT_JSON;
             settings->export.filename = export_filename;
         } else {
             cs_sb_push(settings->commands, opt);
@@ -1047,7 +1049,9 @@ error:
 }
 
 static int init_app(const struct cs_settings *settings, struct cs_app *app) {
-    app->settings = *settings;
+    app->time_limit = settings->time_limit;
+    app->warmup_time = settings->warmup_time;
+    app->export = settings->export;
 
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
@@ -1101,7 +1105,6 @@ static void cs_free_app(struct cs_app *app) {
         cs_sb_free(command->argv);
     }
     cs_sb_free(app->commands);
-    cs_sb_free(app->settings.commands);
 }
 
 static void cs_compare_benches(const struct cs_benchmark *benches) {
@@ -1126,6 +1129,7 @@ static void cs_compare_benches(const struct cs_benchmark *benches) {
             continue;
 
         double ref = bench->mean_estimate.mean / best->mean_estimate.mean;
+        // propagate standard deviation for formula (t1 / t2)
         double a = bench->st_dev_estimate.mean / bench->mean_estimate.mean;
         double b = best->st_dev_estimate.mean / best->mean_estimate.mean;
         double ref_st_dev = ref * sqrt(a * a + b * b);
@@ -1135,13 +1139,107 @@ static void cs_compare_benches(const struct cs_benchmark *benches) {
     }
 }
 
-int main(int argc, char **argv) {
-    struct cs_settings settings = {0};
-    cs_parse_cli_args(argc, argv, &settings);
+static void cs_export_json(const struct cs_app *app,
+                           const struct cs_benchmark *benches,
+                           const char *filename) {
+    FILE *f = fopen(filename, "w");
+    if (f == NULL) {
+        fprintf(stderr, "failed to open file '%s' for export\n", filename);
+        return;
+    }
 
+    fprintf(f, "{ \"settings\": {");
+    {
+        fprintf(f, "\"time_limit\": %lf, \"warmup_time\": %lf ",
+                app->time_limit, app->warmup_time);
+    }
+    fprintf(f, "}, \"benches\": [");
+    {
+        size_t bench_count = cs_sb_len(benches);
+        for (size_t i = 0; i < bench_count; ++i) {
+            const struct cs_benchmark *bench = benches + i;
+            fprintf(f, "{ ");
+            fprintf(f, "\"prepare\": \"%s\", ",
+                    bench->prepare ? bench->prepare->str : "");
+            fprintf(f, "\"command\": \"%s\", ", bench->command->str);
+            size_t run_count = bench->run_count;
+            fprintf(f, "\"run_count\": %zu, ", bench->run_count);
+            fprintf(f, "\"wallclock\": [");
+            for (size_t i = 0; i < run_count; ++i)
+                fprintf(f, "%lf%s", bench->wallclock_sample[i],
+                        i != run_count - 1 ? ", " : "");
+            fprintf(f, "], \"sys\": [");
+            for (size_t i = 0; i < run_count; ++i)
+                fprintf(f, "%lf%s", bench->systime_sample[i],
+                        i != run_count - 1 ? ", " : "");
+            fprintf(f, "], \"user\": [");
+            for (size_t i = 0; i < run_count; ++i)
+                fprintf(f, "%lf%s", bench->usertime_sample[i],
+                        i != run_count - 1 ? ", " : "");
+            fprintf(f, "], \"exit_codes\": [");
+            for (size_t i = 0; i < run_count; ++i)
+                fprintf(f, "%d%s", bench->exit_codes[i],
+                        i != run_count - 1 ? ", " : "");
+            fprintf(f,
+                    "], \"mean_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                    "%lf }, ",
+                    bench->mean_estimate.min, bench->mean_estimate.mean,
+                    bench->mean_estimate.max);
+            fprintf(f,
+                    "\"st_dev_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                    "%lf }, ",
+                    bench->st_dev_estimate.min, bench->st_dev_estimate.mean,
+                    bench->st_dev_estimate.max);
+            fprintf(
+                f,
+                "\"sys_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
+                bench->systime_estimate.min, bench->systime_estimate.mean,
+                bench->systime_estimate.max);
+            fprintf(
+                f,
+                "\"user_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
+                bench->usertime_estimate.min, bench->usertime_estimate.mean,
+                bench->usertime_estimate.max);
+            fprintf(
+                f,
+                "\"outliers\": { \"low_severe\": %zu, \"low_mild\": %zu, "
+                "\"high_mild\": %zu, \"high_severe\": %zu, \"variance\": %lf }",
+                bench->outliers.low_severe, bench->outliers.low_mild,
+                bench->outliers.high_mild, bench->outliers.high_severe,
+                bench->outlier_variance_fraction);
+            fprintf(f, "}");
+            if (i != bench_count - 1)
+                fprintf(f, ", ");
+        }
+    }
+    fprintf(f, "]}\n");
+    fclose(f);
+}
+
+static void cs_handle_export(const struct cs_app *app,
+                             const struct cs_benchmark *benches,
+                             const struct cs_export_policy *policy) {
+    if (policy->kind == CS_NO_EXPORT)
+        return;
+
+    switch (policy->kind) {
+    case CS_NO_EXPORT:
+        assert(0);
+        break;
+    case CS_EXPORT_JSON:
+        cs_export_json(app, benches, policy->filename);
+        break;
+    }
+}
+
+int main(int argc, char **argv) {
     struct cs_app app = {0};
-    if (init_app(&settings, &app) == -1)
-        return EXIT_FAILURE;
+    {
+        struct cs_settings settings = {0};
+        cs_parse_cli_args(argc, argv, &settings);
+        if (init_app(&settings, &app) == -1)
+            return EXIT_FAILURE;
+    }
 
     size_t command_count = cs_sb_len(app.commands);
     struct cs_benchmark *benches = NULL;
@@ -1151,7 +1249,7 @@ int main(int argc, char **argv) {
             bench.prepare = &app.prepare_command;
         bench.command = app.commands + command_idx;
 
-        cs_run_benchmark(&bench, settings.time_limit, settings.warmup_time);
+        cs_run_benchmark(&bench, app.time_limit, app.warmup_time);
         cs_analyze_benchmark(&bench);
         cs_print_benchmark_info(&bench);
         cs_sb_push(benches, bench);
@@ -1159,6 +1257,8 @@ int main(int argc, char **argv) {
 
     if (command_count != 1)
         cs_compare_benches(benches);
+
+    cs_handle_export(&app, benches, &app.export);
 
     for (size_t i = 0; i < cs_sb_len(benches); ++i)
         cs_free_bench(benches + i);
