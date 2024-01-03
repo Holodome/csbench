@@ -72,6 +72,7 @@ struct cs_settings {
     double warmup_time;
     size_t nresamples;
 
+    const char *shell;
     struct cs_export_policy export;
 
     // Command to run before each timing run
@@ -245,6 +246,7 @@ static void cs_print_help_and_exit(int rc) {
            "--prepare <cmd>  - specify command to be executed before each "
            "benchmark run\n"
            "--nrs <n>        - specify number of resamples for bootstrapping\n"
+           "--shell <shell>  - specify shell for command to be executed with\n"
            "--verbose        - print debug information\n"
            "--help           - print this message\n"
            "--version        - print version\n");
@@ -261,6 +263,7 @@ static void cs_parse_cli_args(int argc, char **argv,
     settings->time_limit = 5.0;
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
+    settings->shell = "/bin/sh";
 
     int cursor = 1;
     while (cursor < argc) {
@@ -321,8 +324,15 @@ static void cs_parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-
             settings->nresamples = value;
+        } else if (strcmp(opt, "--shell") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+            const char *shell = argv[cursor++];
+            if (strcmp(shell, "none") == 0)
+                settings->shell = NULL;
+            else
+                settings->shell = shell;
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -335,18 +345,14 @@ static void cs_parse_cli_args(int argc, char **argv,
         }
     }
 
-    if (cs_sb_len(settings->commands) == 0) {
+    if (cs_sb_len(settings->commands) == 0)
         cs_print_help_and_exit(EXIT_FAILURE);
-    }
 }
 
 static int cs_exec_command_do_exec(const struct cs_command *command) {
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-
     switch (command->input_policy.kind) {
     case CS_INPUT_POLICY_NULL: {
+        close(STDIN_FILENO);
         int fd = open("/dev/null", O_RDONLY);
         if (fd == -1) {
             perror("open");
@@ -361,6 +367,7 @@ static int cs_exec_command_do_exec(const struct cs_command *command) {
         break;
     }
     case CS_INPUT_POLICY_FILE: {
+        close(STDIN_FILENO);
         int fd = open(command->input_policy.file, O_RDONLY);
         if (fd == -1) {
             perror("open");
@@ -377,6 +384,9 @@ static int cs_exec_command_do_exec(const struct cs_command *command) {
 
     switch (command->output_policy.kind) {
     case CS_OUTPUT_POLICY_NULL: {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+
         int fd = open("/dev/null", O_WRONLY);
         if (fd == -1) {
             perror("open");
@@ -476,7 +486,6 @@ static char **cs_split_shell_words(const char *command) {
                 cs_sb_push(current_word, '\\');
                 cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
-                current_word = NULL;
                 goto out;
             case '\n':
                 state = STATE_DELIMETER;
@@ -491,7 +500,6 @@ static char **cs_split_shell_words(const char *command) {
             case '\0':
                 cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
-                current_word = NULL;
                 goto out;
             case '\'':
                 state = STATE_SINGLE_QUOTED;
@@ -524,7 +532,6 @@ static char **cs_split_shell_words(const char *command) {
                 cs_sb_push(current_word, '\\');
                 cs_sb_push(current_word, '\0');
                 cs_sb_push(words, current_word);
-                current_word = NULL;
                 goto out;
             case '\n':
                 state = STATE_UNQUOTED;
@@ -641,9 +648,7 @@ static struct cs_outliers cs_classify_outliers(const double *data,
         else if (v > him)
             ++result.high_mild;
     }
-
     free(ssa);
-
     return result;
 }
 
@@ -812,7 +817,7 @@ static void cs_exec_and_measure(struct cs_benchmark *bench) {
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
-    if (time_limit == 0.0)
+    if (time_limit < 0.0)
         return;
 
     double start_time = cs_get_time();
@@ -820,7 +825,7 @@ static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
     do {
         cs_exec_command(bench->command);
         end_time = cs_get_time();
-    } while (end_time - start_time > time_limit);
+    } while (end_time - start_time < time_limit);
 }
 
 static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
@@ -1035,13 +1040,27 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
         struct cs_command command = {0};
         const char *command_str = settings->commands[command_idx];
         command.str = command_str;
-        if (cs_extract_executable_and_argv(command_str, &command.executable,
-                                           &command.argv) != 0) {
-            cs_sb_free(app->commands);
-            return -1;
-        }
         command.input_policy = settings->input_policy;
         command.output_policy = settings->output_policy;
+        // TODO: Cleanup this code fragment
+        if (settings->shell) {
+            if (cs_extract_executable_and_argv(
+                    settings->shell, &command.executable, &command.argv) != 0) {
+                cs_sb_free(app->commands);
+                return -1;
+            }
+            // pop NULL appended by cs_extract_executable_and_path
+            cs_sb_pop(command.argv);
+            cs_sb_push(command.argv, strdup("-c"));
+            cs_sb_push(command.argv, strdup(command_str));
+            cs_sb_push(command.argv, NULL);
+        } else {
+            if (cs_extract_executable_and_argv(command_str, &command.executable,
+                                               &command.argv) != 0) {
+                cs_sb_free(app->commands);
+                return -1;
+            }
+        }
 
         cs_sb_push(app->commands, command);
     }
