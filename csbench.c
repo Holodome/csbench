@@ -81,14 +81,11 @@ struct cs_settings {
 };
 
 // Description of command to benchmark.
-// This structure should contain all
-// information needed to benchmark it (all the corresponding
-// stuff from settings) as it behaves as interface for benchmark.
+// Commands are executed using execve.
 struct cs_command {
     // Command string as supplied by user.
     const char *str;
-    // Parsed executable path. If command is not a shell one (called by execve),
-    // we need to get full path to executable.
+    // Full path to executagle
     char *executable;
     // Argv supplied to execve.
     char **argv;
@@ -106,17 +103,19 @@ struct cs_app {
     double time_limit;
     double warmup_time;
 
-    int has_prepare_command;
-    struct cs_command prepare_command;
+    const char *prepare_command;
     struct cs_export_policy export;
 };
 
+// Boostrap estimate of certain statistic
 struct cs_estimate {
     double min;
+    // TODO: This should have better name
     double mean;
     double max;
 };
 
+// How outliers affect standard deviation
 enum cs_outlier_effect {
     CS_OUTLIERS_UNAFFECTED,
     CS_OUTLIERS_SLIGHT,
@@ -137,10 +136,9 @@ struct cs_outliers {
     size_t high_severe;
 };
 
-// Input/output of benchmark.
 struct cs_benchmark {
     // These fields are input options
-    const struct cs_command *prepare;
+    const char *prepare;
     const struct cs_command *command;
     // These fields are collected data
     size_t run_count;
@@ -187,12 +185,6 @@ struct cs_cpu_time {
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride);
-
-//
-// static vars
-//
-
-static int is_verbose;
 
 //
 // Begin function definitions
@@ -248,6 +240,8 @@ static void cs_print_help_and_exit(int rc) {
            "Where options is one of:\n"
            "--warmup <n>     - specify warmup time in seconds\n"
            "--time-limit <n> - specify how long to run benchmarks\n"
+           "--prepare <cmd>  - specify command to be executed before each "
+           "benchmark run\n"
            "--verbose        - print debug information\n"
            "--help           - print this message\n"
            "--version        - print version\n");
@@ -271,8 +265,6 @@ static void cs_parse_cli_args(int argc, char **argv,
             cs_print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(opt, "--version") == 0) {
             cs_print_version_and_exit();
-        } else if (strcmp(opt, "--verbose") == 0) {
-            is_verbose = 1;
         } else if (strcmp(opt, "--warmup") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -747,7 +739,7 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
 
     // clang-format on
 
-    static int print_time(char *dst, size_t sz, double t) {
+    static int cs_print_time(char *dst, size_t sz, double t) {
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -800,47 +792,27 @@ static void cs_exec_and_measure(struct cs_benchmark *bench) {
 }
 
 static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
-    if (time_limit == 0.0) {
-        if (is_verbose)
-            printf("LOG: skipping warmup\n");
+    if (time_limit == 0.0)
         return;
-    }
-
-    if (is_verbose)
-        printf("LOG: starting warmup\n");
 
     double start_time = cs_get_time();
-    size_t count = 0;
-    for (;; ++count) {
+    double end_time;
+    do {
         cs_exec_command(bench->command);
-
-        double end_time = cs_get_time();
-        if (end_time - start_time > time_limit)
-            break;
-    }
-
-    if (is_verbose)
-        printf("LOG: finihsed warmup, %zu runs\n", count);
+        end_time = cs_get_time();
+    } while (end_time - start_time > time_limit);
 }
 
-static void cs_exec_prepare(const struct cs_command *prepare) {
-    if (prepare == NULL)
-        return;
-
-    cs_exec_command(prepare);
-}
-
-static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit,
-                             double warmup_time) {
-    cs_warmup(bench, warmup_time);
-
+static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit
+                             ) {
     double niter_accum = 1;
     size_t niter = 1;
 
     double start_time = cs_get_time();
     for (size_t count = 0;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            cs_exec_prepare(bench->prepare);
+            if (bench->prepare)
+                system(bench->prepare);
             cs_exec_and_measure(bench);
         }
 
@@ -894,9 +866,9 @@ static struct cs_estimate cs_strict_estimate(const double *data,
 
 static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
-    print_time(buf1, sizeof(buf1), est->min);
-    print_time(buf2, sizeof(buf2), est->mean);
-    print_time(buf3, sizeof(buf3), est->max);
+    cs_print_time(buf1, sizeof(buf1), est->min);
+    cs_print_time(buf2, sizeof(buf2), est->mean);
+    cs_print_time(buf3, sizeof(buf3), est->max);
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
 }
 
@@ -966,14 +938,6 @@ static int cs_extract_executable_and_argv(const char *command_str,
         return -1;
     }
 
-    if (is_verbose) {
-        printf("LOG: split command '%s' into words [", command_str);
-        for (size_t i = 0; i < cs_sb_len(words); ++i) {
-            printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
-        }
-        printf("]\n");
-    }
-
     char *real_exec_path = NULL;
     const char *exec_path = words[0];
     if (*exec_path == '/') {
@@ -1022,14 +986,6 @@ static int cs_extract_executable_and_argv(const char *command_str,
         goto error;
     }
 
-    if (is_verbose) {
-        printf("LOG: command '%s' has executable path '%s' and arguments [",
-               command_str, real_exec_path);
-        for (size_t i = 1; i < cs_sb_len(words); ++i)
-            printf("'%s'%s", words[i], i != cs_sb_len(words) - 1 ? "," : "");
-        printf("]\n");
-    }
-
     *executable = real_exec_path;
     cs_sb_push(*argv, strdup(real_exec_path));
     for (size_t i = 1; i < cs_sb_len(words); ++i)
@@ -1052,6 +1008,7 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->time_limit = settings->time_limit;
     app->warmup_time = settings->warmup_time;
     app->export = settings->export;
+    app->prepare_command = settings->prepare;
 
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
@@ -1067,22 +1024,6 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
         command.output_policy = settings->output_policy;
 
         cs_sb_push(app->commands, command);
-    }
-
-    if (settings->prepare) {
-        if (is_verbose)
-            printf("LOG: has prepare command: '%s'\n", settings->prepare);
-
-        const char *command_str = settings->prepare;
-
-        app->has_prepare_command = 1;
-        if (cs_extract_executable_and_argv(command_str,
-                                           &app->prepare_command.executable,
-                                           &app->prepare_command.argv) != 0) {
-            return -1;
-        }
-        app->prepare_command.input_policy.kind = CS_INPUT_POLICY_NULL;
-        app->prepare_command.output_policy.kind = CS_OUTPUT_POLICY_NULL;
     }
 
     return 0;
@@ -1149,68 +1090,61 @@ static void cs_export_json(const struct cs_app *app,
     }
 
     fprintf(f, "{ \"settings\": {");
-    {
-        fprintf(f, "\"time_limit\": %lf, \"warmup_time\": %lf ",
-                app->time_limit, app->warmup_time);
-    }
+    fprintf(f, "\"time_limit\": %lf, \"warmup_time\": %lf ", app->time_limit,
+            app->warmup_time);
     fprintf(f, "}, \"benches\": [");
-    {
-        size_t bench_count = cs_sb_len(benches);
-        for (size_t i = 0; i < bench_count; ++i) {
-            const struct cs_benchmark *bench = benches + i;
-            fprintf(f, "{ ");
-            fprintf(f, "\"prepare\": \"%s\", ",
-                    bench->prepare ? bench->prepare->str : "");
-            fprintf(f, "\"command\": \"%s\", ", bench->command->str);
-            size_t run_count = bench->run_count;
-            fprintf(f, "\"run_count\": %zu, ", bench->run_count);
-            fprintf(f, "\"wallclock\": [");
-            for (size_t i = 0; i < run_count; ++i)
-                fprintf(f, "%lf%s", bench->wallclock_sample[i],
-                        i != run_count - 1 ? ", " : "");
-            fprintf(f, "], \"sys\": [");
-            for (size_t i = 0; i < run_count; ++i)
-                fprintf(f, "%lf%s", bench->systime_sample[i],
-                        i != run_count - 1 ? ", " : "");
-            fprintf(f, "], \"user\": [");
-            for (size_t i = 0; i < run_count; ++i)
-                fprintf(f, "%lf%s", bench->usertime_sample[i],
-                        i != run_count - 1 ? ", " : "");
-            fprintf(f, "], \"exit_codes\": [");
-            for (size_t i = 0; i < run_count; ++i)
-                fprintf(f, "%d%s", bench->exit_codes[i],
-                        i != run_count - 1 ? ", " : "");
-            fprintf(f,
-                    "], \"mean_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
-                    "%lf }, ",
-                    bench->mean_estimate.min, bench->mean_estimate.mean,
-                    bench->mean_estimate.max);
-            fprintf(f,
-                    "\"st_dev_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
-                    "%lf }, ",
-                    bench->st_dev_estimate.min, bench->st_dev_estimate.mean,
-                    bench->st_dev_estimate.max);
-            fprintf(
-                f,
+    size_t bench_count = cs_sb_len(benches);
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_benchmark *bench = benches + i;
+        fprintf(f, "{ ");
+        fprintf(f, "\"prepare\": \"%s\", ",
+                bench->prepare ? bench->prepare : "");
+        fprintf(f, "\"command\": \"%s\", ", bench->command->str);
+        size_t run_count = bench->run_count;
+        fprintf(f, "\"run_count\": %zu, ", bench->run_count);
+        fprintf(f, "\"wallclock\": [");
+        for (size_t i = 0; i < run_count; ++i)
+            fprintf(f, "%lf%s", bench->wallclock_sample[i],
+                    i != run_count - 1 ? ", " : "");
+        fprintf(f, "], \"sys\": [");
+        for (size_t i = 0; i < run_count; ++i)
+            fprintf(f, "%lf%s", bench->systime_sample[i],
+                    i != run_count - 1 ? ", " : "");
+        fprintf(f, "], \"user\": [");
+        for (size_t i = 0; i < run_count; ++i)
+            fprintf(f, "%lf%s", bench->usertime_sample[i],
+                    i != run_count - 1 ? ", " : "");
+        fprintf(f, "], \"exit_codes\": [");
+        for (size_t i = 0; i < run_count; ++i)
+            fprintf(f, "%d%s", bench->exit_codes[i],
+                    i != run_count - 1 ? ", " : "");
+        fprintf(f,
+                "], \"mean_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                "%lf }, ",
+                bench->mean_estimate.min, bench->mean_estimate.mean,
+                bench->mean_estimate.max);
+        fprintf(f,
+                "\"st_dev_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                "%lf }, ",
+                bench->st_dev_estimate.min, bench->st_dev_estimate.mean,
+                bench->st_dev_estimate.max);
+        fprintf(f,
                 "\"sys_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
                 bench->systime_estimate.min, bench->systime_estimate.mean,
                 bench->systime_estimate.max);
-            fprintf(
-                f,
+        fprintf(f,
                 "\"user_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
                 bench->usertime_estimate.min, bench->usertime_estimate.mean,
                 bench->usertime_estimate.max);
-            fprintf(
-                f,
+        fprintf(f,
                 "\"outliers\": { \"low_severe\": %zu, \"low_mild\": %zu, "
                 "\"high_mild\": %zu, \"high_severe\": %zu, \"variance\": %lf }",
                 bench->outliers.low_severe, bench->outliers.low_mild,
                 bench->outliers.high_mild, bench->outliers.high_severe,
                 bench->outlier_variance_fraction);
-            fprintf(f, "}");
-            if (i != bench_count - 1)
-                fprintf(f, ", ");
-        }
+        fprintf(f, "}");
+        if (i != bench_count - 1)
+            fprintf(f, ", ");
     }
     fprintf(f, "]}\n");
     fclose(f);
@@ -1245,11 +1179,11 @@ int main(int argc, char **argv) {
     struct cs_benchmark *benches = NULL;
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark bench = {0};
-        if (app.has_prepare_command)
-            bench.prepare = &app.prepare_command;
+        bench.prepare = app.prepare_command;
         bench.command = app.commands + command_idx;
 
-        cs_run_benchmark(&bench, app.time_limit, app.warmup_time);
+        cs_warmup(&bench, app.warmup_time);
+        cs_run_benchmark(&bench, app.time_limit);
         cs_analyze_benchmark(&bench);
         cs_print_benchmark_info(&bench);
         cs_sb_push(benches, bench);
