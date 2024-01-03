@@ -242,20 +242,21 @@ static void cs_print_help_and_exit(int rc) {
         "Usage: csbench [OPTIONS] <command> ...\n"
         "\n"
         "Where options is one of:\n"
-        "--warmup <n>     - specify warmup time in seconds\n"
-        "--time-limit <n> - specify how long to run benchmarks\n"
-        "--prepare <cmd>  - specify command to be executed before each "
+        "--warmup <n>         - specify warmup time in seconds\n"
+        "--time-limit <n>     - specify how long to run benchmarks\n"
+        "--prepare <cmd>      - specify command to be executed before each "
         "benchmark run\n"
-        "--nrs <n>        - specify number of resamples for bootstrapping\n"
-        "--shell <shell>  - specify shell for command to be executed with. Can "
+        "--nrs <n>            - specify number of resamples for bootstrapping\n"
+        "--shell <shell>      - specify shell for command to be executed with. Can "
         "either be none or command resolving to shell execution\n"
-        "--output <where> - specify how to handle each command output. Can be "
+        "--output <where>     - specify how to handle each command output. Can be "
         "either null or inherit\n"
-        "--input <where>  - specify how each command should recieve its input. "
+        "--input <where>      - specify how each command should recieve its input. "
         "Can be either null or file name\n"
-        "--verbose        - print debug information\n"
-        "--help           - print this message\n"
-        "--version        - print version\n");
+        "--export-json <file> - export benchmark results to json\n"
+        "--verbose            - print debug information\n"
+        "--help               - print this message\n"
+        "--version            - print version\n");
     exit(rc);
 }
 
