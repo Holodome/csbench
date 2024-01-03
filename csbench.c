@@ -300,7 +300,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             if (value < 0.0) {
-                fprintf(stderr, "time limit must be positive number or zero\n");
+                fprintf(stderr, "error: time limit must be positive number or zero\n");
                 exit(EXIT_FAILURE);
             }
 
@@ -316,7 +316,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             if (value <= 0.0) {
-                fprintf(stderr, "time limit must be positive number\n");
+                fprintf(stderr, "error: time limit must be positive number\n");
                 exit(EXIT_FAILURE);
             }
 
@@ -338,7 +338,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             if (value <= 0) {
-                fprintf(stderr, "resamples count must be positive number\n");
+                fprintf(stderr, "error: resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
             settings->nresamples = value;
@@ -1005,34 +1005,24 @@ static void cs_print_benchmark_info(const struct cs_benchmark *bench) {
     cs_print_outlier_variance(bench->outlier_variance_fraction);
 }
 
-static int cs_extract_executable_and_argv(const char *command_str,
-                                          char **executable, char ***argv) {
-    char **words = cs_split_shell_words(command_str);
-    if (words == NULL) {
-        fprintf(stderr, "Invalid command syntax\n");
-        return -1;
-    }
-
-    char *real_exec_path = NULL;
-    const char *exec_path = words[0];
-    if (*exec_path == '/') {
-        real_exec_path = strdup(exec_path);
-    } else if (strchr(exec_path, '/') != NULL) {
+static char *cs_find_full_path(const char *path) {
+    char *full = NULL;
+    if (*path == '/') {
+        full = strdup(path);
+    } else if (strchr(path, '/') != NULL) {
         char path[4096];
         if (getcwd(path, sizeof(path)) == NULL) {
             perror("getcwd");
-            goto error;
+            return NULL;
         }
-
         size_t cwd_len = strlen(path);
-        snprintf(path + cwd_len, sizeof(path) - cwd_len, "/%s", exec_path);
-
-        real_exec_path = strdup(path);
+        snprintf(path + cwd_len, sizeof(path) - cwd_len, "/%s", full);
+        full = strdup(path);
     } else {
         const char *path_var = getenv("PATH");
         if (path_var == NULL) {
-            fprintf(stderr, "$PATH variable is not set\n");
-            goto error;
+            fprintf(stderr, "error: PATH variable is not set\n");
+            return NULL;
         }
         const char *path_var_end = path_var + strlen(path_var);
         const char *cursor = path_var;
@@ -1043,10 +1033,10 @@ static int cs_extract_executable_and_argv(const char *command_str,
 
             char path[4096];
             snprintf(path, sizeof(path), "%.*s/%s", (int)(next_sep - cursor),
-                     cursor, exec_path);
+                     cursor, path);
 
             if (access(path, X_OK) == 0) {
-                real_exec_path = strdup(path);
+                full = strdup(path);
                 break;
             }
 
@@ -1054,29 +1044,37 @@ static int cs_extract_executable_and_argv(const char *command_str,
         }
     }
 
+    return full;
+}
+
+static int cs_extract_executable_and_argv(const char *command_str,
+                                          char **executable, char ***argv) {
+    int rc = 0;
+    char **words = cs_split_shell_words(command_str);
+    if (words == NULL) {
+        fprintf(stderr, "error: invalid command syntax\n");
+        return -1;
+    }
+
+    char *real_exec_path = cs_find_full_path(words[0]);
     if (real_exec_path == NULL) {
         fprintf(stderr,
                 "error: failed to find executable path for command '%s'\n",
                 command_str);
-        goto error;
+        rc = -1;
+    } else {
+        *executable = real_exec_path;
+        cs_sb_push(*argv, strdup(real_exec_path));
+        for (size_t i = 1; i < cs_sb_len(words); ++i)
+            cs_sb_push(*argv, strdup(words[i]));
+        cs_sb_push(*argv, NULL);
     }
 
-    *executable = real_exec_path;
-    cs_sb_push(*argv, strdup(real_exec_path));
-    for (size_t i = 1; i < cs_sb_len(words); ++i)
-        cs_sb_push(*argv, strdup(words[i]));
-    cs_sb_push(*argv, NULL);
-
     for (size_t i = 0; i < cs_sb_len(words); ++i)
         cs_sb_free(words[i]);
     cs_sb_free(words);
 
-    return 0;
-error:
-    for (size_t i = 0; i < cs_sb_len(words); ++i)
-        cs_sb_free(words[i]);
-    cs_sb_free(words);
-    return -1;
+    return rc;
 }
 
 static int init_app(const struct cs_settings *settings, struct cs_app *app) {
@@ -1088,15 +1086,16 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
 
     if (settings->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(settings->input_policy.file, R_OK) == -1) {
-        fprintf(stderr,
-                "file specified as command input is not accessable (%s)\n",
-                settings->input_policy.file);
+        fprintf(
+            stderr,
+            "error: file specified as command input is not accessable (%s)\n",
+            settings->input_policy.file);
         return -1;
     }
 
     size_t command_count = cs_sb_len(settings->commands);
     if (command_count == 0) {
-        fprintf(stderr, "no commands specified\n");
+        fprintf(stderr, "error: no commands specified\n");
         return -1;
     }
 
@@ -1188,7 +1187,8 @@ static void cs_export_json(const struct cs_app *app,
                            const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
-        fprintf(stderr, "failed to open file '%s' for export\n", filename);
+        fprintf(stderr, "error: failed to open file '%s' for export\n",
+                filename);
         return;
     }
 
