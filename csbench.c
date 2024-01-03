@@ -247,13 +247,23 @@ static void cs_print_help_and_exit(int rc) {
         "--prepare <cmd>      - specify command to be executed before each "
         "benchmark run\n"
         "--nrs <n>            - specify number of resamples for bootstrapping\n"
-        "--shell <shell>      - specify shell for command to be executed with. Can "
+        "--shell <shell>      - specify shell for command to be executed with. "
+        "Can "
         "either be none or command resolving to shell execution\n"
-        "--output <where>     - specify how to handle each command output. Can be "
+        "--output <where>     - specify how to handle each command output. Can "
+        "be "
         "either null or inherit\n"
-        "--input <where>      - specify how each command should recieve its input. "
+        "--input <where>      - specify how each command should recieve its "
+        "input. "
         "Can be either null or file name\n"
         "--export-json <file> - export benchmark results to json\n"
+        "--analyse-dir <dir>  - directory where analysis will be saved at\n"
+        "--analyse-overwrite  - by default benchmarking will not be performed "
+        "if analysis is turned on and analyse-dir is not empty. With this "
+        "option specified, older analysis will be overwritten\n"
+        "--analyse <opt>      - more complex analysis. <opt> can be one of\n"
+        "   save        - just save benchmarking results\n"
+        "   plot        - make plots as images\n"
         "--verbose            - print debug information\n"
         "--help               - print this message\n"
         "--version            - print version\n");
@@ -373,9 +383,6 @@ static void cs_parse_cli_args(int argc, char **argv,
             cs_sb_push(settings->commands, opt);
         }
     }
-
-    if (cs_sb_len(settings->commands) == 0)
-        cs_print_help_and_exit(EXIT_FAILURE);
 }
 
 static int cs_exec_command_do_exec(const struct cs_command *command) {
@@ -1088,6 +1095,11 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     }
 
     size_t command_count = cs_sb_len(settings->commands);
+    if (command_count == 0) {
+        fprintf(stderr, "no commands specified\n");
+        return -1;
+    }
+
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_command command = {0};
         const char *command_str = settings->commands[command_idx];
