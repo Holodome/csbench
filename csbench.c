@@ -70,6 +70,7 @@ struct cs_settings {
     const char **commands;
     double time_limit;
     double warmup_time;
+    size_t nresamples;
 
     struct cs_export_policy export;
 
@@ -102,6 +103,7 @@ struct cs_app {
 
     double time_limit;
     double warmup_time;
+    size_t nresamples;
 
     const char *prepare_command;
     struct cs_export_policy export;
@@ -242,6 +244,7 @@ static void cs_print_help_and_exit(int rc) {
            "--time-limit <n> - specify how long to run benchmarks\n"
            "--prepare <cmd>  - specify command to be executed before each "
            "benchmark run\n"
+           "--nrs <n>        - specify number of resamples for bootstrapping\n"
            "--verbose        - print debug information\n"
            "--help           - print this message\n"
            "--version        - print version\n");
@@ -257,6 +260,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_settings *settings) {
     settings->time_limit = 5.0;
     settings->warmup_time = 1.0;
+    settings->nresamples = 100000;
 
     int cursor = 1;
     while (cursor < argc) {
@@ -303,6 +307,22 @@ static void cs_parse_cli_args(int argc, char **argv,
 
             const char *prepare_str = argv[cursor++];
             settings->prepare = prepare_str;
+        } else if (strcmp(opt, "--nrs") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *resamples_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(resamples_str, &str_end, 10);
+            if (str_end == resamples_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value <= 0) {
+                fprintf(stderr, "resamples count must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
+
+            settings->nresamples = value;
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -803,8 +823,7 @@ static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
     } while (end_time - start_time > time_limit);
 }
 
-static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit
-                             ) {
+static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     double niter_accum = 1;
     size_t niter = 1;
 
@@ -902,9 +921,9 @@ static void cs_print_outlier_variance(double fraction) {
            var.desc, var.fraction * 100.0);
 }
 
-static void cs_analyze_benchmark(struct cs_benchmark *bench) {
+static void cs_analyze_benchmark(struct cs_benchmark *bench,
+                                 size_t nresamples) {
     size_t run_count = bench->run_count;
-    size_t nresamples = 100000;
     bench->mean_estimate =
         cs_estimate_mean(bench->wallclock_sample, run_count, nresamples);
     bench->st_dev_estimate =
@@ -1009,6 +1028,7 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->warmup_time = settings->warmup_time;
     app->export = settings->export;
     app->prepare_command = settings->prepare;
+    app->nresamples = settings->nresamples;
 
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
@@ -1184,7 +1204,7 @@ int main(int argc, char **argv) {
 
         cs_warmup(&bench, app.warmup_time);
         cs_run_benchmark(&bench, app.time_limit);
-        cs_analyze_benchmark(&bench);
+        cs_analyze_benchmark(&bench, app.nresamples);
         cs_print_benchmark_info(&bench);
         cs_sb_push(benches, bench);
     }
