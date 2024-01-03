@@ -163,6 +163,13 @@ struct cs_cpu_time {
     double system_time;
 };
 
+struct cs_whisker_plot_params {
+    double **data;
+    const char **column_names;
+    size_t *widths;
+    size_t column_count;
+};
+
 //
 // cs_sb interface
 //
@@ -300,7 +307,8 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             if (value < 0.0) {
-                fprintf(stderr, "error: time limit must be positive number or zero\n");
+                fprintf(stderr,
+                        "error: time limit must be positive number or zero\n");
                 exit(EXIT_FAILURE);
             }
 
@@ -338,7 +346,8 @@ static void cs_parse_cli_args(int argc, char **argv,
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             if (value <= 0) {
-                fprintf(stderr, "error: resamples count must be positive number\n");
+                fprintf(stderr,
+                        "error: resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
             settings->nresamples = value;
@@ -456,7 +465,7 @@ static int cs_exec_command(const struct cs_command *command) {
     }
 
     if (pid == 0)
-        exit(cs_exec_command_do_exec(command));
+        _exit(cs_exec_command_do_exec(command));
 
     int status = 0;
     if (waitpid(pid, &status, 0) == -1) {
@@ -1267,6 +1276,93 @@ static void cs_handle_export(const struct cs_app *app,
         cs_export_json(app, benches, policy->filename);
         break;
     }
+}
+
+static void
+cs_make_whisker_plot_internal(const struct cs_whisker_plot_params *params,
+                              FILE *script, const char *output_filename) {
+    fprintf(script, "data = [");
+    for (size_t i = 0; i < params->column_count; ++i) {
+        fprintf(script, "[");
+        for (size_t j = 0; j < params->widths[i]; ++j) {
+            fprintf(script, "%lf, ", params->data[i][j]);
+        }
+        fprintf(script, "], ");
+    }
+    fprintf(script, "]\n");
+    fprintf(script, "names = [");
+    for (size_t i = 0; i < params->column_count; ++i) {
+        fprintf(script, "'%s', ", params->column_names[i]);
+    }
+    fprintf(script, "]\n");
+    fprintf(script,
+            "import matplotlib.pyplot as plt\n"
+            "plt.xlabel('command')\n"
+            "plt.ylabel('time [s]')\n"
+            "plt.boxplot(data)\n"
+            "plt.xticks(list(range(1, len(names) + 1)), names)\n"
+            "plt.savefig('%s')\n",
+            output_filename);
+}
+
+static int cs_make_whisker_plot(const struct cs_benchmark *benches,
+                                const char *output_filename) {
+    int pipe_fds[2];
+    if (pipe(pipe_fds) == -1) {
+        return -1;
+    }
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return -1;
+    }
+    if (pid == 0) {
+        close(pipe_fds[1]);
+        close(STDIN_FILENO);
+        if (dup2(pipe_fds[0], STDIN_FILENO) == -1) {
+            perror("dup2");
+            _exit(-1);
+        }
+        if (execlp("python3", "python3", NULL) == -1) {
+            perror("execl");
+            _exit(-1);
+        }
+    }
+
+    close(pipe_fds[0]);
+    FILE *script = fdopen(pipe_fds[1], "w");
+
+    struct cs_whisker_plot_params params = {0};
+    params.column_count = cs_sb_len(benches);
+    params.widths = malloc(sizeof(*params.widths) * params.column_count);
+    params.column_names =
+        malloc(sizeof(*params.column_names) * params.column_count);
+    for (size_t i = 0; i < params.column_count; ++i) {
+        params.widths[i] = benches[i].run_count;
+        params.column_names[i] = benches[i].command->str;
+    }
+
+    params.data = malloc(sizeof(*params.data) * params.column_count);
+    for (size_t i = 0; i < params.column_count; ++i) {
+        size_t size = sizeof(**params.data) * params.widths[i];
+        params.data[i] = malloc(size);
+        memcpy(params.data[i], benches[i].wallclock_sample, size);
+    }
+
+    cs_make_whisker_plot_internal(&params, script, output_filename);
+
+    fclose(script);
+    free(params.data);
+    free(params.column_names);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        return -1;
+    }
+
+    return 0;
 }
 
 int main(int argc, char **argv) {
