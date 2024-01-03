@@ -9,6 +9,9 @@ all: csbench
 csbench: $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
+install: csbench
+	install csbench /usr/local/bin
+
 %.o: %.c 
 	$(CC) $(DEPFLAGS) $(CFLAGS) -c -o $@ $<
 
