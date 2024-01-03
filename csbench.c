@@ -943,9 +943,24 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench,
                             bench->st_dev_estimate.mean, (double)run_count);
 }
 
+static void cs_print_exit_code_info(const struct cs_benchmark *bench) {
+    size_t count_nonzero = 0;
+    for (size_t i = 0; i < bench->run_count; ++i)
+        if (bench->exit_codes[i] != 0)
+            ++count_nonzero;
+
+    if (count_nonzero == bench->run_count) {
+        printf("all commands have non-zero exit code: %d\n",
+               bench->exit_codes[0]);
+    } else if (count_nonzero != 0) {
+        printf("some runs (%zu) have non-zero exit code\n", count_nonzero);
+    }
+}
+
 static void cs_print_benchmark_info(const struct cs_benchmark *bench) {
     printf("command\t'%s'\n", bench->command->str);
     printf("%zu runs\n", bench->run_count);
+    cs_print_exit_code_info(bench);
     cs_print_estimate("mean", &bench->mean_estimate);
     cs_print_estimate("st dev", &bench->st_dev_estimate);
     cs_print_estimate("systime", &bench->systime_estimate);
