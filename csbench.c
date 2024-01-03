@@ -236,20 +236,26 @@ static struct cs_cpu_time cs_getcputime(void) {
 }
 
 static void cs_print_help_and_exit(int rc) {
-    printf("A command-line benchmarking tool\n"
-           "\n"
-           "Usage: csbench [OPTIONS] <command> ...\n"
-           "\n"
-           "Where options is one of:\n"
-           "--warmup <n>     - specify warmup time in seconds\n"
-           "--time-limit <n> - specify how long to run benchmarks\n"
-           "--prepare <cmd>  - specify command to be executed before each "
-           "benchmark run\n"
-           "--nrs <n>        - specify number of resamples for bootstrapping\n"
-           "--shell <shell>  - specify shell for command to be executed with\n"
-           "--verbose        - print debug information\n"
-           "--help           - print this message\n"
-           "--version        - print version\n");
+    printf(
+        "A command-line benchmarking tool\n"
+        "\n"
+        "Usage: csbench [OPTIONS] <command> ...\n"
+        "\n"
+        "Where options is one of:\n"
+        "--warmup <n>     - specify warmup time in seconds\n"
+        "--time-limit <n> - specify how long to run benchmarks\n"
+        "--prepare <cmd>  - specify command to be executed before each "
+        "benchmark run\n"
+        "--nrs <n>        - specify number of resamples for bootstrapping\n"
+        "--shell <shell>  - specify shell for command to be executed with. Can "
+        "either be none or command resolving to shell execution\n"
+        "--output <where> - specify how to handle each command output. Can be "
+        "either null or inherit\n"
+        "--input <where>  - specify how each command should recieve its input. "
+        "Can be either null or file name\n"
+        "--verbose        - print debug information\n"
+        "--help           - print this message\n"
+        "--version        - print version\n");
     exit(rc);
 }
 
@@ -333,6 +339,28 @@ static void cs_parse_cli_args(int argc, char **argv,
                 settings->shell = NULL;
             else
                 settings->shell = shell;
+        } else if (strcmp(opt, "--output") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *out = argv[cursor++];
+            if (strcmp(out, "null") == 0)
+                settings->output_policy.kind = CS_OUTPUT_POLICY_NULL;
+            else if (strcmp(out, "inherit") == 0)
+                settings->output_policy.kind = CS_OUTPUT_POLICY_INHERIT;
+            else
+                cs_print_help_and_exit(EXIT_FAILURE);
+        } else if (strcmp(opt, "--input") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *input = argv[cursor++];
+            if (strcmp(input, "null") == 0) {
+                settings->input_policy.kind = CS_INPUT_POLICY_NULL;
+            } else {
+                settings->input_policy.kind = CS_INPUT_POLICY_FILE;
+                settings->input_policy.file = input;
+            }
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -1049,6 +1077,14 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->export = settings->export;
     app->prepare_command = settings->prepare;
     app->nresamples = settings->nresamples;
+
+    if (settings->input_policy.kind == CS_INPUT_POLICY_FILE &&
+        access(settings->input_policy.file, R_OK) == -1) {
+        fprintf(stderr,
+                "file specified as command input is not accessable (%s)\n",
+                settings->input_policy.file);
+        return -1;
+    }
 
     size_t command_count = cs_sb_len(settings->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
