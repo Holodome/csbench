@@ -163,11 +163,12 @@ struct cs_cpu_time {
     double system_time;
 };
 
-struct cs_whisker_plot_params {
+struct cs_whisker_plot {
     double **data;
     const char **column_names;
     size_t *widths;
     size_t column_count;
+    const char *output_filename;
 };
 
 //
@@ -1278,22 +1279,19 @@ static void cs_handle_export(const struct cs_app *app,
     }
 }
 
-static void
-cs_make_whisker_plot_internal(const struct cs_whisker_plot_params *params,
-                              FILE *script, const char *output_filename) {
+static void cs_make_whisker_plot_internal(const struct cs_whisker_plot *params,
+                                          FILE *script) {
     fprintf(script, "data = [");
     for (size_t i = 0; i < params->column_count; ++i) {
         fprintf(script, "[");
-        for (size_t j = 0; j < params->widths[i]; ++j) {
+        for (size_t j = 0; j < params->widths[i]; ++j)
             fprintf(script, "%lf, ", params->data[i][j]);
-        }
         fprintf(script, "], ");
     }
     fprintf(script, "]\n");
     fprintf(script, "names = [");
-    for (size_t i = 0; i < params->column_count; ++i) {
+    for (size_t i = 0; i < params->column_count; ++i)
         fprintf(script, "'%s', ", params->column_names[i]);
-    }
     fprintf(script, "]\n");
     fprintf(script,
             "import matplotlib.pyplot as plt\n"
@@ -1302,7 +1300,7 @@ cs_make_whisker_plot_internal(const struct cs_whisker_plot_params *params,
             "plt.boxplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            output_filename);
+            params->output_filename);
 }
 
 static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
@@ -1338,8 +1336,34 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     return 0;
 }
 
-static int cs_make_whisker_plot(const struct cs_benchmark *benches,
-                                const char *output_filename) {
+static void cs_init_whisker_plot(const struct cs_benchmark *benches,
+                                    struct cs_whisker_plot *params) {
+    params->column_count = cs_sb_len(benches);
+    params->widths = malloc(sizeof(*params->widths) * params->column_count);
+    params->column_names =
+        malloc(sizeof(*params->column_names) * params->column_count);
+    for (size_t i = 0; i < params->column_count; ++i) {
+        params->widths[i] = benches[i].run_count;
+        params->column_names[i] = benches[i].command->str;
+    }
+
+    params->data = malloc(sizeof(*params->data) * params->column_count);
+    for (size_t i = 0; i < params->column_count; ++i) {
+        size_t size = sizeof(**params->data) * params->widths[i];
+        params->data[i] = malloc(size);
+        memcpy(params->data[i], benches[i].wallclock_sample, size);
+    }
+}
+
+static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
+    free(plot->widths);
+    free(plot->column_names);
+    for (size_t i = 0; i < plot->column_count; ++i)
+        free(plot->data[i]);
+    free(plot->data);
+}
+
+static int cs_make_whisker_plot(const struct cs_whisker_plot *plot) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -1347,28 +1371,9 @@ static int cs_make_whisker_plot(const struct cs_benchmark *benches,
         return -1;
     }
 
-    struct cs_whisker_plot_params params = {0};
-    params.column_count = cs_sb_len(benches);
-    params.widths = malloc(sizeof(*params.widths) * params.column_count);
-    params.column_names =
-        malloc(sizeof(*params.column_names) * params.column_count);
-    for (size_t i = 0; i < params.column_count; ++i) {
-        params.widths[i] = benches[i].run_count;
-        params.column_names[i] = benches[i].command->str;
-    }
-
-    params.data = malloc(sizeof(*params.data) * params.column_count);
-    for (size_t i = 0; i < params.column_count; ++i) {
-        size_t size = sizeof(**params.data) * params.widths[i];
-        params.data[i] = malloc(size);
-        memcpy(params.data[i], benches[i].wallclock_sample, size);
-    }
-
-    cs_make_whisker_plot_internal(&params, script, output_filename);
+    cs_make_whisker_plot_internal(plot, script);
 
     fclose(script);
-    free(params.data);
-    free(params.column_names);
 
     int status = 0;
     if (waitpid(pid, &status, 0) == -1) {
