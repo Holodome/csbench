@@ -10,7 +10,9 @@
 #include <string.h>
 #include <time.h>
 
+#include <errno.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -54,13 +56,18 @@ struct cs_output_policy {
 };
 
 enum cs_export_kind {
-    CS_NO_EXPORT,
+    CS_DONT_EXPORT,
     CS_EXPORT_JSON
 };
 
 struct cs_export_policy {
     enum cs_export_kind kind;
     const char *filename;
+};
+
+enum cs_analyse_mode {
+    CS_DONT_ANALYSE,
+    CS_ANALYSE_PLOT
 };
 
 // This structure contains all information
@@ -80,6 +87,9 @@ struct cs_settings {
 
     struct cs_input_policy input_policy;
     struct cs_output_policy output_policy;
+
+    const char *analyse_dir;
+    enum cs_analyse_mode analyse_mode;
 };
 
 // Description of command to benchmark.
@@ -108,6 +118,9 @@ struct cs_app {
 
     const char *prepare_command;
     struct cs_export_policy export;
+
+    enum cs_analyse_mode analyse_mode;
+    const char *analyse_dir;
 };
 
 // Boostrap estimate of certain statistic
@@ -266,11 +279,7 @@ static void cs_print_help_and_exit(int rc) {
         "Can be either null or file name\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyse-dir <dir>  - directory where analysis will be saved at\n"
-        "--analyse-overwrite  - by default benchmarking will not be performed "
-        "if analysis is turned on and analyse-dir is not empty. With this "
-        "option specified, older analysis will be overwritten\n"
         "--analyse <opt>      - more complex analysis. <opt> can be one of\n"
-        "   save        - just save benchmarking results\n"
         "   plot        - make plots as images\n"
         "--verbose            - print debug information\n"
         "--help               - print this message\n"
@@ -289,6 +298,7 @@ static void cs_parse_cli_args(int argc, char **argv,
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
     settings->shell = "/bin/sh";
+    settings->analyse_dir = ".csbench";
 
     int cursor = 1;
     while (cursor < argc) {
@@ -389,6 +399,21 @@ static void cs_parse_cli_args(int argc, char **argv,
             const char *export_filename = argv[cursor++];
             settings->export.kind = CS_EXPORT_JSON;
             settings->export.filename = export_filename;
+        } else if (strcmp(opt, "--analyse-dir") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *dir = argv[cursor++];
+            settings->analyse_dir = dir;
+        } else if (strcmp(opt, "--analyse") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *mode = argv[cursor++];
+            if (strcmp(mode, "plot") == 0)
+                settings->analyse_mode = CS_ANALYSE_PLOT;
+            else
+                cs_print_help_and_exit(EXIT_FAILURE);
         } else {
             cs_sb_push(settings->commands, opt);
         }
@@ -474,7 +499,13 @@ static int cs_exec_command(const struct cs_command *command) {
         return -1;
     }
 
-    return status;
+    int result = -1;
+    if (WIFEXITED(status))
+        result = WEXITSTATUS(result);
+    else if (WIFSIGNALED(status))
+        result = 128 + WTERMSIG(status);
+
+    return result;
 }
 
 static char **cs_split_shell_words(const char *command) {
@@ -847,12 +878,17 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
     return count;
 }
 
-static void cs_exec_and_measure(struct cs_benchmark *bench) {
+static int cs_exec_and_measure(struct cs_benchmark *bench) {
     volatile struct cs_cpu_time cpu_start = cs_getcputime();
     volatile double wall_clock_start = cs_get_time();
     volatile int rc = cs_exec_command(bench->command);
     volatile double wall_clock_end = cs_get_time();
     volatile struct cs_cpu_time cpu_end = cs_getcputime();
+
+    if (rc == -1) {
+        fprintf(stderr, "error: failed to execute command\n");
+        return -1;
+    }
 
     ++bench->run_count;
     cs_sb_push(bench->exit_codes, rc);
@@ -860,21 +896,28 @@ static void cs_exec_and_measure(struct cs_benchmark *bench) {
     cs_sb_push(bench->systime_sample,
                cpu_end.system_time - cpu_start.system_time);
     cs_sb_push(bench->usertime_sample, cpu_end.user_time - cpu_start.user_time);
+
+    return 0;
 }
 
-static void cs_warmup(struct cs_benchmark *bench, double time_limit) {
+static int cs_warmup(struct cs_benchmark *bench, double time_limit) {
     if (time_limit < 0.0)
-        return;
+        return 0;
 
     double start_time = cs_get_time();
     double end_time;
     do {
-        cs_exec_command(bench->command);
+        if (cs_exec_command(bench->command) == -1) {
+            fprintf(stderr, "error: failed to execute warmup command\n");
+            return -1;
+        }
         end_time = cs_get_time();
     } while (end_time - start_time < time_limit);
+
+    return 0;
 }
 
-static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
+static int cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     double niter_accum = 1;
     size_t niter = 1;
 
@@ -883,7 +926,8 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare)
                 system(bench->prepare);
-            cs_exec_and_measure(bench);
+            if (cs_exec_and_measure(bench) == -1) 
+                return -1;
         }
 
         double end_time = cs_get_time();
@@ -897,6 +941,8 @@ static void cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
                 break;
         }
     }
+
+    return 0;
 }
 
 static struct cs_estimate cs_estimate_mean(const double *data, size_t data_size,
@@ -972,7 +1018,7 @@ static void cs_print_outlier_variance(double fraction) {
            var.desc, var.fraction * 100.0);
 }
 
-static void cs_analyze_benchmark(struct cs_benchmark *bench,
+static void cs_analyse_benchmark(struct cs_benchmark *bench,
                                  size_t nresamples) {
     size_t run_count = bench->run_count;
     bench->mean_estimate =
@@ -1093,6 +1139,8 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->export = settings->export;
     app->prepare_command = settings->prepare;
     app->nresamples = settings->nresamples;
+    app->analyse_mode = settings->analyse_mode;
+    app->analyse_dir = settings->analyse_dir;
 
     if (settings->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(settings->input_policy.file, R_OK) == -1) {
@@ -1266,16 +1314,13 @@ static void cs_export_json(const struct cs_app *app,
 static void cs_handle_export(const struct cs_app *app,
                              const struct cs_benchmark *benches,
                              const struct cs_export_policy *policy) {
-    if (policy->kind == CS_NO_EXPORT)
-        return;
-
+    assert(policy->kind != CS_DONT_EXPORT);
     switch (policy->kind) {
-    case CS_NO_EXPORT:
-        assert(0);
-        break;
     case CS_EXPORT_JSON:
         cs_export_json(app, benches, policy->filename);
         break;
+    default:
+        assert(0);
     }
 }
 
@@ -1327,6 +1372,33 @@ static void cs_make_violin_plot(const struct cs_whisker_plot *params,
             params->output_filename);
 }
 
+static int cs_check_python_exists(void) {
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return 0;
+    }
+    if (pid == 0) {
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        if (execlp("python3", "python3", "--version", NULL) == -1) {
+            perror("dup2");
+            _exit(-1);
+        }
+    }
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return 1;
+
+    return 0;
+}
+
 static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
@@ -1341,6 +1413,9 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     if (pid == 0) {
         close(pipe_fds[1]);
         close(STDIN_FILENO);
+        // we don't need any output
+        /* close(STDOUT_FILENO); */
+        /* close(STDERR_FILENO); */
         if (dup2(pipe_fds[0], STDIN_FILENO) == -1) {
             perror("dup2");
             _exit(-1);
@@ -1440,9 +1515,55 @@ static int cs_violin_plot(const struct cs_benchmark *benches,
         goto out;
     }
 
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "error: python finished with non-zero exit code\n");
+        rc = -1;
+    }
+
 out:
     cs_free_whisker_plot(&plot);
     return rc;
+}
+
+static int cs_analyse_make_plots(const struct cs_benchmark *benches,
+                                 const char *analyse_dir) {
+    char name_buffer[4096];
+    snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyse_dir);
+    if (cs_whisker_plot(benches, name_buffer) == -1) {
+        return -1;
+    }
+
+    snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyse_dir);
+    if (cs_violin_plot(benches, name_buffer) == -1) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int cs_analyse(const struct cs_benchmark *benches,
+                      enum cs_analyse_mode mode, const char *analyse_dir) {
+    assert(mode != CS_DONT_ANALYSE);
+
+    if (mkdir(analyse_dir, 0766) == -1) {
+        if (errno == EEXIST) {
+        } else {
+            perror("mkdir");
+            return -1;
+        }
+    }
+
+    if (mode == CS_ANALYSE_PLOT) {
+        if (!cs_check_python_exists()) {
+            fprintf(stderr, "error: failed to find python3 executable\n");
+            return -1;
+        }
+
+        if (cs_analyse_make_plots(benches, analyse_dir) == -1)
+            return -1;
+    }
+
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -1463,15 +1584,18 @@ int main(int argc, char **argv) {
 
         cs_warmup(&bench, app.warmup_time);
         cs_run_benchmark(&bench, app.time_limit);
-        cs_analyze_benchmark(&bench, app.nresamples);
+        cs_analyse_benchmark(&bench, app.nresamples);
         cs_print_benchmark_info(&bench);
         cs_sb_push(benches, bench);
     }
 
     if (command_count != 1)
         cs_compare_benches(benches);
+    if (app.export.kind != CS_DONT_EXPORT)
+        cs_handle_export(&app, benches, &app.export);
+    if (app.analyse_mode != CS_DONT_ANALYSE)
+        cs_analyse(benches, app.analyse_mode, app.analyse_dir);
 
-    cs_handle_export(&app, benches, &app.export);
     for (size_t i = 0; i < cs_sb_len(benches); ++i)
         cs_free_bench(benches + i);
     cs_sb_free(benches);
