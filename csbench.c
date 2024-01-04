@@ -1305,8 +1305,7 @@ cs_make_whisker_plot_internal(const struct cs_whisker_plot_params *params,
             output_filename);
 }
 
-static int cs_make_whisker_plot(const struct cs_benchmark *benches,
-                                const char *output_filename) {
+static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
         return -1;
@@ -1325,13 +1324,28 @@ static int cs_make_whisker_plot(const struct cs_benchmark *benches,
             _exit(-1);
         }
         if (execlp("python3", "python3", NULL) == -1) {
-            perror("execl");
+            perror("execlp");
             _exit(-1);
         }
     }
 
     close(pipe_fds[0]);
     FILE *script = fdopen(pipe_fds[1], "w");
+
+    *pidp = pid;
+    *inp = script;
+
+    return 0;
+}
+
+static int cs_make_whisker_plot(const struct cs_benchmark *benches,
+                                const char *output_filename) {
+    FILE *script;
+    pid_t pid;
+    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+        fprintf(stderr, "error: failed to launch python\n");
+        return -1;
+    }
 
     struct cs_whisker_plot_params params = {0};
     params.column_count = cs_sb_len(benches);
