@@ -1279,8 +1279,8 @@ static void cs_handle_export(const struct cs_app *app,
     }
 }
 
-static void cs_make_whisker_plot_internal(const struct cs_whisker_plot *params,
-                                          FILE *script) {
+static void cs_make_whisker_plot(const struct cs_whisker_plot *params,
+                                 FILE *script) {
     fprintf(script, "data = [");
     for (size_t i = 0; i < params->column_count; ++i) {
         fprintf(script, "[");
@@ -1298,6 +1298,30 @@ static void cs_make_whisker_plot_internal(const struct cs_whisker_plot *params,
             "plt.xlabel('command')\n"
             "plt.ylabel('time [s]')\n"
             "plt.boxplot(data)\n"
+            "plt.xticks(list(range(1, len(names) + 1)), names)\n"
+            "plt.savefig('%s')\n",
+            params->output_filename);
+}
+
+static void cs_make_violin_plot(const struct cs_whisker_plot *params,
+                                FILE *script) {
+    fprintf(script, "data = [");
+    for (size_t i = 0; i < params->column_count; ++i) {
+        fprintf(script, "[");
+        for (size_t j = 0; j < params->widths[i]; ++j)
+            fprintf(script, "%lf, ", params->data[i][j]);
+        fprintf(script, "], ");
+    }
+    fprintf(script, "]\n");
+    fprintf(script, "names = [");
+    for (size_t i = 0; i < params->column_count; ++i)
+        fprintf(script, "'%s', ", params->column_names[i]);
+    fprintf(script, "]\n");
+    fprintf(script,
+            "import matplotlib.pyplot as plt\n"
+            "plt.xlabel('command')\n"
+            "plt.ylabel('time [s]')\n"
+            "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
             params->output_filename);
@@ -1337,7 +1361,7 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 }
 
 static void cs_init_whisker_plot(const struct cs_benchmark *benches,
-                                    struct cs_whisker_plot *params) {
+                                 struct cs_whisker_plot *params) {
     params->column_count = cs_sb_len(benches);
     params->widths = malloc(sizeof(*params->widths) * params->column_count);
     params->column_names =
@@ -1363,25 +1387,62 @@ static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
     free(plot->data);
 }
 
-static int cs_make_whisker_plot(const struct cs_whisker_plot *plot) {
+static int cs_whisker_plot(const struct cs_benchmark *benches,
+                           const char *output_filename) {
+    int rc = 0;
+    struct cs_whisker_plot plot = {0};
+    plot.output_filename = output_filename;
+    cs_init_whisker_plot(benches, &plot);
+
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        return -1;
+        rc = -1;
+        goto out;
     }
-
-    cs_make_whisker_plot_internal(plot, script);
+    cs_make_whisker_plot(&plot, script);
 
     fclose(script);
-
     int status = 0;
     if (waitpid(pid, &status, 0) == -1) {
         perror("waitpid");
-        return -1;
+        rc = -1;
+        goto out;
     }
 
-    return 0;
+out:
+    cs_free_whisker_plot(&plot);
+    return rc;
+}
+
+static int cs_violin_plot(const struct cs_benchmark *benches,
+                          const char *output_filename) {
+    int rc = 0;
+    struct cs_whisker_plot plot = {0};
+    plot.output_filename = output_filename;
+    cs_init_whisker_plot(benches, &plot);
+
+    FILE *script;
+    pid_t pid;
+    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+        fprintf(stderr, "error: failed to launch python\n");
+        rc = -1;
+        goto out;
+    }
+    cs_make_violin_plot(&plot, script);
+
+    fclose(script);
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        rc = -1;
+        goto out;
+    }
+
+out:
+    cs_free_whisker_plot(&plot);
+    return rc;
 }
 
 int main(int argc, char **argv) {
@@ -1411,7 +1472,6 @@ int main(int argc, char **argv) {
         cs_compare_benches(benches);
 
     cs_handle_export(&app, benches, &app.export);
-
     for (size_t i = 0; i < cs_sb_len(benches); ++i)
         cs_free_bench(benches + i);
     cs_sb_free(benches);
