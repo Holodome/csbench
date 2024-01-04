@@ -183,6 +183,11 @@ struct cs_whisker_plot {
     const char *output_filename;
 };
 
+struct cs_kde_plot {
+    double *data;
+    size_t count;
+};
+
 //
 // cs_sb interface
 //
@@ -1286,10 +1291,10 @@ static void cs_export_json(const struct cs_app *app,
                 "\"sys_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
                 bench->systime_estimate.min, bench->systime_estimate.point,
                 bench->systime_estimate.max);
-        fprintf(f,
-                "\"user_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
-                bench->usertime_estimate.min, bench->usertime_estimate.point,
-                bench->usertime_estimate.max);
+        fprintf(
+            f, "\"user_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
+            bench->usertime_estimate.min, bench->usertime_estimate.point,
+            bench->usertime_estimate.max);
         fprintf(f,
                 "\"outliers\": { \"low_severe\": %zu, \"low_mild\": %zu, "
                 "\"high_mild\": %zu, \"high_severe\": %zu, \"variance\": %lf }",
@@ -1315,6 +1320,38 @@ static void cs_handle_export(const struct cs_app *app,
     default:
         assert(0);
     }
+}
+
+static void cs_construct_kde(const double *data, size_t data_size, double *kde,
+                             size_t kde_size) {
+    double *ssa = malloc(data_size * sizeof(*ssa));
+    memcpy(ssa, data, data_size * sizeof(*ssa));
+    qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
+
+    double q1 = ssa[data_size / 4];
+    double q3 = ssa[data_size * 3 / 4];
+    double iqr = q3 - q1;
+    double lower = ssa[0];
+    double kde_step = (ssa[data_size - 1] - lower) / data_size;
+    double st_dev = cs_stat_st_dev(data, data_size);
+    double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(data_size, -0.2);
+
+    double k_mult = 1.0 / sqrt(2 * 3.1415926538);
+    for (size_t i = 0; i < kde_size; ++i) {
+        double x = lower + i * kde_step;
+
+        double kde_value = 0;
+        for (size_t j = 0; j < data_size; ++j) {
+            double u = (x - data[j]) / h;
+            double k = k_mult * exp(-0.5 * u * u);
+            kde_value += k;
+        }
+
+        kde_value /= data_size * h;
+        kde[i] = kde_value;
+    }
+    
+    free(ssa);
 }
 
 static void cs_make_whisker_plot(const struct cs_whisker_plot *params,
