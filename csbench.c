@@ -926,7 +926,7 @@ static int cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare)
                 system(bench->prepare);
-            if (cs_exec_and_measure(bench) == -1) 
+            if (cs_exec_and_measure(bench) == -1)
                 return -1;
         }
 
@@ -1413,13 +1413,13 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     if (pid == 0) {
         close(pipe_fds[1]);
         close(STDIN_FILENO);
-        // we don't need any output
-        /* close(STDOUT_FILENO); */
-        /* close(STDERR_FILENO); */
         if (dup2(pipe_fds[0], STDIN_FILENO) == -1) {
             perror("dup2");
             _exit(-1);
         }
+        // we don't need any output
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         if (execlp("python3", "python3", NULL) == -1) {
             perror("execlp");
             _exit(-1);
@@ -1431,6 +1431,27 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 
     *pidp = pid;
     *inp = script;
+
+    return 0;
+}
+
+static int cs_check_python_has_matplotlib(void) {
+    FILE *script;
+    pid_t pid;
+    if (cs_launch_python_stdin_pipe(&script, &pid))
+        return 0;
+
+    fprintf(script, "import matplotlib.pyplot as plt\n");
+    fclose(script);
+
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return 1;
 
     return 0;
 }
@@ -1556,6 +1577,11 @@ static int cs_analyse(const struct cs_benchmark *benches,
     if (mode == CS_ANALYSE_PLOT) {
         if (!cs_check_python_exists()) {
             fprintf(stderr, "error: failed to find python3 executable\n");
+            return -1;
+        }
+        if (!cs_check_python_has_matplotlib()) {
+            fprintf(stderr,
+                    "error: python does not have matplotlib installed\n");
             return -1;
         }
 
