@@ -126,8 +126,7 @@ struct cs_app {
 // Boostrap estimate of certain statistic
 struct cs_estimate {
     double min;
-    // TODO: This should have better name
-    double mean;
+    double point;
     double max;
 };
 
@@ -207,12 +206,6 @@ struct cs_whisker_plot {
 #define cs_sb_len(_a) (((_a) != NULL) ? cs_sb_size(_a) : 0)
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
-
-static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride);
-
-//
-// Begin function definitions
-//
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -983,7 +976,7 @@ static struct cs_estimate cs_strict_estimate(const double *data,
 static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->min);
-    cs_print_time(buf2, sizeof(buf2), est->mean);
+    cs_print_time(buf2, sizeof(buf2), est->point);
     cs_print_time(buf3, sizeof(buf3), est->max);
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
 }
@@ -1031,8 +1024,8 @@ static void cs_analyse_benchmark(struct cs_benchmark *bench,
         cs_strict_estimate(bench->usertime_sample, run_count);
     bench->outliers = cs_classify_outliers(bench->wallclock_sample, run_count);
     bench->outlier_variance_fraction =
-        cs_outlier_variance(bench->mean_estimate.mean,
-                            bench->st_dev_estimate.mean, (double)run_count);
+        cs_outlier_variance(bench->mean_estimate.point,
+                            bench->st_dev_estimate.point, (double)run_count);
 }
 
 static void cs_print_exit_code_info(const struct cs_benchmark *bench) {
@@ -1212,10 +1205,10 @@ static void cs_compare_benches(const struct cs_benchmark *benches) {
     size_t bench_count = cs_sb_capacity(benches);
     assert(bench_count > 1);
     size_t best_idx = 0;
-    double best_mean = benches[0].mean_estimate.mean;
+    double best_mean = benches[0].mean_estimate.point;
     for (size_t i = 1; i < bench_count; ++i) {
         const struct cs_benchmark *bench = benches + i;
-        double mean = bench->mean_estimate.mean;
+        double mean = bench->mean_estimate.point;
         if (mean < best_mean) {
             best_idx = i;
             best_mean = mean;
@@ -1229,10 +1222,10 @@ static void cs_compare_benches(const struct cs_benchmark *benches) {
         if (bench == best)
             continue;
 
-        double ref = bench->mean_estimate.mean / best->mean_estimate.mean;
+        double ref = bench->mean_estimate.point / best->mean_estimate.point;
         // propagate standard deviation for formula (t1 / t2)
-        double a = bench->st_dev_estimate.mean / bench->mean_estimate.mean;
-        double b = best->st_dev_estimate.mean / best->mean_estimate.mean;
+        double a = bench->st_dev_estimate.point / bench->mean_estimate.point;
+        double b = best->st_dev_estimate.point / best->mean_estimate.point;
         double ref_st_dev = ref * sqrt(a * a + b * b);
 
         printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
@@ -1280,22 +1273,22 @@ static void cs_export_json(const struct cs_app *app,
             fprintf(f, "%d%s", bench->exit_codes[i],
                     i != run_count - 1 ? ", " : "");
         fprintf(f,
-                "], \"mean_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                "], \"mean_est\": { \"min\": %lf, \"point\": %lf, \"max\": "
                 "%lf }, ",
-                bench->mean_estimate.min, bench->mean_estimate.mean,
+                bench->mean_estimate.min, bench->mean_estimate.point,
                 bench->mean_estimate.max);
         fprintf(f,
-                "\"st_dev_est\": { \"min\": %lf, \"mean\": %lf, \"max\": "
+                "\"st_dev_est\": { \"min\": %lf, \"point\": %lf, \"max\": "
                 "%lf }, ",
-                bench->st_dev_estimate.min, bench->st_dev_estimate.mean,
+                bench->st_dev_estimate.min, bench->st_dev_estimate.point,
                 bench->st_dev_estimate.max);
         fprintf(f,
-                "\"sys_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
-                bench->systime_estimate.min, bench->systime_estimate.mean,
+                "\"sys_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
+                bench->systime_estimate.min, bench->systime_estimate.point,
                 bench->systime_estimate.max);
         fprintf(f,
-                "\"user_est\": { \"min\": %lf, \"mean\": %lf, \"max\": %lf }, ",
-                bench->usertime_estimate.min, bench->usertime_estimate.mean,
+                "\"user_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
+                bench->usertime_estimate.min, bench->usertime_estimate.point,
                 bench->usertime_estimate.max);
         fprintf(f,
                 "\"outliers\": { \"low_severe\": %zu, \"low_mild\": %zu, "
