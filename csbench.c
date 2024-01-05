@@ -425,19 +425,19 @@ static void cs_parse_cli_args(int argc, char **argv,
     }
 }
 
-static int cs_exec_command_do_exec(const struct cs_command *command) {
+static void cs_exec_command_do_exec(const struct cs_command *command) {
     switch (command->input_policy.kind) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
         int fd = open("/dev/null", O_RDONLY);
         if (fd == -1) {
             perror("open");
-            return -1;
+            _exit(-1);
         }
 
         if (dup2(fd, STDIN_FILENO) == -1) {
             perror("dup2");
-            return -1;
+            _exit(-1);
         }
         close(fd);
         break;
@@ -447,11 +447,11 @@ static int cs_exec_command_do_exec(const struct cs_command *command) {
         int fd = open(command->input_policy.file, O_RDONLY);
         if (fd == -1) {
             perror("open");
-            return -1;
+            _exit(-1);
         }
         if (dup2(fd, STDIN_FILENO) == -1) {
             perror("dup2");
-            return -1;
+            _exit(-1);
         }
         close(fd);
         break;
@@ -466,12 +466,12 @@ static int cs_exec_command_do_exec(const struct cs_command *command) {
         int fd = open("/dev/null", O_WRONLY);
         if (fd == -1) {
             perror("open");
-            return -1;
+            _exit(-1);
         }
 
         if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1) {
             perror("dup2");
-            return -1;
+            _exit(-1);
         }
         close(fd);
         break;
@@ -482,10 +482,8 @@ static int cs_exec_command_do_exec(const struct cs_command *command) {
 
     if (execv(command->executable, command->argv) == -1) {
         perror("execv");
-        return -1;
+        _exit(-1);
     }
-
-    return 0;
 }
 
 static int cs_exec_command(const struct cs_command *command) {
@@ -496,7 +494,7 @@ static int cs_exec_command(const struct cs_command *command) {
     }
 
     if (pid == 0)
-        _exit(cs_exec_command_do_exec(command));
+        cs_exec_command_do_exec(command);
 
     int status = 0;
     pid_t wpid;
@@ -505,10 +503,9 @@ static int cs_exec_command(const struct cs_command *command) {
             perror("waitpid");
         return -1;
     }
-
     int result = -1;
     if (WIFEXITED(status))
-        result = WEXITSTATUS(result);
+        result = WEXITSTATUS(status);
     else if (WIFSIGNALED(status))
         result = 128 + WTERMSIG(status);
 
