@@ -65,9 +65,10 @@ struct cs_export_policy {
     const char *filename;
 };
 
-enum cs_analyse_mode {
-    CS_DONT_ANALYSE,
-    CS_ANALYSE_PLOT
+enum cs_analyze_mode {
+    CS_DONT_analyze,
+    CS_analyze_PLOT,
+    CS_analyze_HTML
 };
 
 // This structure contains all information
@@ -88,8 +89,8 @@ struct cs_settings {
     struct cs_input_policy input_policy;
     struct cs_output_policy output_policy;
 
-    const char *analyse_dir;
-    enum cs_analyse_mode analyse_mode;
+    const char *analyze_dir;
+    enum cs_analyze_mode analyze_mode;
 };
 
 // Description of command to benchmark.
@@ -119,8 +120,8 @@ struct cs_app {
     const char *prepare_command;
     struct cs_export_policy export;
 
-    enum cs_analyse_mode analyse_mode;
-    const char *analyse_dir;
+    enum cs_analyze_mode analyze_mode;
+    const char *analyze_dir;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -283,9 +284,10 @@ static void cs_print_help_and_exit(int rc) {
         "--input <where>      - specify how each command should recieve its "
         "input. Can be either null or file name\n"
         "--export-json <file> - export benchmark results to json\n"
-        "--analyse-dir <dir>  - directory where analysis will be saved at\n"
-        "--analyse <opt>      - more complex analysis. <opt> can be one of\n"
+        "--analyze-dir <dir>  - directory where analysis will be saved at\n"
+        "--analyze <opt>      - more complex analysis. <opt> can be one of\n"
         "   plot        - make plots as images\n"
+        "   html        - make html report\n"
         "--verbose            - print debug information\n"
         "--help               - print this message\n"
         "--version            - print version\n");
@@ -303,7 +305,7 @@ static void cs_parse_cli_args(int argc, char **argv,
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
     settings->shell = "/bin/sh";
-    settings->analyse_dir = ".csbench";
+    settings->analyze_dir = ".csbench";
 
     int cursor = 1;
     while (cursor < argc) {
@@ -404,19 +406,21 @@ static void cs_parse_cli_args(int argc, char **argv,
             const char *export_filename = argv[cursor++];
             settings->export.kind = CS_EXPORT_JSON;
             settings->export.filename = export_filename;
-        } else if (strcmp(opt, "--analyse-dir") == 0) {
+        } else if (strcmp(opt, "--analyze-dir") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *dir = argv[cursor++];
-            settings->analyse_dir = dir;
-        } else if (strcmp(opt, "--analyse") == 0) {
+            settings->analyze_dir = dir;
+        } else if (strcmp(opt, "--analyze") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *mode = argv[cursor++];
             if (strcmp(mode, "plot") == 0)
-                settings->analyse_mode = CS_ANALYSE_PLOT;
+                settings->analyze_mode = CS_analyze_PLOT;
+            else if (strcmp(mode, "html") == 0)
+                settings->analyze_mode = CS_analyze_HTML;
             else
                 cs_print_help_and_exit(EXIT_FAILURE);
         } else {
@@ -430,29 +434,20 @@ static void cs_exec_command_do_exec(const struct cs_command *command) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
         int fd = open("/dev/null", O_RDONLY);
-        if (fd == -1) {
-            perror("open");
+        if (fd == -1)
             _exit(-1);
-        }
-
-        if (dup2(fd, STDIN_FILENO) == -1) {
-            perror("dup2");
+        if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
-        }
         close(fd);
         break;
     }
     case CS_INPUT_POLICY_FILE: {
         close(STDIN_FILENO);
         int fd = open(command->input_policy.file, O_RDONLY);
-        if (fd == -1) {
-            perror("open");
+        if (fd == -1)
             _exit(-1);
-        }
-        if (dup2(fd, STDIN_FILENO) == -1) {
-            perror("dup2");
+        if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
-        }
         close(fd);
         break;
     }
@@ -462,17 +457,11 @@ static void cs_exec_command_do_exec(const struct cs_command *command) {
     case CS_OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-
         int fd = open("/dev/null", O_WRONLY);
-        if (fd == -1) {
-            perror("open");
+        if (fd == -1)
             _exit(-1);
-        }
-
-        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1) {
-            perror("dup2");
+        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
             _exit(-1);
-        }
         close(fd);
         break;
     }
@@ -480,10 +469,8 @@ static void cs_exec_command_do_exec(const struct cs_command *command) {
         break;
     }
 
-    if (execv(command->executable, command->argv) == -1) {
-        perror("execv");
+    if (execv(command->executable, command->argv) == -1)
         _exit(-1);
-    }
 }
 
 static int cs_exec_command(const struct cs_command *command) {
@@ -1007,7 +994,7 @@ static void cs_print_outlier_variance(double fraction) {
            var.desc, var.fraction * 100.0);
 }
 
-static void cs_analyse_benchmark(struct cs_benchmark *bench,
+static void cs_analyze_benchmark(struct cs_benchmark *bench,
                                  size_t nresamples) {
     size_t run_count = bench->run_count;
     bench->mean_estimate =
@@ -1133,8 +1120,8 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->export = settings->export;
     app->prepare_command = settings->prepare;
     app->nresamples = settings->nresamples;
-    app->analyse_mode = settings->analyse_mode;
-    app->analyse_dir = settings->analyse_dir;
+    app->analyze_mode = settings->analyze_mode;
+    app->analyze_dir = settings->analyze_dir;
 
     if (settings->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(settings->input_policy.file, R_OK) == -1) {
@@ -1406,7 +1393,7 @@ static int cs_process_executed_correctly(pid_t pid) {
     return 0;
 }
 
-static int cs_check_python_exists(void) {
+static int cs_python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -1459,7 +1446,7 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 
     return 0;
 }
-static int cs_check_python_has_matplotlib(void) {
+static int cs_python_has_matplotlib(void) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid))
@@ -1638,20 +1625,20 @@ out:
     return rc;
 }
 
-static int cs_analyse_make_plots(const struct cs_benchmark *benches,
-                                 const char *analyse_dir) {
+static int cs_analyze_make_plots(const struct cs_benchmark *benches,
+                                 const char *analyze_dir) {
     char name_buffer[4096];
-    snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyse_dir);
+    snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyze_dir);
     if (cs_whisker_plot(benches, name_buffer) == -1)
         return -1;
 
-    snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyse_dir);
+    snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyze_dir);
     if (cs_violin_plot(benches, name_buffer) == -1)
         return -1;
 
     for (size_t i = 0; i < cs_sb_len(benches); ++i) {
         snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
-                 analyse_dir, i + 1);
+                 analyze_dir, i + 1);
         if (cs_kde_plot(benches, name_buffer) == -1)
             return -1;
     }
@@ -1659,11 +1646,43 @@ static int cs_analyse_make_plots(const struct cs_benchmark *benches,
     return 0;
 }
 
-static int cs_analyse(const struct cs_benchmark *benches,
-                      enum cs_analyse_mode mode, const char *analyse_dir) {
-    assert(mode != CS_DONT_ANALYSE);
+static void cs_print_html_report(const struct cs_benchmark *benches,
+                                 const char *analyse_dir, FILE *f) {
+    // better
+    fprintf(f,
+            "<!DOCTYPE html><html lang=\"en\">"
+            "<head><meta charset=\"UTF-8\">"
+            "<meta name=\"viewport\" content=\"width=device-width, "
+            "initial-scale=1.0\">"
+            "<title>csbench</title>"
+            "<style>body { margin: 40px auto; max-width: 650px; line-height: "
+            "1.6; font-size: 18px; color: #444; padding: 0 10px }"
+            "h1, h2, h3 { line-height: 1.2 }"
+            "</style> </head>");
+    fprintf(f, "<body>");
+    fprintf(f, "</body>");
+}
 
-    if (mkdir(analyse_dir, 0766) == -1) {
+static int cs_analyze_make_html_report(const struct cs_benchmark *benches,
+                                       const char *analyze_dir) {
+    char name_buffer[4096];
+    snprintf(name_buffer, sizeof(name_buffer), "%s/index.html", analyze_dir);
+    FILE *f = fopen(name_buffer, "w");
+    if (f == NULL) {
+        fprintf(stderr, "error: failed to create file %s\n", name_buffer);
+        return -1;
+    }
+
+    cs_print_html_report(benches, analyze_dir, f);
+    fclose(f);
+    return 0;
+}
+
+static int cs_analyze(const struct cs_benchmark *benches,
+                      enum cs_analyze_mode mode, const char *analyze_dir) {
+    assert(mode != CS_DONT_analyze);
+
+    if (mkdir(analyze_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
             perror("mkdir");
@@ -1671,18 +1690,23 @@ static int cs_analyse(const struct cs_benchmark *benches,
         }
     }
 
-    if (mode == CS_ANALYSE_PLOT) {
-        if (!cs_check_python_exists()) {
+    if (mode == CS_analyze_PLOT || mode == CS_analyze_HTML) {
+        if (!cs_python_found()) {
             fprintf(stderr, "error: failed to find python3 executable\n");
             return -1;
         }
-        if (!cs_check_python_has_matplotlib()) {
+        if (!cs_python_has_matplotlib()) {
             fprintf(stderr,
                     "error: python does not have matplotlib installed\n");
             return -1;
         }
 
-        if (cs_analyse_make_plots(benches, analyse_dir) == -1)
+        if (cs_analyze_make_plots(benches, analyze_dir) == -1)
+            return -1;
+    }
+
+    if (mode == CS_analyze_HTML) {
+        if (cs_analyze_make_html_report(benches, analyze_dir) == -1)
             return -1;
     }
 
@@ -1707,7 +1731,7 @@ int main(int argc, char **argv) {
 
         cs_warmup(&bench, app.warmup_time);
         cs_run_benchmark(&bench, app.time_limit);
-        cs_analyse_benchmark(&bench, app.nresamples);
+        cs_analyze_benchmark(&bench, app.nresamples);
         cs_print_benchmark_info(&bench);
         cs_sb_push(benches, bench);
     }
@@ -1716,8 +1740,8 @@ int main(int argc, char **argv) {
         cs_compare_benches(benches);
     if (app.export.kind != CS_DONT_EXPORT)
         cs_handle_export(&app, benches, &app.export);
-    if (app.analyse_mode != CS_DONT_ANALYSE)
-        cs_analyse(benches, app.analyse_mode, app.analyse_dir);
+    if (app.analyze_mode != CS_DONT_analyze)
+        cs_analyze(benches, app.analyze_mode, app.analyze_dir);
 
     for (size_t i = 0; i < cs_sb_len(benches); ++i)
         cs_free_bench(benches + i);

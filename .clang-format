@@ -6,3 +6,4 @@ AllowShortBlocksOnASingleLine: Never
 AllowShortFunctionsOnASingleLine: None
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
+AlwaysBreakAfterDefinitionReturnType: All
