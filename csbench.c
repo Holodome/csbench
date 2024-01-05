@@ -279,11 +279,9 @@ static void cs_print_help_and_exit(int rc) {
         "Can "
         "either be none or command resolving to shell execution\n"
         "--output <where>     - specify how to handle each command output. Can "
-        "be "
-        "either null or inherit\n"
+        "be either null or inherit\n"
         "--input <where>      - specify how each command should recieve its "
-        "input. "
-        "Can be either null or file name\n"
+        "input. Can be either null or file name\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyse-dir <dir>  - directory where analysis will be saved at\n"
         "--analyse <opt>      - more complex analysis. <opt> can be one of\n"
@@ -501,8 +499,10 @@ static int cs_exec_command(const struct cs_command *command) {
         _exit(cs_exec_command_do_exec(command));
 
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         return -1;
     }
 
@@ -1403,8 +1403,10 @@ static int cs_check_python_exists(void) {
     }
 
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         return 0;
     }
 
@@ -1460,8 +1462,10 @@ static int cs_check_python_has_matplotlib(void) {
     fclose(script);
 
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         return 0;
     }
 
@@ -1582,10 +1586,17 @@ static int cs_whisker_plot(const struct cs_benchmark *benches,
 
     fclose(script);
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         rc = -1;
         goto out;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "error: python finished with non-zero exit code\n");
+        rc = -1;
     }
 
 out:
@@ -1611,8 +1622,10 @@ static int cs_violin_plot(const struct cs_benchmark *benches,
 
     fclose(script);
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         rc = -1;
         goto out;
     }
@@ -1646,8 +1659,10 @@ static int cs_kde_plot(const struct cs_benchmark *bench,
 
     fclose(script);
     int status = 0;
-    if (waitpid(pid, &status, 0) == -1) {
-        perror("waitpid");
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
         rc = -1;
         goto out;
     }
