@@ -503,6 +503,8 @@ static int cs_exec_command(const struct cs_command *command) {
             perror("waitpid");
         return -1;
     }
+
+    // shell-like exit codes
     int result = -1;
     if (WIFEXITED(status))
         result = WEXITSTATUS(status);
@@ -1108,9 +1110,9 @@ static int cs_extract_executable_and_argv(const char *command_str,
     } else {
         *executable = real_exec_path;
         const char *exec_name = strrchr(real_exec_path, '/');
-        if (exec_name == NULL) 
+        if (exec_name == NULL)
             exec_name = real_exec_path;
-        else 
+        else
             ++exec_name;
         cs_sb_push(*argv, strdup(exec_name));
         for (size_t i = 1; i < cs_sb_len(words); ++i)
@@ -1389,6 +1391,21 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
             plot->title, plot->mean, plot->mean_y, plot->output_filename);
 }
 
+static int cs_process_executed_correctly(pid_t pid) {
+    int status = 0;
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return 1;
+
+    return 0;
+}
+
 static int cs_check_python_exists(void) {
     pid_t pid = fork();
     if (pid == -1) {
@@ -1404,18 +1421,7 @@ static int cs_check_python_exists(void) {
         }
     }
 
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        return 0;
-    }
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 1;
-
-    return 0;
+    return cs_process_executed_correctly(pid);
 }
 
 static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
@@ -1437,8 +1443,8 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
             _exit(-1);
         }
         // we don't need any output
-        /* close(STDOUT_FILENO); */
-        /* close(STDERR_FILENO); */
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         if (execlp("python3", "python3", NULL) == -1) {
             perror("execlp");
             _exit(-1);
@@ -1453,7 +1459,6 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 
     return 0;
 }
-
 static int cs_check_python_has_matplotlib(void) {
     FILE *script;
     pid_t pid;
@@ -1462,19 +1467,7 @@ static int cs_check_python_has_matplotlib(void) {
 
     fprintf(script, "import matplotlib.pyplot as plt\n");
     fclose(script);
-
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        return 0;
-    }
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 1;
-
-    return 0;
+    return cs_process_executed_correctly(pid);
 }
 
 static void cs_init_whisker_plot(const struct cs_benchmark *benches,
@@ -1509,7 +1502,6 @@ static void cs_construct_kde(const double *data, size_t data_size, double *kde,
     double *ssa = malloc(data_size * sizeof(*ssa));
     memcpy(ssa, data, data_size * sizeof(*ssa));
     qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
-
     double q1 = ssa[data_size / 4];
     double q3 = ssa[data_size * 3 / 4];
     double iqr = q3 - q1;
@@ -1522,18 +1514,15 @@ static void cs_construct_kde(const double *data, size_t data_size, double *kde,
     double lower = fmax(mean - 3 * st_dev, ssa[0]);
     double upper = fmin(mean + 3 * st_dev, ssa[data_size - 1]);
     double step = (upper - lower) / data_size;
-
     double k_mult = 1.0 / sqrt(2 * 3.1415926536);
     for (size_t i = 0; i < kde_size; ++i) {
         double x = lower + i * step;
-
         double kde_value = 0;
         for (size_t j = 0; j < data_size; ++j) {
             double u = (x - data[j]) / h;
             double k = k_mult * exp(-0.5 * u * u);
             kde_value += k;
         }
-
         kde_value /= data_size * h;
         kde[i] = kde_value;
     }
@@ -1585,18 +1574,8 @@ static int cs_whisker_plot(const struct cs_benchmark *benches,
         goto out;
     }
     cs_make_whisker_plot(&plot, script);
-
     fclose(script);
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        rc = -1;
-        goto out;
-    }
-
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         rc = -1;
     }
@@ -1621,18 +1600,8 @@ static int cs_violin_plot(const struct cs_benchmark *benches,
         goto out;
     }
     cs_make_violin_plot(&plot, script);
-
     fclose(script);
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        rc = -1;
-        goto out;
-    }
-
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         rc = -1;
     }
@@ -1658,18 +1627,8 @@ static int cs_kde_plot(const struct cs_benchmark *bench,
         goto out;
     }
     cs_make_kde_plot(&plot, script);
-
     fclose(script);
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        rc = -1;
-        goto out;
-    }
-
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         rc = -1;
     }
@@ -1683,21 +1642,18 @@ static int cs_analyse_make_plots(const struct cs_benchmark *benches,
                                  const char *analyse_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyse_dir);
-    if (cs_whisker_plot(benches, name_buffer) == -1) {
+    if (cs_whisker_plot(benches, name_buffer) == -1)
         return -1;
-    }
 
     snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyse_dir);
-    if (cs_violin_plot(benches, name_buffer) == -1) {
+    if (cs_violin_plot(benches, name_buffer) == -1)
         return -1;
-    }
 
     for (size_t i = 0; i < cs_sb_len(benches); ++i) {
         snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
                  analyse_dir, i + 1);
-        if (cs_kde_plot(benches, name_buffer) == -1) {
+        if (cs_kde_plot(benches, name_buffer) == -1)
             return -1;
-        }
     }
 
     return 0;
