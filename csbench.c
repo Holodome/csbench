@@ -73,7 +73,7 @@ enum cs_analyze_mode {
 
 // This structure contains all information
 // supplied by user prior to benchmark start.
-struct cs_settings {
+struct cs_cli_settings {
     // Array of commands to benchmark
     const char **commands;
     double time_limit;
@@ -109,7 +109,7 @@ struct cs_command {
 
 // Information gethered from user input (settings), parsed
 // and prepared for benchmarking.
-struct cs_app {
+struct cs_settings {
     size_t command_count;
     struct cs_command *commands;
 
@@ -306,7 +306,7 @@ cs_print_version_and_exit(void) {
 }
 
 static void
-cs_parse_cli_args(int argc, char **argv, struct cs_settings *settings) {
+cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
     settings->time_limit = 5.0;
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
@@ -1004,14 +1004,6 @@ cs_print_outliers(const struct cs_outliers *outliers, size_t run_count) {
 }
 
 static void
-cs_print_outlier_variance(double fraction) {
-    struct cs_outlier_variance var = cs_classify_outlier_variance(fraction);
-    printf("outlying measurements have %s (%.1lf%%) effect on estimated "
-           "standard deviation\n",
-           var.desc, var.fraction * 100.0);
-}
-
-static void
 cs_analyze_benchmark(struct cs_benchmark *bench, size_t nresamples) {
     size_t run_count = bench->run_count;
     bench->mean_estimate =
@@ -1053,7 +1045,11 @@ cs_print_benchmark_info(const struct cs_benchmark *bench) {
     cs_print_estimate("systime", &bench->systime_estimate);
     cs_print_estimate("usrtime", &bench->usertime_estimate);
     cs_print_outliers(&bench->outliers, bench->run_count);
-    cs_print_outlier_variance(bench->outlier_variance_fraction);
+    struct cs_outlier_variance var =
+        cs_classify_outlier_variance(bench->outlier_variance_fraction);
+    printf("outlying measurements have %s (%.1lf%%) effect on estimated "
+           "standard deviation\n",
+           var.desc, var.fraction * 100.0);
 }
 
 static char *
@@ -1136,44 +1132,44 @@ cs_extract_executable_and_argv(const char *command_str, char **executable,
 }
 
 static int
-init_app(const struct cs_settings *settings, struct cs_app *app) {
-    app->time_limit = settings->time_limit;
-    app->warmup_time = settings->warmup_time;
-    app->export = settings->export;
-    app->prepare_command = settings->prepare;
-    app->nresamples = settings->nresamples;
-    app->analyze_mode = settings->analyze_mode;
-    app->analyze_dir = settings->analyze_dir;
+cs_init_settings(const struct cs_cli_settings *cli,
+                 struct cs_settings *settings) {
+    settings->time_limit = cli->time_limit;
+    settings->warmup_time = cli->warmup_time;
+    settings->export = cli->export;
+    settings->prepare_command = cli->prepare;
+    settings->nresamples = cli->nresamples;
+    settings->analyze_mode = cli->analyze_mode;
+    settings->analyze_dir = cli->analyze_dir;
 
-    if (settings->input_policy.kind == CS_INPUT_POLICY_FILE &&
-        access(settings->input_policy.file, R_OK) == -1) {
+    if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
+        access(cli->input_policy.file, R_OK) == -1) {
         fprintf(
             stderr,
             "error: file specified as command input is not accessable (%s)\n",
-            settings->input_policy.file);
+            cli->input_policy.file);
         return -1;
     }
 
-    size_t command_count = cs_sb_len(settings->commands);
+    size_t command_count = cs_sb_len(cli->commands);
     if (command_count == 0) {
         fprintf(stderr, "error: no commands specified\n");
         return -1;
     }
 
-    app->command_count = command_count;
-    app->commands = calloc(command_count, sizeof(*app->commands));
+    settings->command_count = command_count;
+    settings->commands = calloc(command_count, sizeof(*settings->commands));
     for (size_t i = 0; i < command_count; ++i) {
-        struct cs_command *command = app->commands + i;
-        const char *command_str = settings->commands[i];
+        struct cs_command *command = settings->commands + i;
+        const char *command_str = cli->commands[i];
         command->str = command_str;
-        command->input_policy = settings->input_policy;
-        command->output_policy = settings->output_policy;
+        command->input_policy = cli->input_policy;
+        command->output_policy = cli->output_policy;
         // TODO: Cleanup this code fragment
-        if (settings->shell) {
-            if (cs_extract_executable_and_argv(settings->shell,
-                                               &command->executable,
+        if (cli->shell) {
+            if (cs_extract_executable_and_argv(cli->shell, &command->executable,
                                                &command->argv) != 0) {
-                free(app->commands);
+                free(settings->commands);
                 return -1;
             }
             // pop NULL appended by cs_extract_executable_and_path
@@ -1182,9 +1178,9 @@ init_app(const struct cs_settings *settings, struct cs_app *app) {
             cs_sb_push(command->argv, strdup(command_str));
             cs_sb_push(command->argv, NULL);
         } else {
-            if (cs_extract_executable_and_argv(command_str, &command->executable,
-                                               &command->argv) != 0) {
-                free(app->commands);
+            if (cs_extract_executable_and_argv(
+                    command_str, &command->executable, &command->argv) != 0) {
+                free(settings->commands);
                 return -1;
             }
         }
@@ -1202,7 +1198,7 @@ cs_free_bench(struct cs_benchmark *bench) {
 }
 
 static void
-cs_free_app(struct cs_app *app) {
+cs_free_settings(struct cs_settings *app) {
     for (size_t i = 0; i < app->command_count; ++i) {
         struct cs_command *command = app->commands + i;
         free(command->executable);
@@ -1246,8 +1242,9 @@ cs_compare_benches(const struct cs_benchmark *benches, size_t bench_count) {
 }
 
 static void
-cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
-               size_t bench_count, const char *filename) {
+cs_export_json(const struct cs_settings *app,
+               const struct cs_benchmark *benches, size_t bench_count,
+               const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1318,8 +1315,9 @@ cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
 }
 
 static void
-cs_handle_export(const struct cs_app *app, const struct cs_benchmark *benches,
-                 size_t bench_count, const struct cs_export_policy *policy) {
+cs_handle_export(const struct cs_settings *app,
+                 const struct cs_benchmark *benches, size_t bench_count,
+                 const struct cs_export_policy *policy) {
     assert(policy->kind != CS_DONT_EXPORT);
     switch (policy->kind) {
     case CS_EXPORT_JSON:
@@ -1834,39 +1832,44 @@ cs_analyze(const struct cs_benchmark *benches, size_t bench_count,
     return 0;
 }
 
-int
-main(int argc, char **argv) {
-    struct cs_app app = {0};
-    {
-        struct cs_settings settings = {0};
-        cs_parse_cli_args(argc, argv, &settings);
-        if (init_app(&settings, &app) == -1)
-            return EXIT_FAILURE;
-    }
-
-    size_t command_count = app.command_count;
+static void
+cs_run(struct cs_settings *settings) {
+    size_t command_count = settings->command_count;
     struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark *bench = benches + command_idx;
-        bench->prepare = app.prepare_command;
-        bench->command = app.commands + command_idx;
+        bench->prepare = settings->prepare_command;
+        bench->command = settings->commands + command_idx;
 
-        cs_warmup(bench, app.warmup_time);
-        cs_run_benchmark(bench, app.time_limit);
-        cs_analyze_benchmark(bench, app.nresamples);
+        cs_warmup(bench, settings->warmup_time);
+        cs_run_benchmark(bench, settings->time_limit);
+        cs_analyze_benchmark(bench, settings->nresamples);
         cs_print_benchmark_info(bench);
     }
 
     if (command_count != 1)
         cs_compare_benches(benches, command_count);
-    if (app.export.kind != CS_DONT_EXPORT)
-        cs_handle_export(&app, benches, command_count, &app.export);
-    if (app.analyze_mode != CS_DONT_ANALYZE)
-        cs_analyze(benches, command_count, app.analyze_mode, app.analyze_dir);
+    if (settings->export.kind != CS_DONT_EXPORT)
+        cs_handle_export(settings, benches, command_count, &settings->export);
+    if (settings->analyze_mode != CS_DONT_ANALYZE)
+        cs_analyze(benches, command_count, settings->analyze_mode,
+                   settings->analyze_dir);
 
     for (size_t i = 0; i < command_count; ++i)
         cs_free_bench(benches + i);
-
     free(benches);
-    cs_free_app(&app);
+}
+
+int
+main(int argc, char **argv) {
+    struct cs_cli_settings cli = {0};
+    cs_parse_cli_args(argc, argv, &cli);
+    struct cs_settings settings = {0};
+    if (cs_init_settings(&cli, &settings) == -1)
+        return EXIT_FAILURE;
+
+    cs_run(&settings);
+
+    cs_free_settings(&settings);
+    return EXIT_SUCCESS;
 }
