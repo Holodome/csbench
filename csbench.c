@@ -1387,7 +1387,6 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
     fprintf(script, "x = [");
     for (size_t i = 0; i < plot->count; ++i)
         fprintf(script, "%lf, ", plot->lower + plot->step * i);
-    printf("\n");
     fprintf(script, "]\n");
 
     fprintf(script,
