@@ -694,7 +694,6 @@ static int
 cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
-
     if (arg1 < arg2)
         return -1;
     if (arg1 > arg2)
@@ -1174,7 +1173,7 @@ init_app(const struct cs_settings *settings, struct cs_app *app) {
             if (cs_extract_executable_and_argv(settings->shell,
                                                &command->executable,
                                                &command->argv) != 0) {
-                cs_sb_free(app->commands);
+                free(app->commands);
                 return -1;
             }
             // pop NULL appended by cs_extract_executable_and_path
@@ -1185,7 +1184,7 @@ init_app(const struct cs_settings *settings, struct cs_app *app) {
         } else {
             if (cs_extract_executable_and_argv(command_str, &command->executable,
                                                &command->argv) != 0) {
-                cs_sb_free(app->commands);
+                free(app->commands);
                 return -1;
             }
         }
