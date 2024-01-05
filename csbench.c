@@ -870,17 +870,16 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
         t *= 1e9;
     }
 
-    if (t >= 1e9) {
+    if (t >= 1e9)
         count += snprintf(dst, sz, "%.4g %s", t, units);
-    } else if (t >= 1e3) {
+    else if (t >= 1e3)
         count += snprintf(dst, sz, "%.0f %s", t, units);
-    } else if (t >= 1e2) {
+    else if (t >= 1e2)
         count += snprintf(dst, sz, "%.1f %s", t, units);
-    } else if (t >= 1e1) {
+    else if (t >= 1e1)
         count += snprintf(dst, sz, "%.2f %s", t, units);
-    } else {
+    else
         count += snprintf(dst, sz, "%.3f %s", t, units);
-    }
 
     return count;
 }
@@ -1384,14 +1383,13 @@ cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *script) {
 static void
 cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
     fprintf(script, "y = [");
-    for (size_t i = 0; i < plot->count; ++i) {
+    for (size_t i = 0; i < plot->count; ++i) 
         fprintf(script, "%lf, ", plot->data[i]);
-    }
     fprintf(script, "]\n");
     fprintf(script, "x = [");
-    for (size_t i = 0; i < plot->count; ++i) {
+    for (size_t i = 0; i < plot->count; ++i) 
         fprintf(script, "%lf, ", plot->lower + plot->step * i);
-    }
+    printf("\n");
     fprintf(script, "]\n");
 
     fprintf(script,
@@ -1533,13 +1531,13 @@ cs_construct_kde(const double *data, size_t data_size, double *kde,
     // Calculate bounds for plot. Use 3 sigma rule to reject severe outliers
     // being plotted.
     double mean = cs_stat_mean(data, data_size);
-    double lower = fmax(mean - 3 * st_dev, ssa[0]);
-    double upper = fmin(mean + 3 * st_dev, ssa[data_size - 1]);
-    double step = (upper - lower) / data_size;
-    double k_mult = 1.0 / sqrt(2 * 3.1415926536);
+    double lower = fmax(mean - 3.0 * st_dev, ssa[0]);
+    double upper = fmin(mean + 3.0 * st_dev, ssa[data_size - 1]);
+    double step = (upper - lower) / kde_size;
+    double k_mult = 1.0 / sqrt(2.0 * 3.1415926536);
     for (size_t i = 0; i < kde_size; ++i) {
         double x = lower + i * step;
-        double kde_value = 0;
+        double kde_value = 0.0;
         for (size_t j = 0; j < data_size; ++j) {
             double u = (x - data[j]) / h;
             double k = k_mult * exp(-0.5 * u * u);
@@ -1686,93 +1684,64 @@ cs_analyze_make_plots(const struct cs_benchmark *benches,
 }
 
 static void
-cs_print_html_report(const struct cs_benchmark *benches,
-                     const char *analyse_dir, FILE *f) {
+cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, "
             "initial-scale=1.0\">"
             "<title>csbench</title>"
-            "<style>body { margin: 40px auto; max-width: 650px; line-height: "
+            "<style>body { margin: 40px auto; max-width: 960px; line-height: "
             "1.6; color: #444; padding: 0 10px; font: 14px Helvetica Neue }"
-            "h1, h2, h3 { line-height: 1.2 }"
+            "h1, h2, h3 { line-height: 1.2; text-align: center }"
+            ".est-bound { opacity: 0.5 }"
+            "th, td { padding-right: 3px; padding-bottom: 3px }"
+            "th { font-weight: 200 }"
+            ".col { flex: 50%% }"
+            ".row { display: flex }"
+            "table { margin-top: 80px }"
             "</style></head>");
     fprintf(f, "<body>");
     for (size_t i = 0; i < cs_sb_len(benches); ++i) {
         const struct cs_benchmark *bench = benches + i;
         fprintf(f, "<h2>command '%s'</h2>", bench->command->str);
-        fprintf(f, "<img src=\"kde_%zu.svg\">", i + 1);
-        fprintf(f, "<h3>additional statistics</h3>");
+        fprintf(f, "<div class=\"row\">");
+        fprintf(f, "<div class=\"col\"><h3>time kde plot</h3>");
+        fprintf(f, "<img src=\"kde_%zu.svg\"></div>", i + 1);
+        fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
         fprintf(f, "<table>");
         fprintf(f, "<thead><tr>"
                    "<th></th>"
-                   "<th>lower bound</th>"
-                   "<th>estimate</th>"
-                   "<th>upper bound</th>"
+                   "<th class=\"est-bound\">lower bound</th>"
+                   "<th class=\"est-bound\">estimate</th>"
+                   "<th class=\"est-bound\">upper bound</th>"
                    "</tr></thead><tbody>");
-        {
-            char buf1[256], buf2[256], buf3[256];
-            cs_print_time(buf1, sizeof(buf1), bench->mean_estimate.lower);
-            cs_print_time(buf2, sizeof(buf2), bench->mean_estimate.point);
-            cs_print_time(buf3, sizeof(buf3), bench->mean_estimate.upper);
-            fprintf(f,
-                    "<tr>"
-                    "<td>mean</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "</tr>",
-                    buf1, buf2, buf3);
-        }
-        {
-            char buf1[256], buf2[256], buf3[256];
-            cs_print_time(buf1, sizeof(buf1), bench->st_dev_estimate.lower);
-            cs_print_time(buf2, sizeof(buf2), bench->st_dev_estimate.point);
-            cs_print_time(buf3, sizeof(buf3), bench->st_dev_estimate.upper);
-            fprintf(f,
-                    "<tr>"
-                    "<td>st dev</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "</tr>",
-                    buf1, buf2, buf3);
-        }
-        {
-            char buf1[256], buf2[256], buf3[256];
-            cs_print_time(buf1, sizeof(buf1), bench->systime_estimate.lower);
-            cs_print_time(buf2, sizeof(buf2), bench->systime_estimate.point);
-            cs_print_time(buf3, sizeof(buf3), bench->systime_estimate.upper);
-            fprintf(f,
-                    "<tr>"
-                    "<td>systime</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "</tr>",
-                    buf1, buf2, buf3);
-        }
-        {
-            char buf1[256], buf2[256], buf3[256];
-            cs_print_time(buf1, sizeof(buf1), bench->usertime_estimate.lower);
-            cs_print_time(buf2, sizeof(buf2), bench->usertime_estimate.point);
-            cs_print_time(buf3, sizeof(buf3), bench->usertime_estimate.upper);
-            fprintf(f,
-                    "<tr>"
-                    "<td>usrtime</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "<td>%s</td>"
-                    "</tr>",
-                    buf1, buf2, buf3);
-        }
-        fprintf(f, "</tbody></table>");
+#define cs_html_estimate(_name, _est)                                          \
+    do {                                                                       \
+        char buf1[256], buf2[256], buf3[256];                                  \
+        cs_print_time(buf1, sizeof(buf1), (_est)->lower);                      \
+        cs_print_time(buf2, sizeof(buf2), (_est)->point);                      \
+        cs_print_time(buf3, sizeof(buf3), (_est)->upper);                      \
+        fprintf(f,                                                             \
+                "<tr>"                                                         \
+                "<td>" _name "</td>"                                           \
+                "<td class=\"est-bound\">%s</td>"                              \
+                "<td>%s</td>"                                                  \
+                "<td class=\"est-bound\">%s</td>"                              \
+                "</tr>",                                                       \
+                buf1, buf2, buf3);                                             \
+    } while (0)
+        cs_html_estimate("mean", &bench->mean_estimate);
+        cs_html_estimate("st dev", &bench->st_dev_estimate);
+        cs_html_estimate("systime", &bench->systime_estimate);
+        cs_html_estimate("usrtime", &bench->usertime_estimate);
+#undef cs_html_estimate
+        fprintf(f, "</tbody></table></div></div>");
     }
 
     if (cs_sb_len(benches) != 1) {
-        fprintf(f, "<h2>comparison summary</h2>\n");
-        fprintf(f, "<img src=\"violin.svg\">");
+        fprintf(f, "<h2>comparison</h2>\n");
+        fprintf(f, "<div class=\"row\"><img src=\"violin.svg\"></div>");
         fprintf(f, "</body>");
     }
 }
@@ -1788,7 +1757,7 @@ cs_analyze_make_html_report(const struct cs_benchmark *benches,
         return -1;
     }
 
-    cs_print_html_report(benches, analyze_dir, f);
+    cs_print_html_report(benches, f);
     fclose(f);
     return 0;
 }
