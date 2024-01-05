@@ -110,7 +110,7 @@ struct cs_command {
 // Information gethered from user input (settings), parsed
 // and prepared for benchmarking.
 struct cs_app {
-    // List of commands to benchmark
+    size_t command_count;
     struct cs_command *commands;
 
     double time_limit;
@@ -1161,33 +1161,34 @@ init_app(const struct cs_settings *settings, struct cs_app *app) {
         return -1;
     }
 
-    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
-        struct cs_command command = {0};
-        const char *command_str = settings->commands[command_idx];
-        command.str = command_str;
-        command.input_policy = settings->input_policy;
-        command.output_policy = settings->output_policy;
+    app->command_count = command_count;
+    app->commands = calloc(command_count, sizeof(*app->commands));
+    for (size_t i = 0; i < command_count; ++i) {
+        struct cs_command *command = app->commands + i;
+        const char *command_str = settings->commands[i];
+        command->str = command_str;
+        command->input_policy = settings->input_policy;
+        command->output_policy = settings->output_policy;
         // TODO: Cleanup this code fragment
         if (settings->shell) {
-            if (cs_extract_executable_and_argv(
-                    settings->shell, &command.executable, &command.argv) != 0) {
+            if (cs_extract_executable_and_argv(settings->shell,
+                                               &command->executable,
+                                               &command->argv) != 0) {
                 cs_sb_free(app->commands);
                 return -1;
             }
             // pop NULL appended by cs_extract_executable_and_path
-            cs_sb_pop(command.argv);
-            cs_sb_push(command.argv, strdup("-c"));
-            cs_sb_push(command.argv, strdup(command_str));
-            cs_sb_push(command.argv, NULL);
+            cs_sb_pop(command->argv);
+            cs_sb_push(command->argv, strdup("-c"));
+            cs_sb_push(command->argv, strdup(command_str));
+            cs_sb_push(command->argv, NULL);
         } else {
-            if (cs_extract_executable_and_argv(command_str, &command.executable,
-                                               &command.argv) != 0) {
+            if (cs_extract_executable_and_argv(command_str, &command->executable,
+                                               &command->argv) != 0) {
                 cs_sb_free(app->commands);
                 return -1;
             }
         }
-
-        cs_sb_push(app->commands, command);
     }
 
     return 0;
@@ -1203,15 +1204,14 @@ cs_free_bench(struct cs_benchmark *bench) {
 
 static void
 cs_free_app(struct cs_app *app) {
-    size_t command_count = cs_sb_len(app->commands);
-    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
-        struct cs_command *command = app->commands + command_idx;
+    for (size_t i = 0; i < app->command_count; ++i) {
+        struct cs_command *command = app->commands + i;
         free(command->executable);
         for (char **word = command->argv; *word; ++word)
             free(*word);
         cs_sb_free(command->argv);
     }
-    cs_sb_free(app->commands);
+    free(app->commands);
 }
 
 static void
@@ -1845,7 +1845,7 @@ main(int argc, char **argv) {
             return EXIT_FAILURE;
     }
 
-    size_t command_count = cs_sb_len(app.commands);
+    size_t command_count = app.command_count;
     struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_benchmark *bench = benches + command_idx;
@@ -1868,5 +1868,6 @@ main(int argc, char **argv) {
     for (size_t i = 0; i < command_count; ++i)
         cs_free_bench(benches + i);
 
+    free(benches);
     cs_free_app(&app);
 }
