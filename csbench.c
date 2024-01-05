@@ -1007,7 +1007,7 @@ cs_print_outliers(const struct cs_outliers *outliers, size_t run_count) {
 static void
 cs_print_outlier_variance(double fraction) {
     struct cs_outlier_variance var = cs_classify_outlier_variance(fraction);
-    printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
+    printf("outlying measurements have %s (%.1lf%%) effect on estimated "
            "standard deviation\n",
            var.desc, var.fraction * 100.0);
 }
@@ -1383,11 +1383,11 @@ cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *script) {
 static void
 cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
     fprintf(script, "y = [");
-    for (size_t i = 0; i < plot->count; ++i) 
+    for (size_t i = 0; i < plot->count; ++i)
         fprintf(script, "%lf, ", plot->data[i]);
     fprintf(script, "]\n");
     fprintf(script, "x = [");
-    for (size_t i = 0; i < plot->count; ++i) 
+    for (size_t i = 0; i < plot->count; ++i)
         fprintf(script, "%lf, ", plot->lower + plot->step * i);
     printf("\n");
     fprintf(script, "]\n");
@@ -1699,7 +1699,7 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
             "th { font-weight: 200 }"
             ".col { flex: 50%% }"
             ".row { display: flex }"
-            "table { margin-top: 80px }"
+            ".stats { margin-top: 80px }"
             "</style></head>");
     fprintf(f, "<body>");
     for (size_t i = 0; i < cs_sb_len(benches); ++i) {
@@ -1709,6 +1709,8 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
         fprintf(f, "<div class=\"col\"><h3>time kde plot</h3>");
         fprintf(f, "<img src=\"kde_%zu.svg\"></div>", i + 1);
         fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
+        fprintf(f, "<div class=\"stats\">");
+        fprintf(f, "<p>made total %zu runs</p>", bench->run_count);
         fprintf(f, "<table>");
         fprintf(f, "<thead><tr>"
                    "<th></th>"
@@ -1736,7 +1738,42 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
         cs_html_estimate("systime", &bench->systime_estimate);
         cs_html_estimate("usrtime", &bench->usertime_estimate);
 #undef cs_html_estimate
-        fprintf(f, "</tbody></table></div></div>");
+        fprintf(f, "</tbody></table>");
+        {
+            const struct cs_outliers *outliers = &bench->outliers;
+            size_t outlier_count = outliers->low_mild + outliers->high_mild +
+                                   outliers->low_severe + outliers->high_severe;
+            if (outlier_count != 0) {
+                size_t run_count = bench->run_count;
+                fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>", outlier_count,
+                        (double)outlier_count / bench->run_count * 100.0);
+                if (outliers->low_severe)
+                    fprintf(f, "<li>%zu (%.2f%%) low severe</li>",
+                            outliers->low_severe,
+                            (double)outliers->low_severe / run_count * 100.0);
+                if (outliers->low_mild)
+                    fprintf(f, "<li>%zu (%.2f%%) low mild</li>",
+                            outliers->low_mild,
+                            (double)outliers->low_mild / run_count * 100.0);
+                if (outliers->high_mild)
+                    fprintf(f, "<li>%zu (%.2f%%) high mild</li>",
+                            outliers->high_mild,
+                            (double)outliers->high_mild / run_count * 100.0);
+                if (outliers->high_severe)
+                    fprintf(f, "<li>%zu (%.2f%%) high severe</li>",
+                            outliers->high_severe,
+                            (double)outliers->high_severe / run_count * 100.0);
+                fprintf(f, "</ul>");
+            }
+            struct cs_outlier_variance var =
+                cs_classify_outlier_variance(bench->outlier_variance_fraction);
+            fprintf(f,
+                    "<p>outlying measurements have %s (%.1lf%%) effect on "
+                    "estimated "
+                    "standard deviation</p>",
+                    var.desc, var.fraction * 100.0);
+        }
+        fprintf(f, "</div></div></div>");
     }
 
     if (cs_sb_len(benches) != 1) {
