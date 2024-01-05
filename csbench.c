@@ -1215,8 +1215,7 @@ cs_free_app(struct cs_app *app) {
 }
 
 static void
-cs_compare_benches(const struct cs_benchmark *benches) {
-    size_t bench_count = cs_sb_capacity(benches);
+cs_compare_benches(const struct cs_benchmark *benches, size_t bench_count) {
     assert(bench_count > 1);
     size_t best_idx = 0;
     double best_mean = benches[0].mean_estimate.point;
@@ -1249,7 +1248,7 @@ cs_compare_benches(const struct cs_benchmark *benches) {
 
 static void
 cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
-               const char *filename) {
+               size_t bench_count, const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1261,7 +1260,6 @@ cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
     fprintf(f, "\"time_limit\": %lf, \"warmup_time\": %lf ", app->time_limit,
             app->warmup_time);
     fprintf(f, "}, \"benches\": [");
-    size_t bench_count = cs_sb_len(benches);
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_benchmark *bench = benches + i;
         fprintf(f, "{ ");
@@ -1322,11 +1320,11 @@ cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
 
 static void
 cs_handle_export(const struct cs_app *app, const struct cs_benchmark *benches,
-                 const struct cs_export_policy *policy) {
+                 size_t bench_count, const struct cs_export_policy *policy) {
     assert(policy->kind != CS_DONT_EXPORT);
     switch (policy->kind) {
     case CS_EXPORT_JSON:
-        cs_export_json(app, benches, policy->filename);
+        cs_export_json(app, benches, bench_count, policy->filename);
         break;
     default:
         assert(0);
@@ -1488,9 +1486,9 @@ cs_python_has_matplotlib(void) {
 }
 
 static void
-cs_init_whisker_plot(const struct cs_benchmark *benches,
+cs_init_whisker_plot(const struct cs_benchmark *benches, size_t bench_count,
                      struct cs_whisker_plot *plot) {
-    plot->column_count = cs_sb_len(benches);
+    plot->column_count = bench_count;
     plot->widths = malloc(sizeof(*plot->widths) * plot->column_count);
     plot->column_names =
         malloc(sizeof(*plot->column_names) * plot->column_count);
@@ -1581,12 +1579,12 @@ cs_free_kde_plot(struct cs_kde_plot *plot) {
 }
 
 static int
-cs_whisker_plot(const struct cs_benchmark *benches,
+cs_whisker_plot(const struct cs_benchmark *benches, size_t bench_count,
                 const char *output_filename) {
     int rc = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
-    cs_init_whisker_plot(benches, &plot);
+    cs_init_whisker_plot(benches, bench_count, &plot);
 
     FILE *script;
     pid_t pid;
@@ -1608,12 +1606,12 @@ out:
 }
 
 static int
-cs_violin_plot(const struct cs_benchmark *benches,
+cs_violin_plot(const struct cs_benchmark *benches, size_t bench_count,
                const char *output_filename) {
     int rc = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
-    cs_init_whisker_plot(benches, &plot);
+    cs_init_whisker_plot(benches, bench_count, &plot);
 
     FILE *script;
     pid_t pid;
@@ -1662,18 +1660,18 @@ out:
 }
 
 static int
-cs_analyze_make_plots(const struct cs_benchmark *benches,
+cs_analyze_make_plots(const struct cs_benchmark *benches, size_t bench_count,
                       const char *analyze_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyze_dir);
-    if (cs_whisker_plot(benches, name_buffer) == -1)
+    if (cs_whisker_plot(benches, bench_count, name_buffer) == -1)
         return -1;
 
     snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyze_dir);
-    if (cs_violin_plot(benches, name_buffer) == -1)
+    if (cs_violin_plot(benches, bench_count, name_buffer) == -1)
         return -1;
 
-    for (size_t i = 0; i < cs_sb_len(benches); ++i) {
+    for (size_t i = 0; i < bench_count; ++i) {
         snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
                  analyze_dir, i + 1);
         if (cs_kde_plot(benches + i, name_buffer) == -1)
@@ -1684,7 +1682,8 @@ cs_analyze_make_plots(const struct cs_benchmark *benches,
 }
 
 static void
-cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
+cs_print_html_report(const struct cs_benchmark *benches, size_t bench_count,
+                     FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -1702,7 +1701,7 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
             ".stats { margin-top: 80px }"
             "</style></head>");
     fprintf(f, "<body>");
-    for (size_t i = 0; i < cs_sb_len(benches); ++i) {
+    for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_benchmark *bench = benches + i;
         fprintf(f, "<h2>command '%s'</h2>", bench->command->str);
         fprintf(f, "<div class=\"row\">");
@@ -1745,7 +1744,8 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
                                    outliers->low_severe + outliers->high_severe;
             if (outlier_count != 0) {
                 size_t run_count = bench->run_count;
-                fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>", outlier_count,
+                fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>",
+                        outlier_count,
                         (double)outlier_count / bench->run_count * 100.0);
                 if (outliers->low_severe)
                     fprintf(f, "<li>%zu (%.2f%%) low severe</li>",
@@ -1776,7 +1776,7 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
         fprintf(f, "</div></div></div>");
     }
 
-    if (cs_sb_len(benches) != 1) {
+    if (bench_count != 1) {
         fprintf(f, "<h2>comparison</h2>\n");
         fprintf(f, "<div class=\"row\"><img src=\"violin.svg\"></div>");
         fprintf(f, "</body>");
@@ -1785,7 +1785,7 @@ cs_print_html_report(const struct cs_benchmark *benches, FILE *f) {
 
 static int
 cs_analyze_make_html_report(const struct cs_benchmark *benches,
-                            const char *analyze_dir) {
+                            size_t bench_count, const char *analyze_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/index.html", analyze_dir);
     FILE *f = fopen(name_buffer, "w");
@@ -1794,14 +1794,14 @@ cs_analyze_make_html_report(const struct cs_benchmark *benches,
         return -1;
     }
 
-    cs_print_html_report(benches, f);
+    cs_print_html_report(benches, bench_count, f);
     fclose(f);
     return 0;
 }
 
 static int
-cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
-           const char *analyze_dir) {
+cs_analyze(const struct cs_benchmark *benches, size_t bench_count,
+           enum cs_analyze_mode mode, const char *analyze_dir) {
     assert(mode != CS_DONT_ANALYZE);
 
     if (mkdir(analyze_dir, 0766) == -1) {
@@ -1823,12 +1823,13 @@ cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
             return -1;
         }
 
-        if (cs_analyze_make_plots(benches, analyze_dir) == -1)
+        if (cs_analyze_make_plots(benches, bench_count, analyze_dir) == -1)
             return -1;
     }
 
     if (mode == CS_ANALYZE_HTML) {
-        if (cs_analyze_make_html_report(benches, analyze_dir) == -1)
+        if (cs_analyze_make_html_report(benches, bench_count, analyze_dir) ==
+            -1)
             return -1;
     }
 
@@ -1846,29 +1847,27 @@ main(int argc, char **argv) {
     }
 
     size_t command_count = cs_sb_len(app.commands);
-    struct cs_benchmark *benches = NULL;
+    struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
-        struct cs_benchmark bench = {0};
-        bench.prepare = app.prepare_command;
-        bench.command = app.commands + command_idx;
+        struct cs_benchmark *bench = benches + command_idx;
+        bench->prepare = app.prepare_command;
+        bench->command = app.commands + command_idx;
 
-        cs_warmup(&bench, app.warmup_time);
-        cs_run_benchmark(&bench, app.time_limit);
-        cs_analyze_benchmark(&bench, app.nresamples);
-        cs_print_benchmark_info(&bench);
-        cs_sb_push(benches, bench);
+        cs_warmup(bench, app.warmup_time);
+        cs_run_benchmark(bench, app.time_limit);
+        cs_analyze_benchmark(bench, app.nresamples);
+        cs_print_benchmark_info(bench);
     }
 
     if (command_count != 1)
-        cs_compare_benches(benches);
+        cs_compare_benches(benches, command_count);
     if (app.export.kind != CS_DONT_EXPORT)
-        cs_handle_export(&app, benches, &app.export);
+        cs_handle_export(&app, benches, command_count, &app.export);
     if (app.analyze_mode != CS_DONT_ANALYZE)
-        cs_analyze(benches, app.analyze_mode, app.analyze_dir);
+        cs_analyze(benches, command_count, app.analyze_mode, app.analyze_dir);
 
-    for (size_t i = 0; i < cs_sb_len(benches); ++i)
+    for (size_t i = 0; i < command_count; ++i)
         cs_free_bench(benches + i);
-    cs_sb_free(benches);
 
     cs_free_app(&app);
 }
