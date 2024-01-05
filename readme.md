@@ -8,7 +8,7 @@ Benchmarking is too hard and time-consuming to be employed  commonly during deve
 
 Writing benchmarks for any parameter requires wasting time on boilerplate task-specific code which performs counting of some parameters with further analysis.
 
-Undoubtably, complex benchmarks with strict requirements demand this level of detail, but in most cases simple solution would suffice. But it still requires work from the developer being done akin to more complex task.
+Undoubtably, complex benchmarks with strict requirements demand this level of detail, but in most cases simpler solution would suffice. But it still requires work from the developer being done akin to more complex task.
 
 `csbench` tries to be *good enough* for purposes of unsofisticated benchmarking. 
 
@@ -22,7 +22,7 @@ Undoubtably, complex benchmarks with strict requirements demand this level of de
 
 `csbench` is distributed as a single C file making it easy to drop in at any system having C compiler. 
 
-It does not has any dependencies for basic operation. `python3` binary with `matplotlib` installed in required for producing plots.  
+It does not has any dependencies for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.  
 
 ## Inspiration
 
