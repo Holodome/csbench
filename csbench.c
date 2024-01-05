@@ -66,9 +66,9 @@ struct cs_export_policy {
 };
 
 enum cs_analyze_mode {
-    CS_DONT_analyze,
-    CS_analyze_PLOT,
-    CS_analyze_HTML
+    CS_DONT_ANALYZE,
+    CS_ANALYZE_PLOT,
+    CS_ANALYZE_HTML
 };
 
 // This structure contains all information
@@ -424,9 +424,9 @@ cs_parse_cli_args(int argc, char **argv, struct cs_settings *settings) {
 
             const char *mode = argv[cursor++];
             if (strcmp(mode, "plot") == 0)
-                settings->analyze_mode = CS_analyze_PLOT;
+                settings->analyze_mode = CS_ANALYZE_PLOT;
             else if (strcmp(mode, "html") == 0)
-                settings->analyze_mode = CS_analyze_HTML;
+                settings->analyze_mode = CS_ANALYZE_HTML;
             else
                 cs_print_help_and_exit(EXIT_FAILURE);
         } else {
@@ -1796,7 +1796,7 @@ cs_analyze_make_html_report(const struct cs_benchmark *benches,
 static int
 cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
            const char *analyze_dir) {
-    assert(mode != CS_DONT_analyze);
+    assert(mode != CS_DONT_ANALYZE);
 
     if (mkdir(analyze_dir, 0766) == -1) {
         if (errno == EEXIST) {
@@ -1806,7 +1806,7 @@ cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
         }
     }
 
-    if (mode == CS_analyze_PLOT || mode == CS_analyze_HTML) {
+    if (mode == CS_ANALYZE_PLOT || mode == CS_ANALYZE_HTML) {
         if (!cs_python_found()) {
             fprintf(stderr, "error: failed to find python3 executable\n");
             return -1;
@@ -1821,7 +1821,7 @@ cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
             return -1;
     }
 
-    if (mode == CS_analyze_HTML) {
+    if (mode == CS_ANALYZE_HTML) {
         if (cs_analyze_make_html_report(benches, analyze_dir) == -1)
             return -1;
     }
@@ -1857,7 +1857,7 @@ main(int argc, char **argv) {
         cs_compare_benches(benches);
     if (app.export.kind != CS_DONT_EXPORT)
         cs_handle_export(&app, benches, &app.export);
-    if (app.analyze_mode != CS_DONT_analyze)
+    if (app.analyze_mode != CS_DONT_ANALYZE)
         cs_analyze(benches, app.analyze_mode, app.analyze_dir);
 
     for (size_t i = 0; i < cs_sb_len(benches); ++i)
