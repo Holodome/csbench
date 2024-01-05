@@ -970,23 +970,6 @@ cs_estimate_st_dev(const double *data, size_t data_size, size_t nresamples) {
     return (struct cs_estimate){min_st_dev, mean_st_dev, max_st_dev};
 }
 
-static struct cs_estimate cs_strict_estimate(const double *data,
-                                             size_t data_size) {
-    double min = data[0];
-    double max = data[0];
-    double mean = data[0];
-    for (size_t i = 1; i < data_size; ++i) {
-        double v = data[i];
-        mean += v;
-        if (v < min)
-            min = v;
-        if (v > max)
-            max = v;
-    }
-    mean /= (double)data_size;
-    return (struct cs_estimate){min, mean, max};
-}
-
 static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->lower);
@@ -1033,9 +1016,9 @@ static void cs_analyse_benchmark(struct cs_benchmark *bench,
     bench->st_dev_estimate =
         cs_estimate_st_dev(bench->wallclock_sample, run_count, nresamples);
     bench->systime_estimate =
-        cs_strict_estimate(bench->systime_sample, run_count);
+        cs_estimate_mean(bench->systime_sample, run_count, nresamples);
     bench->usertime_estimate =
-        cs_strict_estimate(bench->usertime_sample, run_count);
+        cs_estimate_mean(bench->usertime_sample, run_count, nresamples);
     bench->outliers = cs_classify_outliers(bench->wallclock_sample, run_count);
     bench->outlier_variance_fraction =
         cs_outlier_variance(bench->mean_estimate.point,
