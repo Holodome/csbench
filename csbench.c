@@ -123,11 +123,14 @@ struct cs_app {
     const char *analyse_dir;
 };
 
-// Boostrap estimate of certain statistic
+// Boostrap estimate of certain statistic. Contains lower and upper bounds, as
+// well as point estimate. Point estimate is commonly obtained from statistic
+// calculation over original data, while lower and upper bounds are obtained
+// using bootstrapping.
 struct cs_estimate {
-    double min;
+    double lower;
     double point;
-    double max;
+    double upper;
 };
 
 // How outliers affect standard deviation
@@ -986,9 +989,9 @@ static struct cs_estimate cs_strict_estimate(const double *data,
 
 static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
-    cs_print_time(buf1, sizeof(buf1), est->min);
+    cs_print_time(buf1, sizeof(buf1), est->lower);
     cs_print_time(buf2, sizeof(buf2), est->point);
-    cs_print_time(buf3, sizeof(buf3), est->max);
+    cs_print_time(buf3, sizeof(buf3), est->upper);
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
 }
 
@@ -1284,23 +1287,25 @@ static void cs_export_json(const struct cs_app *app,
             fprintf(f, "%d%s", bench->exit_codes[i],
                     i != run_count - 1 ? ", " : "");
         fprintf(f,
-                "], \"mean_est\": { \"min\": %lf, \"point\": %lf, \"max\": "
+                "], \"mean_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": "
                 "%lf }, ",
-                bench->mean_estimate.min, bench->mean_estimate.point,
-                bench->mean_estimate.max);
+                bench->mean_estimate.lower, bench->mean_estimate.point,
+                bench->mean_estimate.upper);
         fprintf(f,
-                "\"st_dev_est\": { \"min\": %lf, \"point\": %lf, \"max\": "
+                "\"st_dev_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": "
                 "%lf }, ",
-                bench->st_dev_estimate.min, bench->st_dev_estimate.point,
-                bench->st_dev_estimate.max);
-        fprintf(f,
-                "\"sys_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
-                bench->systime_estimate.min, bench->systime_estimate.point,
-                bench->systime_estimate.max);
+                bench->st_dev_estimate.lower, bench->st_dev_estimate.point,
+                bench->st_dev_estimate.upper);
         fprintf(
-            f, "\"user_est\": { \"min\": %lf, \"point\": %lf, \"max\": %lf }, ",
-            bench->usertime_estimate.min, bench->usertime_estimate.point,
-            bench->usertime_estimate.max);
+            f,
+            "\"sys_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": %lf }, ",
+            bench->systime_estimate.lower, bench->systime_estimate.point,
+            bench->systime_estimate.upper);
+        fprintf(f,
+                "\"user_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": "
+                "%lf }, ",
+                bench->usertime_estimate.lower, bench->usertime_estimate.point,
+                bench->usertime_estimate.upper);
         fprintf(f,
                 "\"outliers\": { \"low_severe\": %zu, \"low_mild\": %zu, "
                 "\"high_mild\": %zu, \"high_severe\": %zu, \"variance\": %lf }",
@@ -1763,5 +1768,4 @@ int main(int argc, char **argv) {
     cs_sb_free(benches);
 
     cs_free_app(&app);
-    return EXIT_SUCCESS;
 }
