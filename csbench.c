@@ -1395,8 +1395,8 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
     fprintf(script,
             "import matplotlib.pyplot as plt\n"
             "plt.title('%s')\n"
-            "plt.fill_between(x, y, interpolate=True, color='lightskyblue')\n"
-            "plt.vlines(%lf, [0], [%lf], color='blue')\n"
+            "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
+            "plt.vlines(%lf, [0], [%lf])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('time [s]')\n"
             "plt.ylabel('probability density')\n"
