@@ -1110,7 +1110,12 @@ static int cs_extract_executable_and_argv(const char *command_str,
         rc = -1;
     } else {
         *executable = real_exec_path;
-        cs_sb_push(*argv, strdup(real_exec_path));
+        const char *exec_name = strrchr(real_exec_path, '/');
+        if (exec_name == NULL) 
+            exec_name = real_exec_path;
+        else 
+            ++exec_name;
+        cs_sb_push(*argv, strdup(exec_name));
         for (size_t i = 1; i < cs_sb_len(words); ++i)
             cs_sb_push(*argv, strdup(words[i]));
         cs_sb_push(*argv, NULL);
