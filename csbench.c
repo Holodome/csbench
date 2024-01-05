@@ -1678,7 +1678,7 @@ cs_analyze_make_plots(const struct cs_benchmark *benches,
     for (size_t i = 0; i < cs_sb_len(benches); ++i) {
         snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
                  analyze_dir, i + 1);
-        if (cs_kde_plot(benches, name_buffer) == -1)
+        if (cs_kde_plot(benches + i, name_buffer) == -1)
             return -1;
     }
 
@@ -1688,7 +1688,6 @@ cs_analyze_make_plots(const struct cs_benchmark *benches,
 static void
 cs_print_html_report(const struct cs_benchmark *benches,
                      const char *analyse_dir, FILE *f) {
-    // better
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -1696,11 +1695,86 @@ cs_print_html_report(const struct cs_benchmark *benches,
             "initial-scale=1.0\">"
             "<title>csbench</title>"
             "<style>body { margin: 40px auto; max-width: 650px; line-height: "
-            "1.6; font-size: 18px; color: #444; padding: 0 10px }"
+            "1.6; color: #444; padding: 0 10px; font: 14px Helvetica Neue }"
             "h1, h2, h3 { line-height: 1.2 }"
-            "</style> </head>");
+            "</style></head>");
     fprintf(f, "<body>");
-    fprintf(f, "</body>");
+    for (size_t i = 0; i < cs_sb_len(benches); ++i) {
+        const struct cs_benchmark *bench = benches + i;
+        fprintf(f, "<h2>command '%s'</h2>", bench->command->str);
+        fprintf(f, "<img src=\"kde_%zu.svg\">", i + 1);
+        fprintf(f, "<h3>additional statistics</h3>");
+        fprintf(f, "<table>");
+        fprintf(f, "<thead><tr>"
+                   "<th></th>"
+                   "<th>lower bound</th>"
+                   "<th>estimate</th>"
+                   "<th>upper bound</th>"
+                   "</tr></thead><tbody>");
+        {
+            char buf1[256], buf2[256], buf3[256];
+            cs_print_time(buf1, sizeof(buf1), bench->mean_estimate.lower);
+            cs_print_time(buf2, sizeof(buf2), bench->mean_estimate.point);
+            cs_print_time(buf3, sizeof(buf3), bench->mean_estimate.upper);
+            fprintf(f,
+                    "<tr>"
+                    "<td>mean</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "</tr>",
+                    buf1, buf2, buf3);
+        }
+        {
+            char buf1[256], buf2[256], buf3[256];
+            cs_print_time(buf1, sizeof(buf1), bench->st_dev_estimate.lower);
+            cs_print_time(buf2, sizeof(buf2), bench->st_dev_estimate.point);
+            cs_print_time(buf3, sizeof(buf3), bench->st_dev_estimate.upper);
+            fprintf(f,
+                    "<tr>"
+                    "<td>st dev</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "</tr>",
+                    buf1, buf2, buf3);
+        }
+        {
+            char buf1[256], buf2[256], buf3[256];
+            cs_print_time(buf1, sizeof(buf1), bench->systime_estimate.lower);
+            cs_print_time(buf2, sizeof(buf2), bench->systime_estimate.point);
+            cs_print_time(buf3, sizeof(buf3), bench->systime_estimate.upper);
+            fprintf(f,
+                    "<tr>"
+                    "<td>systime</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "</tr>",
+                    buf1, buf2, buf3);
+        }
+        {
+            char buf1[256], buf2[256], buf3[256];
+            cs_print_time(buf1, sizeof(buf1), bench->usertime_estimate.lower);
+            cs_print_time(buf2, sizeof(buf2), bench->usertime_estimate.point);
+            cs_print_time(buf3, sizeof(buf3), bench->usertime_estimate.upper);
+            fprintf(f,
+                    "<tr>"
+                    "<td>usrtime</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "<td>%s</td>"
+                    "</tr>",
+                    buf1, buf2, buf3);
+        }
+        fprintf(f, "</tbody></table>");
+    }
+
+    if (cs_sb_len(benches) != 1) {
+        fprintf(f, "<h2>comparison summary</h2>\n");
+        fprintf(f, "<img src=\"violin.svg\">");
+        fprintf(f, "</body>");
+    }
 }
 
 static int
