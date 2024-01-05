@@ -222,7 +222,8 @@ struct cs_kde_plot {
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
-static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
+static void *
+cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
         void *result = calloc(sizeof(struct cs_sb_header) + stride * inc, 1);
         struct cs_sb_header *header = result;
@@ -245,17 +246,20 @@ static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
 }
 
 #if defined(__APPLE__)
-static double cs_get_time(void) {
+static double
+cs_get_time(void) {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
 }
 #else
-static double cs_get_time(void) {
+static double
+cs_get_time(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 #endif
-static struct cs_cpu_time cs_getcputime(void) {
+static struct cs_cpu_time
+cs_getcputime(void) {
     struct rusage rus = {0};
     getrusage(RUSAGE_CHILDREN, &rus);
     struct cs_cpu_time time;
@@ -264,7 +268,8 @@ static struct cs_cpu_time cs_getcputime(void) {
     return time;
 }
 
-static void cs_print_help_and_exit(int rc) {
+static void
+cs_print_help_and_exit(int rc) {
     printf(
         "A command-line benchmarking tool\n"
         "\n"
@@ -294,13 +299,14 @@ static void cs_print_help_and_exit(int rc) {
     exit(rc);
 }
 
-static void cs_print_version_and_exit(void) {
+static void
+cs_print_version_and_exit(void) {
     printf("csbench 0.1\n");
     exit(EXIT_SUCCESS);
 }
 
-static void cs_parse_cli_args(int argc, char **argv,
-                              struct cs_settings *settings) {
+static void
+cs_parse_cli_args(int argc, char **argv, struct cs_settings *settings) {
     settings->time_limit = 5.0;
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
@@ -429,7 +435,8 @@ static void cs_parse_cli_args(int argc, char **argv,
     }
 }
 
-static void cs_exec_command_do_exec(const struct cs_command *command) {
+static void
+cs_exec_command_do_exec(const struct cs_command *command) {
     switch (command->input_policy.kind) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
@@ -473,7 +480,8 @@ static void cs_exec_command_do_exec(const struct cs_command *command) {
         _exit(-1);
 }
 
-static int cs_exec_command(const struct cs_command *command) {
+static int
+cs_exec_command(const struct cs_command *command) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -501,7 +509,8 @@ static int cs_exec_command(const struct cs_command *command) {
     return result;
 }
 
-static char **cs_split_shell_words(const char *command) {
+static char **
+cs_split_shell_words(const char *command) {
     char **words = NULL;
     char *current_word = NULL;
 
@@ -681,7 +690,8 @@ out:
     return words;
 }
 
-static int cs_compare_doubles(const void *a, const void *b) {
+static int
+cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
 
@@ -692,8 +702,8 @@ static int cs_compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static struct cs_outliers cs_classify_outliers(const double *data,
-                                               size_t count) {
+static struct cs_outliers
+cs_classify_outliers(const double *data, size_t count) {
     double *ssa = malloc(count * sizeof(*ssa));
     memcpy(ssa, data, count * sizeof(*ssa));
     qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
@@ -722,8 +732,8 @@ static struct cs_outliers cs_classify_outliers(const double *data,
     return result;
 }
 
-static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
-                       double sigma_g_2) {
+static double
+cs_c_max(double x, double u_a, double a, double sigma_b_2, double sigma_g_2) {
     double k = u_a - x;
     double d = k * k;
     double ad = a * d;
@@ -733,13 +743,14 @@ static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
     return floor(-2.0 * k0 / (k1 + sqrt(det)));
 }
 
-static double cs_var_out(double c, double a, double sigma_b_2,
-                         double sigma_g_2) {
+static double
+cs_var_out(double c, double a, double sigma_b_2, double sigma_g_2) {
     double ac = a - c;
     return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
 }
 
-static double cs_outlier_variance(double mean, double st_dev, double a) {
+static double
+cs_outlier_variance(double mean, double st_dev, double a) {
     double sigma_b = st_dev;
     double u_a = mean / a;
     double u_g_min = u_a / 2.0;
@@ -775,7 +786,8 @@ cs_classify_outlier_variance(double fraction) {
     return variance;
 }
 
-static uint32_t xorshift32(uint32_t *state) {
+static uint32_t
+xorshift32(uint32_t *state) {
     uint32_t x = *state;
     x ^= x << 13;
     x ^= x >> 17;
@@ -784,8 +796,8 @@ static uint32_t xorshift32(uint32_t *state) {
 }
 
 // Resample with replacement
-static void cs_resample(const double *src, size_t count, double *dst,
-                        uint32_t entropy) {
+static void
+cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[xorshift32(&entropy) % count];
 }
@@ -810,14 +822,16 @@ static void cs_resample(const double *src, size_t count, double *dst,
         free(tmp);                                                             \
     }
 
-static double cs_stat_mean(const double *v, size_t count) {
+static double
+cs_stat_mean(const double *v, size_t count) {
     double result = 0.0;
     for (size_t i = 0; i < count; ++i)
         result += v[i];
     return result / (double)count;
 }
 
-static double cs_stat_st_dev(const double *v, size_t count) {
+static double
+cs_stat_st_dev(const double *v, size_t count) {
     double mean = cs_stat_mean(v, count);
     double result = 0.0;
     for (size_t i = 0; i < count; ++i) {
@@ -871,7 +885,8 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
     return count;
 }
 
-static int cs_exec_and_measure(struct cs_benchmark *bench) {
+static int
+cs_exec_and_measure(struct cs_benchmark *bench) {
     volatile struct cs_cpu_time cpu_start = cs_getcputime();
     volatile double wall_clock_start = cs_get_time();
     volatile int rc = cs_exec_command(bench->command);
@@ -893,7 +908,8 @@ static int cs_exec_and_measure(struct cs_benchmark *bench) {
     return 0;
 }
 
-static int cs_warmup(struct cs_benchmark *bench, double time_limit) {
+static int
+cs_warmup(struct cs_benchmark *bench, double time_limit) {
     if (time_limit < 0.0)
         return 0;
 
@@ -910,7 +926,8 @@ static int cs_warmup(struct cs_benchmark *bench, double time_limit) {
     return 0;
 }
 
-static int cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
+static int
+cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     double niter_accum = 1;
     size_t niter = 1;
 
@@ -938,8 +955,8 @@ static int cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
     return 0;
 }
 
-static struct cs_estimate cs_estimate_mean(const double *data, size_t data_size,
-                                           size_t nresamples) {
+static struct cs_estimate
+cs_estimate_mean(const double *data, size_t data_size, size_t nresamples) {
     double mean = cs_stat_mean(data, data_size);
     double min_mean, max_mean;
     cs_bootstrap_mean(data, data_size, nresamples, time(NULL), &min_mean,
@@ -956,7 +973,8 @@ cs_estimate_st_dev(const double *data, size_t data_size, size_t nresamples) {
     return (struct cs_estimate){min_st_dev, mean_st_dev, max_st_dev};
 }
 
-static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
+static void
+cs_print_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->lower);
     cs_print_time(buf2, sizeof(buf2), est->point);
@@ -964,8 +982,8 @@ static void cs_print_estimate(const char *name, const struct cs_estimate *est) {
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
 }
 
-static void cs_print_outliers(const struct cs_outliers *outliers,
-                              size_t run_count) {
+static void
+cs_print_outliers(const struct cs_outliers *outliers, size_t run_count) {
     size_t outlier_count = outliers->low_mild + outliers->high_mild +
                            outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -987,15 +1005,16 @@ static void cs_print_outliers(const struct cs_outliers *outliers,
     }
 }
 
-static void cs_print_outlier_variance(double fraction) {
+static void
+cs_print_outlier_variance(double fraction) {
     struct cs_outlier_variance var = cs_classify_outlier_variance(fraction);
     printf("Outlying measurements have %s (%.1lf%%) effect on estimated "
            "standard deviation\n",
            var.desc, var.fraction * 100.0);
 }
 
-static void cs_analyze_benchmark(struct cs_benchmark *bench,
-                                 size_t nresamples) {
+static void
+cs_analyze_benchmark(struct cs_benchmark *bench, size_t nresamples) {
     size_t run_count = bench->run_count;
     bench->mean_estimate =
         cs_estimate_mean(bench->wallclock_sample, run_count, nresamples);
@@ -1011,7 +1030,8 @@ static void cs_analyze_benchmark(struct cs_benchmark *bench,
                             bench->st_dev_estimate.point, (double)run_count);
 }
 
-static void cs_print_exit_code_info(const struct cs_benchmark *bench) {
+static void
+cs_print_exit_code_info(const struct cs_benchmark *bench) {
     size_t count_nonzero = 0;
     for (size_t i = 0; i < bench->run_count; ++i)
         if (bench->exit_codes[i] != 0)
@@ -1025,7 +1045,8 @@ static void cs_print_exit_code_info(const struct cs_benchmark *bench) {
     }
 }
 
-static void cs_print_benchmark_info(const struct cs_benchmark *bench) {
+static void
+cs_print_benchmark_info(const struct cs_benchmark *bench) {
     printf("command\t'%s'\n", bench->command->str);
     printf("%zu runs\n", bench->run_count);
     cs_print_exit_code_info(bench);
@@ -1037,7 +1058,8 @@ static void cs_print_benchmark_info(const struct cs_benchmark *bench) {
     cs_print_outlier_variance(bench->outlier_variance_fraction);
 }
 
-static char *cs_find_full_path(const char *path) {
+static char *
+cs_find_full_path(const char *path) {
     char *full = NULL;
     if (*path == '/') {
         full = strdup(path);
@@ -1079,8 +1101,9 @@ static char *cs_find_full_path(const char *path) {
     return full;
 }
 
-static int cs_extract_executable_and_argv(const char *command_str,
-                                          char **executable, char ***argv) {
+static int
+cs_extract_executable_and_argv(const char *command_str, char **executable,
+                               char ***argv) {
     int rc = 0;
     char **words = cs_split_shell_words(command_str);
     if (words == NULL) {
@@ -1114,7 +1137,8 @@ static int cs_extract_executable_and_argv(const char *command_str,
     return rc;
 }
 
-static int init_app(const struct cs_settings *settings, struct cs_app *app) {
+static int
+init_app(const struct cs_settings *settings, struct cs_app *app) {
     app->time_limit = settings->time_limit;
     app->warmup_time = settings->warmup_time;
     app->export = settings->export;
@@ -1170,14 +1194,16 @@ static int init_app(const struct cs_settings *settings, struct cs_app *app) {
     return 0;
 }
 
-static void cs_free_bench(struct cs_benchmark *bench) {
+static void
+cs_free_bench(struct cs_benchmark *bench) {
     cs_sb_free(bench->wallclock_sample);
     cs_sb_free(bench->systime_sample);
     cs_sb_free(bench->usertime_sample);
     cs_sb_free(bench->exit_codes);
 }
 
-static void cs_free_app(struct cs_app *app) {
+static void
+cs_free_app(struct cs_app *app) {
     size_t command_count = cs_sb_len(app->commands);
     for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
         struct cs_command *command = app->commands + command_idx;
@@ -1189,7 +1215,8 @@ static void cs_free_app(struct cs_app *app) {
     cs_sb_free(app->commands);
 }
 
-static void cs_compare_benches(const struct cs_benchmark *benches) {
+static void
+cs_compare_benches(const struct cs_benchmark *benches) {
     size_t bench_count = cs_sb_capacity(benches);
     assert(bench_count > 1);
     size_t best_idx = 0;
@@ -1221,9 +1248,9 @@ static void cs_compare_benches(const struct cs_benchmark *benches) {
     }
 }
 
-static void cs_export_json(const struct cs_app *app,
-                           const struct cs_benchmark *benches,
-                           const char *filename) {
+static void
+cs_export_json(const struct cs_app *app, const struct cs_benchmark *benches,
+               const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1294,9 +1321,9 @@ static void cs_export_json(const struct cs_app *app,
     fclose(f);
 }
 
-static void cs_handle_export(const struct cs_app *app,
-                             const struct cs_benchmark *benches,
-                             const struct cs_export_policy *policy) {
+static void
+cs_handle_export(const struct cs_app *app, const struct cs_benchmark *benches,
+                 const struct cs_export_policy *policy) {
     assert(policy->kind != CS_DONT_EXPORT);
     switch (policy->kind) {
     case CS_EXPORT_JSON:
@@ -1306,8 +1333,8 @@ static void cs_handle_export(const struct cs_app *app,
         assert(0);
     }
 }
-static void cs_make_whisker_plot(const struct cs_whisker_plot *plot,
-                                 FILE *script) {
+static void
+cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *script) {
     fprintf(script, "data = [");
     for (size_t i = 0; i < plot->column_count; ++i) {
         fprintf(script, "[");
@@ -1330,8 +1357,8 @@ static void cs_make_whisker_plot(const struct cs_whisker_plot *plot,
             plot->output_filename);
 }
 
-static void cs_make_violin_plot(const struct cs_whisker_plot *plot,
-                                FILE *script) {
+static void
+cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *script) {
     fprintf(script, "data = [");
     for (size_t i = 0; i < plot->column_count; ++i) {
         fprintf(script, "[");
@@ -1354,7 +1381,8 @@ static void cs_make_violin_plot(const struct cs_whisker_plot *plot,
             plot->output_filename);
 }
 
-static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
+static void
+cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
     fprintf(script, "y = [");
     for (size_t i = 0; i < plot->count; ++i) {
         fprintf(script, "%lf, ", plot->data[i]);
@@ -1378,7 +1406,8 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
             plot->title, plot->mean, plot->mean_y, plot->output_filename);
 }
 
-static int cs_process_executed_correctly(pid_t pid) {
+static int
+cs_process_executed_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
@@ -1393,7 +1422,8 @@ static int cs_process_executed_correctly(pid_t pid) {
     return 0;
 }
 
-static int cs_python_found(void) {
+static int
+cs_python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -1411,7 +1441,8 @@ static int cs_python_found(void) {
     return cs_process_executed_correctly(pid);
 }
 
-static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
+static int
+cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
         return -1;
@@ -1446,7 +1477,8 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 
     return 0;
 }
-static int cs_python_has_matplotlib(void) {
+static int
+cs_python_has_matplotlib(void) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid))
@@ -1457,8 +1489,9 @@ static int cs_python_has_matplotlib(void) {
     return cs_process_executed_correctly(pid);
 }
 
-static void cs_init_whisker_plot(const struct cs_benchmark *benches,
-                                 struct cs_whisker_plot *plot) {
+static void
+cs_init_whisker_plot(const struct cs_benchmark *benches,
+                     struct cs_whisker_plot *plot) {
     plot->column_count = cs_sb_len(benches);
     plot->widths = malloc(sizeof(*plot->widths) * plot->column_count);
     plot->column_names =
@@ -1476,7 +1509,8 @@ static void cs_init_whisker_plot(const struct cs_benchmark *benches,
     }
 }
 
-static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
+static void
+cs_free_whisker_plot(struct cs_whisker_plot *plot) {
     free(plot->widths);
     free(plot->column_names);
     for (size_t i = 0; i < plot->column_count; ++i)
@@ -1484,8 +1518,9 @@ static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
     free(plot->data);
 }
 
-static void cs_construct_kde(const double *data, size_t data_size, double *kde,
-                             size_t kde_size, double *lowerp, double *stepp) {
+static void
+cs_construct_kde(const double *data, size_t data_size, double *kde,
+                 size_t kde_size, double *lowerp, double *stepp) {
     double *ssa = malloc(data_size * sizeof(*ssa));
     memcpy(ssa, data, data_size * sizeof(*ssa));
     qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
@@ -1519,8 +1554,8 @@ static void cs_construct_kde(const double *data, size_t data_size, double *kde,
     free(ssa);
 }
 
-static void cs_init_kde_plot(const struct cs_benchmark *bench,
-                             struct cs_kde_plot *plot) {
+static void
+cs_init_kde_plot(const struct cs_benchmark *bench, struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
@@ -1542,12 +1577,14 @@ static void cs_init_kde_plot(const struct cs_benchmark *bench,
     }
 }
 
-static void cs_free_kde_plot(struct cs_kde_plot *plot) {
+static void
+cs_free_kde_plot(struct cs_kde_plot *plot) {
     free(plot->data);
 }
 
-static int cs_whisker_plot(const struct cs_benchmark *benches,
-                           const char *output_filename) {
+static int
+cs_whisker_plot(const struct cs_benchmark *benches,
+                const char *output_filename) {
     int rc = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
@@ -1572,8 +1609,9 @@ out:
     return rc;
 }
 
-static int cs_violin_plot(const struct cs_benchmark *benches,
-                          const char *output_filename) {
+static int
+cs_violin_plot(const struct cs_benchmark *benches,
+               const char *output_filename) {
     int rc = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
@@ -1598,8 +1636,8 @@ out:
     return rc;
 }
 
-static int cs_kde_plot(const struct cs_benchmark *bench,
-                       const char *output_filename) {
+static int
+cs_kde_plot(const struct cs_benchmark *bench, const char *output_filename) {
     int rc = 0;
     struct cs_kde_plot plot = {0};
     plot.output_filename = output_filename;
@@ -1625,8 +1663,9 @@ out:
     return rc;
 }
 
-static int cs_analyze_make_plots(const struct cs_benchmark *benches,
-                                 const char *analyze_dir) {
+static int
+cs_analyze_make_plots(const struct cs_benchmark *benches,
+                      const char *analyze_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyze_dir);
     if (cs_whisker_plot(benches, name_buffer) == -1)
@@ -1646,8 +1685,9 @@ static int cs_analyze_make_plots(const struct cs_benchmark *benches,
     return 0;
 }
 
-static void cs_print_html_report(const struct cs_benchmark *benches,
-                                 const char *analyse_dir, FILE *f) {
+static void
+cs_print_html_report(const struct cs_benchmark *benches,
+                     const char *analyse_dir, FILE *f) {
     // better
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
@@ -1663,8 +1703,9 @@ static void cs_print_html_report(const struct cs_benchmark *benches,
     fprintf(f, "</body>");
 }
 
-static int cs_analyze_make_html_report(const struct cs_benchmark *benches,
-                                       const char *analyze_dir) {
+static int
+cs_analyze_make_html_report(const struct cs_benchmark *benches,
+                            const char *analyze_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/index.html", analyze_dir);
     FILE *f = fopen(name_buffer, "w");
@@ -1678,8 +1719,9 @@ static int cs_analyze_make_html_report(const struct cs_benchmark *benches,
     return 0;
 }
 
-static int cs_analyze(const struct cs_benchmark *benches,
-                      enum cs_analyze_mode mode, const char *analyze_dir) {
+static int
+cs_analyze(const struct cs_benchmark *benches, enum cs_analyze_mode mode,
+           const char *analyze_dir) {
     assert(mode != CS_DONT_analyze);
 
     if (mkdir(analyze_dir, 0766) == -1) {
@@ -1713,7 +1755,8 @@ static int cs_analyze(const struct cs_benchmark *benches,
     return 0;
 }
 
-int main(int argc, char **argv) {
+int
+main(int argc, char **argv) {
     struct cs_app app = {0};
     {
         struct cs_settings settings = {0};
