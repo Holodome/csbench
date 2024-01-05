@@ -184,8 +184,14 @@ struct cs_whisker_plot {
 };
 
 struct cs_kde_plot {
+    const char *title;
+    double lower;
+    double step;
     double *data;
     size_t count;
+    double mean;
+    double mean_y;
+    const char *output_filename;
 };
 
 //
@@ -1321,52 +1327,19 @@ static void cs_handle_export(const struct cs_app *app,
         assert(0);
     }
 }
-
-static void cs_construct_kde(const double *data, size_t data_size, double *kde,
-                             size_t kde_size) {
-    double *ssa = malloc(data_size * sizeof(*ssa));
-    memcpy(ssa, data, data_size * sizeof(*ssa));
-    qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
-
-    double q1 = ssa[data_size / 4];
-    double q3 = ssa[data_size * 3 / 4];
-    double iqr = q3 - q1;
-    double lower = ssa[0];
-    double kde_step = (ssa[data_size - 1] - lower) / data_size;
-    double st_dev = cs_stat_st_dev(data, data_size);
-    double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(data_size, -0.2);
-
-    double k_mult = 1.0 / sqrt(2 * 3.1415926538);
-    for (size_t i = 0; i < kde_size; ++i) {
-        double x = lower + i * kde_step;
-
-        double kde_value = 0;
-        for (size_t j = 0; j < data_size; ++j) {
-            double u = (x - data[j]) / h;
-            double k = k_mult * exp(-0.5 * u * u);
-            kde_value += k;
-        }
-
-        kde_value /= data_size * h;
-        kde[i] = kde_value;
-    }
-    
-    free(ssa);
-}
-
-static void cs_make_whisker_plot(const struct cs_whisker_plot *params,
+static void cs_make_whisker_plot(const struct cs_whisker_plot *plot,
                                  FILE *script) {
     fprintf(script, "data = [");
-    for (size_t i = 0; i < params->column_count; ++i) {
+    for (size_t i = 0; i < plot->column_count; ++i) {
         fprintf(script, "[");
-        for (size_t j = 0; j < params->widths[i]; ++j)
-            fprintf(script, "%lf, ", params->data[i][j]);
+        for (size_t j = 0; j < plot->widths[i]; ++j)
+            fprintf(script, "%lf, ", plot->data[i][j]);
         fprintf(script, "], ");
     }
     fprintf(script, "]\n");
     fprintf(script, "names = [");
-    for (size_t i = 0; i < params->column_count; ++i)
-        fprintf(script, "'%s', ", params->column_names[i]);
+    for (size_t i = 0; i < plot->column_count; ++i)
+        fprintf(script, "'%s', ", plot->column_names[i]);
     fprintf(script, "]\n");
     fprintf(script,
             "import matplotlib.pyplot as plt\n"
@@ -1375,22 +1348,22 @@ static void cs_make_whisker_plot(const struct cs_whisker_plot *params,
             "plt.boxplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            params->output_filename);
+            plot->output_filename);
 }
 
-static void cs_make_violin_plot(const struct cs_whisker_plot *params,
+static void cs_make_violin_plot(const struct cs_whisker_plot *plot,
                                 FILE *script) {
     fprintf(script, "data = [");
-    for (size_t i = 0; i < params->column_count; ++i) {
+    for (size_t i = 0; i < plot->column_count; ++i) {
         fprintf(script, "[");
-        for (size_t j = 0; j < params->widths[i]; ++j)
-            fprintf(script, "%lf, ", params->data[i][j]);
+        for (size_t j = 0; j < plot->widths[i]; ++j)
+            fprintf(script, "%lf, ", plot->data[i][j]);
         fprintf(script, "], ");
     }
     fprintf(script, "]\n");
     fprintf(script, "names = [");
-    for (size_t i = 0; i < params->column_count; ++i)
-        fprintf(script, "'%s', ", params->column_names[i]);
+    for (size_t i = 0; i < plot->column_count; ++i)
+        fprintf(script, "'%s', ", plot->column_names[i]);
     fprintf(script, "]\n");
     fprintf(script,
             "import matplotlib.pyplot as plt\n"
@@ -1399,7 +1372,31 @@ static void cs_make_violin_plot(const struct cs_whisker_plot *params,
             "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            params->output_filename);
+            plot->output_filename);
+}
+
+static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
+    fprintf(script, "y = [");
+    for (size_t i = 0; i < plot->count; ++i) {
+        fprintf(script, "%lf, ", plot->data[i]);
+    }
+    fprintf(script, "]\n");
+    fprintf(script, "x = [");
+    for (size_t i = 0; i < plot->count; ++i) {
+        fprintf(script, "%lf, ", plot->lower + plot->step * i);
+    }
+    fprintf(script, "]\n");
+
+    fprintf(script,
+            "import matplotlib.pyplot as plt\n"
+            "plt.title('%s')\n"
+            "plt.fill_between(x, y, interpolate=True, color='lightskyblue')\n"
+            "plt.vlines(%lf, [0], [%lf], color='blue')\n"
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('time [s]')\n"
+            "plt.ylabel('probability density')\n"
+            "plt.savefig('%s')\n",
+            plot->title, plot->mean, plot->mean_y, plot->output_filename);
 }
 
 static int cs_check_python_exists(void) {
@@ -1448,8 +1445,8 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
             _exit(-1);
         }
         // we don't need any output
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
+        /* close(STDOUT_FILENO); */
+        /* close(STDERR_FILENO); */
         if (execlp("python3", "python3", NULL) == -1) {
             perror("execlp");
             _exit(-1);
@@ -1487,21 +1484,21 @@ static int cs_check_python_has_matplotlib(void) {
 }
 
 static void cs_init_whisker_plot(const struct cs_benchmark *benches,
-                                 struct cs_whisker_plot *params) {
-    params->column_count = cs_sb_len(benches);
-    params->widths = malloc(sizeof(*params->widths) * params->column_count);
-    params->column_names =
-        malloc(sizeof(*params->column_names) * params->column_count);
-    for (size_t i = 0; i < params->column_count; ++i) {
-        params->widths[i] = benches[i].run_count;
-        params->column_names[i] = benches[i].command->str;
+                                 struct cs_whisker_plot *plot) {
+    plot->column_count = cs_sb_len(benches);
+    plot->widths = malloc(sizeof(*plot->widths) * plot->column_count);
+    plot->column_names =
+        malloc(sizeof(*plot->column_names) * plot->column_count);
+    for (size_t i = 0; i < plot->column_count; ++i) {
+        plot->widths[i] = benches[i].run_count;
+        plot->column_names[i] = benches[i].command->str;
     }
 
-    params->data = malloc(sizeof(*params->data) * params->column_count);
-    for (size_t i = 0; i < params->column_count; ++i) {
-        size_t size = sizeof(**params->data) * params->widths[i];
-        params->data[i] = malloc(size);
-        memcpy(params->data[i], benches[i].wallclock_sample, size);
+    plot->data = malloc(sizeof(*plot->data) * plot->column_count);
+    for (size_t i = 0; i < plot->column_count; ++i) {
+        size_t size = sizeof(**plot->data) * plot->widths[i];
+        plot->data[i] = malloc(size);
+        memcpy(plot->data[i], benches[i].wallclock_sample, size);
     }
 }
 
@@ -1510,6 +1507,72 @@ static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
     free(plot->column_names);
     for (size_t i = 0; i < plot->column_count; ++i)
         free(plot->data[i]);
+    free(plot->data);
+}
+
+static void cs_construct_kde(const double *data, size_t data_size, double *kde,
+                             size_t kde_size, double *lowerp, double *stepp) {
+    double *ssa = malloc(data_size * sizeof(*ssa));
+    memcpy(ssa, data, data_size * sizeof(*ssa));
+    qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
+
+    double q1 = ssa[data_size / 4];
+    double q3 = ssa[data_size * 3 / 4];
+    double iqr = q3 - q1;
+    double st_dev = cs_stat_st_dev(data, data_size);
+    double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(data_size, -0.2);
+
+    // Calculate bounds for plot. Use 3 sigma rule to reject severe outliers
+    // being plotted.
+    double mean = cs_stat_mean(data, data_size);
+    double lower = fmax(mean - 3 * st_dev, ssa[0]);
+    double upper = fmin(mean + 3 * st_dev, ssa[data_size - 1]);
+    double step = (upper - lower) / data_size;
+
+    double k_mult = 1.0 / sqrt(2 * 3.1415926536);
+    for (size_t i = 0; i < kde_size; ++i) {
+        double x = lower + i * step;
+
+        double kde_value = 0;
+        for (size_t j = 0; j < data_size; ++j) {
+            double u = (x - data[j]) / h;
+            double k = k_mult * exp(-0.5 * u * u);
+            kde_value += k;
+        }
+
+        kde_value /= data_size * h;
+        kde[i] = kde_value;
+    }
+
+    *lowerp = lower;
+    *stepp = step;
+    free(ssa);
+}
+
+static void cs_init_kde_plot(const struct cs_benchmark *bench,
+                             struct cs_kde_plot *plot) {
+    size_t kde_points = 200;
+    plot->count = kde_points;
+    plot->data = malloc(sizeof(*plot->data) * plot->count);
+    cs_construct_kde(bench->wallclock_sample, bench->run_count, plot->data,
+                     plot->count, &plot->lower, &plot->step);
+    plot->mean = cs_stat_mean(bench->wallclock_sample, bench->run_count);
+
+    // linear interpolate between adjacent points to find height of line with x
+    // equal mean
+    double x = plot->mean;
+    for (size_t i = 0; i < plot->count - 1; ++i) {
+        double x1 = plot->lower + i * plot->step;
+        double x2 = plot->lower + (i + 1) * plot->step;
+        if (x1 <= x && x <= x2) {
+            double y1 = plot->data[i];
+            double y2 = plot->data[i + 1];
+            plot->mean_y = (y1 * (x2 - x) + y2 * (x - x1)) / (x2 - x1);
+        }
+    }
+}
+
+static void cs_free_kde_plot(struct cs_kde_plot *plot) {
     free(plot->data);
 }
 
@@ -1576,6 +1639,41 @@ out:
     return rc;
 }
 
+static int cs_kde_plot(const struct cs_benchmark *bench,
+                       const char *output_filename) {
+    int rc = 0;
+    struct cs_kde_plot plot = {0};
+    plot.output_filename = output_filename;
+    plot.title = bench->command->str;
+    cs_init_kde_plot(bench, &plot);
+
+    FILE *script;
+    pid_t pid;
+    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+        fprintf(stderr, "error: failed to launch python\n");
+        rc = -1;
+        goto out;
+    }
+    cs_make_kde_plot(&plot, script);
+
+    fclose(script);
+    int status = 0;
+    if (waitpid(pid, &status, 0) == -1) {
+        perror("waitpid");
+        rc = -1;
+        goto out;
+    }
+
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        fprintf(stderr, "error: python finished with non-zero exit code\n");
+        rc = -1;
+    }
+
+out:
+    cs_free_kde_plot(&plot);
+    return rc;
+}
+
 static int cs_analyse_make_plots(const struct cs_benchmark *benches,
                                  const char *analyse_dir) {
     char name_buffer[4096];
@@ -1587,6 +1685,14 @@ static int cs_analyse_make_plots(const struct cs_benchmark *benches,
     snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyse_dir);
     if (cs_violin_plot(benches, name_buffer) == -1) {
         return -1;
+    }
+
+    for (size_t i = 0; i < cs_sb_len(benches); ++i) {
+        snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
+                 analyse_dir, i + 1);
+        if (cs_kde_plot(benches, name_buffer) == -1) {
+            return -1;
+        }
     }
 
     return 0;

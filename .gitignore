@@ -1,3 +1,4 @@
 csbench
 *.o
 *.d
+.csbench
