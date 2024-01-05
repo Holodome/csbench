@@ -71,12 +71,19 @@ enum cs_analyze_mode {
     CS_ANALYZE_HTML
 };
 
+struct cs_benchmark_stop_policy {
+    double time_limit;
+    size_t runs;
+    size_t min_runs;
+    size_t max_runs;
+};
+
 // This structure contains all information
 // supplied by user prior to benchmark start.
 struct cs_cli_settings {
     // Array of commands to benchmark
     const char **commands;
-    double time_limit;
+    struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
 
@@ -112,8 +119,7 @@ struct cs_command {
 struct cs_settings {
     size_t command_count;
     struct cs_command *commands;
-
-    double time_limit;
+    struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
 
@@ -278,6 +284,9 @@ cs_print_help_and_exit(int rc) {
         "Where options is one of:\n"
         "--warmup <n>         - specify warmup time in seconds\n"
         "--time-limit <n>     - specify how long to run benchmarks\n"
+        "--runs <n>           - make exactly n runs\n"
+        "--min-runs <n>       - respect time limit but make at least n runs\n"
+        "--max-runs <n>       - respect time limit but make at most n runs\n"
         "--prepare <cmd>      - specify command to be executed before each "
         "benchmark run\n"
         "--nrs <n>            - specify number of resamples for bootstrapping\n"
@@ -307,7 +316,8 @@ cs_print_version_and_exit(void) {
 
 static void
 cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
-    settings->time_limit = 5.0;
+    settings->bench_stop.time_limit = 5.0;
+    settings->bench_stop.min_runs = 5;
     settings->warmup_time = 1.0;
     settings->nresamples = 100000;
     settings->shell = "/bin/sh";
@@ -352,7 +362,54 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
                 exit(EXIT_FAILURE);
             }
 
-            settings->time_limit = value;
+            settings->bench_stop.time_limit = value;
+        } else if (strcmp(opt, "--runs") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *runs_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(runs_str, &str_end, 10);
+            if (str_end == runs_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value <= 0) {
+                fprintf(stderr, "error: run count must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
+            settings->bench_stop.runs = value;
+        } else if (strcmp(opt, "--min-runs") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *runs_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(runs_str, &str_end, 10);
+            if (str_end == runs_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value <= 0) {
+                fprintf(stderr,
+                        "error: resamples count must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
+            settings->bench_stop.min_runs = value;
+        } else if (strcmp(opt, "--max-runs") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *runs_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(runs_str, &str_end, 10);
+            if (str_end == runs_str)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            if (value <= 0) {
+                fprintf(stderr,
+                        "error: resamples count must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
+            settings->bench_stop.max_runs = value;
         } else if (strcmp(opt, "--prepare") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -925,12 +982,26 @@ cs_warmup(struct cs_benchmark *bench, double time_limit) {
 }
 
 static int
-cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
+cs_run_benchmark(struct cs_benchmark *bench,
+                 const struct cs_benchmark_stop_policy *stop_policy) {
+    if (stop_policy->runs != 0) {
+        for (size_t run_idx = 0; run_idx < stop_policy->runs; ++run_idx) {
+            if (bench->prepare)
+                system(bench->prepare);
+            if (cs_exec_and_measure(bench) == -1)
+                return -1;
+        }
+
+        return 0;
+    }
+
     double niter_accum = 1;
     size_t niter = 1;
-
     double start_time = cs_get_time();
-    for (size_t count = 0;; ++count) {
+    double time_limit = stop_policy->time_limit;
+    size_t min_runs = stop_policy->min_runs;
+    size_t max_runs = stop_policy->max_runs;
+    for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare)
                 system(bench->prepare);
@@ -939,7 +1010,9 @@ cs_run_benchmark(struct cs_benchmark *bench, double time_limit) {
         }
 
         double end_time = cs_get_time();
-        if (end_time - start_time > time_limit && count >= 4)
+        if (((max_runs != 0 ? count >= max_runs : 0) ||
+             (end_time - start_time > time_limit)) &&
+            (min_runs != 0 ? count >= min_runs : 1))
             break;
 
         for (;;) {
@@ -1134,7 +1207,7 @@ cs_extract_executable_and_argv(const char *command_str, char **executable,
 static int
 cs_init_settings(const struct cs_cli_settings *cli,
                  struct cs_settings *settings) {
-    settings->time_limit = cli->time_limit;
+    settings->bench_stop = cli->bench_stop;
     settings->warmup_time = cli->warmup_time;
     settings->export = cli->export;
     settings->prepare_command = cli->prepare;
@@ -1144,10 +1217,10 @@ cs_init_settings(const struct cs_cli_settings *cli,
 
     if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(cli->input_policy.file, R_OK) == -1) {
-        fprintf(
-            stderr,
-            "error: file specified as command input is not accessable (%s)\n",
-            cli->input_policy.file);
+        fprintf(stderr,
+                "error: file specified as command input is not accessable "
+                "(%s)\n",
+                cli->input_policy.file);
         return -1;
     }
 
@@ -1253,7 +1326,11 @@ cs_export_json(const struct cs_settings *app,
     }
 
     fprintf(f, "{ \"settings\": {");
-    fprintf(f, "\"time_limit\": %lf, \"warmup_time\": %lf ", app->time_limit,
+    fprintf(f,
+            "\"time_limit\": %lf, \"runs\": %zu, \"min_runs\": %zu, "
+            "\"max_runs\": %zu, \"warmup_time\": %lf ",
+            app->bench_stop.time_limit, app->bench_stop.runs,
+            app->bench_stop.min_runs, app->bench_stop.max_runs,
             app->warmup_time);
     fprintf(f, "}, \"benches\": [");
     for (size_t i = 0; i < bench_count; ++i) {
@@ -1290,11 +1367,11 @@ cs_export_json(const struct cs_settings *app,
                 "%lf }, ",
                 bench->st_dev_estimate.lower, bench->st_dev_estimate.point,
                 bench->st_dev_estimate.upper);
-        fprintf(
-            f,
-            "\"sys_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": %lf }, ",
-            bench->systime_estimate.lower, bench->systime_estimate.point,
-            bench->systime_estimate.upper);
+        fprintf(f,
+                "\"sys_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": "
+                "%lf }, ",
+                bench->systime_estimate.lower, bench->systime_estimate.point,
+                bench->systime_estimate.upper);
         fprintf(f,
                 "\"user_est\": { \"lower\": %lf, \"point\": %lf, \"upper\": "
                 "%lf }, ",
@@ -1555,8 +1632,8 @@ cs_init_kde_plot(const struct cs_benchmark *bench, struct cs_kde_plot *plot) {
                      plot->count, &plot->lower, &plot->step);
     plot->mean = cs_stat_mean(bench->wallclock_sample, bench->run_count);
 
-    // linear interpolate between adjacent points to find height of line with x
-    // equal mean
+    // linear interpolate between adjacent points to find height of line
+    // with x equal mean
     double x = plot->mean;
     for (size_t i = 0; i < plot->count - 1; ++i) {
         double x1 = plot->lower + i * plot->step;
@@ -1836,13 +1913,13 @@ static void
 cs_run(struct cs_settings *settings) {
     size_t command_count = settings->command_count;
     struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
-    for (size_t command_idx = 0; command_idx < command_count; ++command_idx) {
-        struct cs_benchmark *bench = benches + command_idx;
+    for (size_t i = 0; i < command_count; ++i) {
+        struct cs_benchmark *bench = benches + i;
         bench->prepare = settings->prepare_command;
-        bench->command = settings->commands + command_idx;
+        bench->command = settings->commands + i;
 
         cs_warmup(bench, settings->warmup_time);
-        cs_run_benchmark(bench, settings->time_limit);
+        cs_run_benchmark(bench, &settings->bench_stop);
         cs_analyze_benchmark(bench, settings->nresamples);
         cs_print_benchmark_info(bench);
     }
