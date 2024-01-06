@@ -1091,8 +1091,10 @@ cs_execute_custom_measurements(struct cs_benchmark *bench, int stdout_fd) {
     }
     rc = 0;
 out:
-    if (custom_output_fd)
+    if (custom_output_fd != -1) {
         close(custom_output_fd);
+        unlink(path);
+    }
     return rc;
 }
 
@@ -1100,8 +1102,8 @@ static int
 cs_exec_and_measure(struct cs_benchmark *bench) {
     int result = -1;
     int stdout_fd = -1;
+    char path[] = "/tmp/csbench_out_XXXXXX";
     if (bench->command->custom_measuremements != NULL) {
-        char path[] = "/tmp/csbench_out_XXXXXX";
         stdout_fd = mkstemp(path);
         if (stdout_fd == -1) {
             perror("mkstemp");
@@ -1133,8 +1135,10 @@ cs_exec_and_measure(struct cs_benchmark *bench) {
 
     result = 0;
 out:
-    if (stdout_fd != -1)
+    if (stdout_fd != -1) {
         close(stdout_fd);
+        unlink(path);
+    }
     return result;
 }
 
