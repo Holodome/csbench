@@ -62,7 +62,9 @@ command 'psql postgres -f 8q.sql'
  st dev 84.62 μs 350.5 μs 687.6 μs
 systime 3.182 ms 3.214 ms 3.273 ms
 usrtime 4.748 ms 4.766 ms 4.797 ms
-   exec 14.90    14.91    14.95 
+custom measurement exec
+   mean   14.413   14.425   14.439
+ st dev 0.016373 0.031633 0.047916
 found 7 outliers across 100 measurements (7.00%)
 4 (4.00%) high mild
 3 (3.00%) high severe

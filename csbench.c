@@ -183,7 +183,8 @@ struct cs_benchmark {
     struct cs_estimate st_dev_estimate;
     struct cs_estimate systime_estimate;
     struct cs_estimate usertime_estimate;
-    struct cs_estimate *custom_measurement_estimates;
+    struct cs_estimate *custom_measurement_mean_estimates;
+    struct cs_estimate *custom_measurement_st_dev_estimates;
     struct cs_outliers outliers;
     double outlier_variance_fraction;
 };
@@ -1138,9 +1139,9 @@ cs_exec_and_measure(struct cs_benchmark *bench) {
                cpu_end.system_time - cpu_start.system_time);
     cs_sb_push(bench->usertime_sample, cpu_end.user_time - cpu_start.user_time);
 
-    if (bench->command->custom_measuremements != NULL)
-        if (cs_execute_custom_measurements(bench, stdout_fd) == -1)
-            goto out;
+    if (bench->command->custom_measuremements != NULL &&
+        cs_execute_custom_measurements(bench, stdout_fd) == -1)
+        goto out;
 
     ret = 0;
 out:
@@ -1266,12 +1267,21 @@ cs_estimate_st_dev(const double *data, size_t data_size, size_t nresamples) {
 }
 
 static void
-cs_print_estimate(const char *name, const struct cs_estimate *est) {
+cs_print_time_estimate(const char *name, const struct cs_estimate *est) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->lower);
     cs_print_time(buf2, sizeof(buf2), est->point);
     cs_print_time(buf3, sizeof(buf3), est->upper);
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
+}
+
+static void
+cs_print_estimate(const char *name, const struct cs_estimate *est) {
+    char buf1[256], buf2[256], buf3[256];
+    snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
+    snprintf(buf2, sizeof(buf1), "%.5g", est->point);
+    snprintf(buf3, sizeof(buf1), "%.5g", est->upper);
+    printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
 static void
@@ -1310,9 +1320,12 @@ cs_analyze_benchmark(struct cs_benchmark *bench, size_t nresamples) {
         cs_estimate_mean(bench->usertime_sample, run_count, nresamples);
     if (bench->custom_measurements) {
         size_t count = cs_sb_len(bench->command->custom_measuremements);
-        for (size_t i = 0; i < count; ++i)
-            bench->custom_measurement_estimates[i] = cs_estimate_mean(
+        for (size_t i = 0; i < count; ++i) {
+            bench->custom_measurement_mean_estimates[i] = cs_estimate_mean(
                 bench->custom_measurements[i], run_count, nresamples);
+            bench->custom_measurement_st_dev_estimates[i] = cs_estimate_st_dev(
+                bench->custom_measurements[i], run_count, nresamples);
+        }
     }
     bench->outliers = cs_classify_outliers(bench->wallclock_sample, run_count);
     bench->outlier_variance_fraction =
@@ -1340,15 +1353,20 @@ cs_print_benchmark_info(const struct cs_benchmark *bench) {
     printf("command\t'%s'\n", bench->command->str);
     printf("%zu runs\n", bench->run_count);
     cs_print_exit_code_info(bench);
-    cs_print_estimate("mean", &bench->mean_estimate);
-    cs_print_estimate("st dev", &bench->st_dev_estimate);
-    cs_print_estimate("systime", &bench->systime_estimate);
-    cs_print_estimate("usrtime", &bench->usertime_estimate);
-    if (bench->custom_measurement_estimates) {
+    cs_print_time_estimate("mean", &bench->mean_estimate);
+    cs_print_time_estimate("st dev", &bench->st_dev_estimate);
+    cs_print_time_estimate("systime", &bench->systime_estimate);
+    cs_print_time_estimate("usrtime", &bench->usertime_estimate);
+    if (bench->custom_measurement_mean_estimates) {
         size_t count = cs_sb_len(bench->command->custom_measuremements);
-        for (size_t i = 0; i < count; ++i)
-            cs_print_estimate(bench->command->custom_measuremements[i].name,
-                              bench->custom_measurement_estimates + i);
+        for (size_t i = 0; i < count; ++i) {
+            printf("custom measurement %s\n",
+                   bench->command->custom_measuremements[i].name);
+            cs_print_estimate("mean",
+                              bench->custom_measurement_mean_estimates + i);
+            cs_print_estimate("st dev",
+                              bench->custom_measurement_st_dev_estimates + i);
+        }
     }
     cs_print_outliers(&bench->outliers, bench->run_count);
     struct cs_outlier_variance var =
@@ -1508,7 +1526,8 @@ cs_free_bench(struct cs_benchmark *bench) {
              ++i)
             cs_sb_free(bench->custom_measurements[i]);
         free(bench->custom_measurements);
-        free(bench->custom_measurement_estimates);
+        free(bench->custom_measurement_mean_estimates);
+        free(bench->custom_measurement_st_dev_estimates);
     }
 }
 
@@ -2160,8 +2179,10 @@ cs_run(struct cs_settings *settings) {
             size_t count = cs_sb_len(bench->command->custom_measuremements);
             bench->custom_measurements =
                 calloc(count, sizeof(*bench->custom_measurements));
-            bench->custom_measurement_estimates =
-                calloc(count, sizeof(*bench->custom_measurement_estimates));
+            bench->custom_measurement_mean_estimates = calloc(
+                count, sizeof(*bench->custom_measurement_mean_estimates));
+            bench->custom_measurement_st_dev_estimates = calloc(
+                count, sizeof(*bench->custom_measurement_st_dev_estimates));
         }
 
         if (cs_warmup(bench, settings->warmup_time) == -1)
