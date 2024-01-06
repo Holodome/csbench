@@ -1,4 +1,4 @@
-CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 
+CFLAGS += -std=c99 -Wall -Wextra -pedantic -O0 -g
 LDFLAGS += -lm
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 

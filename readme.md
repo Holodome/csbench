@@ -77,3 +77,4 @@ outlying measurements have no (1.0%) effect on estimated standard deviation
 * [criterion.rs](https://github.com/bheisler/criterion.rs) - Rust benchmarking library
 * [criterion](https://hackage.haskell.org/package/criterion) - Haskell benchmarking library
 * [Google Benchmark](https://github.com/google/benchmark) - C++ benchmarking library
+* [bench](https://github.com/Gabriella439/bench) - criterion-based shell command timing tool

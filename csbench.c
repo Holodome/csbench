@@ -31,7 +31,6 @@ struct cs_sb_header {
 };
 
 enum cs_input_policy_kind {
-    // /dev/null as input
     CS_INPUT_POLICY_NULL,
     // load input from file (supplied later)
     CS_INPUT_POLICY_FILE
@@ -40,12 +39,10 @@ enum cs_input_policy_kind {
 // How to handle input of command?
 struct cs_input_policy {
     enum cs_input_policy_kind kind;
-    // CS_INPUT_POLICY_FILE
     const char *file;
 };
 
 enum cs_output_policy_kind {
-    // /dev/null as output
     CS_OUTPUT_POLICY_NULL,
     // Print output to controlling terminal
     CS_OUTPUT_POLICY_INHERIT,
@@ -79,40 +76,35 @@ struct cs_custom_meassurement {
     const char *str;
 };
 
+struct cs_benchmark_param {
+    char *name;
+    char **values;
+};
+
 // This structure contains all information
 // supplied by user prior to benchmark start.
 struct cs_cli_settings {
-    // Array of commands to benchmark
     const char **commands;
     struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
-
     const char *shell;
     struct cs_export_policy export;
-
     struct cs_custom_meassurement *custom_measuremements;
-
-    // Command to run before each timing run
     const char *prepare;
-
     struct cs_input_policy input_policy;
     enum cs_output_policy_kind output_policy;
-
     const char *analyze_dir;
     enum cs_analyze_mode analyze_mode;
+    struct cs_benchmark_param *params;
 };
 
 // Description of command to benchmark.
 // Commands are executed using execve.
 struct cs_command {
-    // Command string as supplied by user.
     const char *str;
-    // Full path to executagle
     char *executable;
-    // Argv supplied to execve.
     char **argv;
-
     struct cs_input_policy input_policy;
     enum cs_output_policy_kind output_policy;
     struct cs_custom_meassurement *custom_measuremements;
@@ -126,12 +118,9 @@ struct cs_settings {
     struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
-
     struct cs_custom_meassurement *custom_measuremements;
-
     const char *prepare_command;
     struct cs_export_policy export;
-
     enum cs_analyze_mode analyze_mode;
     const char *analyze_dir;
 };
@@ -194,6 +183,7 @@ struct cs_cpu_time {
     double system_time;
 };
 
+// data needed to construct whisker (boxplot) or violin plot
 struct cs_whisker_plot {
     double **data;
     const char **column_names;
@@ -202,6 +192,8 @@ struct cs_whisker_plot {
     const char *output_filename;
 };
 
+// data needed to construct kde plot. data here is kde points computed from
+// original data
 struct cs_kde_plot {
     const char *title;
     double lower;
@@ -326,6 +318,70 @@ static void
 cs_print_version_and_exit(void) {
     printf("csbench 0.1\n");
     exit(EXIT_SUCCESS);
+}
+
+static int
+cs_parse_range_scan_settings(const char *settings, char **namep, double *lowp,
+                             double *highp, double *stepp) {
+    char *name = NULL;
+    const char *cursor = settings;
+    const char *settings_end = settings + strlen(settings);
+    char *i_end = strchr(cursor, '/');
+    if (i_end == NULL)
+        return 0;
+
+    size_t name_len = i_end - cursor;
+    name = malloc(name_len + 1);
+    memcpy(name, cursor, name_len);
+    name[name_len] = '\0';
+
+    cursor = i_end + 1;
+    char *n_end = strchr(cursor, '/');
+    if (n_end == NULL)
+        goto err_free_name;
+
+    char *low_str_end = NULL;
+    double low = strtod(cursor, &low_str_end);
+    if (low_str_end != n_end)
+        goto err_free_name;
+
+    cursor = n_end + 1;
+    char *m_end = strchr(cursor, '/');
+    char *high_str_end = NULL;
+    double high = strtod(cursor, &high_str_end);
+    if (m_end == NULL ? 0 : high_str_end != m_end)
+        goto err_free_name;
+
+    double step = 1.0;
+    if (high_str_end != settings_end) {
+        cursor = high_str_end + 1;
+        char *step_str_end = NULL;
+        step = strtod(cursor, &step_str_end);
+        if (step_str_end != settings_end)
+            goto err_free_name;
+    }
+
+    *namep = name;
+    *lowp = low;
+    *highp = high;
+    *stepp = step;
+    return 1;
+err_free_name:
+    free(name);
+    return 0;
+}
+
+static char **
+cs_range_to_param_list(double low, double high, double step) {
+    assert(high > low);
+    char **result = NULL;
+    for (double cursor = low; cursor <= high; cursor += step) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%f", cursor);
+        cs_sb_push(result, strdup(buf));
+    }
+
+    return result;
 }
 
 static void
@@ -491,6 +547,23 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
             const char *cmd = argv[cursor++];
             cs_sb_push(settings->custom_measuremements,
                        ((struct cs_custom_meassurement){name, cmd}));
+        } else if (strcmp(opt, "--scan") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *scan_settings = argv[cursor++];
+            double low, high, step;
+            char *name;
+            if (!cs_parse_range_scan_settings(scan_settings, &name, &low, &high,
+                                              &step)) {
+                fprintf(stderr, "error: invalid --scan argument\n");
+                exit(EXIT_FAILURE);
+            }
+
+            char **param_list = cs_range_to_param_list(low, high, step);
+            cs_sb_push(settings->params,
+                       ((struct cs_benchmark_param){name, param_list}));
+        } else if (strcmp(opt, "--scanl") == 0) {
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
