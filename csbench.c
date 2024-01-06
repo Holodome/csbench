@@ -308,6 +308,9 @@ cs_print_help_and_exit(int rc) {
         "By default uses stdout of command to retrieve number\n"
         "--custom-x <name> <cmd> - command to extract custom measurement "
         "value\n"
+        "--scan <i>/<n>/<m>[/<s>] - parameter scan i in range(n, m, s). s can "
+        "be omitted\n"
+        "--scanl <i>/a[,...]  - parameter scacn comma separated options\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyze-dir <dir>  - directory where analysis will be saved at\n"
         "--analyze <opt>      - more complex analysis. <opt> can be one of\n"
@@ -1106,7 +1109,7 @@ out:
 
 static int
 cs_exec_and_measure(struct cs_benchmark *bench) {
-    int result = -1;
+    int ret = -1;
     int stdout_fd = -1;
     char path[] = "/tmp/csbench_out_XXXXXX";
     if (bench->command->custom_measuremements != NULL) {
@@ -1139,13 +1142,13 @@ cs_exec_and_measure(struct cs_benchmark *bench) {
         if (cs_execute_custom_measurements(bench, stdout_fd) == -1)
             goto out;
 
-    result = 0;
+    ret = 0;
 out:
     if (stdout_fd != -1) {
         close(stdout_fd);
         unlink(path);
     }
-    return result;
+    return ret;
 }
 
 static int
@@ -1167,12 +1170,45 @@ cs_warmup(struct cs_benchmark *bench, double time_limit) {
 }
 
 static int
+cs_execute_prepare(const char *cmd) {
+    char *exec = "/bin/sh";
+    char *argv[] = {"sh", "-c", NULL, NULL};
+    argv[2] = (char *)cmd;
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return -1;
+    }
+
+    if (pid == 0) {
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd == -1)
+            _exit(-1);
+        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1 ||
+            dup2(fd, STDIN_FILENO) == -1)
+            _exit(-1);
+        close(fd);
+        if (execv(exec, argv) == -1)
+            _exit(-1);
+    }
+
+    if (!cs_process_executed_correctly(pid))
+        return -1;
+
+    return 0;
+}
+
+static int
 cs_run_benchmark(struct cs_benchmark *bench,
                  const struct cs_benchmark_stop_policy *stop_policy) {
     if (stop_policy->runs != 0) {
         for (size_t run_idx = 0; run_idx < stop_policy->runs; ++run_idx) {
-            if (bench->prepare)
-                system(bench->prepare);
+            if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
+                return -1;
             if (cs_exec_and_measure(bench) == -1)
                 return -1;
         }
@@ -1328,14 +1364,14 @@ cs_find_full_path(const char *path) {
     if (*path == '/') {
         full = strdup(path);
     } else if (strchr(path, '/') != NULL) {
-        char path[4096];
-        if (getcwd(path, sizeof(path)) == NULL) {
+        char test_path[4096];
+        if (getcwd(test_path, sizeof(path)) == NULL) {
             perror("getcwd");
             return NULL;
         }
         size_t cwd_len = strlen(path);
-        snprintf(path + cwd_len, sizeof(path) - cwd_len, "/%s", full);
-        full = strdup(path);
+        snprintf(test_path + cwd_len, sizeof(test_path) - cwd_len, "/%s", full);
+        full = strdup(test_path);
     } else {
         const char *path_var = getenv("PATH");
         if (path_var == NULL) {
