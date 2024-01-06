@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/wait.h>
@@ -48,8 +49,6 @@ enum cs_output_policy_kind {
     CS_OUTPUT_POLICY_NULL,
     // Print output to controlling terminal
     CS_OUTPUT_POLICY_INHERIT,
-    // Internal parameter used when piping output for custom measurements
-    CS_OUTPUT_POLICY_PIPE
 };
 
 enum cs_export_kind {
@@ -519,8 +518,8 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
 }
 
 static void
-cs_exec_command_do_exec(const struct cs_command *command, int stdout_fd) {
-    switch (command->input_policy.kind) {
+cs_exec_input_policy(const struct cs_input_policy *policy) {
+    switch (policy->kind) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
         int fd = open("/dev/null", O_RDONLY);
@@ -533,7 +532,7 @@ cs_exec_command_do_exec(const struct cs_command *command, int stdout_fd) {
     }
     case CS_INPUT_POLICY_FILE: {
         close(STDIN_FILENO);
-        int fd = open(command->input_policy.file, O_RDONLY);
+        int fd = open(policy->file, O_RDONLY);
         if (fd == -1)
             _exit(-1);
         if (dup2(fd, STDIN_FILENO) == -1)
@@ -542,8 +541,11 @@ cs_exec_command_do_exec(const struct cs_command *command, int stdout_fd) {
         break;
     }
     }
+}
 
-    switch (command->output_policy) {
+static void
+cs_exec_output_policy(enum cs_output_policy_kind policy) {
+    switch (policy) {
     case CS_OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -557,23 +559,7 @@ cs_exec_command_do_exec(const struct cs_command *command, int stdout_fd) {
     }
     case CS_OUTPUT_POLICY_INHERIT:
         break;
-    case CS_OUTPUT_POLICY_PIPE:
-        close(STDERR_FILENO);
-        int fd = open("/dev/null", O_WRONLY);
-        if (fd == -1)
-            _exit(-1);
-        if (dup2(fd, STDERR_FILENO) == -1)
-            _exit(-1);
-        if (stdout_fd == -1)
-            stdout_fd = fd;
-        if (dup2(stdout_fd, STDOUT_FILENO) == -1)
-            _exit(-1);
-        close(fd);
-        break;
     }
-
-    if (execv(command->executable, command->argv) == -1)
-        _exit(-1);
 }
 
 static int
@@ -585,8 +571,27 @@ cs_exec_command(const struct cs_command *command, int stdout_fd) {
         goto out;
     }
 
-    if (pid == 0)
-        cs_exec_command_do_exec(command, stdout_fd);
+    if (pid == 0) {
+        cs_exec_input_policy(&command->input_policy);
+        // special handling when stdout needs to be piped
+        if (stdout_fd != -1) {
+            close(STDERR_FILENO);
+            int fd = open("/dev/null", O_WRONLY);
+            if (fd == -1)
+                _exit(-1);
+            if (dup2(fd, STDERR_FILENO) == -1)
+                _exit(-1);
+            if (stdout_fd == -1)
+                stdout_fd = fd;
+            if (dup2(stdout_fd, STDOUT_FILENO) == -1)
+                _exit(-1);
+            close(fd);
+        } else {
+            cs_exec_output_policy(command->output_policy);
+        }
+        if (execv(command->executable, command->argv) == -1)
+            _exit(-1);
+    }
 
     int status = 0;
     pid_t wpid;
@@ -1339,14 +1344,14 @@ cs_find_full_path(const char *path) {
         }
         const char *path_var_end = path_var + strlen(path_var);
         const char *cursor = path_var;
-        while (cursor != path_var_end + 1) {
+        while (cursor < path_var_end + 1) {
             const char *next_sep = strchr(cursor, ':');
             if (next_sep == NULL)
                 next_sep = path_var_end;
 
-            char path[4096];
-            snprintf(path, sizeof(path), "%.*s/%s", (int)(next_sep - cursor),
-                     cursor, path);
+            char test_path[4096];
+            snprintf(test_path, sizeof(test_path), "%.*s/%s",
+                     (int)(next_sep - cursor), cursor, path);
 
             if (access(path, X_OK) == 0) {
                 full = strdup(path);
@@ -1431,11 +1436,8 @@ cs_init_settings(const struct cs_cli_settings *cli,
         command->str = command_str;
         command->input_policy = cli->input_policy;
         command->custom_measuremements = settings->custom_measuremements;
-        if (command->custom_measuremements != NULL)
-            command->output_policy = CS_OUTPUT_POLICY_PIPE;
-        else
-            command->output_policy = cli->output_policy;
-        // TODO: Cleanup this code fragment
+        command->output_policy = cli->output_policy;
+
         if (cli->shell) {
             if (cs_extract_executable_and_argv(cli->shell, &command->executable,
                                                &command->argv) != 0) {
@@ -1443,7 +1445,7 @@ cs_init_settings(const struct cs_cli_settings *cli,
                 return -1;
             }
             // pop NULL appended by cs_extract_executable_and_path
-            cs_sb_pop(command->argv);
+            (void)cs_sb_pop(command->argv);
             cs_sb_push(command->argv, strdup("-c"));
             cs_sb_push(command->argv, strdup(command_str));
             cs_sb_push(command->argv, NULL);
@@ -1475,6 +1477,12 @@ cs_free_bench(struct cs_benchmark *bench) {
 }
 
 static void
+cs_free_cli_settings(struct cs_cli_settings *settings) {
+    cs_sb_free(settings->commands);
+    cs_sb_free(settings->custom_measuremements);
+}
+
+static void
 cs_free_settings(struct cs_settings *app) {
     for (size_t i = 0; i < app->command_count; ++i) {
         struct cs_command *command = app->commands + i;
@@ -1488,7 +1496,9 @@ cs_free_settings(struct cs_settings *app) {
 
 static void
 cs_compare_benches(const struct cs_benchmark *benches, size_t bench_count) {
-    assert(bench_count > 1);
+    if (bench_count == 1)
+        return;
+
     size_t best_idx = 0;
     double best_mean = benches[0].mean_estimate.point;
     for (size_t i = 1; i < bench_count; ++i) {
@@ -1518,7 +1528,7 @@ cs_compare_benches(const struct cs_benchmark *benches, size_t bench_count) {
     }
 }
 
-static void
+static int
 cs_export_json(const struct cs_settings *app,
                const struct cs_benchmark *benches, size_t bench_count,
                const char *filename) {
@@ -1526,7 +1536,7 @@ cs_export_json(const struct cs_settings *app,
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
                 filename);
-        return;
+        return -1;
     }
 
     fprintf(f, "{ \"settings\": {");
@@ -1593,21 +1603,24 @@ cs_export_json(const struct cs_settings *app,
     }
     fprintf(f, "]}\n");
     fclose(f);
+
+    return 0;
 }
 
-static void
+static int
 cs_handle_export(const struct cs_settings *app,
                  const struct cs_benchmark *benches, size_t bench_count,
                  const struct cs_export_policy *policy) {
-    assert(policy->kind != CS_DONT_EXPORT);
     switch (policy->kind) {
     case CS_EXPORT_JSON:
-        cs_export_json(app, benches, bench_count, policy->filename);
+        return cs_export_json(app, benches, bench_count, policy->filename);
         break;
-    default:
-        assert(0);
+    case CS_DONT_EXPORT:
+        break;
     }
+    return 0;
 }
+
 static void
 cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *script) {
     fprintf(script, "data = [");
@@ -1842,7 +1855,7 @@ cs_free_kde_plot(struct cs_kde_plot *plot) {
 static int
 cs_whisker_plot(const struct cs_benchmark *benches, size_t bench_count,
                 const char *output_filename) {
-    int rc = 0;
+    int ret = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
     cs_init_whisker_plot(benches, bench_count, &plot);
@@ -1851,25 +1864,25 @@ cs_whisker_plot(const struct cs_benchmark *benches, size_t bench_count,
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        rc = -1;
+        ret = -1;
         goto out;
     }
     cs_make_whisker_plot(&plot, script);
     fclose(script);
     if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        rc = -1;
+        ret = -1;
     }
 
 out:
     cs_free_whisker_plot(&plot);
-    return rc;
+    return ret;
 }
 
 static int
 cs_violin_plot(const struct cs_benchmark *benches, size_t bench_count,
                const char *output_filename) {
-    int rc = 0;
+    int ret = 0;
     struct cs_whisker_plot plot = {0};
     plot.output_filename = output_filename;
     cs_init_whisker_plot(benches, bench_count, &plot);
@@ -1878,24 +1891,24 @@ cs_violin_plot(const struct cs_benchmark *benches, size_t bench_count,
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        rc = -1;
+        ret = -1;
         goto out;
     }
     cs_make_violin_plot(&plot, script);
     fclose(script);
     if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        rc = -1;
+        ret = -1;
     }
 
 out:
     cs_free_whisker_plot(&plot);
-    return rc;
+    return ret;
 }
 
 static int
 cs_kde_plot(const struct cs_benchmark *bench, const char *output_filename) {
-    int rc = 0;
+    int ret = 0;
     struct cs_kde_plot plot = {0};
     plot.output_filename = output_filename;
     plot.title = bench->command->str;
@@ -1905,19 +1918,19 @@ cs_kde_plot(const struct cs_benchmark *bench, const char *output_filename) {
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        rc = -1;
+        ret = -1;
         goto out;
     }
     cs_make_kde_plot(&plot, script);
     fclose(script);
     if (!cs_process_executed_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        rc = -1;
+        ret = -1;
     }
 
 out:
     cs_free_kde_plot(&plot);
-    return rc;
+    return ret;
 }
 
 static int
@@ -2061,9 +2074,10 @@ cs_analyze_make_html_report(const struct cs_benchmark *benches,
 }
 
 static int
-cs_analyze(const struct cs_benchmark *benches, size_t bench_count,
-           enum cs_analyze_mode mode, const char *analyze_dir) {
-    assert(mode != CS_DONT_ANALYZE);
+cs_handle_analyze(const struct cs_benchmark *benches, size_t bench_count,
+                  enum cs_analyze_mode mode, const char *analyze_dir) {
+    if (mode == CS_DONT_ANALYZE)
+        return 0;
 
     if (mkdir(analyze_dir, 0766) == -1) {
         if (errno == EEXIST) {
@@ -2097,8 +2111,9 @@ cs_analyze(const struct cs_benchmark *benches, size_t bench_count,
     return 0;
 }
 
-static void
+static int
 cs_run(struct cs_settings *settings) {
+    int ret = -1;
     size_t command_count = settings->command_count;
     struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
     for (size_t i = 0; i < command_count; ++i) {
@@ -2113,35 +2128,48 @@ cs_run(struct cs_settings *settings) {
                 calloc(count, sizeof(*bench->custom_measurement_estimates));
         }
 
-        cs_warmup(bench, settings->warmup_time);
-        cs_run_benchmark(bench, &settings->bench_stop);
+        if (cs_warmup(bench, settings->warmup_time) == -1)
+            goto out;
+        if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
+            goto out;
         cs_analyze_benchmark(bench, settings->nresamples);
         cs_print_benchmark_info(bench);
     }
 
-    if (command_count != 1)
-        cs_compare_benches(benches, command_count);
-    if (settings->export.kind != CS_DONT_EXPORT)
-        cs_handle_export(settings, benches, command_count, &settings->export);
-    if (settings->analyze_mode != CS_DONT_ANALYZE)
-        cs_analyze(benches, command_count, settings->analyze_mode,
-                   settings->analyze_dir);
+    cs_compare_benches(benches, command_count);
 
+    if (cs_handle_export(settings, benches, command_count, &settings->export) ==
+        -1)
+        goto out;
+    if (cs_handle_analyze(benches, command_count, settings->analyze_mode,
+                          settings->analyze_dir) == -1)
+        goto out;
+
+    ret = 0;
+out:
     for (size_t i = 0; i < command_count; ++i)
         cs_free_bench(benches + i);
     free(benches);
+    return ret;
 }
 
 int
 main(int argc, char **argv) {
+    int rc = EXIT_FAILURE;
     struct cs_cli_settings cli = {0};
     cs_parse_cli_args(argc, argv, &cli);
+
     struct cs_settings settings = {0};
     if (cs_init_settings(&cli, &settings) == -1)
-        return EXIT_FAILURE;
+        goto free_cli;
 
-    cs_run(&settings);
+    if (cs_run(&settings) == -1)
+        goto free_settings;
 
+    rc = EXIT_SUCCESS;
+free_settings:
     cs_free_settings(&settings);
-    return EXIT_SUCCESS;
+free_cli:
+    cs_free_cli_settings(&cli);
+    return rc;
 }
