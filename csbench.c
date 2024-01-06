@@ -47,12 +47,9 @@ enum cs_output_policy_kind {
     // /dev/null as output
     CS_OUTPUT_POLICY_NULL,
     // Print output to controlling terminal
-    CS_OUTPUT_POLICY_INHERIT
-};
-
-// How to handle output of command?
-struct cs_output_policy {
-    enum cs_output_policy_kind kind;
+    CS_OUTPUT_POLICY_INHERIT,
+    // Internal parameter used when piping output for custom measurements
+    CS_OUTPUT_POLICY_PIPE
 };
 
 enum cs_export_kind {
@@ -78,6 +75,11 @@ struct cs_benchmark_stop_policy {
     size_t max_runs;
 };
 
+struct cs_custom_meassurement {
+    const char *name;
+    const char *str;
+};
+
 // This structure contains all information
 // supplied by user prior to benchmark start.
 struct cs_cli_settings {
@@ -90,11 +92,13 @@ struct cs_cli_settings {
     const char *shell;
     struct cs_export_policy export;
 
+    struct cs_custom_meassurement *custom_measuremements;
+
     // Command to run before each timing run
     const char *prepare;
 
     struct cs_input_policy input_policy;
-    struct cs_output_policy output_policy;
+    enum cs_output_policy_kind output_policy;
 
     const char *analyze_dir;
     enum cs_analyze_mode analyze_mode;
@@ -111,7 +115,8 @@ struct cs_command {
     char **argv;
 
     struct cs_input_policy input_policy;
-    struct cs_output_policy output_policy;
+    enum cs_output_policy_kind output_policy;
+    struct cs_custom_meassurement *custom_measuremements;
 };
 
 // Information gethered from user input (settings), parsed
@@ -122,6 +127,8 @@ struct cs_settings {
     struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
+
+    struct cs_custom_meassurement *custom_measuremements;
 
     const char *prepare_command;
     struct cs_export_policy export;
@@ -171,6 +178,7 @@ struct cs_benchmark {
     double *systime_sample;
     double *usertime_sample;
     int *exit_codes;
+    double **custom_measurements;
     // These fields are output
     struct cs_estimate mean_estimate;
     struct cs_estimate st_dev_estimate;
@@ -291,18 +299,20 @@ cs_print_help_and_exit(int rc) {
         "benchmark run\n"
         "--nrs <n>            - specify number of resamples for bootstrapping\n"
         "--shell <shell>      - specify shell for command to be executed with. "
-        "Can "
-        "either be none or command resolving to shell execution\n"
+        "Can either be none or command resolving to shell (e.g. bash)\n"
         "--output <where>     - specify how to handle each command output. Can "
         "be either null or inherit\n"
         "--input <where>      - specify how each command should recieve its "
         "input. Can be either null or file name\n"
+        "--custom <name>      - benchmark custom measurement with given name. "
+        "By default uses stdout of command to retrieve number\n"
+        "--custom-x <name> <cmd> - command to extract custom measurement "
+        "value\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyze-dir <dir>  - directory where analysis will be saved at\n"
         "--analyze <opt>      - more complex analysis. <opt> can be one of\n"
         "   plot        - make plots as images\n"
         "   html        - make html report\n"
-        "--verbose            - print debug information\n"
         "--help               - print this message\n"
         "--version            - print version\n");
     exit(rc);
@@ -446,9 +456,9 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
 
             const char *out = argv[cursor++];
             if (strcmp(out, "null") == 0)
-                settings->output_policy.kind = CS_OUTPUT_POLICY_NULL;
+                settings->output_policy = CS_OUTPUT_POLICY_NULL;
             else if (strcmp(out, "inherit") == 0)
-                settings->output_policy.kind = CS_OUTPUT_POLICY_INHERIT;
+                settings->output_policy = CS_OUTPUT_POLICY_INHERIT;
             else
                 cs_print_help_and_exit(EXIT_FAILURE);
         } else if (strcmp(opt, "--input") == 0) {
@@ -462,6 +472,21 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
                 settings->input_policy.kind = CS_INPUT_POLICY_FILE;
                 settings->input_policy.file = input;
             }
+        } else if (strcmp(opt, "--custom") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *name = argv[cursor++];
+            cs_sb_push(settings->custom_measuremements,
+                       ((struct cs_custom_meassurement){name, NULL}));
+        } else if (strcmp(opt, "--custom-x") == 0) {
+            if (cursor + 1 >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *name = argv[cursor++];
+            const char *cmd = argv[cursor++];
+            cs_sb_push(settings->custom_measuremements,
+                       ((struct cs_custom_meassurement){name, cmd}));
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -493,7 +518,7 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
 }
 
 static void
-cs_exec_command_do_exec(const struct cs_command *command) {
+cs_exec_command_do_exec(const struct cs_command *command, int stdout_fd) {
     switch (command->input_policy.kind) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
@@ -517,7 +542,7 @@ cs_exec_command_do_exec(const struct cs_command *command) {
     }
     }
 
-    switch (command->output_policy.kind) {
+    switch (command->output_policy) {
     case CS_OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -531,6 +556,19 @@ cs_exec_command_do_exec(const struct cs_command *command) {
     }
     case CS_OUTPUT_POLICY_INHERIT:
         break;
+    case CS_OUTPUT_POLICY_PIPE:
+        close(STDERR_FILENO);
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd == -1)
+            _exit(-1);
+        if (dup2(fd, STDERR_FILENO) == -1)
+            _exit(-1);
+        if (stdout_fd == -1)
+            stdout_fd = fd;
+        if (dup2(stdout_fd, STDOUT_FILENO) == -1)
+            _exit(-1);
+        close(fd);
+        break;
     }
 
     if (execv(command->executable, command->argv) == -1)
@@ -538,32 +576,33 @@ cs_exec_command_do_exec(const struct cs_command *command) {
 }
 
 static int
-cs_exec_command(const struct cs_command *command) {
+cs_exec_command(const struct cs_command *command, int stdout_fd) {
+    int rc = -1;
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return -1;
+        goto out;
     }
 
     if (pid == 0)
-        cs_exec_command_do_exec(command);
+        cs_exec_command_do_exec(command, stdout_fd);
 
     int status = 0;
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
         if (wpid == -1)
             perror("waitpid");
-        return -1;
+        goto out;
     }
 
     // shell-like exit codes
-    int result = -1;
     if (WIFEXITED(status))
-        result = WEXITSTATUS(status);
+        rc = WEXITSTATUS(status);
     else if (WIFSIGNALED(status))
-        result = 128 + WTERMSIG(status);
+        rc = 128 + WTERMSIG(status);
 
-    return result;
+out:
+    return rc;
 }
 
 static char **
@@ -941,16 +980,144 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
 }
 
 static int
+cs_process_executed_correctly(pid_t pid) {
+    int status = 0;
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            perror("waitpid");
+        return 0;
+    }
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return 1;
+
+    return 0;
+}
+
+static int
+cs_execute_custom_measurement(struct cs_custom_meassurement *custom, int in_fd,
+                              int out_fd) {
+    char *exec = "/bin/sh";
+    char *argv[] = {"sh", "-c", NULL, NULL};
+    if (custom->str)
+        argv[2] = (char *)custom->str;
+    else
+        argv[2] = "cat";
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        perror("fork");
+        return -1;
+    }
+
+    if (pid == 0) {
+        close(STDIN_FILENO);
+        if (dup2(in_fd, STDIN_FILENO) == -1)
+            _exit(-1);
+        close(STDOUT_FILENO);
+        if (dup2(out_fd, STDOUT_FILENO) == -1)
+            _exit(-1);
+        close(STDERR_FILENO);
+        if (execv(exec, argv) == -1)
+            _exit(-1);
+    }
+
+    if (!cs_process_executed_correctly(pid))
+        return -1;
+
+    return 0;
+}
+
+static int
+cs_parse_custom_output(int fd, double *valuep) {
+    char buffer[4096];
+    ssize_t nread = read(fd, buffer, sizeof(buffer));
+    if (nread == -1) {
+        perror("read");
+        return -1;
+    }
+    if (nread == sizeof(buffer)) {
+        fprintf(stderr, "error: custom measurement output is too large\n");
+        return -1;
+    }
+    buffer[nread] = '\0';
+
+    char *end = NULL;
+    double value = strtod(buffer, &end);
+    if (end == buffer) {
+        fprintf(stderr, "error: invalid custom measurement output\n");
+        return -1;
+    }
+
+    *valuep = value;
+    return 0;
+}
+
+static int
+cs_execute_custom_measurements(struct cs_benchmark *bench, int stdout_fd) {
+    int rc = -1;
+    char path[] = "/tmp/csbench_tmp_XXXXXX";
+    int custom_output_fd = mkstemp(path);
+    if (custom_output_fd == -1) {
+        perror("mkstemp");
+        goto out;
+    }
+
+    size_t custom_count = cs_sb_len(bench->command->custom_measuremements);
+    for (size_t i = 0; i < custom_count; ++i) {
+        struct cs_custom_meassurement *custom =
+            bench->command->custom_measuremements + i;
+        if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
+            lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+            perror("lseek");
+            goto out;
+        }
+
+        if (cs_execute_custom_measurement(custom, stdout_fd,
+                                          custom_output_fd) == -1)
+            goto out;
+
+        if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+            perror("lseek");
+            goto out;
+        }
+
+        double value;
+        if (cs_parse_custom_output(custom_output_fd, &value) == -1)
+            goto out;
+
+        cs_sb_push(bench->custom_measurements[i], value);
+    }
+    rc = 0;
+out:
+    if (custom_output_fd)
+        close(custom_output_fd);
+    return rc;
+}
+
+static int
 cs_exec_and_measure(struct cs_benchmark *bench) {
+    int result = -1;
+    int stdout_fd = -1;
+    if (bench->command->custom_measuremements != NULL) {
+        char path[] = "/tmp/csbench_out_XXXXXX";
+        stdout_fd = mkstemp(path);
+        if (stdout_fd == -1) {
+            perror("mkstemp");
+            goto out;
+        }
+    }
+
     volatile struct cs_cpu_time cpu_start = cs_getcputime();
     volatile double wall_clock_start = cs_get_time();
-    volatile int rc = cs_exec_command(bench->command);
+    volatile int rc = cs_exec_command(bench->command, stdout_fd);
     volatile double wall_clock_end = cs_get_time();
     volatile struct cs_cpu_time cpu_end = cs_getcputime();
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");
-        return -1;
+        goto out;
     }
 
     ++bench->run_count;
@@ -960,7 +1127,15 @@ cs_exec_and_measure(struct cs_benchmark *bench) {
                cpu_end.system_time - cpu_start.system_time);
     cs_sb_push(bench->usertime_sample, cpu_end.user_time - cpu_start.user_time);
 
-    return 0;
+    if (bench->command->custom_measuremements != NULL)
+        if (cs_execute_custom_measurements(bench, stdout_fd) == -1)
+            goto out;
+
+    result = 0;
+out:
+    if (stdout_fd != -1)
+        close(stdout_fd);
+    return result;
 }
 
 static int
@@ -971,7 +1146,7 @@ cs_warmup(struct cs_benchmark *bench, double time_limit) {
     double start_time = cs_get_time();
     double end_time;
     do {
-        if (cs_exec_command(bench->command) == -1) {
+        if (cs_exec_command(bench->command, -1) == -1) {
             fprintf(stderr, "error: failed to execute warmup command\n");
             return -1;
         }
@@ -1214,6 +1389,7 @@ cs_init_settings(const struct cs_cli_settings *cli,
     settings->nresamples = cli->nresamples;
     settings->analyze_mode = cli->analyze_mode;
     settings->analyze_dir = cli->analyze_dir;
+    settings->custom_measuremements = cli->custom_measuremements;
 
     if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(cli->input_policy.file, R_OK) == -1) {
@@ -1237,7 +1413,11 @@ cs_init_settings(const struct cs_cli_settings *cli,
         const char *command_str = cli->commands[i];
         command->str = command_str;
         command->input_policy = cli->input_policy;
-        command->output_policy = cli->output_policy;
+        command->custom_measuremements = settings->custom_measuremements;
+        if (command->custom_measuremements != NULL)
+            command->output_policy = CS_OUTPUT_POLICY_PIPE;
+        else
+            command->output_policy = cli->output_policy;
         // TODO: Cleanup this code fragment
         if (cli->shell) {
             if (cs_extract_executable_and_argv(cli->shell, &command->executable,
@@ -1268,6 +1448,12 @@ cs_free_bench(struct cs_benchmark *bench) {
     cs_sb_free(bench->systime_sample);
     cs_sb_free(bench->usertime_sample);
     cs_sb_free(bench->exit_codes);
+    if (bench->custom_measurements) {
+        for (size_t i = 0; i < cs_sb_len(bench->command->custom_measuremements);
+             ++i)
+            cs_sb_free(bench->custom_measurements[i]);
+        free(bench->custom_measurements);
+    }
 }
 
 static void
@@ -1473,22 +1659,6 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s')\n",
             plot->title, plot->mean, plot->mean_y, plot->output_filename);
-}
-
-static int
-cs_process_executed_correctly(pid_t pid) {
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            perror("waitpid");
-        return 0;
-    }
-
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 1;
-
-    return 0;
 }
 
 static int
@@ -1917,6 +2087,11 @@ cs_run(struct cs_settings *settings) {
         struct cs_benchmark *bench = benches + i;
         bench->prepare = settings->prepare_command;
         bench->command = settings->commands + i;
+        if (bench->command->custom_measuremements) {
+            bench->custom_measurements =
+                calloc(cs_sb_len(bench->command->custom_measuremements),
+                       sizeof(*bench->custom_measurements));
+        }
 
         cs_warmup(bench, settings->warmup_time);
         cs_run_benchmark(bench, &settings->bench_stop);
