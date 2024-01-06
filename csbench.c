@@ -184,6 +184,7 @@ struct cs_benchmark {
     struct cs_estimate st_dev_estimate;
     struct cs_estimate systime_estimate;
     struct cs_estimate usertime_estimate;
+    struct cs_estimate *custom_measurement_estimates;
     struct cs_outliers outliers;
     double outlier_variance_fraction;
 };
@@ -1266,6 +1267,12 @@ cs_analyze_benchmark(struct cs_benchmark *bench, size_t nresamples) {
         cs_estimate_mean(bench->systime_sample, run_count, nresamples);
     bench->usertime_estimate =
         cs_estimate_mean(bench->usertime_sample, run_count, nresamples);
+    if (bench->custom_measurements) {
+        size_t count = cs_sb_len(bench->command->custom_measuremements);
+        for (size_t i = 0; i < count; ++i)
+            bench->custom_measurement_estimates[i] = cs_estimate_mean(
+                bench->custom_measurements[i], run_count, nresamples);
+    }
     bench->outliers = cs_classify_outliers(bench->wallclock_sample, run_count);
     bench->outlier_variance_fraction =
         cs_outlier_variance(bench->mean_estimate.point,
@@ -1296,6 +1303,12 @@ cs_print_benchmark_info(const struct cs_benchmark *bench) {
     cs_print_estimate("st dev", &bench->st_dev_estimate);
     cs_print_estimate("systime", &bench->systime_estimate);
     cs_print_estimate("usrtime", &bench->usertime_estimate);
+    if (bench->custom_measurement_estimates) {
+        size_t count = cs_sb_len(bench->command->custom_measuremements);
+        for (size_t i = 0; i < count; ++i)
+            cs_print_estimate(bench->command->custom_measuremements[i].name,
+                              bench->custom_measurement_estimates + i);
+    }
     cs_print_outliers(&bench->outliers, bench->run_count);
     struct cs_outlier_variance var =
         cs_classify_outlier_variance(bench->outlier_variance_fraction);
@@ -1457,6 +1470,7 @@ cs_free_bench(struct cs_benchmark *bench) {
              ++i)
             cs_sb_free(bench->custom_measurements[i]);
         free(bench->custom_measurements);
+        free(bench->custom_measurement_estimates);
     }
 }
 
@@ -2092,9 +2106,11 @@ cs_run(struct cs_settings *settings) {
         bench->prepare = settings->prepare_command;
         bench->command = settings->commands + i;
         if (bench->command->custom_measuremements) {
+            size_t count = cs_sb_len(bench->command->custom_measuremements);
             bench->custom_measurements =
-                calloc(cs_sb_len(bench->command->custom_measuremements),
-                       sizeof(*bench->custom_measurements));
+                calloc(count, sizeof(*bench->custom_measurements));
+            bench->custom_measurement_estimates =
+                calloc(count, sizeof(*bench->custom_measurement_estimates));
         }
 
         cs_warmup(bench, settings->warmup_time);
