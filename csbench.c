@@ -1224,8 +1224,8 @@ cs_run_benchmark(struct cs_benchmark *bench,
     size_t max_runs = stop_policy->max_runs;
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            if (bench->prepare)
-                system(bench->prepare);
+            if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
+                return -1;
             if (cs_exec_and_measure(bench) == -1)
                 return -1;
         }
@@ -1370,7 +1370,7 @@ cs_find_full_path(const char *path) {
             return NULL;
         }
         size_t cwd_len = strlen(path);
-        snprintf(test_path + cwd_len, sizeof(test_path) - cwd_len, "/%s", full);
+        snprintf(test_path + cwd_len, sizeof(test_path) - cwd_len, "/%s", path);
         full = strdup(test_path);
     } else {
         const char *path_var = getenv("PATH");
@@ -1389,8 +1389,8 @@ cs_find_full_path(const char *path) {
             snprintf(test_path, sizeof(test_path), "%.*s/%s",
                      (int)(next_sep - cursor), cursor, path);
 
-            if (access(path, X_OK) == 0) {
-                full = strdup(path);
+            if (access(test_path, X_OK) == 0) {
+                full = strdup(test_path);
                 break;
             }
 
