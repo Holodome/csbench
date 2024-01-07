@@ -102,7 +102,7 @@ struct cs_cli_settings {
 // Description of command to benchmark.
 // Commands are executed using execve.
 struct cs_command {
-    const char *str;
+    char *str;
     char *executable;
     char **argv;
     struct cs_input_policy input_policy;
@@ -113,7 +113,6 @@ struct cs_command {
 // Information gethered from user input (settings), parsed
 // and prepared for benchmarking.
 struct cs_settings {
-    size_t command_count;
     struct cs_command *commands;
     struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
@@ -420,7 +419,7 @@ cs_parse_scan_list(const char *scan_list) {
     char **param_list = NULL;
     const char *cursor = scan_list;
     const char *end = scan_list + strlen(scan_list);
-    for (;;) {
+    while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
             cs_sb_push(param_list, strdup(cursor));
@@ -1598,6 +1597,62 @@ cs_extract_executable_and_argv(const char *command_str, char **executable,
 }
 
 static int
+cs_init_command_exec(const char *shell, const char *cmd_str,
+                     struct cs_command *cmd) {
+    if (shell) {
+        if (cs_extract_executable_and_argv(shell, &cmd->executable,
+                                           &cmd->argv) != 0)
+            return -1;
+        // pop NULL appended by cs_extract_executable_and_path
+        (void)cs_sb_pop(cmd->argv);
+        cs_sb_push(cmd->argv, strdup("-c"));
+        cs_sb_push(cmd->argv, strdup(cmd_str));
+        cs_sb_push(cmd->argv, NULL);
+    } else {
+        if (cs_extract_executable_and_argv(cmd_str, &cmd->executable,
+                                           &cmd->argv) != 0)
+            return -1;
+    }
+    cmd->str = strdup(cmd_str);
+
+    return 0;
+}
+
+static void
+cs_free_settings(struct cs_settings *settings) {
+    for (size_t i = 0; i < cs_sb_len(settings->commands); ++i) {
+        struct cs_command *command = settings->commands + i;
+        free(command->executable);
+        for (char **word = command->argv; *word; ++word)
+            free(*word);
+        cs_sb_free(command->argv);
+        free(command->str);
+    }
+    cs_sb_free(settings->commands);
+}
+
+static void
+cs_replace_param_in_cmd(char *buffer, size_t buffer_size, const char *cmd_str,
+                        const char *name, const char *value) {
+    (void)buffer_size;
+    size_t param_name_len = strlen(name);
+    char *wr_cursor = buffer;
+    const char *rd_cursor = cmd_str;
+    while (*rd_cursor) {
+        if (*rd_cursor == '{' &&
+            strncmp(rd_cursor + 1, name, param_name_len) == 0 &&
+            rd_cursor[param_name_len + 1] == '}') {
+            rd_cursor += 2 + param_name_len;
+            size_t len = strlen(value);
+            memcpy(wr_cursor, value, len);
+            wr_cursor += len;
+        } else {
+            *wr_cursor++ = *rd_cursor++;
+        }
+    }
+}
+
+static int
 cs_init_settings(const struct cs_cli_settings *cli,
                  struct cs_settings *settings) {
     settings->bench_stop = cli->bench_stop;
@@ -1618,43 +1673,55 @@ cs_init_settings(const struct cs_cli_settings *cli,
         return -1;
     }
 
-    size_t command_count = cs_sb_len(cli->commands);
-    if (command_count == 0) {
+    size_t cmd_count = cs_sb_len(cli->commands);
+    if (cmd_count == 0) {
         fprintf(stderr, "error: no commands specified\n");
         return -1;
     }
 
-    settings->command_count = command_count;
-    settings->commands = calloc(command_count, sizeof(*settings->commands));
-    for (size_t i = 0; i < command_count; ++i) {
-        struct cs_command *command = settings->commands + i;
-        const char *command_str = cli->commands[i];
-        command->str = command_str;
-        command->input_policy = cli->input_policy;
-        command->custom_measuremements = settings->custom_measuremements;
-        command->output_policy = cli->output_policy;
+    for (size_t i = 0; i < cmd_count; ++i) {
+        const char *cmd_str = cli->commands[i];
+        int found_param = 0;
+        for (size_t j = 0; j < cs_sb_len(cli->params); ++j) {
+            const struct cs_benchmark_param *param = cli->params + j;
+            char buffer[256];
+            snprintf(buffer, sizeof(buffer), "{%s}", param->name);
+            if (strstr(cmd_str, buffer) == NULL)
+                continue;
 
-        if (cli->shell) {
-            if (cs_extract_executable_and_argv(cli->shell, &command->executable,
-                                               &command->argv) != 0) {
-                free(settings->commands);
-                return -1;
+            found_param = 1;
+            for (size_t k = 0; k < cs_sb_len(param->values); ++k) {
+                const char *param_value = param->values[k];
+                cs_replace_param_in_cmd(buffer, sizeof(buffer), cmd_str,
+                                        param->name, param_value);
+
+                struct cs_command cmd = {0};
+                cmd.input_policy = cli->input_policy;
+                cmd.custom_measuremements = settings->custom_measuremements;
+                cmd.output_policy = cli->output_policy;
+                if (cs_init_command_exec(cli->shell, buffer, &cmd) == -1)
+                    goto err_free_settings;
+
+                cs_sb_push(settings->commands, cmd);
             }
-            // pop NULL appended by cs_extract_executable_and_path
-            (void)cs_sb_pop(command->argv);
-            cs_sb_push(command->argv, strdup("-c"));
-            cs_sb_push(command->argv, strdup(command_str));
-            cs_sb_push(command->argv, NULL);
-        } else {
-            if (cs_extract_executable_and_argv(
-                    command_str, &command->executable, &command->argv) != 0) {
-                free(settings->commands);
-                return -1;
-            }
+        }
+
+        if (!found_param) {
+            struct cs_command cmd = {0};
+            cmd.input_policy = cli->input_policy;
+            cmd.custom_measuremements = settings->custom_measuremements;
+            cmd.output_policy = cli->output_policy;
+            if (cs_init_command_exec(cli->shell, cmd_str, &cmd) == -1)
+                goto err_free_settings;
+
+            cs_sb_push(settings->commands, cmd);
         }
     }
 
     return 0;
+err_free_settings:
+    cs_free_settings(settings);
+    return -1;
 }
 
 static void
@@ -1677,18 +1744,6 @@ static void
 cs_free_cli_settings(struct cs_cli_settings *settings) {
     cs_sb_free(settings->commands);
     cs_sb_free(settings->custom_measuremements);
-}
-
-static void
-cs_free_settings(struct cs_settings *app) {
-    for (size_t i = 0; i < app->command_count; ++i) {
-        struct cs_command *command = app->commands + i;
-        free(command->executable);
-        for (char **word = command->argv; *word; ++word)
-            free(*word);
-        cs_sb_free(command->argv);
-    }
-    free(app->commands);
 }
 
 static void
@@ -2133,19 +2188,18 @@ out:
 static int
 cs_analyze_make_plots(const struct cs_benchmark *benches, size_t bench_count,
                       const char *analyze_dir) {
-    char name_buffer[4096];
-    snprintf(name_buffer, sizeof(name_buffer), "%s/whisker.svg", analyze_dir);
-    if (cs_whisker_plot(benches, bench_count, name_buffer) == -1)
+    char buffer[4096];
+    snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
+    if (cs_whisker_plot(benches, bench_count, buffer) == -1)
         return -1;
 
-    snprintf(name_buffer, sizeof(name_buffer), "%s/violin.svg", analyze_dir);
-    if (cs_violin_plot(benches, bench_count, name_buffer) == -1)
+    snprintf(buffer, sizeof(buffer), "%s/violin.svg", analyze_dir);
+    if (cs_violin_plot(benches, bench_count, buffer) == -1)
         return -1;
 
     for (size_t i = 0; i < bench_count; ++i) {
-        snprintf(name_buffer, sizeof(name_buffer), "%s/kde_%zu.svg",
-                 analyze_dir, i + 1);
-        if (cs_kde_plot(benches + i, name_buffer) == -1)
+        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
+        if (cs_kde_plot(benches + i, buffer) == -1)
             return -1;
     }
 
@@ -2311,9 +2365,9 @@ cs_handle_analyze(const struct cs_benchmark *benches, size_t bench_count,
 static int
 cs_run(struct cs_settings *settings) {
     int ret = -1;
-    size_t command_count = settings->command_count;
-    struct cs_benchmark *benches = calloc(command_count, sizeof(*benches));
-    for (size_t i = 0; i < command_count; ++i) {
+    size_t cmd_count = cs_sb_len(settings->commands);
+    struct cs_benchmark *benches = calloc(cmd_count, sizeof(*benches));
+    for (size_t i = 0; i < cmd_count; ++i) {
         struct cs_benchmark *bench = benches + i;
         bench->prepare = settings->prepare_command;
         bench->command = settings->commands + i;
@@ -2335,18 +2389,17 @@ cs_run(struct cs_settings *settings) {
         cs_print_benchmark_info(bench);
     }
 
-    cs_compare_benches(benches, command_count);
+    cs_compare_benches(benches, cmd_count);
 
-    if (cs_handle_export(settings, benches, command_count, &settings->export) ==
-        -1)
+    if (cs_handle_export(settings, benches, cmd_count, &settings->export) == -1)
         goto out;
-    if (cs_handle_analyze(benches, command_count, settings->analyze_mode,
+    if (cs_handle_analyze(benches, cmd_count, settings->analyze_mode,
                           settings->analyze_dir) == -1)
         goto out;
 
     ret = 0;
 out:
-    for (size_t i = 0; i < command_count; ++i)
+    for (size_t i = 0; i < cmd_count; ++i)
         cs_free_bench(benches + i);
     free(benches);
     return ret;
