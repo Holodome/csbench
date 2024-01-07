@@ -204,6 +204,20 @@ struct cs_kde_plot {
     const char *output_filename;
 };
 
+enum cs_big_o {
+    CS_O_1,
+    CS_O_N,
+    CS_O_N_SQ,
+    CS_O_N_CUBE,
+    CS_O_LOGN,
+    CS_O_NLOGN,
+};
+
+struct cs_mls {
+    double coef;
+    double rms;
+};
+
 //
 // cs_sb interface
 //
@@ -1041,9 +1055,54 @@ xorshift32(uint32_t *state) {
     return *state = x;
 }
 
-// Resample with replacement
+static double
+cs_stat_mean(const double *v, size_t count) {
+    double result = 0.0;
+    for (size_t i = 0; i < count; ++i)
+        result += v[i];
+    return result / (double)count;
+}
+
+static double
+cs_stat_st_dev(const double *v, size_t count) {
+    double mean = cs_stat_mean(v, count);
+    double result = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        double t = v[i] - mean;
+        result += t * t;
+    }
+    return sqrt(result / (double)count);
+}
+
+static double
+cs_fitting_curve_1(double n) {
+    (void)n;
+    return 1.0;
+}
+static double
+cs_fitting_curve_n(double n) {
+    return n;
+}
+static double
+cs_fitting_curve_n_sq(double n) {
+    return n * n;
+}
+static double
+cs_fitting_curve_n_cube(double n) {
+    return n * n * n;
+}
+static double
+cs_fitting_curve_logn(double n) {
+    return log2(n);
+}
+static double
+cs_fitting_curve_nlogn(double n) {
+    return n * log2(n);
+}
+
 static void
 cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
+    // Resample with replacement
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[xorshift32(&entropy) % count];
 }
@@ -1068,33 +1127,80 @@ cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
         free(tmp);                                                             \
     }
 
-static double
-cs_stat_mean(const double *v, size_t count) {
-    double result = 0.0;
-    for (size_t i = 0; i < count; ++i)
-        result += v[i];
-    return result / (double)count;
-}
-
-static double
-cs_stat_st_dev(const double *v, size_t count) {
-    double mean = cs_stat_mean(v, count);
-    double result = 0.0;
-    for (size_t i = 0; i < count; ++i) {
-        double t = v[i] - mean;
-        result += t * t;
+#define cs_mls(_name, _fitting)                                                \
+    static double cs_mls_##_name(const double *x, const double *y,             \
+                                 size_t count, double *rmsp) {                 \
+        double sigma_gn_sq = 0.0;                                              \
+        double sigma_t = 0.0;                                                  \
+        double sigma_t_gn = 0.0;                                               \
+        for (size_t i = 0; i < count; ++i) {                                   \
+            double gn_i = _fitting(x[i]);                                      \
+            sigma_gn_sq += gn_i * gn_i;                                        \
+            sigma_t += y[i];                                                   \
+            sigma_t_gn += y[i] * gn_i;                                         \
+        }                                                                      \
+        double coef = sigma_t_gn / sigma_gn_sq;                                \
+        double rms = 0.0;                                                      \
+        for (size_t i = 0; i < count; ++i) {                                   \
+            double fit = coef * _fitting(x[i]);                                \
+            double a = y[i] - fit;                                             \
+            rms += a * a;                                                      \
+        }                                                                      \
+        double mean = sigma_t / count;                                         \
+        *rmsp = sqrt(rms / count) / mean;                                      \
+        return coef;                                                           \
     }
-    return sqrt(result / (double)count);
-}
 
 // clang-format off
 
 cs_bootstrap(mean, cs_stat_mean)
 cs_bootstrap(st_dev, cs_stat_st_dev)
 
+cs_mls(1, cs_fitting_curve_1)
+cs_mls(n, cs_fitting_curve_n)
+cs_mls(n_sq, cs_fitting_curve_n_sq)
+cs_mls(n_cube, cs_fitting_curve_n_cube)
+cs_mls(logn, cs_fitting_curve_logn)
+cs_mls(nlogn, cs_fitting_curve_nlogn)
+
+#undef cs_bootstrap
+#undef cs_mls
+
     // clang-format on
 
-    static int cs_print_time(char *dst, size_t sz, double t) {
+    static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
+                                double *coefp, double *rmsp) {
+    enum cs_big_o best_fit = CS_O_1;
+    double best_fit_coef, best_fit_rms;
+    best_fit_coef = cs_mls_1(x, y, count, &best_fit_rms);
+
+#define cs_check(_name, _e)                                                    \
+    do {                                                                       \
+        double coef, rms;                                                      \
+        coef = _name(x, y, count, &rms);                                       \
+        if (rms < best_fit_rms) {                                              \
+            best_fit = _e;                                                     \
+            best_fit_coef = coef;                                              \
+            best_fit_rms = rms;                                                \
+        }                                                                      \
+    } while (0)
+
+    cs_check(cs_mls_n, CS_O_N);
+    cs_check(cs_mls_n_sq, CS_O_N_SQ);
+    cs_check(cs_mls_n_cube, CS_O_N_CUBE);
+    cs_check(cs_mls_logn, CS_O_LOGN);
+    cs_check(cs_mls_nlogn, CS_O_NLOGN);
+
+#undef cs_check
+
+    *coefp = best_fit_coef;
+    *rmsp = best_fit_rms;
+
+    return best_fit;
+}
+
+static int
+cs_print_time(char *dst, size_t sz, double t) {
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -1621,12 +1727,12 @@ cs_init_command_exec(const char *shell, const char *cmd_str,
 static void
 cs_free_settings(struct cs_settings *settings) {
     for (size_t i = 0; i < cs_sb_len(settings->commands); ++i) {
-        struct cs_command *command = settings->commands + i;
-        free(command->executable);
-        for (char **word = command->argv; *word; ++word)
+        struct cs_command *cmd = settings->commands + i;
+        free(cmd->executable);
+        for (char **word = cmd->argv; *word; ++word)
             free(*word);
-        cs_sb_free(command->argv);
-        free(command->str);
+        cs_sb_free(cmd->argv);
+        free(cmd->str);
     }
     cs_sb_free(settings->commands);
 }
