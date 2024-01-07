@@ -384,6 +384,61 @@ cs_range_to_param_list(double low, double high, double step) {
     return result;
 }
 
+static int
+cs_parse_scan_list_settings(const char *settings, char **namep,
+                            char **scan_listp) {
+    char *name = NULL;
+    char *scan_list = NULL;
+
+    const char *cursor = settings;
+    const char *settings_end = settings + strlen(settings);
+    char *i_end = strchr(cursor, '/');
+    if (i_end == NULL)
+        return 0;
+
+    size_t name_len = i_end - cursor;
+    name = malloc(name_len + 1);
+    memcpy(name, cursor, name_len);
+    name[name_len] = '\0';
+
+    cursor = i_end + 1;
+    if (cursor == settings_end)
+        goto err_free_name;
+
+    scan_list = strdup(cursor);
+
+    *namep = name;
+    *scan_listp = scan_list;
+    return 1;
+err_free_name:
+    free(name);
+    return 0;
+}
+
+static char **
+cs_parse_scan_list(const char *scan_list) {
+    char **param_list = NULL;
+    const char *cursor = scan_list;
+    const char *end = scan_list + strlen(scan_list);
+    for (;;) {
+        const char *next = strchr(cursor, ',');
+        if (next == NULL) {
+            cs_sb_push(param_list, strdup(cursor));
+            break;
+        }
+
+        size_t param_len = next - cursor;
+        char *param = malloc(param_len + 1);
+        memcpy(param, cursor, param_len);
+        param[param_len] = '\0';
+        cs_sb_push(param_list, param);
+
+        cursor = next + 1;
+    }
+
+    return param_list;
+}
+
 static void
 cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
     settings->bench_stop.time_limit = 5.0;
@@ -564,6 +619,20 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
             cs_sb_push(settings->params,
                        ((struct cs_benchmark_param){name, param_list}));
         } else if (strcmp(opt, "--scanl") == 0) {
+            if (cursor >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *scan_settings = argv[cursor++];
+            char *name, *scan_list;
+            if (!cs_parse_scan_list_settings(scan_settings, &name,
+                                             &scan_list)) {
+                fprintf(stderr, "error: invalid --scanl argument\n");
+                exit(EXIT_FAILURE);
+            }
+            char **param_list = cs_parse_scan_list(scan_list);
+            free(scan_list);
+            cs_sb_push(settings->params,
+                       ((struct cs_benchmark_param){name, param_list}));
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
