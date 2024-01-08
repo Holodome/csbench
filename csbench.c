@@ -335,9 +335,8 @@ cs_print_help_and_exit(int rc) {
         "--scanl <i>/a[,...]  - parameter scacn comma separated options\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyze-dir <dir>  - directory where analysis will be saved at\n"
-        "--analyze <opt>      - more complex analysis. <opt> can be one of\n"
-        "   plot        - make plots as images\n"
-        "   html        - make html report\n"
+        "--plot               - make plots as images\n"
+        "--html               - make html report\n"
         "--help               - print this message\n"
         "--version            - print version\n");
     exit(rc);
@@ -406,7 +405,7 @@ cs_range_to_param_list(double low, double high, double step) {
     char **result = NULL;
     for (double cursor = low; cursor <= high; cursor += step) {
         char buf[256];
-        snprintf(buf, sizeof(buf), "%f", cursor);
+        snprintf(buf, sizeof(buf), "%g", cursor);
         cs_sb_push(result, strdup(buf));
     }
 
@@ -675,17 +674,10 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
 
             const char *dir = argv[cursor++];
             settings->analyze_dir = dir;
-        } else if (strcmp(opt, "--analyze") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
-            const char *mode = argv[cursor++];
-            if (strcmp(mode, "plot") == 0)
-                settings->analyze_mode = CS_ANALYZE_PLOT;
-            else if (strcmp(mode, "html") == 0)
-                settings->analyze_mode = CS_ANALYZE_HTML;
-            else
-                cs_print_help_and_exit(EXIT_FAILURE);
+        } else if (strcmp(opt, "--html") == 0) {
+            settings->analyze_mode = CS_ANALYZE_HTML;
+        } else if (strcmp(opt, "--plot") == 0) {
+            settings->analyze_mode = CS_ANALYZE_PLOT;
         } else {
             cs_sb_push(settings->cmds, opt);
         }
@@ -1615,7 +1607,7 @@ cs_print_benchmark_info(const struct cs_bench *bench,
         }
     }
     cs_print_outliers(&analysis->outliers, bench->run_count);
-    printf("outlying measurements have %s (%.1lf%%) effect on estimated "
+    printf("outlying measurements have %s (%.1f%%) effect on estimated "
            "standard deviation\n",
            cs_outliers_variance_str(analysis->outlier_variance_fraction),
            analysis->outlier_variance_fraction * 100.0);
@@ -1826,8 +1818,8 @@ cs_export_json(const struct cs_settings *settings,
 
     fprintf(f, "{ \"settings\": {");
     fprintf(f,
-            "\"time_limit\": %lf, \"runs\": %zu, \"min_runs\": %zu, "
-            "\"max_runs\": %zu, \"warmup_time\": %lf ",
+            "\"time_limit\": %f, \"runs\": %zu, \"min_runs\": %zu, "
+            "\"max_runs\": %zu, \"warmup_time\": %f ",
             settings->bench_stop.time_limit, settings->bench_stop.runs,
             settings->bench_stop.min_runs, settings->bench_stop.max_runs,
             settings->warmup_time);
@@ -1842,15 +1834,15 @@ cs_export_json(const struct cs_settings *settings,
         fprintf(f, "\"run_count\": %zu, ", bench->run_count);
         fprintf(f, "\"wallclock\": [");
         for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%lf%s", bench->wallclocks[i],
+            fprintf(f, "%f%s", bench->wallclocks[i],
                     i != run_count - 1 ? ", " : "");
         fprintf(f, "], \"sys\": [");
         for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%lf%s", bench->systimes[i],
+            fprintf(f, "%f%s", bench->systimes[i],
                     i != run_count - 1 ? ", " : "");
         fprintf(f, "], \"user\": [");
         for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%lf%s", bench->usertimes[i],
+            fprintf(f, "%f%s", bench->usertimes[i],
                     i != run_count - 1 ? ", " : "");
         fprintf(f, "], \"exit_codes\": [");
         for (size_t i = 0; i < run_count; ++i)
@@ -1881,20 +1873,20 @@ cs_handle_export(const struct cs_settings *settings,
 }
 
 static void
-cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *script) {
-    fprintf(script, "data = [");
+cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *f) {
+    fprintf(f, "data = [");
     for (size_t i = 0; i < plot->col_count; ++i) {
-        fprintf(script, "[");
+        fprintf(f, "[");
         for (size_t j = 0; j < plot->widths[i]; ++j)
-            fprintf(script, "%lf, ", plot->data[i][j]);
-        fprintf(script, "], ");
+            fprintf(f, "%f, ", plot->data[i][j]);
+        fprintf(f, "], ");
     }
-    fprintf(script, "]\n");
-    fprintf(script, "names = [");
+    fprintf(f, "]\n");
+    fprintf(f, "names = [");
     for (size_t i = 0; i < plot->col_count; ++i)
-        fprintf(script, "'%s', ", plot->col_names[i]);
-    fprintf(script, "]\n");
-    fprintf(script,
+        fprintf(f, "'%s', ", plot->col_names[i]);
+    fprintf(f, "]\n");
+    fprintf(f,
             "import matplotlib.pyplot as plt\n"
             "plt.xlabel('command')\n"
             "plt.ylabel('time [s]')\n"
@@ -1905,20 +1897,20 @@ cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *script) {
 }
 
 static void
-cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *script) {
-    fprintf(script, "data = [");
+cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *f) {
+    fprintf(f, "data = [");
     for (size_t i = 0; i < plot->col_count; ++i) {
-        fprintf(script, "[");
+        fprintf(f, "[");
         for (size_t j = 0; j < plot->widths[i]; ++j)
-            fprintf(script, "%lf, ", plot->data[i][j]);
-        fprintf(script, "], ");
+            fprintf(f, "%f, ", plot->data[i][j]);
+        fprintf(f, "], ");
     }
-    fprintf(script, "]\n");
-    fprintf(script, "names = [");
+    fprintf(f, "]\n");
+    fprintf(f, "names = [");
     for (size_t i = 0; i < plot->col_count; ++i)
-        fprintf(script, "'%s', ", plot->col_names[i]);
-    fprintf(script, "]\n");
-    fprintf(script,
+        fprintf(f, "'%s', ", plot->col_names[i]);
+    fprintf(f, "]\n");
+    fprintf(f,
             "import matplotlib.pyplot as plt\n"
             "plt.xlabel('command')\n"
             "plt.ylabel('time [s]')\n"
@@ -1929,26 +1921,51 @@ cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *script) {
 }
 
 static void
-cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *script) {
-    fprintf(script, "y = [");
+cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
+    fprintf(f, "y = [");
     for (size_t i = 0; i < plot->count; ++i)
-        fprintf(script, "%lf, ", plot->data[i]);
-    fprintf(script, "]\n");
-    fprintf(script, "x = [");
+        fprintf(f, "%f, ", plot->data[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "x = [");
     for (size_t i = 0; i < plot->count; ++i)
-        fprintf(script, "%lf, ", plot->lower + plot->step * i);
-    fprintf(script, "]\n");
+        fprintf(f, "%f, ", plot->lower + plot->step * i);
+    fprintf(f, "]\n");
 
-    fprintf(script,
+    fprintf(f,
             "import matplotlib.pyplot as plt\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
-            "plt.vlines(%lf, [0], [%lf])\n"
+            "plt.vlines(%f, [0], [%f])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('time [s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s')\n",
             plot->title, plot->mean, plot->mean_y, plot->output_filename);
+}
+
+static void
+cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
+                   const char *output_filename, FILE *f) {
+    fprintf(f, "x = [");
+    for (size_t i = 0; i < analysis->cmd_count; ++i)
+        fprintf(f, "%f, ", analysis->data[i].value_double);
+    fprintf(f, "]\n");
+    fprintf(f, "y = [");
+    for (size_t i = 0; i < analysis->cmd_count; ++i)
+        fprintf(f, "%f, ", analysis->data[i].mean);
+    fprintf(f, "]\n");
+
+    fprintf(f,
+            "import matplotlib.pyplot as plt\n"
+            "plt.title('%s')\n"
+            "plt.plot(x, y, '.-')\n"
+            "plt.xticks(x)\n"
+            "plt.grid()\n"
+            "plt.xlabel('%s')\n"
+            "plt.ylabel('time [s]')\n"
+            "plt.savefig('%s')\n",
+            analysis->group->template, analysis->group->var_name,
+            output_filename);
 }
 
 static int
@@ -2192,8 +2209,30 @@ out:
 }
 
 static int
-cs_make_plots(const struct cs_bench *benches, size_t bench_count,
-              const char *analyze_dir) {
+cs_group_plot(const struct cs_cmd_group_analysis *analysis,
+              const char *output_filename) {
+    int ret = 0;
+    FILE *script;
+    pid_t pid;
+    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+        fprintf(stderr, "error: failed to launch python\n");
+        return -1;
+    }
+    cs_make_group_plot(analysis, output_filename, script);
+    fclose(script);
+    if (!cs_process_finished_correctly(pid)) {
+        fprintf(stderr, "error: python finished with non-zero exit code\n");
+        return -1;
+    }
+
+    return ret;
+}
+
+static int
+cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
+    size_t bench_count = results->bench_count;
+    const struct cs_bench *benches = results->benches;
+
     char buffer[4096];
     snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
     if (cs_whisker_plot(benches, bench_count, buffer) == -1)
@@ -2206,6 +2245,15 @@ cs_make_plots(const struct cs_bench *benches, size_t bench_count,
     for (size_t i = 0; i < bench_count; ++i) {
         snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
         if (cs_kde_plot(benches + i, buffer) == -1)
+            return -1;
+    }
+
+    for (size_t i = 0; i < results->group_count; ++i) {
+        const struct cs_cmd_group_analysis *analysis =
+            results->group_analyses + i;
+        snprintf(buffer, sizeof(buffer), "%s/group_plot_%zu.svg", analyze_dir,
+                 i + 1);
+        if (cs_group_plot(analysis, buffer) == -1)
             return -1;
     }
 
@@ -2224,6 +2272,25 @@ cs_ref_speed(const struct cs_est *u1, const struct cs_est *sigma1,
 
     *ref_u = ref;
     *ref_sigma = ref_st_dev;
+}
+
+static const char *
+cs_big_o_str(enum cs_big_o complexity) {
+    switch (complexity) {
+    case CS_O_1:
+        return "constant (O(1))";
+    case CS_O_N:
+        return "linear (O(N))";
+    case CS_O_N_SQ:
+        return "quadratic (O(N^2))";
+    case CS_O_N_CUBE:
+        return "cubic (O(N^3))";
+    case CS_O_LOGN:
+        return "logarithmic (O(log(N)))";
+    case CS_O_NLOGN:
+        return "linearithmic (O(N*log(N)))";
+    }
+    return NULL;
 }
 
 static void
@@ -2312,7 +2379,7 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
             }
             fprintf(
                 f,
-                "<p>outlying measurements have %s (%.1lf%%) effect on "
+                "<p>outlying measurements have %s (%.1f%%) effect on "
                 "estimated "
                 "standard deviation</p>",
                 cs_outliers_variance_str(analysis->outlier_variance_fraction),
@@ -2341,12 +2408,46 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
             cs_ref_speed(&analysis->mean_est, &analysis->st_dev_est,
                          &best_analysis->mean_est, &best_analysis->st_dev_est,
                          &ref, &ref_st_dev);
-            fprintf(f, "<li>%3lf ± %3lf times faster than '%s'</li>", ref,
+            fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
                     ref_st_dev, bench->cmd->str);
-            fprintf(f, "</ul></div></div>");
         }
-        fprintf(f, "</body>");
+        fprintf(f, "</ul></div></div>");
     }
+
+    if (results->group_count != 0) {
+        for (size_t i = 0; i < results->group_count; ++i) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses + i;
+            const struct cs_cmd_group *group = analysis->group;
+            fprintf(f, "<h2>group '%s' with parameter %s</h2>", group->template,
+                    group->var_name);
+            fprintf(f,
+                    "<div class=\"row\"><div class=\"col\">"
+                    "<img src=\"group_plot_%zu.svg\"></div>",
+                    i + 1);
+            char buf[256];
+            cs_print_time(buf, sizeof(buf), analysis->data[0].mean);
+            fprintf(f,
+                    "<div class=\"col stats\">"
+                    "<p>lowest time %s with %s=%s</p>",
+                    buf, group->var_name, analysis->data[0].value);
+            cs_print_time(buf, sizeof(buf),
+                          analysis->data[analysis->cmd_count - 1].mean);
+            fprintf(f, "<p>hightest time %s with %s=%s</p>", buf,
+                    group->var_name,
+                    analysis->data[analysis->cmd_count - 1].value);
+            if (analysis->values_are_doubles) {
+                fprintf(
+                    f,
+                    "<p>mean time is most likely %s in terms of parameter</p>",
+                    cs_big_o_str(analysis->complexity));
+                fprintf(f, "<p>linear coef %.3f rms %.3f</p>", analysis->coef,
+                        analysis->rms);
+            }
+            fprintf(f, "</div></div>");
+        }
+    }
+    fprintf(f, "</body>");
 }
 
 static int
@@ -2390,8 +2491,7 @@ cs_handle_analyze(const struct cs_bench_results *results,
             return -1;
         }
 
-        if (cs_make_plots(results->benches, results->bench_count,
-                          analyze_dir) == -1)
+        if (cs_make_plots(results, analyze_dir) == -1)
             return -1;
     }
 
@@ -2411,25 +2511,6 @@ cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
     if (a->mean > b->mean)
         return 1;
     return 0;
-}
-
-static const char *
-cs_big_o_str(enum cs_big_o complexity) {
-    switch (complexity) {
-    case CS_O_1:
-        return "constant (O(1))";
-    case CS_O_N:
-        return "linear (O(N))";
-    case CS_O_N_SQ:
-        return "quadratic (O(N^2))";
-    case CS_O_N_CUBE:
-        return "cubic (O(N^3))";
-    case CS_O_LOGN:
-        return "logarithmic (O(log(N)))";
-    case CS_O_NLOGN:
-        return "linearithmic (O(N*log(N)))";
-    }
-    return NULL;
 }
 
 static void
@@ -2532,7 +2613,7 @@ cs_print_cmd_comparison(const struct cs_bench_results *results) {
         cs_ref_speed(&analysis->mean_est, &analysis->st_dev_est,
                      &best_analysis->mean_est, &best_analysis->st_dev_est, &ref,
                      &ref_st_dev);
-        printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
+        printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
                bench->cmd->str);
     }
 }
@@ -2548,11 +2629,11 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
                group->var_name);
         char buf[256];
         cs_print_time(buf, sizeof(buf), analysis->data[0].mean);
-        printf("lowest time %s with parameter %s\n", buf,
+        printf("lowest time %s with %s=%s\n", buf, group->var_name,
                analysis->data[0].value);
         cs_print_time(buf, sizeof(buf),
                       analysis->data[analysis->cmd_count - 1].mean);
-        printf("highest time %s with parameter %s\n", buf,
+        printf("highest time %s with %s=%s\n", buf, group->var_name,
                analysis->data[analysis->cmd_count - 1].value);
         if (analysis->values_are_doubles) {
             printf("mean time is most likely %s in terms of parameter\n",

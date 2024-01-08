@@ -31,7 +31,7 @@ It does not has any dependencies for basic operation. `python3` binary with `mat
 `csbench` can be used to compare execution time of multiple commands.
 Also see [generated html report](https://holodome.github.io/csbench).
 ```
-$ csbench ls exa --shell none --analyze html
+$ csbench ls exa --shell none --html
 command 'ls'
 3250 runs
    mean 1.526 ms 1.528 ms 1.532 ms
