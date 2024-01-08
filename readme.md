@@ -4,11 +4,13 @@
 
 ## Introduction
 
-Benchmarking is too hard and time-consuming to be employed  commonly during development. This tools aims to address that issue.
+Benchmarking is too hard and time-consuming to be employed commonly during development. 
+This tools aims to address that issue.
 
 Writing benchmarks for any parameter requires wasting time on boilerplate task-specific code which performs counting of some parameters with further analysis.
 
-Undoubtably, complex benchmarks with strict requirements demand this level of detail, but in most cases simpler solution would suffice. But it still requires work from the developer being done akin to more complex task.
+Undoubtably, complex benchmarks with strict requirements demand high level of detail, but in most cases simpler solution would suffice. 
+But still work from the developer is being done akin to more complex task.
 
 `csbench` tries to be *good enough* for purposes of unsofisticated benchmarking. 
 
@@ -22,7 +24,7 @@ Undoubtably, complex benchmarks with strict requirements demand this level of de
 
 `csbench` is distributed as a single C file making it easy to drop in at any system having C compiler. 
 
-It does not has any dependencies for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.  
+It does not has any dependencies for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.
 
 ## Examples
 
@@ -53,7 +55,11 @@ Fastest command 'ls'
 1.304593 ± 0.414104 times faster than 'exa'
 ```
 
-But just measuring execution time of commands is not very interesting. `csbench` can be used to extract data from command output and analyze it. In this example SQL script is run under `EXPLAIN ANALYZE`, which prints execution time of whole query as well as individual operators. Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
+But just measuring execution time of commands is not very interesting. 
+`csbench` can be used to extract data from command output and analyze it. 
+In this example SQL script is run under `EXPLAIN ANALYZE`, which prints execution time of whole query as well as individual operators. 
+Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
+
 ```
 $ csbench 'psql postgres -f 8q.sql' --custom-x exec 'grep "Execution Time" | grep -o -E "[.0-9]+"' --runs 100
 command 'psql postgres -f 8q.sql'
@@ -69,6 +75,26 @@ found 7 outliers across 100 measurements (7.00%)
 4 (4.00%) high mild
 3 (3.00%) high severe
 outlying measurements have no (1.0%) effect on estimated standard deviation
+```
+
+Parameterized benchmarking is shown in the following example.
+`csbench` is able to find dependencies of measured values on benchmark
+parameters. `sleep` is run multiple times with linear time arguments
+given in CLI arguments, and `csbench` is able to find this linear dependency.
+
+```
+$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1 --runs 10
+...
+Fastest command 'sleep 0.100000'
+1.858996 ± 0.049336 times faster than 'sleep 0.200000'
+2.712218 ± 0.069813 times faster than 'sleep 0.300000'
+3.573737 ± 0.113412 times faster than 'sleep 0.400000'
+4.546189 ± 0.346729 times faster than 'sleep 0.500000'
+command group 'sleep {t}' with parameter t
+lowest time 117.1 ms with parameter 0.100000
+highest time 532.4 ms with parameter 0.500000
+mean time is most likely linear (O(N)) in terms of parameter
+linear coef 1.062 rms 0.019
 ```
 
 ## Inspiration

@@ -110,10 +110,18 @@ struct cs_command {
     struct cs_custom_meassurement *custom_measuremements;
 };
 
+struct cs_command_group {
+    char *template;
+    size_t *command_idxs;
+    const char **var_values;
+    const char *var_name;
+};
+
 // Information gethered from user input (settings), parsed
 // and prepared for benchmarking.
 struct cs_settings {
     struct cs_command *commands;
+    struct cs_command_group *command_groups;
     struct cs_benchmark_stop_policy bench_stop;
     double warmup_time;
     size_t nresamples;
@@ -219,6 +227,12 @@ enum cs_big_o {
     CS_O_N_CUBE,
     CS_O_LOGN,
     CS_O_NLOGN,
+};
+
+struct cs_command_in_group_data {
+    const char *value;
+    double value_double;
+    double mean;
 };
 
 //
@@ -1803,6 +1817,7 @@ cs_init_settings(const struct cs_cli_settings *cli,
                 continue;
 
             found_param = 1;
+            struct cs_command_group group = {0};
             for (size_t k = 0; k < cs_sb_len(param->values); ++k) {
                 const char *param_value = param->values[k];
                 cs_replace_param_in_cmd(buffer, sizeof(buffer), cmd_str,
@@ -1816,7 +1831,13 @@ cs_init_settings(const struct cs_cli_settings *cli,
                     goto err_free_settings;
 
                 cs_sb_push(settings->commands, cmd);
+                cs_sb_push(group.command_idxs,
+                           cs_sb_len(settings->commands) - 1);
+                cs_sb_push(group.var_values, param_value);
             }
+            group.var_name = param->name;
+            group.template = strdup(cmd_str);
+            cs_sb_push(settings->command_groups, group);
         }
 
         if (!found_param) {
@@ -2454,7 +2475,107 @@ cs_handle_analyze(const struct cs_benchmark_results *results,
 }
 
 static int
-cs_run(struct cs_settings *settings) {
+cs_compare_commands_in_group(const void *arg1, const void *arg2) {
+    const struct cs_command_in_group_data *a = arg1;
+    const struct cs_command_in_group_data *b = arg2;
+    if (a->mean < b->mean)
+        return -1;
+    if (a->mean > b->mean)
+        return 1;
+    return 0;
+}
+
+static void
+cs_investigate_command_groups(const struct cs_settings *settings,
+                              const struct cs_benchmark_results *results) {
+    for (size_t i = 0; i < cs_sb_len(settings->command_groups); ++i) {
+        const struct cs_command_group *group = settings->command_groups + i;
+
+        size_t cmd_in_group_count = cs_sb_len(group->command_idxs);
+        struct cs_command_in_group_data *data =
+            calloc(cmd_in_group_count, sizeof(*data));
+        int values_are_doubles = 1;
+        for (size_t j = 0; j < cmd_in_group_count; ++j) {
+            const char *value = group->var_values[j];
+            const struct cs_command *cmd =
+                settings->commands + group->command_idxs[j];
+            size_t bench_idx = -1;
+            for (size_t k = 0; k < results->bench_count; ++k) {
+                if (results->benches[k].command == cmd) {
+                    bench_idx = k;
+                    break;
+                }
+            }
+            assert(bench_idx != (size_t)-1);
+
+            char *end = NULL;
+            double value_double = strtod(value, &end);
+            if (end == value)
+                values_are_doubles = 0;
+
+            data[j] = (struct cs_command_in_group_data){
+                value, value_double,
+                results->analyses[bench_idx].mean_estimate.point};
+        }
+        qsort(data, cmd_in_group_count, sizeof(*data),
+              cs_compare_commands_in_group);
+        printf("command group '%s' with parameter %s\n", group->template,
+               group->var_name);
+        char buf[256];
+        cs_print_time(buf, sizeof(buf), data[0].mean);
+        printf("lowest time %s with parameter %s\n", buf, data[0].value);
+        cs_print_time(buf, sizeof(buf), data[cmd_in_group_count - 1].mean);
+        printf("highest time %s with parameter %s\n", buf,
+               data[cmd_in_group_count - 1].value);
+        if (values_are_doubles) {
+            double *x = calloc(cmd_in_group_count, sizeof(*x));
+            double *y = calloc(cmd_in_group_count, sizeof(*y));
+            for (size_t j = 0; j < cmd_in_group_count; ++j) {
+                x[j] = data[j].value_double;
+                y[j] = data[j].mean;
+            }
+
+            double coef, rms;
+            enum cs_big_o complexity =
+                cs_mls(x, y, cmd_in_group_count, &coef, &rms);
+            switch (complexity) {
+            case CS_O_1:
+                printf("mean time is most likely constant (O(1)) in terms of "
+                       "parameter\n");
+                break;
+            case CS_O_N:
+                printf("mean time is most likely linear (O(N)) in terms of "
+                       "parameter\n");
+                break;
+            case CS_O_N_SQ:
+                printf(
+                    "mean time is most likely quadratic (O(N^2)) in terms of "
+                    "parameter\n");
+                break;
+            case CS_O_N_CUBE:
+                printf("mean time is most likely cubic (O(N^3)) in terms of "
+                       "parameter\n");
+                break;
+            case CS_O_LOGN:
+                printf("mean time is most likely logarithmic (O(log(N))) in "
+                       "terms of parameter\n");
+                break;
+            case CS_O_NLOGN:
+                printf("mean time is most likely linearithmic (O(N*log(N))) in "
+                       "terms of parameter\n");
+                break;
+            }
+            printf("linear coef %.3f rms %.3f\n", coef, rms);
+            free(x);
+            free(y);
+        }
+
+        free(data);
+    }
+}
+
+static int
+cs_run(const struct cs_settings *settings) {
     int ret = -1;
     struct cs_benchmark_results results = {0};
     results.bench_count = cs_sb_len(settings->commands);
@@ -2488,6 +2609,7 @@ cs_run(struct cs_settings *settings) {
     }
 
     cs_compare_benches(&results);
+    cs_investigate_command_groups(settings, &results);
 
     if (cs_handle_export(settings, results.benches, results.bench_count,
                          &settings->export) == -1)
