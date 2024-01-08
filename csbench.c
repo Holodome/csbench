@@ -173,10 +173,39 @@ struct cs_benchmark_analysis {
     double outlier_variance_fraction;
 };
 
+enum cs_big_o {
+    CS_O_1,
+    CS_O_N,
+    CS_O_N_SQ,
+    CS_O_N_CUBE,
+    CS_O_LOGN,
+    CS_O_NLOGN,
+};
+
+struct cs_command_in_group_data {
+    const char *value;
+    double value_double;
+    double mean;
+};
+
+struct cs_command_group_analysis {
+    const struct cs_command_group *group;
+    size_t cmd_count;
+    struct cs_command_in_group_data *data;
+    int values_are_doubles;
+    enum cs_big_o complexity;
+    double coef;
+    double rms;
+};
+
 struct cs_benchmark_results {
     size_t bench_count;
     struct cs_benchmark *benches;
     struct cs_benchmark_analysis *analyses;
+    size_t fastest_idx;
+
+    size_t group_count;
+    struct cs_command_group_analysis *group_analyses;
 };
 
 struct cs_cpu_time {
@@ -205,22 +234,6 @@ struct cs_kde_plot {
     double mean_y;
     const char *output_filename;
 };
-
-enum cs_big_o {
-    CS_O_1,
-    CS_O_N,
-    CS_O_N_SQ,
-    CS_O_N_CUBE,
-    CS_O_LOGN,
-    CS_O_NLOGN,
-};
-
-struct cs_command_in_group_data {
-    const char *value;
-    double value_double;
-    double mean;
-};
-
 //
 // cs_sb interface
 //
@@ -1031,16 +1044,13 @@ cs_outlier_variance(double mean, double st_dev, double a) {
 
 static const char *
 cs_outliers_variance_str(double fraction) {
-    if (fraction < 0.01) {
+    if (fraction < 0.01)
         return "no";
-    } else if (fraction < 0.1) {
+    else if (fraction < 0.1)
         return "a slight";
-    } else if (fraction < 0.5) {
+    else if (fraction < 0.5)
         return "a moderate";
-    } else {
-        return "a severe";
-    }
-    return NULL;
+    return "a severe";
 }
 
 static uint32_t
@@ -1309,7 +1319,7 @@ cs_parse_custom_output(int fd, double *valuep) {
 }
 
 static int
-cs_execute_custom_measurements(struct cs_benchmark *bench, int stdout_fd) {
+cs_do_custom_measurements(struct cs_benchmark *bench, int stdout_fd) {
     int rc = -1;
     char path[] = "/tmp/csbench_tmp_XXXXXX";
     int custom_output_fd = mkstemp(path);
@@ -1384,7 +1394,7 @@ cs_exec_and_measure(struct cs_benchmark *bench) {
     cs_sb_push(bench->usertime_sample, cpu_end.user_time - cpu_start.user_time);
 
     if (bench->command->custom_measuremements != NULL &&
-        cs_execute_custom_measurements(bench, stdout_fd) == -1)
+        cs_do_custom_measurements(bench, stdout_fd) == -1)
         goto out;
 
     ret = 0;
@@ -1818,28 +1828,7 @@ cs_compare_benches(struct cs_benchmark_results *results) {
         }
     }
 
-    const struct cs_benchmark *best = results->benches + best_idx;
-    const struct cs_benchmark_analysis *best_analysis =
-        results->analyses + best_idx;
-    printf("Fastest command '%s'\n", best->command->str);
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct cs_benchmark *bench = results->benches + i;
-        const struct cs_benchmark_analysis *analysis = results->analyses + i;
-        if (bench == best)
-            continue;
-
-        double ref =
-            analysis->mean_estimate.point / best_analysis->mean_estimate.point;
-        // propagate standard deviation for formula (t1 / t2)
-        double a =
-            analysis->st_dev_estimate.point / analysis->mean_estimate.point;
-        double b = best_analysis->st_dev_estimate.point /
-                   best_analysis->mean_estimate.point;
-        double ref_st_dev = ref * sqrt(a * a + b * b);
-
-        printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
-               bench->command->str);
-    }
+    results->fastest_idx = best_idx;
 }
 
 static int
@@ -1991,7 +1980,7 @@ cs_python_found(void) {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
         if (execlp("python3", "python3", "--version", NULL) == -1) {
-            perror("dup2");
+            perror("execlp");
             _exit(-1);
         }
     }
@@ -2032,9 +2021,9 @@ cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
 
     *pidp = pid;
     *inp = script;
-
     return 0;
 }
+
 static int
 cs_python_has_matplotlib(void) {
     FILE *script;
@@ -2408,17 +2397,45 @@ cs_compare_commands_in_group(const void *arg1, const void *arg2) {
     return 0;
 }
 
+static const char *
+cs_big_o_str(enum cs_big_o complexity) {
+    switch (complexity) {
+    case CS_O_1:
+        return "constant (O(1))";
+    case CS_O_N:
+        return "linear (O(N))";
+    case CS_O_N_SQ:
+        return "quadratic (O(N^2))";
+    case CS_O_N_CUBE:
+        return "cubic (O(N^3))";
+    case CS_O_LOGN:
+        return "logarithmic (O(log(N)))";
+    case CS_O_NLOGN:
+        return "linearithmic (O(N*log(N)))";
+    }
+    return NULL;
+}
+
 static void
 cs_investigate_command_groups(const struct cs_settings *settings,
-                              const struct cs_benchmark_results *results) {
-    for (size_t i = 0; i < cs_sb_len(settings->command_groups); ++i) {
+                              struct cs_benchmark_results *results) {
+    size_t group_count = results->group_count =
+        cs_sb_len(settings->command_groups);
+    results->group_count = group_count;
+    results->group_analyses =
+        calloc(group_count, sizeof(*results->group_analyses));
+    for (size_t i = 0; i < group_count; ++i) {
         const struct cs_command_group *group = settings->command_groups + i;
+        size_t cmd_count = cs_sb_len(group->command_idxs);
 
-        size_t cmd_in_group_count = cs_sb_len(group->command_idxs);
-        struct cs_command_in_group_data *data =
-            calloc(cmd_in_group_count, sizeof(*data));
+        struct cs_command_group_analysis *analysis =
+            results->group_analyses + i;
+        analysis->group = group;
+        analysis->cmd_count = cmd_count;
+        analysis->data = calloc(analysis->cmd_count, sizeof(*analysis->data));
+
         int values_are_doubles = 1;
-        for (size_t j = 0; j < cmd_in_group_count; ++j) {
+        for (size_t j = 0; j < cmd_count; ++j) {
             const char *value = group->var_values[j];
             const struct cs_command *cmd =
                 settings->commands + group->command_idxs[j];
@@ -2436,65 +2453,118 @@ cs_investigate_command_groups(const struct cs_settings *settings,
             if (end == value)
                 values_are_doubles = 0;
 
-            data[j] = (struct cs_command_in_group_data){
+            analysis->data[j] = (struct cs_command_in_group_data){
                 value, value_double,
                 results->analyses[bench_idx].mean_estimate.point};
         }
-        qsort(data, cmd_in_group_count, sizeof(*data),
+        qsort(analysis->data, cmd_count, sizeof(*analysis->data),
               cs_compare_commands_in_group);
-        printf("command group '%s' with parameter %s\n", group->template,
-               group->var_name);
-        char buf[256];
-        cs_print_time(buf, sizeof(buf), data[0].mean);
-        printf("lowest time %s with parameter %s\n", buf, data[0].value);
-        cs_print_time(buf, sizeof(buf), data[cmd_in_group_count - 1].mean);
-        printf("highest time %s with parameter %s\n", buf,
-               data[cmd_in_group_count - 1].value);
+        analysis->values_are_doubles = values_are_doubles;
         if (values_are_doubles) {
-            double *x = calloc(cmd_in_group_count, sizeof(*x));
-            double *y = calloc(cmd_in_group_count, sizeof(*y));
-            for (size_t j = 0; j < cmd_in_group_count; ++j) {
-                x[j] = data[j].value_double;
-                y[j] = data[j].mean;
+            double *x = calloc(cmd_count, sizeof(*x));
+            double *y = calloc(cmd_count, sizeof(*y));
+            for (size_t j = 0; j < cmd_count; ++j) {
+                x[j] = analysis->data[j].value_double;
+                y[j] = analysis->data[j].mean;
             }
 
-            double coef, rms;
-            enum cs_big_o complexity =
-                cs_mls(x, y, cmd_in_group_count, &coef, &rms);
-            switch (complexity) {
-            case CS_O_1:
-                printf("mean time is most likely constant (O(1)) in terms of "
-                       "parameter\n");
-                break;
-            case CS_O_N:
-                printf("mean time is most likely linear (O(N)) in terms of "
-                       "parameter\n");
-                break;
-            case CS_O_N_SQ:
-                printf(
-                    "mean time is most likely quadratic (O(N^2)) in terms of "
-                    "parameter\n");
-                break;
-            case CS_O_N_CUBE:
-                printf("mean time is most likely cubic (O(N^3)) in terms of "
-                       "parameter\n");
-                break;
-            case CS_O_LOGN:
-                printf("mean time is most likely logarithmic (O(log(N))) in "
-                       "terms of parameter\n");
-                break;
-            case CS_O_NLOGN:
-                printf("mean time is most likely linearithmic (O(N*log(N))) in "
-                       "terms of parameter\n");
-                break;
-            }
-            printf("linear coef %.3f rms %.3f\n", coef, rms);
+            analysis->complexity =
+                cs_mls(x, y, cmd_count, &analysis->coef, &analysis->rms);
             free(x);
             free(y);
         }
-
-        free(data);
     }
+}
+
+static void
+cs_analyze_benchmarks(struct cs_benchmark_results *results,
+                      const struct cs_settings *settings) {
+    results->analyses =
+        calloc(results->bench_count, sizeof(*results->analyses));
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        struct cs_benchmark *bench = results->benches + i;
+        struct cs_benchmark_analysis *analysis = results->analyses + i;
+        if (bench->command->custom_measuremements) {
+            size_t count = cs_sb_len(bench->command->custom_measuremements);
+            analysis->custom_measurement_mean_estimates = calloc(
+                count, sizeof(*analysis->custom_measurement_mean_estimates));
+            analysis->custom_measurement_st_dev_estimates = calloc(
+                count, sizeof(*analysis->custom_measurement_st_dev_estimates));
+        }
+
+        cs_analyze_benchmark(bench, settings->nresamples, analysis);
+    }
+
+    cs_compare_benches(results);
+    cs_investigate_command_groups(settings, results);
+}
+
+static void
+cs_print_command_comparison(const struct cs_benchmark_results *results) {
+    if (results->bench_count == 1)
+        return;
+
+    size_t best_idx = results->fastest_idx;
+    const struct cs_benchmark *best = results->benches + best_idx;
+    const struct cs_benchmark_analysis *best_analysis =
+        results->analyses + best_idx;
+    printf("Fastest command '%s'\n", best->command->str);
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        const struct cs_benchmark *bench = results->benches + i;
+        const struct cs_benchmark_analysis *analysis = results->analyses + i;
+        if (bench == best)
+            continue;
+
+        double ref =
+            analysis->mean_estimate.point / best_analysis->mean_estimate.point;
+        // propagate standard deviation for formula (t1 / t2)
+        double a =
+            analysis->st_dev_estimate.point / analysis->mean_estimate.point;
+        double b = best_analysis->st_dev_estimate.point /
+                   best_analysis->mean_estimate.point;
+        double ref_st_dev = ref * sqrt(a * a + b * b);
+
+        printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
+               bench->command->str);
+    }
+}
+
+static void
+cs_print_command_group_analysis(const struct cs_benchmark_results *results) {
+    for (size_t i = 0; i < results->group_count; ++i) {
+        const struct cs_command_group_analysis *analysis =
+            results->group_analyses + i;
+        const struct cs_command_group *group = analysis->group;
+
+        printf("command group '%s' with parameter %s\n", group->template,
+               group->var_name);
+        char buf[256];
+        cs_print_time(buf, sizeof(buf), analysis->data[0].mean);
+        printf("lowest time %s with parameter %s\n", buf,
+               analysis->data[0].value);
+        cs_print_time(buf, sizeof(buf),
+                      analysis->data[analysis->cmd_count - 1].mean);
+        printf("highest time %s with parameter %s\n", buf,
+               analysis->data[analysis->cmd_count - 1].value);
+        if (analysis->values_are_doubles) {
+            printf("mean time is most likely %s in terms of parameter\n",
+                   cs_big_o_str(analysis->complexity));
+            printf("linear coef %.3f rms %.3f\n", analysis->coef,
+                   analysis->rms);
+        }
+    }
+}
+
+static void
+cs_print_benchmark_analysis(const struct cs_benchmark_results *results) {
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        struct cs_benchmark *bench = results->benches + i;
+        struct cs_benchmark_analysis *analysis = results->analyses + i;
+        cs_print_benchmark_info(bench, analysis);
+    }
+
+    cs_print_command_comparison(results);
+    cs_print_command_group_analysis(results);
 }
 
 static int
@@ -2503,10 +2573,8 @@ cs_run(const struct cs_settings *settings) {
     struct cs_benchmark_results results = {0};
     results.bench_count = cs_sb_len(settings->commands);
     results.benches = calloc(results.bench_count, sizeof(*results.benches));
-    results.analyses = calloc(results.bench_count, sizeof(*results.analyses));
     for (size_t i = 0; i < results.bench_count; ++i) {
         struct cs_benchmark *bench = results.benches + i;
-        struct cs_benchmark_analysis *analysis = results.analyses + i;
         bench->prepare = settings->prepare_command;
         bench->command = settings->commands + i;
         if (bench->command->custom_measuremements) {
@@ -2519,20 +2587,10 @@ cs_run(const struct cs_settings *settings) {
             goto out;
         if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
             goto out;
-        if (bench->command->custom_measuremements) {
-            size_t count = cs_sb_len(bench->command->custom_measuremements);
-            analysis->custom_measurement_mean_estimates = calloc(
-                count, sizeof(*analysis->custom_measurement_mean_estimates));
-            analysis->custom_measurement_st_dev_estimates = calloc(
-                count, sizeof(*analysis->custom_measurement_st_dev_estimates));
-        }
-
-        cs_analyze_benchmark(bench, settings->nresamples, analysis);
-        cs_print_benchmark_info(bench, analysis);
     }
 
-    cs_compare_benches(&results);
-    cs_investigate_command_groups(settings, &results);
+    cs_analyze_benchmarks(&results, settings);
+    cs_print_benchmark_analysis(&results);
 
     if (cs_handle_export(settings, results.benches, results.bench_count,
                          &settings->export) == -1)
