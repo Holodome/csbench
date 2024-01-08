@@ -1244,7 +1244,7 @@ cs_print_time(char *dst, size_t sz, double t) {
 }
 
 static int
-cs_process_executed_correctly(pid_t pid) {
+cs_process_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
@@ -1287,7 +1287,7 @@ cs_execute_custom_measurement(struct cs_custom_meas *custom, int in_fd,
             _exit(-1);
     }
 
-    if (!cs_process_executed_correctly(pid))
+    if (!cs_process_finished_correctly(pid))
         return -1;
 
     return 0;
@@ -1449,7 +1449,7 @@ cs_execute_prepare(const char *cmd) {
             _exit(-1);
     }
 
-    if (!cs_process_executed_correctly(pid))
+    if (!cs_process_finished_correctly(pid))
         return -1;
 
     return 0;
@@ -1814,8 +1814,9 @@ cs_compare_benches(struct cs_bench_results *results) {
 }
 
 static int
-cs_export_json(const struct cs_settings *app, const struct cs_bench *benches,
-               size_t bench_count, const char *filename) {
+cs_export_json(const struct cs_settings *settings,
+               const struct cs_bench *benches, size_t bench_count,
+               const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1827,9 +1828,9 @@ cs_export_json(const struct cs_settings *app, const struct cs_bench *benches,
     fprintf(f,
             "\"time_limit\": %lf, \"runs\": %zu, \"min_runs\": %zu, "
             "\"max_runs\": %zu, \"warmup_time\": %lf ",
-            app->bench_stop.time_limit, app->bench_stop.runs,
-            app->bench_stop.min_runs, app->bench_stop.max_runs,
-            app->warmup_time);
+            settings->bench_stop.time_limit, settings->bench_stop.runs,
+            settings->bench_stop.min_runs, settings->bench_stop.max_runs,
+            settings->warmup_time);
     fprintf(f, "}, \"benches\": [");
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
@@ -1866,11 +1867,12 @@ cs_export_json(const struct cs_settings *app, const struct cs_bench *benches,
 }
 
 static int
-cs_handle_export(const struct cs_settings *app, const struct cs_bench *benches,
-                 size_t bench_count, const struct cs_export_policy *policy) {
+cs_handle_export(const struct cs_settings *settings,
+                 const struct cs_bench *benches, size_t bench_count,
+                 const struct cs_export_policy *policy) {
     switch (policy->kind) {
     case CS_EXPORT_JSON:
-        return cs_export_json(app, benches, bench_count, policy->filename);
+        return cs_export_json(settings, benches, bench_count, policy->filename);
         break;
     case CS_DONT_EXPORT:
         break;
@@ -1965,7 +1967,7 @@ cs_python_found(void) {
         }
     }
 
-    return cs_process_executed_correctly(pid);
+    return cs_process_finished_correctly(pid);
 }
 
 static int
@@ -2013,7 +2015,7 @@ cs_python_has_matplotlib(void) {
 
     fprintf(script, "import matplotlib.pyplot as plt\n");
     fclose(script);
-    return cs_process_executed_correctly(pid);
+    return cs_process_finished_correctly(pid);
 }
 
 static void
@@ -2045,33 +2047,33 @@ cs_free_whisker_plot(struct cs_whisker_plot *plot) {
 }
 
 static void
-cs_construct_kde(const double *data, size_t data_size, double *kde,
-                 size_t kde_size, double *lowerp, double *stepp) {
-    double *ssa = malloc(data_size * sizeof(*ssa));
-    memcpy(ssa, data, data_size * sizeof(*ssa));
-    qsort(ssa, data_size, sizeof(*ssa), cs_compare_doubles);
-    double q1 = ssa[data_size / 4];
-    double q3 = ssa[data_size * 3 / 4];
+cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
+                 double *lowerp, double *stepp) {
+    double *ssa = malloc(count * sizeof(*ssa));
+    memcpy(ssa, data, count * sizeof(*ssa));
+    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
+    double q1 = ssa[count / 4];
+    double q3 = ssa[count * 3 / 4];
     double iqr = q3 - q1;
-    double st_dev = cs_stat_st_dev(data, data_size);
-    double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(data_size, -0.2);
+    double st_dev = cs_stat_st_dev(data, count);
+    double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(count, -0.2);
 
     // Calculate bounds for plot. Use 3 sigma rule to reject severe outliers
     // being plotted.
-    double mean = cs_stat_mean(data, data_size);
+    double mean = cs_stat_mean(data, count);
     double lower = fmax(mean - 3.0 * st_dev, ssa[0]);
-    double upper = fmin(mean + 3.0 * st_dev, ssa[data_size - 1]);
+    double upper = fmin(mean + 3.0 * st_dev, ssa[count - 1]);
     double step = (upper - lower) / kde_size;
     double k_mult = 1.0 / sqrt(2.0 * 3.1415926536);
     for (size_t i = 0; i < kde_size; ++i) {
         double x = lower + i * step;
         double kde_value = 0.0;
-        for (size_t j = 0; j < data_size; ++j) {
+        for (size_t j = 0; j < count; ++j) {
             double u = (x - data[j]) / h;
             double k = k_mult * exp(-0.5 * u * u);
             kde_value += k;
         }
-        kde_value /= data_size * h;
+        kde_value /= count * h;
         kde[i] = kde_value;
     }
 
@@ -2125,7 +2127,7 @@ cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
     }
     cs_make_whisker_plot(&plot, script);
     fclose(script);
-    if (!cs_process_executed_correctly(pid)) {
+    if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         ret = -1;
     }
@@ -2152,7 +2154,7 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
     }
     cs_make_violin_plot(&plot, script);
     fclose(script);
-    if (!cs_process_executed_correctly(pid)) {
+    if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         ret = -1;
     }
@@ -2179,7 +2181,7 @@ cs_kde_plot(const struct cs_bench *bench, const char *output_filename) {
     }
     cs_make_kde_plot(&plot, script);
     fclose(script);
-    if (!cs_process_executed_correctly(pid)) {
+    if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         ret = -1;
     }
@@ -2190,8 +2192,8 @@ out:
 }
 
 static int
-cs_analyze_make_plots(const struct cs_bench *benches, size_t bench_count,
-                      const char *analyze_dir) {
+cs_make_plots(const struct cs_bench *benches, size_t bench_count,
+              const char *analyze_dir) {
     char buffer[4096];
     snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
     if (cs_whisker_plot(benches, bench_count, buffer) == -1)
@@ -2313,8 +2315,8 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
 }
 
 static int
-cs_analyze_make_html_report(const struct cs_bench_results *results,
-                            const char *analyze_dir) {
+cs_make_html_report(const struct cs_bench_results *results,
+                    const char *analyze_dir) {
     char name_buffer[4096];
     snprintf(name_buffer, sizeof(name_buffer), "%s/index.html", analyze_dir);
     FILE *f = fopen(name_buffer, "w");
@@ -2353,13 +2355,13 @@ cs_handle_analyze(const struct cs_bench_results *results,
             return -1;
         }
 
-        if (cs_analyze_make_plots(results->benches, results->bench_count,
-                                  analyze_dir) == -1)
+        if (cs_make_plots(results->benches, results->bench_count,
+                          analyze_dir) == -1)
             return -1;
     }
 
     if (mode == CS_ANALYZE_HTML &&
-        cs_analyze_make_html_report(results, analyze_dir) == -1)
+        cs_make_html_report(results, analyze_dir) == -1)
         return -1;
 
     return 0;
@@ -2396,8 +2398,8 @@ cs_big_o_str(enum cs_big_o complexity) {
 }
 
 static void
-cs_investigate_cmd_groups(const struct cs_settings *settings,
-                          struct cs_bench_results *results) {
+cs_analyze_cmd_groups(const struct cs_settings *settings,
+                      struct cs_bench_results *results) {
     size_t group_count = results->group_count = cs_sb_len(settings->cmd_groups);
     results->group_count = group_count;
     results->group_analyses =
@@ -2472,7 +2474,7 @@ cs_analyze_benches(struct cs_bench_results *results,
     }
 
     cs_compare_benches(results);
-    cs_investigate_cmd_groups(settings, results);
+    cs_analyze_cmd_groups(settings, results);
 }
 
 static void
@@ -2530,7 +2532,7 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
 }
 
 static void
-cs_print_benchmark_analysis(const struct cs_bench_results *results) {
+cs_print_analysis(const struct cs_bench_results *results) {
     for (size_t i = 0; i < results->bench_count; ++i) {
         struct cs_bench *bench = results->benches + i;
         struct cs_bench_analysis *analysis = results->analyses + i;
@@ -2563,7 +2565,7 @@ cs_run(const struct cs_settings *settings) {
     }
 
     cs_analyze_benches(&results, settings);
-    cs_print_benchmark_analysis(&results);
+    cs_print_analysis(&results);
 
     if (cs_handle_export(settings, results.benches, results.bench_count,
                          &settings->export) == -1)
