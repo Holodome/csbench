@@ -1,6 +1,6 @@
 # csbench
 
-`csbench` is cross-platform batteries-included benchmarking tool.
+`csbench` is cross-platform batteries included benchmarking tool.
 
 ## Introduction
 
@@ -17,7 +17,7 @@ But still work from the developer is being done akin to more complex task.
 ## What can it do?
 
 * Perform timing of arbitrary shell command, statistical analysis and graphical presentation of results
-* Perform benchmarking of arbitrary shell command, where parameter analyzed is acquired through command output 
+* Perform benchmarking of arbitrary shell command, where parameter analyzed is acquired from command output 
 * Parameterized benchmarking 
 
 ## Features
