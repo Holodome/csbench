@@ -88,16 +88,16 @@ given in CLI arguments, and `csbench` is able to find this linear dependency.
 ```
 $ csbench 'sleep {t}' --scan t/0.1/0.5/0.1 --runs 10
 ...
-Fastest command 'sleep 0.100000'
-1.858996 ± 0.049336 times faster than 'sleep 0.200000'
-2.712218 ± 0.069813 times faster than 'sleep 0.300000'
-3.573737 ± 0.113412 times faster than 'sleep 0.400000'
-4.546189 ± 0.346729 times faster than 'sleep 0.500000'
+Fastest command 'sleep 0.1'
+1.911 ± 0.051 times faster than 'sleep 0.2'
+2.807 ± 0.071 times faster than 'sleep 0.3'
+3.687 ± 0.093 times faster than 'sleep 0.4'
+4.587 ± 0.116 times faster than 'sleep 0.5'
 command group 'sleep {t}' with parameter t
-lowest time 117.1 ms with parameter 0.100000
-highest time 532.4 ms with parameter 0.500000
+lowest time 113.0 ms with t=0.1
+highest time 518.2 ms with t=0.5
 mean time is most likely linear (O(N)) in terms of parameter
-linear coef 1.062 rms 0.019
+linear coef 1.046 rms 0.017
 ```
 
 ## Inspiration
