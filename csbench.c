@@ -142,20 +142,6 @@ struct cs_estimate {
     double upper;
 };
 
-// How outliers affect standard deviation
-enum cs_outlier_effect {
-    CS_OUTLIERS_UNAFFECTED,
-    CS_OUTLIERS_SLIGHT,
-    CS_OUTLIERS_MODERATE,
-    CS_OUTLIERS_SEVERE
-};
-
-struct cs_outlier_variance {
-    enum cs_outlier_effect effect;
-    const char *desc;
-    double fraction;
-};
-
 struct cs_outliers {
     size_t low_severe;
     size_t low_mild;
@@ -1043,24 +1029,18 @@ cs_outlier_variance(double mean, double st_dev, double a) {
     return var_out_min;
 }
 
-static struct cs_outlier_variance
-cs_classify_outlier_variance(double fraction) {
-    struct cs_outlier_variance variance;
-    variance.fraction = fraction;
+static const char *
+cs_outliers_variance_str(double fraction) {
     if (fraction < 0.01) {
-        variance.effect = CS_OUTLIERS_UNAFFECTED;
-        variance.desc = "no";
+        return "no";
     } else if (fraction < 0.1) {
-        variance.effect = CS_OUTLIERS_SLIGHT;
-        variance.desc = "a slight";
+        return "a slight";
     } else if (fraction < 0.5) {
-        variance.effect = CS_OUTLIERS_MODERATE;
-        variance.desc = "a moderate";
+        return "a moderate";
     } else {
-        variance.effect = CS_OUTLIERS_SEVERE;
-        variance.desc = "a severe";
+        return "a severe";
     }
-    return variance;
+    return NULL;
 }
 
 static uint32_t
@@ -1637,11 +1617,10 @@ cs_print_benchmark_info(const struct cs_benchmark *bench,
         }
     }
     cs_print_outliers(&analysis->outliers, bench->run_count);
-    struct cs_outlier_variance var =
-        cs_classify_outlier_variance(analysis->outlier_variance_fraction);
     printf("outlying measurements have %s (%.1lf%%) effect on estimated "
            "standard deviation\n",
-           var.desc, var.fraction * 100.0);
+           cs_outliers_variance_str(analysis->outlier_variance_fraction),
+           analysis->outlier_variance_fraction * 100.0);
 }
 
 static int
@@ -2347,13 +2326,13 @@ cs_print_html_report(const struct cs_benchmark_results *results, FILE *f) {
                             (double)outliers->high_severe / run_count * 100.0);
                 fprintf(f, "</ul>");
             }
-            struct cs_outlier_variance var = cs_classify_outlier_variance(
-                analysis->outlier_variance_fraction);
-            fprintf(f,
-                    "<p>outlying measurements have %s (%.1lf%%) effect on "
-                    "estimated "
-                    "standard deviation</p>",
-                    var.desc, var.fraction * 100.0);
+            fprintf(
+                f,
+                "<p>outlying measurements have %s (%.1lf%%) effect on "
+                "estimated "
+                "standard deviation</p>",
+                cs_outliers_variance_str(analysis->outlier_variance_fraction),
+                analysis->outlier_variance_fraction * 100.0);
         }
         fprintf(f, "</div></div></div>");
     }
