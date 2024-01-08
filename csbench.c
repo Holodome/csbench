@@ -765,7 +765,7 @@ cs_exec_command(const struct cs_command *command, int stdout_fd) {
         } else {
             cs_exec_output_policy(command->output_policy);
         }
-        if (execv(command->executable, command->argv) == -1)
+        if (execvp(command->executable, command->argv) == -1)
             _exit(-1);
     }
 
@@ -1644,49 +1644,6 @@ cs_print_benchmark_info(const struct cs_benchmark *bench,
            var.desc, var.fraction * 100.0);
 }
 
-static char *
-cs_find_full_path(const char *path) {
-    char *full = NULL;
-    if (*path == '/') {
-        full = strdup(path);
-    } else if (strchr(path, '/') != NULL) {
-        char test_path[4096];
-        if (getcwd(test_path, sizeof(path)) == NULL) {
-            perror("getcwd");
-            return NULL;
-        }
-        size_t cwd_len = strlen(path);
-        snprintf(test_path + cwd_len, sizeof(test_path) - cwd_len, "/%s", path);
-        full = strdup(test_path);
-    } else {
-        const char *path_var = getenv("PATH");
-        if (path_var == NULL) {
-            fprintf(stderr, "error: PATH variable is not set\n");
-            return NULL;
-        }
-        const char *path_var_end = path_var + strlen(path_var);
-        const char *cursor = path_var;
-        while (cursor < path_var_end + 1) {
-            const char *next_sep = strchr(cursor, ':');
-            if (next_sep == NULL)
-                next_sep = path_var_end;
-
-            char test_path[4096];
-            snprintf(test_path, sizeof(test_path), "%.*s/%s",
-                     (int)(next_sep - cursor), cursor, path);
-
-            if (access(test_path, X_OK) == 0) {
-                full = strdup(test_path);
-                break;
-            }
-
-            cursor = next_sep + 1;
-        }
-    }
-
-    return full;
-}
-
 static int
 cs_extract_executable_and_argv(const char *command_str, char **executable,
                                char ***argv) {
@@ -1697,24 +1654,11 @@ cs_extract_executable_and_argv(const char *command_str, char **executable,
         return -1;
     }
 
-    char *real_exec_path = cs_find_full_path(words[0]);
-    if (real_exec_path == NULL) {
-        fprintf(stderr,
-                "error: failed to find executable path for command '%s'\n",
-                command_str);
-        rc = -1;
-    } else {
-        *executable = real_exec_path;
-        const char *exec_name = strrchr(real_exec_path, '/');
-        if (exec_name == NULL)
-            exec_name = real_exec_path;
-        else
-            ++exec_name;
-        cs_sb_push(*argv, strdup(exec_name));
-        for (size_t i = 1; i < cs_sb_len(words); ++i)
-            cs_sb_push(*argv, strdup(words[i]));
-        cs_sb_push(*argv, NULL);
-    }
+    *executable = strdup(words[0]);
+    cs_sb_push(*argv, strdup(words[0]));
+    for (size_t i = 1; i < cs_sb_len(words); ++i)
+        cs_sb_push(*argv, strdup(words[i]));
+    cs_sb_push(*argv, NULL);
 
     for (size_t i = 0; i < cs_sb_len(words); ++i)
         cs_sb_free(words[i]);
