@@ -2213,6 +2213,20 @@ cs_make_plots(const struct cs_bench *benches, size_t bench_count,
 }
 
 static void
+cs_ref_speed(const struct cs_est *u1, const struct cs_est *sigma1,
+             const struct cs_est *u2, const struct cs_est *sigma2,
+             double *ref_u, double *ref_sigma) {
+    double ref = u1->point / u2->point;
+    // propagate standard deviation for formula (t1 / t2)
+    double a = sigma1->point / u1->point;
+    double b = sigma2->point / u2->point;
+    double ref_st_dev = ref * sqrt(a * a + b * b);
+
+    *ref_u = ref;
+    *ref_sigma = ref_st_dev;
+}
+
+static void
 cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
@@ -2309,7 +2323,28 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
 
     if (results->bench_count != 1) {
         fprintf(f, "<h2>comparison</h2>\n");
-        fprintf(f, "<div class=\"row\"><img src=\"violin.svg\"></div>");
+        fprintf(f, "<div class=\"row\"><div class=\"col\">"
+                   "<img src=\"violin.svg\"></div>");
+        size_t best_idx = results->fastest_idx;
+        const struct cs_bench *best = results->benches + best_idx;
+        const struct cs_bench_analysis *best_analysis =
+            results->analyses + best_idx;
+        fprintf(f, "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
+                best->cmd->str);
+        for (size_t i = 0; i < results->bench_count; ++i) {
+            const struct cs_bench *bench = results->benches + i;
+            const struct cs_bench_analysis *analysis = results->analyses + i;
+            if (bench == best)
+                continue;
+
+            double ref, ref_st_dev;
+            cs_ref_speed(&analysis->mean_est, &analysis->st_dev_est,
+                         &best_analysis->mean_est, &best_analysis->st_dev_est,
+                         &ref, &ref_st_dev);
+            fprintf(f, "<li>%3lf ± %3lf times faster than '%s'</li>", ref,
+                    ref_st_dev, bench->cmd->str);
+            fprintf(f, "</ul></div></div>");
+        }
         fprintf(f, "</body>");
     }
 }
@@ -2493,13 +2528,10 @@ cs_print_cmd_comparison(const struct cs_bench_results *results) {
         if (bench == best)
             continue;
 
-        double ref = analysis->mean_est.point / best_analysis->mean_est.point;
-        // propagate standard deviation for formula (t1 / t2)
-        double a = analysis->st_dev_est.point / analysis->mean_est.point;
-        double b =
-            best_analysis->st_dev_est.point / best_analysis->mean_est.point;
-        double ref_st_dev = ref * sqrt(a * a + b * b);
-
+        double ref, ref_st_dev;
+        cs_ref_speed(&analysis->mean_est, &analysis->st_dev_est,
+                     &best_analysis->mean_est, &best_analysis->st_dev_est, &ref,
+                     &ref_st_dev);
         printf("%3lf ± %3lf times faster than '%s'\n", ref, ref_st_dev,
                bench->cmd->str);
     }

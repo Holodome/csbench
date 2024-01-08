@@ -28,31 +28,34 @@ It does not has any dependencies for basic operation. `python3` binary with `mat
 
 ## Examples
 
-`csbench` can be used to compare execution time of multiple commands:
+`csbench` can be used to compare execution time of multiple commands.
+Also see [generated html report](https://holodome.github.io/csbench).
 ```
-$ csbench ls exa --shell none
+$ csbench ls exa --shell none --analyze html
 command 'ls'
-7121 runs
-   mean 688.6 μs 692.7 μs 696.4 μs
- st dev 110.8 μs 134.7 μs 162.6 μs
-systime 65.72 μs 71.86 μs 78.36 μs
-usrtime 547.4 μs 555.9 μs 563.3 μs
-found 206 outliers across 7121 measurements (2.89%)
-183 (2.57%) high mild
-23 (0.32%) high severe
-outlying measurements have a severe (99.9%) effect on estimated standard deviation
+3250 runs
+   mean 1.526 ms 1.528 ms 1.532 ms
+ st dev 37.27 μs 67.10 μs 98.03 μs
+systime 895.3 μs 896.5 μs 898.0 μs
+usrtime 243.0 μs 243.4 μs 243.8 μs
+found 166 outliers across 3250 measurements (5.11%)
+1 (0.03%) low severe
+35 (1.08%) low mild
+61 (1.88%) high mild
+69 (2.12%) high severe
+outlying measurements have a severe (95.9%) effect on estimated standard deviation
 command 'exa'
-5469 runs
-   mean 896.0 μs 903.7 μs 917.9 μs
- st dev 179.1 μs 226.7 μs 288.8 μs
-systime 108.6 μs 120.1 μs 130.2 μs
-usrtime 684.6 μs 697.7 μs 705.5 μs
-found 140 outliers across 5469 measurements (2.56%)
-81 (1.48%) high mild
-59 (1.08%) high severe
-outlying measurements have a severe (99.9%) effect on estimated standard deviation
+1099 runs
+   mean 4.523 ms 4.548 ms 4.577 ms
+ st dev 175.2 μs 312.8 μs 499.1 μs
+systime 1.310 ms 1.317 ms 1.325 ms
+usrtime 2.185 ms 2.190 ms 2.194 ms
+found 95 outliers across 1099 measurements (8.64%)
+45 (4.09%) high mild
+50 (4.55%) high severe
+outlying measurements have a severe (95.2%) effect on estimated standard deviation
 Fastest command 'ls'
-1.304593 ± 0.414104 times faster than 'exa'
+2.975608 ± 0.242813 times faster than 'exa'
 ```
 
 But just measuring execution time of commands is not very interesting. 
