@@ -112,9 +112,10 @@ struct cs_cmd {
 
 struct cs_cmd_group {
     char *template;
+    const char *var_name;
+    size_t count;
     size_t *cmd_idxs;
     const char **var_values;
-    const char *var_name;
 };
 
 // Information gethered from user input (settings), parsed
@@ -1664,7 +1665,14 @@ cs_free_settings(struct cs_settings *settings) {
         cs_sb_free(cmd->argv);
         free(cmd->str);
     }
+    for (size_t i = 0; i < cs_sb_len(settings->cmd_groups); ++i) {
+        struct cs_cmd_group *group = settings->cmd_groups + i;
+        free(group->template);
+        free(group->cmd_idxs);
+        free(group->var_values);
+    }
     cs_sb_free(settings->cmds);
+    cs_sb_free(settings->cmd_groups);
 }
 
 static void
@@ -1686,6 +1694,7 @@ cs_replace_param_in_cmd(char *buffer, size_t buffer_size, const char *cmd_str,
             *wr_cursor++ = *rd_cursor++;
         }
     }
+    *wr_cursor = '\0';
 }
 
 static int
@@ -1725,9 +1734,13 @@ cs_init_settings(const struct cs_cli_settings *cli,
             if (strstr(cmd_str, buffer) == NULL)
                 continue;
 
+            size_t its_in_group = cs_sb_len(param->values);
             found_param = 1;
             struct cs_cmd_group group = {0};
-            for (size_t k = 0; k < cs_sb_len(param->values); ++k) {
+            group.count = its_in_group;
+            group.cmd_idxs = calloc(its_in_group, sizeof(*group.cmd_idxs));
+            group.var_values = calloc(its_in_group, sizeof(*group.var_values));
+            for (size_t k = 0; k < its_in_group; ++k) {
                 const char *param_value = param->values[k];
                 cs_replace_param_in_cmd(buffer, sizeof(buffer), cmd_str,
                                         param->name, param_value);
@@ -1736,12 +1749,15 @@ cs_init_settings(const struct cs_cli_settings *cli,
                 cmd.input = cli->input_policy;
                 cmd.output = cli->output_policy;
                 cmd.custom_meas = settings->custom_meas;
-                if (cs_init_cmd_exec(cli->shell, buffer, &cmd) == -1)
+                if (cs_init_cmd_exec(cli->shell, buffer, &cmd) == -1) {
+                    free(group.cmd_idxs);
+                    free(group.var_values);
                     goto err_free_settings;
+                }
 
+                group.cmd_idxs[k] = cs_sb_len(settings->cmds);
+                group.var_values[k] = param_value;
                 cs_sb_push(settings->cmds, cmd);
-                cs_sb_push(group.cmd_idxs, cs_sb_len(settings->cmds) - 1);
-                cs_sb_push(group.var_values, param_value);
             }
             group.var_name = param->name;
             group.template = strdup(cmd_str);
@@ -1767,22 +1783,17 @@ err_free_settings:
 }
 
 static void
-cs_free_bench(struct cs_bench *bench) {
-    cs_sb_free(bench->wallclocks);
-    cs_sb_free(bench->systimes);
-    cs_sb_free(bench->usertimes);
-    cs_sb_free(bench->exit_codes);
-    if (bench->custom_meas) {
-        for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
-            cs_sb_free(bench->custom_meas[i]);
-        free(bench->custom_meas);
-    }
-}
-
-static void
 cs_free_cli_settings(struct cs_cli_settings *settings) {
+    for (size_t i = 0; i < cs_sb_len(settings->params); ++i) {
+        struct cs_bench_param *param = settings->params + i;
+        free(param->name);
+        for (size_t j = 0; j < cs_sb_len(param->values); ++j)
+            free(param->values[j]);
+        cs_sb_free(param->values);
+    }
     cs_sb_free(settings->cmds);
     cs_sb_free(settings->custom_meas);
+    cs_sb_free(settings->params);
 }
 
 static void
@@ -2503,6 +2514,29 @@ cs_handle_analyze(const struct cs_bench_results *results,
 }
 
 static int
+cs_run_benches(const struct cs_settings *settings,
+               struct cs_bench_results *results) {
+    results->bench_count = cs_sb_len(settings->cmds);
+    results->benches = calloc(results->bench_count, sizeof(*results->benches));
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        struct cs_bench *bench = results->benches + i;
+        bench->prepare = settings->prepare_cmd;
+        bench->cmd = settings->cmds + i;
+        if (bench->cmd->custom_meas) {
+            size_t count = cs_sb_len(bench->cmd->custom_meas);
+            bench->custom_meas = calloc(count, sizeof(*bench->custom_meas));
+        }
+
+        if (cs_warmup(bench, settings->warmup_time) == -1)
+            return -1;
+        if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
+            return -1;
+    }
+
+    return 0;
+}
+
+static int
 cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
     const struct cs_cmd_in_group_data *a = arg1;
     const struct cs_cmd_in_group_data *b = arg2;
@@ -2522,7 +2556,7 @@ cs_analyze_cmd_groups(const struct cs_settings *settings,
         calloc(group_count, sizeof(*results->group_analyses));
     for (size_t i = 0; i < group_count; ++i) {
         const struct cs_cmd_group *group = settings->cmd_groups + i;
-        size_t cmd_count = cs_sb_len(group->cmd_idxs);
+        size_t cmd_count = group->count;
 
         struct cs_cmd_group_analysis *analysis = results->group_analyses + i;
         analysis->group = group;
@@ -2571,8 +2605,8 @@ cs_analyze_cmd_groups(const struct cs_settings *settings,
 }
 
 static void
-cs_analyze_benches(struct cs_bench_results *results,
-                   const struct cs_settings *settings) {
+cs_analyze_benches(const struct cs_settings *settings,
+                   struct cs_bench_results *results) {
     results->analyses =
         calloc(results->bench_count, sizeof(*results->analyses));
     for (size_t i = 0; i < results->bench_count; ++i) {
@@ -2656,30 +2690,49 @@ cs_print_analysis(const struct cs_bench_results *results) {
     cs_print_cmd_group_analysis(results);
 }
 
+static void
+cs_free_bench_results(struct cs_bench_results *results) {
+    // these ifs are needed because results can be partially initialized in case
+    // of failure
+    if (results->benches) {
+        for (size_t i = 0; i < results->bench_count; ++i) {
+            struct cs_bench *bench = results->benches + i;
+            cs_sb_free(bench->wallclocks);
+            cs_sb_free(bench->systimes);
+            cs_sb_free(bench->usertimes);
+            cs_sb_free(bench->exit_codes);
+            if (bench->custom_meas) {
+                for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
+                    cs_sb_free(bench->custom_meas[i]);
+                free(bench->custom_meas);
+            }
+        }
+    }
+    if (results->analyses) {
+        for (size_t i = 0; i < results->bench_count; ++i) {
+            const struct cs_bench_analysis *analysis = results->analyses + i;
+            free(analysis->custom_meas_mean_est);
+            free(analysis->custom_meas_st_dev_est);
+        }
+    }
+    for (size_t i = 0; i < results->group_count; ++i) {
+        struct cs_cmd_group_analysis *analysis = results->group_analyses + i;
+        free(analysis->data);
+    }
+
+    free(results->benches);
+    free(results->analyses);
+    free(results->group_analyses);
+}
+
 static int
 cs_run(const struct cs_settings *settings) {
     int ret = -1;
     struct cs_bench_results results = {0};
-    results.bench_count = cs_sb_len(settings->cmds);
-    results.benches = calloc(results.bench_count, sizeof(*results.benches));
-    for (size_t i = 0; i < results.bench_count; ++i) {
-        struct cs_bench *bench = results.benches + i;
-        bench->prepare = settings->prepare_cmd;
-        bench->cmd = settings->cmds + i;
-        if (bench->cmd->custom_meas) {
-            size_t count = cs_sb_len(bench->cmd->custom_meas);
-            bench->custom_meas = calloc(count, sizeof(*bench->custom_meas));
-        }
-
-        if (cs_warmup(bench, settings->warmup_time) == -1)
-            goto out;
-        if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
-            goto out;
-    }
-
-    cs_analyze_benches(&results, settings);
+    if (cs_run_benches(settings, &results) == -1)
+        goto out;
+    cs_analyze_benches(settings, &results);
     cs_print_analysis(&results);
-
     if (cs_handle_export(settings, results.benches, results.bench_count,
                          &settings->export) == -1)
         goto out;
@@ -2689,10 +2742,7 @@ cs_run(const struct cs_settings *settings) {
 
     ret = 0;
 out:
-    for (size_t i = 0; i < results.bench_count; ++i)
-        cs_free_bench(results.benches + i);
-    free(results.benches);
-    free(results.analyses);
+    cs_free_bench_results(&results);
     return ret;
 }
 
