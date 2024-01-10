@@ -97,6 +97,7 @@ struct cs_cli_settings {
     const char *analyze_dir;
     enum cs_analyze_mode analyze_mode;
     struct cs_bench_param *params;
+    int plot_src;
 };
 
 // Description of command to benchmark.
@@ -119,7 +120,8 @@ struct cs_cmd_group {
 };
 
 // Information gethered from user input (settings), parsed
-// and prepared for benchmarking.
+// and prepared for benchmarking. Some fields are copied from
+// cli settings as is to reduce data dependencies.
 struct cs_settings {
     struct cs_cmd *cmds;
     struct cs_cmd_group *cmd_groups;
@@ -131,6 +133,7 @@ struct cs_settings {
     struct cs_export_policy export;
     enum cs_analyze_mode analyze_mode;
     const char *analyze_dir;
+    int plot_src;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -338,6 +341,7 @@ cs_print_help_and_exit(int rc) {
         "--analyze-dir <dir>  - directory where analysis will be saved at\n"
         "--plot               - make plots as images\n"
         "--html               - make html report\n"
+        "--plot-src           - dump python scripts used to generate plots\n"
         "--help               - print this message\n"
         "--version            - print version\n");
     exit(rc);
@@ -679,6 +683,8 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
             settings->analyze_mode = CS_ANALYZE_HTML;
         } else if (strcmp(opt, "--plot") == 0) {
             settings->analyze_mode = CS_ANALYZE_PLOT;
+        } else if (strcmp(opt, "--plot-src") == 0) {
+            settings->plot_src = 1;
         } else {
             cs_sb_push(settings->cmds, opt);
         }
@@ -1678,6 +1684,7 @@ cs_free_settings(struct cs_settings *settings) {
 static void
 cs_replace_param_in_cmd(char *buffer, size_t buffer_size, const char *cmd_str,
                         const char *name, const char *value) {
+    // TODO: this should handle buffer overflow
     (void)buffer_size;
     size_t param_name_len = strlen(name);
     char *wr_cursor = buffer;
@@ -1708,6 +1715,7 @@ cs_init_settings(const struct cs_cli_settings *cli,
     settings->analyze_mode = cli->analyze_mode;
     settings->analyze_dir = cli->analyze_dir;
     settings->custom_meas = cli->custom_meas;
+    settings->plot_src = cli->plot_src;
 
     if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(cli->input_policy.file, R_OK) == -1) {
@@ -2478,8 +2486,91 @@ cs_make_html_report(const struct cs_bench_results *results,
 }
 
 static int
+cs_dump_plot_src(const struct cs_bench_results *results,
+                 const char *analyze_dir) {
+    size_t bench_count = results->bench_count;
+    const struct cs_bench *benches = results->benches;
+
+    {
+        char buffer[4096];
+        snprintf(buffer, sizeof(buffer), "%s/whisker.py", analyze_dir);
+        FILE *f = fopen(buffer, "w");
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s\n", buffer);
+            return -1;
+        }
+
+        snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
+        struct cs_whisker_plot plot = {0};
+        plot.output_filename = buffer;
+        cs_init_whisker_plot(benches, bench_count, &plot);
+        cs_make_whisker_plot(&plot, f);
+        cs_free_whisker_plot(&plot);
+        fclose(f);
+    }
+    {
+        char buffer[4096];
+        snprintf(buffer, sizeof(buffer), "%s/violin.py", analyze_dir);
+        FILE *f = fopen(buffer, "w");
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s\n", buffer);
+            return -1;
+        }
+
+        snprintf(buffer, sizeof(buffer), "%s/violin.svg", analyze_dir);
+        struct cs_whisker_plot plot = {0};
+        plot.output_filename = buffer;
+        cs_init_whisker_plot(benches, bench_count, &plot);
+        cs_make_violin_plot(&plot, f);
+        cs_free_whisker_plot(&plot);
+        fclose(f);
+    }
+
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
+        char buffer[4096];
+        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.py", analyze_dir, i + 1);
+        FILE *f = fopen(buffer, "w");
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s\n", buffer);
+            return -1;
+        }
+
+        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
+        struct cs_kde_plot plot = {0};
+        plot.output_filename = buffer;
+        plot.title = bench->cmd->str;
+        cs_init_kde_plot(bench, &plot);
+        cs_make_kde_plot(&plot, f);
+        cs_free_kde_plot(&plot);
+        fclose(f);
+    }
+
+    for (size_t i = 0; i < results->group_count; ++i) {
+        const struct cs_cmd_group_analysis *analysis =
+            results->group_analyses + i;
+        char buffer[4096];
+        snprintf(buffer, sizeof(buffer), "%s/group_plot_%zu.py", analyze_dir,
+                 i + 1);
+        FILE *f = fopen(buffer, "w");
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s\n", buffer);
+            return -1;
+        }
+
+        snprintf(buffer, sizeof(buffer), "%s/group_plot_%zu.svg", analyze_dir,
+                 i + 1);
+        cs_make_group_plot(analysis, buffer, f);
+        fclose(f);
+    }
+
+    return 0;
+}
+
+static int
 cs_handle_analyze(const struct cs_bench_results *results,
-                  enum cs_analyze_mode mode, const char *analyze_dir) {
+                  enum cs_analyze_mode mode, const char *analyze_dir,
+                  int plot_src) {
     if (mode == CS_DONT_ANALYZE)
         return 0;
 
@@ -2501,6 +2592,9 @@ cs_handle_analyze(const struct cs_bench_results *results,
                     "error: python does not have matplotlib installed\n");
             return -1;
         }
+
+        if (plot_src && cs_dump_plot_src(results, analyze_dir) == -1)
+            return -1;
 
         if (cs_make_plots(results, analyze_dir) == -1)
             return -1;
@@ -2737,7 +2831,7 @@ cs_run(const struct cs_settings *settings) {
                          &settings->export) == -1)
         goto out;
     if (cs_handle_analyze(&results, settings->analyze_mode,
-                          settings->analyze_dir) == -1)
+                          settings->analyze_dir, settings->plot_src) == -1)
         goto out;
 
     ret = 0;
