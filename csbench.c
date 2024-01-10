@@ -217,15 +217,6 @@ struct cs_cpu_time {
     double system_time;
 };
 
-// data needed to construct whisker (boxplot) or violin plot
-struct cs_whisker_plot {
-    double **data;
-    const char **col_names;
-    size_t *widths;
-    size_t col_count;
-    const char *output_filename;
-};
-
 // data needed to construct kde plot. data here is kde points computed from
 // original data
 struct cs_kde_plot {
@@ -1892,18 +1883,22 @@ cs_handle_export(const struct cs_settings *settings,
 }
 
 static void
-cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *f) {
+cs_make_whisker_plot(const struct cs_bench *benches, size_t bench_count,
+                     const char *output_filename, FILE *f) {
     fprintf(f, "data = [");
-    for (size_t i = 0; i < plot->col_count; ++i) {
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
-        for (size_t j = 0; j < plot->widths[i]; ++j)
-            fprintf(f, "%f, ", plot->data[i][j]);
+        for (size_t j = 0; j < bench->run_count; ++j)
+            fprintf(f, "%f, ", benches->wallclocks[j]);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
     fprintf(f, "names = [");
-    for (size_t i = 0; i < plot->col_count; ++i)
-        fprintf(f, "'%s', ", plot->col_names[i]);
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
+        fprintf(f, "'%s', ", bench->cmd->str);
+    }
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
@@ -1912,22 +1907,26 @@ cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *f) {
             "plt.boxplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            plot->output_filename);
+            output_filename);
 }
 
 static void
-cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *f) {
+cs_make_violin_plot(const struct cs_bench *benches, size_t bench_count,
+                    const char *output_filename, FILE *f) {
     fprintf(f, "data = [");
-    for (size_t i = 0; i < plot->col_count; ++i) {
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
-        for (size_t j = 0; j < plot->widths[i]; ++j)
-            fprintf(f, "%f, ", plot->data[i][j]);
+        for (size_t j = 0; j < bench->run_count; ++j)
+            fprintf(f, "%f, ", benches->wallclocks[j]);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
     fprintf(f, "names = [");
-    for (size_t i = 0; i < plot->col_count; ++i)
-        fprintf(f, "'%s', ", plot->col_names[i]);
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
+        fprintf(f, "'%s', ", bench->cmd->str);
+    }
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
@@ -1936,7 +1935,7 @@ cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *f) {
             "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            plot->output_filename);
+            output_filename);
 }
 
 static void
@@ -2055,34 +2054,6 @@ cs_python_has_matplotlib(void) {
 }
 
 static void
-cs_init_whisker_plot(const struct cs_bench *benches, size_t bench_count,
-                     struct cs_whisker_plot *plot) {
-    plot->col_count = bench_count;
-    plot->widths = malloc(sizeof(*plot->widths) * plot->col_count);
-    plot->col_names = malloc(sizeof(*plot->col_names) * plot->col_count);
-    for (size_t i = 0; i < plot->col_count; ++i) {
-        plot->widths[i] = benches[i].run_count;
-        plot->col_names[i] = benches[i].cmd->str;
-    }
-
-    plot->data = malloc(sizeof(*plot->data) * plot->col_count);
-    for (size_t i = 0; i < plot->col_count; ++i) {
-        size_t size = sizeof(**plot->data) * plot->widths[i];
-        plot->data[i] = malloc(size);
-        memcpy(plot->data[i], benches[i].wallclocks, size);
-    }
-}
-
-static void
-cs_free_whisker_plot(struct cs_whisker_plot *plot) {
-    free(plot->widths);
-    free(plot->col_names);
-    for (size_t i = 0; i < plot->col_count; ++i)
-        free(plot->data[i]);
-    free(plot->data);
-}
-
-static void
 cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
                  double *lowerp, double *stepp) {
     double *ssa = malloc(count * sizeof(*ssa));
@@ -2149,55 +2120,37 @@ cs_free_kde_plot(struct cs_kde_plot *plot) {
 static int
 cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
                 const char *output_filename) {
-    int ret = 0;
-    struct cs_whisker_plot plot = {0};
-    plot.output_filename = output_filename;
-    cs_init_whisker_plot(benches, bench_count, &plot);
-
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        ret = -1;
-        goto out;
+        return -1;
     }
-    cs_make_whisker_plot(&plot, script);
+    cs_make_whisker_plot(benches, bench_count, output_filename, script);
     fclose(script);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        ret = -1;
+        return -1;
     }
-
-out:
-    cs_free_whisker_plot(&plot);
-    return ret;
+    return 0;
 }
 
 static int
 cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
                const char *output_filename) {
-    int ret = 0;
-    struct cs_whisker_plot plot = {0};
-    plot.output_filename = output_filename;
-    cs_init_whisker_plot(benches, bench_count, &plot);
-
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        ret = -1;
-        goto out;
+        return -1;
     }
-    cs_make_violin_plot(&plot, script);
+    cs_make_violin_plot(benches, bench_count, output_filename, script);
     fclose(script);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        ret = -1;
+        return -1;
     }
-
-out:
-    cs_free_whisker_plot(&plot);
-    return ret;
+    return 0;
 }
 
 static int
@@ -2501,11 +2454,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
         }
 
         snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
-        struct cs_whisker_plot plot = {0};
-        plot.output_filename = buffer;
-        cs_init_whisker_plot(benches, bench_count, &plot);
-        cs_make_whisker_plot(&plot, f);
-        cs_free_whisker_plot(&plot);
+        cs_make_whisker_plot(benches, bench_count, buffer, f);
         fclose(f);
     }
     {
@@ -2518,11 +2467,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
         }
 
         snprintf(buffer, sizeof(buffer), "%s/violin.svg", analyze_dir);
-        struct cs_whisker_plot plot = {0};
-        plot.output_filename = buffer;
-        cs_init_whisker_plot(benches, bench_count, &plot);
-        cs_make_violin_plot(&plot, f);
-        cs_free_whisker_plot(&plot);
+        cs_make_violin_plot(benches, bench_count, buffer, f);
         fclose(f);
     }
 
