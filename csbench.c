@@ -2078,8 +2078,8 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "plt.xlabel('time [s]')\n"
             "plt.ylabel('runs')\n"
             "figure = plt.gcf()\n"
-            "figure.set_size_inches(11.7, 8.3)\n"
-            "plt.savefig('%s', dpi=600)\n",
+            "figure.set_size_inches(13, 9)\n"
+            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             plot->output_filename);
 }
 
@@ -2203,6 +2203,11 @@ cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
         lower = fmax(mean - 3.0 * st_dev, ssa[0]);
         upper = fmin(mean + 3.0 * st_dev, ssa[count - 1]);
     } else {
+        // in case of extended plot make bounds larger to allow more outliers.
+        // number 9 is empyrical, allowing resulting plot to be comprehendable
+        // (if value is larger it is hard to see anything).
+        // Don't think that this should be paramterized, as kde is only intended
+        // for benchmark author to validate it, not to look pretty.
         double mean = cs_stat_mean(data, count);
         lower = fmax(mean - 9.0 * st_dev, ssa[0]);
         upper = fmin(mean + 9.0 * st_dev, ssa[count - 1]);
@@ -2446,7 +2451,7 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
                 i + 1, i + 1);
         fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
         fprintf(f, "<div class=\"stats\">");
-        fprintf(f, "<p>made total %zu runs</p>", bench->run_count);
+        fprintf(f, "<p>%zu runs</p>", bench->run_count);
         fprintf(f, "<table>");
         fprintf(f, "<thead><tr>"
                    "<th></th>"
