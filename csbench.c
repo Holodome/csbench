@@ -1949,6 +1949,7 @@ cs_make_whisker_plot(const struct cs_bench *benches, size_t bench_count,
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
+            "plt.ioff()\n"
             "plt.xlabel('command')\n"
             "plt.ylabel('time [s]')\n"
             "plt.boxplot(data)\n"
@@ -1977,6 +1978,7 @@ cs_make_violin_plot(const struct cs_bench *benches, size_t bench_count,
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
+            "plt.ioff()\n"
             "plt.xlabel('command')\n"
             "plt.ylabel('time [s]')\n"
             "plt.violinplot(data)\n"
@@ -1998,6 +2000,7 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
 
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
+            "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%f, [0], [%f])\n"
@@ -2028,6 +2031,7 @@ cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
+            "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.plot(x, regr, color='red', alpha=0.3)\n"
             "plt.plot(x, y, '.-')\n"
