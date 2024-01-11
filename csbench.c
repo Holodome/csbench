@@ -217,7 +217,6 @@ struct cs_bench_results {
     struct cs_bench *benches;
     struct cs_bench_analysis *analyses;
     size_t fastest_idx;
-
     size_t group_count;
     struct cs_cmd_group_analysis *group_analyses;
 };
@@ -1102,6 +1101,24 @@ cs_fitting_curve_logn(double n) {
 static double
 cs_fitting_curve_nlogn(double n) {
     return n * log2(n);
+}
+static double
+cs_fitting_curve(double n, enum cs_big_o complexity) {
+    switch (complexity) {
+    case CS_O_1:
+        return cs_fitting_curve_1(n);
+    case CS_O_N:
+        return cs_fitting_curve_n(n);
+    case CS_O_N_SQ:
+        return cs_fitting_curve_n_sq(n);
+    case CS_O_N_CUBE:
+        return cs_fitting_curve_n_cube(n);
+    case CS_O_LOGN:
+        return cs_fitting_curve_logn(n);
+    case CS_O_NLOGN:
+        return cs_fitting_curve_nlogn(n);
+    }
+    return 0.0;
 }
 
 static void
@@ -2002,10 +2019,17 @@ cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
     for (size_t i = 0; i < analysis->cmd_count; ++i)
         fprintf(f, "%f, ", analysis->data[i].mean);
     fprintf(f, "]\n");
-
+    fprintf(f, "regr = [");
+    for (size_t i = 0; i < analysis->cmd_count; ++i)
+        fprintf(f, "%f, ",
+                analysis->coef *
+                    cs_fitting_curve(analysis->data[i].value_double,
+                                     analysis->complexity));
+    fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib.pyplot as plt\n"
             "plt.title('%s')\n"
+            "plt.plot(x, regr, color='red', alpha=0.3)\n"
             "plt.plot(x, y, '.-')\n"
             "plt.xticks(x)\n"
             "plt.grid()\n"

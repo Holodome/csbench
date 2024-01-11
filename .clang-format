@@ -3,7 +3,7 @@ ColumnLimit: 80
 IndentWidth: 4
 AllowShortIfStatementsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
-AllowShortFunctionsOnASingleLine: None
+AllowShortFunctionsOnASingleLine: All
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
 AlwaysBreakAfterDefinitionReturnType: All
