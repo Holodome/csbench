@@ -74,6 +74,8 @@ struct cs_bench_stop_policy {
 struct cs_custom_meas {
     const char *name;
     const char *str;
+    // if null interpret as seconds
+    const char *units;
 };
 
 struct cs_bench_param {
@@ -243,6 +245,7 @@ struct cs_cpu_time {
 // original data
 struct cs_kde_plot {
     const struct cs_distr *distr;
+    const char *xlabel;
     const char *title;
     double lower;
     double step;
@@ -343,10 +346,12 @@ cs_print_help_and_exit(int rc) {
         "be either null or inherit\n"
         "--input <where>      - specify how each command should recieve its "
         "input. Can be either null or file name\n"
-        "--custom <name>      - benchmark custom measurement with given name. "
+        "--custom <name>      - benchmark custom measurement with given name"
         "By default uses stdout of command to retrieve number\n"
-        "--custom-x <name> <cmd> - command to extract custom measurement "
-        "value\n"
+        "--custom-t <name> <cmd> - command to extract custom measurement "
+        "value. Value is interpreted as seconds\n"
+        "--custom-x <name> <units> <cmd> - command to extract custom "
+        "measurement value \n"
         "--scan <i>/<n>/<m>[/<s>] - parameter scan i in range(n, m, s). s can "
         "be omitted\n"
         "--scanl <i>/a[,...]  - parameter scacn comma separated options\n"
@@ -639,16 +644,31 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *name = argv[cursor++];
-            cs_sb_push(settings->custom_meas,
-                       ((struct cs_custom_meas){name, NULL}));
-        } else if (strcmp(opt, "--custom-x") == 0) {
+            struct cs_custom_meas meas = {0};
+            meas.name = name;
+            cs_sb_push(settings->custom_meas, meas);
+        } else if (strcmp(opt, "--custom-t") == 0) {
             if (cursor + 1 >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
 
             const char *name = argv[cursor++];
             const char *cmd = argv[cursor++];
-            cs_sb_push(settings->custom_meas,
-                       ((struct cs_custom_meas){name, cmd}));
+            struct cs_custom_meas meas = {0};
+            meas.name = name;
+            meas.str = cmd;
+            cs_sb_push(settings->custom_meas, meas);
+        } else if (strcmp(opt, "--custom-x") == 0) {
+            if (cursor + 2 >= argc)
+                cs_print_help_and_exit(EXIT_FAILURE);
+
+            const char *name = argv[cursor++];
+            const char *units = argv[cursor++];
+            const char *cmd = argv[cursor++];
+            struct cs_custom_meas meas = {0};
+            meas.name = name;
+            meas.str = cmd;
+            meas.units = units;
+            cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--scan") == 0) {
             if (cursor >= argc)
                 cs_print_help_and_exit(EXIT_FAILURE);
@@ -1678,7 +1698,10 @@ cs_print_benchmark_info(const struct cs_bench_analysis *analysis, int no_time) {
     }
     for (size_t i = 0; i < bench->custom_meas_count; ++i) {
         printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
-        cs_print_distr(analysis->custom_meas + i);
+        if (analysis->bench->cmd->custom_meas[i].units)
+            cs_print_distr(analysis->custom_meas + i);
+        else
+            cs_print_time_distr(analysis->custom_meas + i);
         cs_print_outliers(&analysis->custom_meas[i].outliers, bench->run_count);
         cs_print_outlier_var(analysis->custom_meas[i].outlier_var);
     }
@@ -2033,10 +2056,11 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%f, [0], [%f])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('time [s]')\n"
+            "plt.xlabel('%s')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s')\n",
-            plot->title, plot->mean, plot->mean_y, plot->output_filename);
+            plot->title, plot->mean, plot->mean_y, plot->xlabel,
+            plot->output_filename);
 }
 
 static void
@@ -2113,12 +2137,12 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
                 plot->distr->outliers.high_severe_x);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('time [s]')\n"
+            "plt.xlabel('%s')\n"
             "plt.ylabel('runs')\n"
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->output_filename);
+            plot->xlabel, plot->output_filename);
 }
 
 static void
@@ -2324,12 +2348,13 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
 }
 
 static int
-cs_kde_plot(const struct cs_distr *distr, const char *name,
+cs_kde_plot(const struct cs_distr *distr, const char *title, const char *xlabel,
             const char *output_filename, int is_ext) {
     int ret = 0;
     struct cs_kde_plot plot = {0};
     plot.output_filename = output_filename;
-    plot.title = name;
+    plot.title = title;
+    plot.xlabel = xlabel;
     cs_init_kde_plot(distr, is_ext, &plot);
     FILE *script;
     pid_t pid;
@@ -2390,25 +2415,32 @@ cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench_analysis *analysis = analyses + i;
         const char *cmd_str = analysis->bench->cmd->str;
-#define cs_make_kdes(_distr, _title, _name)                                    \
+#define cs_make_kdes(_distr, _title, _xlabel, _name)                           \
     do {                                                                       \
         snprintf(buffer, sizeof(buffer), "%s/kde_%zu_%s.svg", analyze_dir,     \
                  i + 1, _name);                                                \
-        if (cs_kde_plot(_distr, _title, buffer, 0) == -1)                      \
+        if (cs_kde_plot(_distr, _title, _xlabel, buffer, 0) == -1)             \
             return -1;                                                         \
         snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu_%s.svg", analyze_dir, \
                  i + 1, _name);                                                \
-        if (cs_kde_plot(_distr, _title, buffer, 1) == -1)                      \
+        if (cs_kde_plot(_distr, _title, _xlabel, buffer, 1) == -1)             \
             return -1;                                                         \
     } while (0)
-        cs_make_kdes(&analysis->wall_distr, cmd_str, "wall");
+        cs_make_kdes(&analysis->wall_distr, cmd_str, "time [s]", "wall");
 
         for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
             const struct cs_custom_meas *meas =
                 analysis->bench->cmd->custom_meas + j;
-            char buffer1[4096];
+            char buffer1[256], buffer2[256];
             snprintf(buffer1, sizeof(buffer1), "%s by %s", cmd_str, meas->name);
-            cs_make_kdes(analysis->custom_meas + j, buffer1, meas->name);
+            if (meas->units)
+                snprintf(buffer2, sizeof(buffer2), "%s [%s]", meas->name,
+                         meas->units);
+            else
+                snprintf(buffer2, sizeof(buffer2), "%s [s]", meas->name);
+
+            cs_make_kdes(analysis->custom_meas + j, buffer1, buffer2,
+                         meas->name);
         }
 #undef cs_make_kdes
     }
@@ -2678,6 +2710,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
             plot.distr = &analysis->wall_distr;
+            plot.xlabel = "time [s]";
             cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
             cs_make_kde_plot(&plot, f);
             cs_free_kde_plot(&plot);
@@ -2697,6 +2730,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
             plot.distr = &analysis->wall_distr;
+            plot.xlabel = "time [s]";
             cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
             cs_make_kde_plot_ext(&plot, f);
             cs_free_kde_plot(&plot);
