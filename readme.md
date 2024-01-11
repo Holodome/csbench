@@ -33,29 +33,32 @@ Also see [generated html report](https://holodome.github.io/csbench).
 ```
 $ csbench ls exa --shell none --html
 command 'ls'
-3250 runs
-   mean 1.526 ms 1.528 ms 1.532 ms
- st dev 37.27 μs 67.10 μs 98.03 μs
-systime 895.3 μs 896.5 μs 898.0 μs
-usrtime 243.0 μs 243.4 μs 243.8 μs
-found 166 outliers across 3250 measurements (5.11%)
-1 (0.03%) low severe
-35 (1.08%) low mild
-61 (1.88%) high mild
-69 (2.12%) high severe
-outlying measurements have a severe (95.9%) effect on estimated standard deviation
+3083 runs
+min 1.415 ms
+max 9.222 ms
+   mean 1.598 ms 1.612 ms 1.628 ms
+ st dev 219.4 μs 312.6 μs 423.2 μs
+systime 928.7 μs 934.3 μs 943.5 μs
+usrtime 260.0 μs 263.1 μs 265.3 μs
+found 424 outliers across 3083 measurements (13.75%)
+2 (0.06%) low mild
+108 (3.50%) high mild
+314 (10.18%) high severe
+outlying measurements have a severe (99.8%) effect on estimated standard deviation
 command 'exa'
-1099 runs
-   mean 4.523 ms 4.548 ms 4.577 ms
- st dev 175.2 μs 312.8 μs 499.1 μs
-systime 1.310 ms 1.317 ms 1.325 ms
-usrtime 2.185 ms 2.190 ms 2.194 ms
-found 95 outliers across 1099 measurements (8.64%)
-45 (4.09%) high mild
-50 (4.55%) high severe
-outlying measurements have a severe (95.2%) effect on estimated standard deviation
+1110 runs
+min 4.350 ms
+max 5.570 ms
+   mean 4.493 ms 4.503 ms 4.515 ms
+ st dev 101.7 μs 122.1 μs 143.6 μs
+systime 1.311 ms 1.315 ms 1.318 ms
+usrtime 2.183 ms 2.184 ms 2.186 ms
+found 71 outliers across 1110 measurements (6.40%)
+49 (4.41%) high mild
+22 (1.98%) high severe
+outlying measurements have a severe (75.2%) effect on estimated standard deviation
 Fastest command 'ls'
-2.975608 ± 0.242813 times faster than 'exa'
+2.793 ± 0.547 times faster than 'exa'
 ```
 
 But just measuring execution time of commands is not very interesting. 
@@ -72,8 +75,9 @@ command 'psql postgres -f 8q.sql'
 systime 3.182 ms 3.214 ms 3.273 ms
 usrtime 4.748 ms 4.766 ms 4.797 ms
 custom measurement exec
-   mean   14.413   14.425   14.439
- st dev 0.016373 0.031633 0.047916
+min 14.377 max 14.559
+   mean   14.412   14.423   14.435
+ st dev 0.014708 0.028473  0.04585
 found 7 outliers across 100 measurements (7.00%)
 4 (4.00%) high mild
 3 (3.00%) high severe
