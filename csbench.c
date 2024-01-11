@@ -2059,6 +2059,18 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
                 (double)(i + 1) / plot->bench->run_count * max_y);
     }
     fprintf(f, "]\n");
+    fprintf(f,
+            "severe_points = list(filter(lambda x: x[0] < %f or x[0] > %f, "
+            "points))\n",
+            plot->outliers->low_severe_x, plot->outliers->high_severe_x);
+    fprintf(
+        f,
+        "mild_points = list(filter(lambda x: (%f < x[0] < %f) or (%f < x[0] < "
+        "%f), points))\n",
+        plot->outliers->low_severe_x, plot->outliers->low_mild_x,
+        plot->outliers->high_mild_x, plot->outliers->high_severe_x);
+    fprintf(f, "reg_points = list(filter(lambda x: %f < x[0] < %f, points))\n",
+            plot->outliers->low_mild_x, plot->outliers->high_mild_x);
     size_t kde_count = 0;
     fprintf(f, "x = [");
     for (size_t i = 0; i < plot->count; ++i, ++kde_count) {
@@ -2078,7 +2090,11 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
-            "plt.plot(*zip(*points), marker='o', ls='', markersize=2)\n"
+            "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
+            "color='red')\n"
+            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, "
+            "color='orange')\n"
+            "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2)\n"
             "plt.axvline(x=%f)\n",
             plot->title, plot->mean);
     if (plot->outliers->low_mild_x > plot->lower)
