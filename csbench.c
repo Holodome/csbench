@@ -186,6 +186,7 @@ struct cs_bench {
     double *systimes;
     double *usertimes;
     int *exit_codes;
+    size_t custom_meas_count;
     double **custom_meas;
 };
 
@@ -1369,7 +1370,7 @@ cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
         goto out;
     }
 
-    size_t custom_count = cs_sb_len(bench->cmd->custom_meas);
+    size_t custom_count = bench->custom_meas_count;
     for (size_t i = 0; i < custom_count; ++i) {
         struct cs_custom_meas *custom = bench->cmd->custom_meas + i;
         if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
@@ -1630,7 +1631,7 @@ cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
     cs_estimate_distr(bench->wallclocks, count, nresamp, &analysis->wall_distr);
     cs_estimate_mean(bench->systimes, count, nresamp, &analysis->systime_est);
     cs_estimate_mean(bench->usertimes, count, nresamp, &analysis->usertime_est);
-    for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
+    for (size_t i = 0; i < bench->custom_meas_count; ++i)
         cs_estimate_distr(bench->custom_meas[i], count, nresamp,
                           analysis->custom_meas + i);
 }
@@ -1659,15 +1660,15 @@ cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
     cs_print_time_distr(&analysis->wall_distr);
     cs_print_time_estimate("systime", &analysis->systime_est);
     cs_print_time_estimate("usrtime", &analysis->usertime_est);
-    for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i) {
-        printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
-        cs_print_distr(analysis->custom_meas + i);
-    }
     cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
     printf("outlying measurements have %s (%.1f%%) effect on estimated "
            "standard deviation\n",
            cs_outliers_variance_str(analysis->wall_distr.outlier_var),
            analysis->wall_distr.outlier_var * 100.0);
+    for (size_t i = 0; i < bench->custom_meas_count; ++i) {
+        printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
+        cs_print_distr(analysis->custom_meas + i);
+    }
 }
 
 static int
@@ -2373,16 +2374,29 @@ cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
         return -1;
 
     for (size_t i = 0; i < bench_count; ++i) {
-        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
-        if (cs_kde_plot(&analyses[i].wall_distr, benches[i].cmd->str, buffer,
-                        0) == -1)
-            return -1;
+        const struct cs_bench_analysis *analysis = analyses + i;
+        const char *cmd_str = analysis->bench->cmd->str;
+#define cs_make_kdes(_distr, _title, _name)                                    \
+    do {                                                                       \
+        snprintf(buffer, sizeof(buffer), "%s/kde_%zu_%s.svg", analyze_dir,     \
+                 i + 1, _name);                                                \
+        if (cs_kde_plot(_distr, _title, buffer, 0) == -1)                      \
+            return -1;                                                         \
+        snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu_%s.svg", analyze_dir, \
+                 i + 1, _name);                                                \
+        if (cs_kde_plot(_distr, _title, buffer, 1) == -1)                      \
+            return -1;                                                         \
+    } while (0)
+        cs_make_kdes(&analysis->wall_distr, cmd_str, "wall");
 
-        snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.svg", analyze_dir,
-                 i + 1);
-        if (cs_kde_plot(&analyses[i].wall_distr, benches[i].cmd->str, buffer,
-                        1) == -1)
-            return -1;
+        for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
+            const struct cs_custom_meas *meas =
+                analysis->bench->cmd->custom_meas + j;
+            char buffer1[4096];
+            snprintf(buffer1, sizeof(buffer1), "%s by %s", cmd_str, meas->name);
+            cs_make_kdes(analysis->custom_meas + j, buffer1, meas->name);
+        }
+#undef cs_make_kdes
     }
 
     for (size_t i = 0; i < results->group_count; ++i) {
@@ -2744,9 +2758,10 @@ cs_run_benches(const struct cs_settings *settings,
         struct cs_bench *bench = results->benches + i;
         bench->prepare = settings->prepare_cmd;
         bench->cmd = settings->cmds + i;
-        if (bench->cmd->custom_meas) {
-            size_t count = cs_sb_len(bench->cmd->custom_meas);
-            bench->custom_meas = calloc(count, sizeof(*bench->custom_meas));
+        bench->custom_meas_count = cs_sb_len(bench->cmd->custom_meas);
+        if (bench->custom_meas_count) {
+            bench->custom_meas =
+                calloc(bench->custom_meas_count, sizeof(*bench->custom_meas));
         }
 
         if (cs_warmup(bench->cmd, settings->warmup_time) == -1)
@@ -2834,10 +2849,9 @@ cs_analyze_benches(const struct cs_settings *settings,
     for (size_t i = 0; i < results->bench_count; ++i) {
         struct cs_bench *bench = results->benches + i;
         struct cs_bench_analysis *analysis = results->analyses + i;
-        if (bench->cmd->custom_meas) {
-            size_t count = cs_sb_len(bench->cmd->custom_meas);
-            analysis->custom_meas =
-                calloc(count, sizeof(*analysis->custom_meas));
+        if (bench->custom_meas_count != 0) {
+            analysis->custom_meas = calloc(bench->custom_meas_count,
+                                           sizeof(*analysis->custom_meas));
         }
 
         cs_analyze_benchmark(bench, settings->nresamp, analysis);
@@ -2917,7 +2931,7 @@ cs_free_bench_results(struct cs_bench_results *results) {
             cs_sb_free(bench->usertimes);
             cs_sb_free(bench->exit_codes);
             if (bench->custom_meas) {
-                for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
+                for (size_t i = 0; i < bench->custom_meas_count; ++i)
                     cs_sb_free(bench->custom_meas[i]);
                 free(bench->custom_meas);
             }
