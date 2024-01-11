@@ -33,32 +33,32 @@ Also see [generated html report](https://holodome.github.io/csbench).
 ```
 $ csbench ls exa --shell none --html
 command 'ls'
-3083 runs
-min 1.415 ms
-max 9.222 ms
-   mean 1.598 ms 1.612 ms 1.628 ms
- st dev 219.4 μs 312.6 μs 423.2 μs
-systime 928.7 μs 934.3 μs 943.5 μs
-usrtime 260.0 μs 263.1 μs 265.3 μs
-found 424 outliers across 3083 measurements (13.75%)
-2 (0.06%) low mild
-108 (3.50%) high mild
-314 (10.18%) high severe
-outlying measurements have a severe (99.8%) effect on estimated standard deviation
+3475 runs
+min 2.691 ms
+max 5.893 ms
+   mean 2.860 ms 2.867 ms 2.873 ms
+ st dev 86.22 μs 128.2 μs 172.6 μs
+systime 1.438 ms 1.440 ms 1.443 ms
+usrtime 675.0 μs 676.1 μs 677.4 μs
+found 364 outliers across 3475 measurements (10.47%)
+20 (0.58%) low severe
+150 (4.32%) low mild
+79 (2.27%) high mild
+115 (3.31%) high severe
+outlying measurements have a severe (96.3%) effect on estimated standard deviation
 command 'exa'
-1110 runs
-min 4.350 ms
-max 5.570 ms
-   mean 4.493 ms 4.503 ms 4.515 ms
- st dev 101.7 μs 122.1 μs 143.6 μs
-systime 1.311 ms 1.315 ms 1.318 ms
-usrtime 2.183 ms 2.184 ms 2.186 ms
-found 71 outliers across 1110 measurements (6.40%)
-49 (4.41%) high mild
-22 (1.98%) high severe
-outlying measurements have a severe (75.2%) effect on estimated standard deviation
+1280 runs
+min 6.131 ms
+max 11.70 ms
+   mean 7.711 ms 7.803 ms 7.910 ms
+ st dev 1.124 ms 1.177 ms 1.256 ms
+systime 2.628 ms 2.673 ms 2.715 ms
+usrtime 3.082 ms 3.114 ms 3.137 ms
+found 4 outliers across 1280 measurements (0.31%)
+4 (0.31%) high mild
+outlying measurements have a severe (99.2%) effect on estimated standard deviation
 Fastest command 'ls'
-2.793 ± 0.547 times faster than 'exa'
+2.722 ± 0.428 times faster than 'exa'
 ```
 
 But just measuring execution time of commands is not very interesting. 

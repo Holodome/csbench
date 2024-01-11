@@ -158,6 +158,10 @@ struct cs_distr {
     double max;
     double q1;
     double q3;
+    double p1;
+    double p5;
+    double p95;
+    double p99;
 };
 
 struct cs_outliers {
@@ -1549,6 +1553,10 @@ cs_estimate_distr(const double *data, size_t count, size_t nresamp) {
     qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
     double q1 = ssa[count / 4];
     double q3 = ssa[count * 3 / 4];
+    double p1 = ssa[count / 100];
+    double p5 = ssa[count * 5 / 100];
+    double p95 = ssa[count * 95 / 100];
+    double p99 = ssa[count * 99 / 100];
     double min = ssa[0];
     double max = ssa[count - 1];
     free(ssa);
@@ -1560,6 +1568,12 @@ cs_estimate_distr(const double *data, size_t count, size_t nresamp) {
     distr.max = max;
     distr.q1 = q1;
     distr.q3 = q3;
+    distr.p1 = p1;
+    distr.p5 = p5;
+    distr.p95 = p95;
+    distr.p99 = p99;
+    distr.data = data;
+    distr.count = count;
     return distr;
 }
 
@@ -2064,7 +2078,7 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
-            "plt.plot(*zip(*points), marker='o', ls='')\n"
+            "plt.plot(*zip(*points), marker='o', ls='', markersize=2)\n"
             "plt.axvline(x=%f)\n",
             plot->title, plot->mean);
     if (plot->outliers->low_mild_x > plot->lower)
@@ -2199,19 +2213,13 @@ cs_construct_kde(const struct cs_distr *distr, double *kde, size_t kde_size,
     double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(count, -0.2);
 
     double lower, upper;
+    // just some empyrically selected values plugged here
     if (!is_ext) {
-        // Calculate bounds for plot. Use 3 sigma rule to reject severe
-        // outliers being plotted.
-        lower = fmax(mean - 3.0 * st_dev, distr->min);
-        upper = fmin(mean + 3.0 * st_dev, distr->max);
+        lower = fmax(mean - 3.0 * st_dev, distr->p5);
+        upper = fmin(mean + 3.0 * st_dev, distr->p95);
     } else {
-        // in case of extended plot make bounds larger to allow more outliers.
-        // number 9 is empyrical, allowing resulting plot to be comprehendable
-        // (if value is larger it is hard to see anything).
-        // Don't think that this should be paramterized, as kde is only intended
-        // for benchmark author to validate it, not to look pretty.
-        lower = fmax(mean - 9.0 * st_dev, distr->min);
-        upper = fmin(mean + 9.0 * st_dev, distr->max);
+        lower = fmax(mean - 6.0 * st_dev, distr->p1);
+        upper = fmin(mean + 6.0 * st_dev, distr->p99);
     }
     double step = (upper - lower) / kde_size;
     double k_mult = 1.0 / sqrt(2.0 * 3.1415926536);
@@ -2449,6 +2457,11 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
         fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
         fprintf(f, "<div class=\"stats\">");
         fprintf(f, "<p>%zu runs</p>", bench->run_count);
+        char buf[256];
+        cs_print_time(buf, sizeof(buf), analysis->wall_distr.min);
+        fprintf(f, "<p>min %s</p>", buf);
+        cs_print_time(buf, sizeof(buf), analysis->wall_distr.max);
+        fprintf(f, "<p>max %s</p>", buf);
         fprintf(f, "<table>");
         fprintf(f, "<thead><tr>"
                    "<th></th>"
