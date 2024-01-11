@@ -2,6 +2,8 @@
 
 `csbench` is cross-platform batteries included benchmarking tool.
 
+> Please note this project is still early in development, and usability may be an issue. Right now the best way to see what features work as intended is to look at examples.
+
 ## Introduction
 
 Benchmarking is too hard and time-consuming to be employed commonly during development. 
