@@ -239,8 +239,7 @@ struct cs_cpu_time {
 // data needed to construct kde plot. data here is kde points computed from
 // original data
 struct cs_kde_plot {
-    const struct cs_bench *bench;
-    const struct cs_outliers *outliers;
+    const struct cs_distr *distr;
     const char *title;
     double lower;
     double step;
@@ -2034,28 +2033,30 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             max_y = plot->data[i];
     double max_point_x = 0;
     fprintf(f, "points = [");
-    for (size_t i = 0; i < plot->bench->run_count; ++i) {
-        double v = plot->bench->wallclocks[i];
+    for (size_t i = 0; i < plot->distr->count; ++i) {
+        double v = plot->distr->data[i];
         if (v < plot->lower || v > plot->lower + plot->step * plot->count)
             continue;
         if (v > max_point_x)
             max_point_x = v;
         fprintf(f, "(%f, %f), ", v,
-                (double)(i + 1) / plot->bench->run_count * max_y);
+                (double)(i + 1) / plot->distr->count * max_y);
     }
     fprintf(f, "]\n");
     fprintf(f,
             "severe_points = list(filter(lambda x: x[0] < %f or x[0] > %f, "
             "points))\n",
-            plot->outliers->low_severe_x, plot->outliers->high_severe_x);
+            plot->distr->outliers.low_severe_x,
+            plot->distr->outliers.high_severe_x);
     fprintf(
         f,
         "mild_points = list(filter(lambda x: (%f < x[0] < %f) or (%f < x[0] < "
         "%f), points))\n",
-        plot->outliers->low_severe_x, plot->outliers->low_mild_x,
-        plot->outliers->high_mild_x, plot->outliers->high_severe_x);
+        plot->distr->outliers.low_severe_x, plot->distr->outliers.low_mild_x,
+        plot->distr->outliers.high_mild_x, plot->distr->outliers.high_severe_x);
     fprintf(f, "reg_points = list(filter(lambda x: %f < x[0] < %f, points))\n",
-            plot->outliers->low_mild_x, plot->outliers->high_mild_x);
+            plot->distr->outliers.low_mild_x,
+            plot->distr->outliers.high_mild_x);
     size_t kde_count = 0;
     fprintf(f, "x = [");
     for (size_t i = 0; i < plot->count; ++i, ++kde_count) {
@@ -2082,18 +2083,20 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2)\n"
             "plt.axvline(x=%f)\n",
             plot->title, plot->mean);
-    if (plot->outliers->low_mild_x > plot->lower)
+    if (plot->distr->outliers.low_mild_x > plot->lower)
         fprintf(f, "plt.axvline(x=%f, color='orange')\n",
-                plot->outliers->low_mild_x);
-    if (plot->outliers->low_severe_x > plot->lower)
+                plot->distr->outliers.low_mild_x);
+    if (plot->distr->outliers.low_severe_x > plot->lower)
         fprintf(f, "plt.axvline(x=%f, color='red')\n",
-                plot->outliers->low_severe_x);
-    if (plot->outliers->high_mild_x < plot->lower + plot->count * plot->step)
+                plot->distr->outliers.low_severe_x);
+    if (plot->distr->outliers.high_mild_x <
+        plot->lower + plot->count * plot->step)
         fprintf(f, "plt.axvline(x=%f, color='orange')\n",
-                plot->outliers->high_mild_x);
-    if (plot->outliers->high_severe_x < plot->lower + plot->count * plot->step)
+                plot->distr->outliers.high_mild_x);
+    if (plot->distr->outliers.high_severe_x <
+        plot->lower + plot->count * plot->step)
         fprintf(f, "plt.axvline(x=%f, color='red')\n",
-                plot->outliers->high_severe_x);
+                plot->distr->outliers.high_severe_x);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('time [s]')\n"
@@ -2244,6 +2247,7 @@ static void
 cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
                  struct cs_kde_plot *plot) {
     size_t kde_points = 200;
+    plot->distr = distr;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
     cs_construct_kde(distr, plot->data, plot->count, is_ext, &plot->lower,
@@ -2306,15 +2310,13 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
 }
 
 static int
-cs_kde_plot(const struct cs_bench_analysis *analysis,
+cs_kde_plot(const struct cs_distr *distr, const char *name,
             const char *output_filename, int is_ext) {
     int ret = 0;
     struct cs_kde_plot plot = {0};
-    plot.bench = analysis->bench;
-    plot.outliers = &analysis->wall_distr.outliers;
     plot.output_filename = output_filename;
-    plot.title = analysis->bench->cmd->str;
-    cs_init_kde_plot(&analysis->wall_distr, is_ext, &plot);
+    plot.title = name;
+    cs_init_kde_plot(distr, is_ext, &plot);
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -2373,12 +2375,14 @@ cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
 
     for (size_t i = 0; i < bench_count; ++i) {
         snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
-        if (cs_kde_plot(analyses + i, buffer, 0) == -1)
+        if (cs_kde_plot(&analyses[i].wall_distr, benches[i].cmd->str, buffer,
+                        0) == -1)
             return -1;
 
         snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.svg", analyze_dir,
                  i + 1);
-        if (cs_kde_plot(analyses + i, buffer, 1) == -1)
+        if (cs_kde_plot(&analyses[i].wall_distr, benches[i].cmd->str, buffer,
+                        1) == -1)
             return -1;
     }
 
@@ -2646,8 +2650,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             struct cs_kde_plot plot = {0};
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
-            plot.outliers = &analysis->wall_distr.outliers;
-            plot.bench = bench;
+            plot.distr = &analysis->wall_distr;
             cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
             cs_make_kde_plot(&plot, f);
             cs_free_kde_plot(&plot);
@@ -2666,8 +2669,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             struct cs_kde_plot plot = {0};
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
-            plot.outliers = &analysis->wall_distr.outliers;
-            plot.bench = bench;
+            plot.distr = &analysis->wall_distr;
             cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
             cs_make_kde_plot_ext(&plot, f);
             cs_free_kde_plot(&plot);
