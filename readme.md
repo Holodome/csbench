@@ -69,13 +69,9 @@ In this example SQL script is run under `EXPLAIN ANALYZE`, which prints executio
 Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
 
 ```
-$ csbench 'psql postgres -f 8q.sql' --custom-x exec 'grep "Execution Time" | grep -o -E "[.0-9]+"' --runs 100
+$ csbench 'psql postgres -f 8q.sql' --custom-x exec 'grep "Execution Time" | grep -o -E "[.0-9]+"' --runs 100 --no-time
 command 'psql postgres -f 8q.sql'
 100 runs
-   mean 28.97 ms 29.06 ms 29.21 ms
- st dev 84.62 μs 350.5 μs 687.6 μs
-systime 3.182 ms 3.214 ms 3.273 ms
-usrtime 4.748 ms 4.766 ms 4.797 ms
 custom measurement exec
 min 14.377 max 14.559
    mean   14.412   14.423   14.435

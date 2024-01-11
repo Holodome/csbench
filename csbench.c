@@ -98,6 +98,7 @@ struct cs_cli_settings {
     enum cs_analyze_mode analyze_mode;
     struct cs_bench_param *params;
     int plot_src;
+    int no_time;
 };
 
 // Description of command to benchmark.
@@ -134,6 +135,7 @@ struct cs_settings {
     enum cs_analyze_mode analyze_mode;
     const char *analyze_dir;
     int plot_src;
+    int no_time;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -353,6 +355,7 @@ cs_print_help_and_exit(int rc) {
         "--plot               - make plots as images\n"
         "--html               - make html report\n"
         "--plot-src           - dump python scripts used to generate plots\n"
+        "--no-time            - do not print default time statistics\n"
         "--help               - print this message\n"
         "--version            - print version\n");
     exit(rc);
@@ -696,6 +699,8 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
             settings->analyze_mode = CS_ANALYZE_PLOT;
         } else if (strcmp(opt, "--plot-src") == 0) {
             settings->plot_src = 1;
+        } else if (strcmp(opt, "--no-time") == 0) {
+            settings->no_time = 1;
         } else {
             cs_sb_push(settings->cmds, opt);
         }
@@ -1659,16 +1664,18 @@ cs_print_outlier_var(double var) {
 }
 
 static void
-cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
+cs_print_benchmark_info(const struct cs_bench_analysis *analysis, int no_time) {
     const struct cs_bench *bench = analysis->bench;
     printf("command\t'%s'\n", bench->cmd->str);
     printf("%zu runs\n", bench->run_count);
-    cs_print_exit_code_info(bench);
-    cs_print_time_distr(&analysis->wall_distr);
-    cs_print_time_estimate("systime", &analysis->systime_est);
-    cs_print_time_estimate("usrtime", &analysis->usertime_est);
-    cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
-    cs_print_outlier_var(analysis->wall_distr.outlier_var);
+    if (!no_time) {
+        cs_print_exit_code_info(bench);
+        cs_print_time_distr(&analysis->wall_distr);
+        cs_print_time_estimate("systime", &analysis->systime_est);
+        cs_print_time_estimate("usrtime", &analysis->usertime_est);
+        cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
+        cs_print_outlier_var(analysis->wall_distr.outlier_var);
+    }
     for (size_t i = 0; i < bench->custom_meas_count; ++i) {
         printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
         cs_print_distr(analysis->custom_meas + i);
@@ -1773,6 +1780,7 @@ cs_init_settings(const struct cs_cli_settings *cli,
     settings->analyze_dir = cli->analyze_dir;
     settings->custom_meas = cli->custom_meas;
     settings->plot_src = cli->plot_src;
+    settings->no_time = cli->no_time;
 
     if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(cli->input_policy.file, R_OK) == -1) {
@@ -2917,9 +2925,9 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
 }
 
 static void
-cs_print_analysis(const struct cs_bench_results *results) {
+cs_print_analysis(const struct cs_bench_results *results, int no_time) {
     for (size_t i = 0; i < results->bench_count; ++i)
-        cs_print_benchmark_info(results->analyses + i);
+        cs_print_benchmark_info(results->analyses + i, no_time);
 
     cs_print_cmd_comparison(results);
     cs_print_cmd_group_analysis(results);
@@ -2966,7 +2974,7 @@ cs_run(const struct cs_settings *settings) {
     if (cs_run_benches(settings, &results) == -1)
         goto out;
     cs_analyze_benches(settings, &results);
-    cs_print_analysis(&results);
+    cs_print_analysis(&results, settings->no_time);
     if (cs_handle_export(settings, &results, &settings->export) == -1)
         goto out;
     if (cs_handle_analyze(&results, settings->analyze_mode,
