@@ -158,6 +158,10 @@ struct cs_distr {
 };
 
 struct cs_outliers {
+    double low_severe_x;
+    double low_mild_x;
+    double high_mild_x;
+    double high_severe_x;
     size_t low_severe;
     size_t low_mild;
     size_t high_mild;
@@ -229,6 +233,8 @@ struct cs_cpu_time {
 // data needed to construct kde plot. data here is kde points computed from
 // original data
 struct cs_kde_plot {
+    const struct cs_bench *bench;
+    const struct cs_outliers *outliers;
     const char *title;
     double lower;
     double step;
@@ -989,6 +995,10 @@ cs_classify_outliers(const double *data, size_t count) {
     double his = q3 + (iqr * 3.0);
 
     struct cs_outliers result = {0};
+    result.low_severe_x = los;
+    result.low_mild_x = lom;
+    result.high_mild_x = him;
+    result.high_severe_x = his;
     for (size_t i = 0; i < count; ++i) {
         double v = data[i];
         if (v < los)
@@ -2012,6 +2022,68 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
 }
 
 static void
+cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
+    double max_y = 0;
+    for (size_t i = 0; i < plot->count; ++i)
+        if (plot->data[i] > max_y)
+            max_y = plot->data[i];
+    double max_point_x = 0;
+    fprintf(f, "points = [");
+    for (size_t i = 0; i < plot->bench->run_count; ++i) {
+        double v = plot->bench->wallclocks[i];
+        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+            continue;
+        if (v > max_point_x)
+            max_point_x = v;
+        fprintf(f, "(%f, %f), ", v,
+                (double)(i + 1) / plot->bench->run_count * max_y);
+    }
+    fprintf(f, "]\n");
+    size_t kde_count = 0;
+    fprintf(f, "x = [");
+    for (size_t i = 0; i < plot->count; ++i, ++kde_count) {
+        double x = plot->lower + plot->step * i;
+        if (x > max_point_x)
+            break;
+        fprintf(f, "%f, ", x);
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "y = [");
+    for (size_t i = 0; i < kde_count; ++i)
+        fprintf(f, "%f, ", plot->data[i]);
+    fprintf(f, "]\n");
+
+    fprintf(f,
+            "import matplotlib.pyplot as plt\n"
+            "plt.ioff()\n"
+            "plt.title('%s')\n"
+            "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
+            "plt.plot(*zip(*points), marker='o', ls='')\n"
+            "plt.axvline(x=%f)\n",
+            plot->title, plot->mean);
+    if (plot->outliers->low_mild_x > plot->lower)
+        fprintf(f, "plt.axvline(x=%f, color='orange')\n",
+                plot->outliers->low_mild_x);
+    if (plot->outliers->low_severe_x > plot->lower)
+        fprintf(f, "plt.axvline(x=%f, color='red')\n",
+                plot->outliers->low_severe_x);
+    if (plot->outliers->high_mild_x < plot->lower + plot->count * plot->step)
+        fprintf(f, "plt.axvline(x=%f, color='orange')\n",
+                plot->outliers->high_mild_x);
+    if (plot->outliers->high_severe_x < plot->lower + plot->count * plot->step)
+        fprintf(f, "plt.axvline(x=%f, color='red')\n",
+                plot->outliers->high_severe_x);
+    fprintf(f,
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('time [s]')\n"
+            "plt.ylabel('runs')\n"
+            "figure = plt.gcf()\n"
+            "figure.set_size_inches(11.7, 8.3)\n"
+            "plt.savefig('%s', dpi=600)\n",
+            plot->output_filename);
+}
+
+static void
 cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
                    const char *output_filename, FILE *f) {
     fprintf(f, "x = [");
@@ -2113,7 +2185,7 @@ cs_python_has_matplotlib(void) {
 
 static void
 cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
-                 double *lowerp, double *stepp) {
+                 int is_ext, double *lowerp, double *stepp) {
     double *ssa = malloc(count * sizeof(*ssa));
     memcpy(ssa, data, count * sizeof(*ssa));
     qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
@@ -2123,11 +2195,18 @@ cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
     double st_dev = cs_stat_st_dev(data, count);
     double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(count, -0.2);
 
-    // Calculate bounds for plot. Use 3 sigma rule to reject severe outliers
-    // being plotted.
-    double mean = cs_stat_mean(data, count);
-    double lower = fmax(mean - 3.0 * st_dev, ssa[0]);
-    double upper = fmin(mean + 3.0 * st_dev, ssa[count - 1]);
+    double lower, upper;
+    if (!is_ext) {
+        // Calculate bounds for plot. Use 3 sigma rule to reject severe
+        // outliers being plotted.
+        double mean = cs_stat_mean(data, count);
+        lower = fmax(mean - 3.0 * st_dev, ssa[0]);
+        upper = fmin(mean + 3.0 * st_dev, ssa[count - 1]);
+    } else {
+        double mean = cs_stat_mean(data, count);
+        lower = fmax(mean - 9.0 * st_dev, ssa[0]);
+        upper = fmin(mean + 9.0 * st_dev, ssa[count - 1]);
+    }
     double step = (upper - lower) / kde_size;
     double k_mult = 1.0 / sqrt(2.0 * 3.1415926536);
     for (size_t i = 0; i < kde_size; ++i) {
@@ -2148,12 +2227,13 @@ cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
 }
 
 static void
-cs_init_kde_plot(const struct cs_bench *bench, struct cs_kde_plot *plot) {
+cs_init_kde_plot(const struct cs_bench *bench, int is_ext,
+                 struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
     cs_construct_kde(bench->wallclocks, bench->run_count, plot->data,
-                     plot->count, &plot->lower, &plot->step);
+                     plot->count, is_ext, &plot->lower, &plot->step);
     plot->mean = cs_stat_mean(bench->wallclocks, bench->run_count);
 
     // linear interpolate between adjacent points to find height of line
@@ -2212,12 +2292,16 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
 }
 
 static int
-cs_kde_plot(const struct cs_bench *bench, const char *output_filename) {
+cs_kde_plot(const struct cs_bench *bench,
+            const struct cs_bench_analysis *analysis,
+            const char *output_filename, int is_ext) {
     int ret = 0;
     struct cs_kde_plot plot = {0};
+    plot.bench = bench;
+    plot.outliers = &analysis->outliers;
     plot.output_filename = output_filename;
     plot.title = bench->cmd->str;
-    cs_init_kde_plot(bench, &plot);
+    cs_init_kde_plot(bench, is_ext, &plot);
 
     FILE *script;
     pid_t pid;
@@ -2226,7 +2310,10 @@ cs_kde_plot(const struct cs_bench *bench, const char *output_filename) {
         ret = -1;
         goto out;
     }
-    cs_make_kde_plot(&plot, script);
+    if (is_ext)
+        cs_make_kde_plot_ext(&plot, script);
+    else
+        cs_make_kde_plot(&plot, script);
     fclose(script);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
@@ -2262,6 +2349,7 @@ static int
 cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
+    const struct cs_bench_analysis *analyses = results->analyses;
 
     char buffer[4096];
     snprintf(buffer, sizeof(buffer), "%s/whisker.svg", analyze_dir);
@@ -2274,7 +2362,12 @@ cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
 
     for (size_t i = 0; i < bench_count; ++i) {
         snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
-        if (cs_kde_plot(benches + i, buffer) == -1)
+        if (cs_kde_plot(benches + i, analyses + i, buffer, 0) == -1)
+            return -1;
+
+        snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.svg", analyze_dir,
+                 i + 1);
+        if (cs_kde_plot(benches + i, analyses + i, buffer, 1) == -1)
             return -1;
     }
 
@@ -2347,7 +2440,10 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
         fprintf(f, "<h2>command '%s'</h2>", bench->cmd->str);
         fprintf(f, "<div class=\"row\">");
         fprintf(f, "<div class=\"col\"><h3>time kde plot</h3>");
-        fprintf(f, "<img src=\"kde_%zu.svg\"></div>", i + 1);
+        fprintf(f,
+                "<a href=\"kde_ext_%zu.svg\"><img "
+                "src=\"kde_%zu.svg\"></a></div>",
+                i + 1, i + 1);
         fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
         fprintf(f, "<div class=\"stats\">");
         fprintf(f, "<p>made total %zu runs</p>", bench->run_count);
@@ -2524,20 +2620,47 @@ cs_dump_plot_src(const struct cs_bench_results *results,
 
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
-        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.py", analyze_dir, i + 1);
-        FILE *f = fopen(buffer, "w");
-        if (f == NULL) {
-            fprintf(stderr, "error: failed to create file %s\n", buffer);
-            return -1;
+        const struct cs_bench_analysis *analysis = results->analyses + i;
+        {
+            snprintf(buffer, sizeof(buffer), "%s/_extkde_%zu.py", analyze_dir,
+                     i + 1);
+            FILE *f = fopen(buffer, "w");
+            if (f == NULL) {
+                fprintf(stderr, "error: failed to create file %s\n", buffer);
+                return -1;
+            }
+            snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir,
+                     i + 1);
+            struct cs_kde_plot plot = {0};
+            plot.output_filename = buffer;
+            plot.title = bench->cmd->str;
+            plot.outliers = &analysis->outliers;
+            plot.bench = bench;
+            cs_init_kde_plot(bench, 0, &plot);
+            cs_make_kde_plot(&plot, f);
+            cs_free_kde_plot(&plot);
+            fclose(f);
         }
-        snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
-        struct cs_kde_plot plot = {0};
-        plot.output_filename = buffer;
-        plot.title = bench->cmd->str;
-        cs_init_kde_plot(bench, &plot);
-        cs_make_kde_plot(&plot, f);
-        cs_free_kde_plot(&plot);
-        fclose(f);
+        {
+            snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.py", analyze_dir,
+                     i + 1);
+            FILE *f = fopen(buffer, "w");
+            if (f == NULL) {
+                fprintf(stderr, "error: failed to create file %s\n", buffer);
+                return -1;
+            }
+            snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.svg", analyze_dir,
+                     i + 1);
+            struct cs_kde_plot plot = {0};
+            plot.output_filename = buffer;
+            plot.title = bench->cmd->str;
+            plot.outliers = &analysis->outliers;
+            plot.bench = bench;
+            cs_init_kde_plot(bench, 1, &plot);
+            cs_make_kde_plot_ext(&plot, f);
+            cs_free_kde_plot(&plot);
+            fclose(f);
+        }
     }
 
     for (size_t i = 0; i < results->group_count; ++i) {
@@ -2777,8 +2900,8 @@ cs_print_analysis(const struct cs_bench_results *results) {
 
 static void
 cs_free_bench_results(struct cs_bench_results *results) {
-    // these ifs are needed because results can be partially initialized in case
-    // of failure
+    // these ifs are needed because results can be partially initialized in
+    // case of failure
     if (results->benches) {
         for (size_t i = 0; i < results->bench_count; ++i) {
             struct cs_bench *bench = results->benches + i;
