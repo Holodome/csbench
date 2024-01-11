@@ -270,6 +270,8 @@ struct cs_kde_plot {
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
+static __thread uint32_t rng_state;
+
 static void *
 cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -1139,13 +1141,13 @@ cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
 }
 
 #define cs_bootstrap(_name, _stat_fn)                                          \
-    static uint32_t cs_do_bootstrap_##_name(                                   \
-        const double *src, size_t count, double *tmp, size_t resamples,        \
-        uint32_t entropy, double *min_d, double *max_d) {                      \
+    static void cs_do_bootstrap_##_name(const double *src, size_t count,       \
+                                        double *tmp, size_t resamples,         \
+                                        double *min_d, double *max_d) {        \
         double min = INFINITY;                                                 \
         double max = -INFINITY;                                                \
         for (size_t sample = 0; sample < resamples; ++sample) {                \
-            cs_resample(src, count, tmp, xorshift32(&entropy));                \
+            cs_resample(src, count, tmp, xorshift32(&rng_state));              \
             double stat = _stat_fn(tmp, count);                                \
             if (stat < min)                                                    \
                 min = stat;                                                    \
@@ -1154,21 +1156,19 @@ cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
         }                                                                      \
         *min_d = min;                                                          \
         *max_d = max;                                                          \
-        return entropy;                                                        \
     }                                                                          \
     static void cs_bootstrap_##_name(const double *data, size_t count,         \
                                      double *tmp, size_t resamples,            \
-                                     uint32_t *entropy, struct cs_est *est) {  \
+                                     struct cs_est *est) {                     \
         est->point = _stat_fn(data, count);                                    \
-        *entropy = cs_do_bootstrap_##_name(                                    \
-            data, count, tmp, resamples, *entropy, &est->lower, &est->upper);  \
+        cs_do_bootstrap_##_name(data, count, tmp, resamples, &est->lower,      \
+                                &est->upper);                                  \
     }                                                                          \
     static __attribute__((used)) void cs_estimate_##_name(                     \
         const double *data, size_t count, size_t resamples,                    \
         struct cs_est *est) {                                                  \
         double *tmp = malloc(count * sizeof(*tmp));                            \
-        uint32_t entropy = time(NULL);                                         \
-        cs_bootstrap_##_name(data, count, tmp, resamples, &entropy, est);      \
+        cs_bootstrap_##_name(data, count, tmp, resamples, est);                \
         free(tmp);                                                             \
     }
 
@@ -1543,12 +1543,11 @@ cs_run_benchmark(struct cs_bench *bench,
 static void
 cs_estimate_distr(const double *data, size_t count, size_t nresamp,
                   struct cs_distr *distr) {
-    uint32_t entropy = time(NULL);
     double *tmp = malloc(count * sizeof(*tmp));
     distr->data = data;
     distr->count = count;
-    cs_bootstrap_mean(data, count, tmp, nresamp, &entropy, &distr->mean);
-    cs_bootstrap_st_dev(data, count, tmp, nresamp, &entropy, &distr->st_dev);
+    cs_bootstrap_mean(data, count, tmp, nresamp, &distr->mean);
+    cs_bootstrap_st_dev(data, count, tmp, nresamp, &distr->st_dev);
     memcpy(tmp, data, count * sizeof(*tmp));
     qsort(tmp, count, sizeof(*tmp), cs_compare_doubles);
     distr->q1 = tmp[count / 4];
@@ -2970,6 +2969,7 @@ main(int argc, char **argv) {
     if (cs_init_settings(&cli, &settings) == -1)
         goto free_cli;
 
+    rng_state = time(NULL);
     if (cs_run(&settings) == -1)
         goto free_settings;
 
