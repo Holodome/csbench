@@ -146,24 +146,6 @@ struct cs_est {
     double upper;
 };
 
-// Describes distribution and is useful for passing benchmark data and analysis
-// around.
-struct cs_distr {
-    const double *data;
-    size_t count;
-    struct cs_est mean;
-    struct cs_est st_dev;
-    // bounds of observed value range
-    double min;
-    double max;
-    double q1;
-    double q3;
-    double p1;
-    double p5;
-    double p95;
-    double p99;
-};
-
 struct cs_outliers {
     double low_severe_x;
     double low_mild_x;
@@ -173,6 +155,25 @@ struct cs_outliers {
     size_t low_mild;
     size_t high_mild;
     size_t high_severe;
+};
+
+// Describes distribution and is useful for passing benchmark data and analysis
+// around.
+struct cs_distr {
+    const double *data;
+    size_t count;
+    struct cs_est mean;
+    struct cs_est st_dev;
+    double min;
+    double max;
+    double q1;
+    double q3;
+    double p1;
+    double p5;
+    double p95;
+    double p99;
+    struct cs_outliers outliers;
+    double outlier_var;
 };
 
 struct cs_bench {
@@ -194,9 +195,6 @@ struct cs_bench_analysis {
     struct cs_est systime_est;
     struct cs_est usertime_est;
     struct cs_distr *custom_meas;
-    struct cs_outliers outliers;
-    // outlier variance
-    double outlier_var;
 };
 
 enum cs_big_o {
@@ -1142,12 +1140,11 @@ cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
 }
 
 #define cs_bootstrap(_name, _stat_fn)                                          \
-    static void cs_bootstrap_##_name(const double *src, size_t count,          \
-                                     size_t resamples, uint32_t entropy,       \
-                                     double *min_d, double *max_d) {           \
+    static uint32_t cs_do_bootstrap_##_name(                                   \
+        const double *src, size_t count, double *tmp, size_t resamples,        \
+        uint32_t entropy, double *min_d, double *max_d) {                      \
         double min = INFINITY;                                                 \
         double max = -INFINITY;                                                \
-        double *tmp = malloc(sizeof(*tmp) * count);                            \
         for (size_t sample = 0; sample < resamples; ++sample) {                \
             cs_resample(src, count, tmp, xorshift32(&entropy));                \
             double stat = _stat_fn(tmp, count);                                \
@@ -1158,6 +1155,21 @@ cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
         }                                                                      \
         *min_d = min;                                                          \
         *max_d = max;                                                          \
+        return entropy;                                                        \
+    }                                                                          \
+    static void cs_bootstrap_##_name(const double *data, size_t count,         \
+                                     double *tmp, size_t resamples,            \
+                                     uint32_t *entropy, struct cs_est *est) {  \
+        est->point = _stat_fn(data, count);                                    \
+        *entropy = cs_do_bootstrap_##_name(                                    \
+            data, count, tmp, resamples, *entropy, &est->lower, &est->upper);  \
+    }                                                                          \
+    static __attribute__((used)) void cs_estimate_##_name(                     \
+        const double *data, size_t count, size_t resamples,                    \
+        struct cs_est *est) {                                                  \
+        double *tmp = malloc(count * sizeof(*tmp));                            \
+        uint32_t entropy = time(NULL);                                         \
+        cs_bootstrap_##_name(data, count, tmp, resamples, &entropy, est);      \
         free(tmp);                                                             \
     }
 
@@ -1529,52 +1541,29 @@ cs_run_benchmark(struct cs_bench *bench,
     return 0;
 }
 
-static struct cs_est
-cs_estimate_mean(const double *data, size_t count, size_t nresamp) {
-    double mean = cs_stat_mean(data, count);
-    double min_mean, max_mean;
-    cs_bootstrap_mean(data, count, nresamp, time(NULL), &min_mean, &max_mean);
-    return (struct cs_est){min_mean, mean, max_mean};
-}
-
-static struct cs_est
-cs_estimate_st_dev(const double *data, size_t count, size_t nresamp) {
-    double mean_st_dev = cs_stat_st_dev(data, count);
-    double min_st_dev, max_st_dev;
-    cs_bootstrap_st_dev(data, count, nresamp, time(NULL), &min_st_dev,
-                        &max_st_dev);
-    return (struct cs_est){min_st_dev, mean_st_dev, max_st_dev};
-}
-
-static struct cs_distr
-cs_estimate_distr(const double *data, size_t count, size_t nresamp) {
-    double *ssa = malloc(count * sizeof(*ssa));
-    memcpy(ssa, data, count * sizeof(*ssa));
-    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
-    double q1 = ssa[count / 4];
-    double q3 = ssa[count * 3 / 4];
-    double p1 = ssa[count / 100];
-    double p5 = ssa[count * 5 / 100];
-    double p95 = ssa[count * 95 / 100];
-    double p99 = ssa[count * 99 / 100];
-    double min = ssa[0];
-    double max = ssa[count - 1];
-    free(ssa);
-
-    struct cs_distr distr;
-    distr.mean = cs_estimate_mean(data, count, nresamp);
-    distr.st_dev = cs_estimate_st_dev(data, count, nresamp);
-    distr.min = min;
-    distr.max = max;
-    distr.q1 = q1;
-    distr.q3 = q3;
-    distr.p1 = p1;
-    distr.p5 = p5;
-    distr.p95 = p95;
-    distr.p99 = p99;
-    distr.data = data;
-    distr.count = count;
-    return distr;
+static void
+cs_estimate_distr(const double *data, size_t count, size_t nresamp,
+                  struct cs_distr *distr) {
+    uint32_t entropy = time(NULL);
+    double *tmp = malloc(count * sizeof(*tmp));
+    distr->data = data;
+    distr->count = count;
+    cs_bootstrap_mean(data, count, tmp, nresamp, &entropy, &distr->mean);
+    cs_bootstrap_st_dev(data, count, tmp, nresamp, &entropy, &distr->st_dev);
+    memcpy(tmp, data, count * sizeof(*tmp));
+    qsort(tmp, count, sizeof(*tmp), cs_compare_doubles);
+    distr->q1 = tmp[count / 4];
+    distr->q3 = tmp[count * 3 / 4];
+    distr->p1 = tmp[count / 100];
+    distr->p5 = tmp[count * 5 / 100];
+    distr->p95 = tmp[count * 95 / 100];
+    distr->p99 = tmp[count * 99 / 100];
+    distr->min = tmp[0];
+    distr->max = tmp[count - 1];
+    free(tmp);
+    distr->outliers = cs_classify_outliers(distr);
+    distr->outlier_var =
+        cs_outlier_variance(distr->mean.point, distr->st_dev.point, count);
 }
 
 static void
@@ -1640,16 +1629,12 @@ cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
                      struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
     analysis->bench = bench;
-    analysis->wall_distr = cs_estimate_distr(bench->wallclocks, count, nresamp);
-    analysis->systime_est = cs_estimate_mean(bench->systimes, count, nresamp);
-    analysis->usertime_est = cs_estimate_mean(bench->usertimes, count, nresamp);
+    cs_estimate_distr(bench->wallclocks, count, nresamp, &analysis->wall_distr);
+    cs_estimate_mean(bench->systimes, count, nresamp, &analysis->systime_est);
+    cs_estimate_mean(bench->usertimes, count, nresamp, &analysis->usertime_est);
     for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
-        analysis->custom_meas[i] =
-            cs_estimate_distr(bench->custom_meas[i], count, nresamp);
-    analysis->outliers = cs_classify_outliers(&analysis->wall_distr);
-    analysis->outlier_var =
-        cs_outlier_variance(analysis->wall_distr.mean.point,
-                            analysis->wall_distr.st_dev.point, count);
+        cs_estimate_distr(bench->custom_meas[i], count, nresamp,
+                          analysis->custom_meas + i);
 }
 
 static void
@@ -1680,11 +1665,11 @@ cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
         printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
         cs_print_distr(analysis->custom_meas + i);
     }
-    cs_print_outliers(&analysis->outliers, bench->run_count);
+    cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
     printf("outlying measurements have %s (%.1f%%) effect on estimated "
            "standard deviation\n",
-           cs_outliers_variance_str(analysis->outlier_var),
-           analysis->outlier_var * 100.0);
+           cs_outliers_variance_str(analysis->wall_distr.outlier_var),
+           analysis->wall_distr.outlier_var * 100.0);
 }
 
 static int
@@ -2256,14 +2241,14 @@ cs_construct_kde(const struct cs_distr *distr, double *kde, size_t kde_size,
 }
 
 static void
-cs_init_kde_plot(const struct cs_bench_analysis *analysis, int is_ext,
+cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
                  struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
-    cs_construct_kde(&analysis->wall_distr, plot->data, plot->count, is_ext,
-                     &plot->lower, &plot->step);
-    plot->mean = analysis->wall_distr.mean.point;
+    cs_construct_kde(distr, plot->data, plot->count, is_ext, &plot->lower,
+                     &plot->step);
+    plot->mean = distr->mean.point;
 
     // linear interpolate between adjacent points to find height of line
     // with x equal mean
@@ -2326,10 +2311,10 @@ cs_kde_plot(const struct cs_bench_analysis *analysis,
     int ret = 0;
     struct cs_kde_plot plot = {0};
     plot.bench = analysis->bench;
-    plot.outliers = &analysis->outliers;
+    plot.outliers = &analysis->wall_distr.outliers;
     plot.output_filename = output_filename;
     plot.title = analysis->bench->cmd->str;
-    cs_init_kde_plot(analysis, is_ext, &plot);
+    cs_init_kde_plot(&analysis->wall_distr, is_ext, &plot);
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -2507,7 +2492,7 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
 #undef cs_html_estimate
         fprintf(f, "</tbody></table>");
         {
-            const struct cs_outliers *outliers = &analysis->outliers;
+            const struct cs_outliers *outliers = &analysis->wall_distr.outliers;
             size_t outlier_count = outliers->low_mild + outliers->high_mild +
                                    outliers->low_severe + outliers->high_severe;
             if (outlier_count != 0) {
@@ -2537,8 +2522,8 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
                     "<p>outlying measurements have %s (%.1f%%) effect on "
                     "estimated "
                     "standard deviation</p>",
-                    cs_outliers_variance_str(analysis->outlier_var),
-                    analysis->outlier_var * 100.0);
+                    cs_outliers_variance_str(analysis->wall_distr.outlier_var),
+                    analysis->wall_distr.outlier_var * 100.0);
         }
         fprintf(f, "</div></div></div>");
     }
@@ -2649,7 +2634,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
         const struct cs_bench *bench = benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
         {
-            snprintf(buffer, sizeof(buffer), "%s/_extkde_%zu.py", analyze_dir,
+            snprintf(buffer, sizeof(buffer), "%s/kde_%zu.py", analyze_dir,
                      i + 1);
             FILE *f = fopen(buffer, "w");
             if (f == NULL) {
@@ -2661,9 +2646,9 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             struct cs_kde_plot plot = {0};
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
-            plot.outliers = &analysis->outliers;
+            plot.outliers = &analysis->wall_distr.outliers;
             plot.bench = bench;
-            cs_init_kde_plot(analysis, 0, &plot);
+            cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
             cs_make_kde_plot(&plot, f);
             cs_free_kde_plot(&plot);
             fclose(f);
@@ -2681,9 +2666,9 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             struct cs_kde_plot plot = {0};
             plot.output_filename = buffer;
             plot.title = bench->cmd->str;
-            plot.outliers = &analysis->outliers;
+            plot.outliers = &analysis->wall_distr.outliers;
             plot.bench = bench;
-            cs_init_kde_plot(analysis, 1, &plot);
+            cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
             cs_make_kde_plot_ext(&plot, f);
             cs_free_kde_plot(&plot);
             fclose(f);
