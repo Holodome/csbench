@@ -1579,7 +1579,7 @@ cs_print_time_distr(const struct cs_distr *dist) {
     char buf1[256], buf2[256];
     cs_print_time(buf1, sizeof(buf1), dist->min);
     cs_print_time(buf2, sizeof(buf2), dist->max);
-    printf("min %s\nmax %s\n", buf1, buf2);
+    printf("min %s max %s\n", buf1, buf2);
     cs_print_time_estimate("mean", &dist->mean);
     cs_print_time_estimate("st dev", &dist->st_dev);
 }
@@ -1652,6 +1652,13 @@ cs_print_exit_code_info(const struct cs_bench *bench) {
 }
 
 static void
+cs_print_outlier_var(double var) {
+    printf("outlying measurements have %s (%.1f%%) effect on estimated "
+           "standard deviation\n",
+           cs_outliers_variance_str(var), var * 100.0);
+}
+
+static void
 cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
     const struct cs_bench *bench = analysis->bench;
     printf("command\t'%s'\n", bench->cmd->str);
@@ -1661,13 +1668,12 @@ cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
     cs_print_time_estimate("systime", &analysis->systime_est);
     cs_print_time_estimate("usrtime", &analysis->usertime_est);
     cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
-    printf("outlying measurements have %s (%.1f%%) effect on estimated "
-           "standard deviation\n",
-           cs_outliers_variance_str(analysis->wall_distr.outlier_var),
-           analysis->wall_distr.outlier_var * 100.0);
+    cs_print_outlier_var(analysis->wall_distr.outlier_var);
     for (size_t i = 0; i < bench->custom_meas_count; ++i) {
         printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
         cs_print_distr(analysis->custom_meas + i);
+        cs_print_outliers(&analysis->custom_meas[i].outliers, bench->run_count);
+        cs_print_outlier_var(analysis->custom_meas[i].outlier_var);
     }
 }
 
