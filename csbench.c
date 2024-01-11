@@ -146,15 +146,18 @@ struct cs_est {
     double upper;
 };
 
-// Describes distribution. We assume that distributions
-// we work with are all normal, so mean and st dev are used as
-// characterizing parameters.
+// Describes distribution and is useful for passing benchmark data and analysis
+// around.
 struct cs_distr {
+    const double *data;
+    size_t count;
     struct cs_est mean;
     struct cs_est st_dev;
     // bounds of observed value range
     double min;
     double max;
+    double q1;
+    double q3;
 };
 
 struct cs_outliers {
@@ -182,6 +185,7 @@ struct cs_bench {
 };
 
 struct cs_bench_analysis {
+    const struct cs_bench *bench;
     struct cs_distr wall_distr;
     struct cs_est systime_est;
     struct cs_est usertime_est;
@@ -981,13 +985,9 @@ cs_compare_doubles(const void *a, const void *b) {
 }
 
 static struct cs_outliers
-cs_classify_outliers(const double *data, size_t count) {
-    double *ssa = malloc(count * sizeof(*ssa));
-    memcpy(ssa, data, count * sizeof(*ssa));
-    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
-
-    double q1 = ssa[count / 4];
-    double q3 = ssa[count * 3 / 4];
+cs_classify_outliers(const struct cs_distr *distr) {
+    double q1 = distr->q1;
+    double q3 = distr->q3;
     double iqr = q3 - q1;
     double los = q1 - (iqr * 3.0);
     double lom = q1 - (iqr * 1.5);
@@ -999,8 +999,8 @@ cs_classify_outliers(const double *data, size_t count) {
     result.low_mild_x = lom;
     result.high_mild_x = him;
     result.high_severe_x = his;
-    for (size_t i = 0; i < count; ++i) {
-        double v = data[i];
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
         if (v < los)
             ++result.low_severe;
         else if (v > his)
@@ -1010,7 +1010,6 @@ cs_classify_outliers(const double *data, size_t count) {
         else if (v > him)
             ++result.high_mild;
     }
-    free(ssa);
     return result;
 }
 
@@ -1344,6 +1343,9 @@ cs_parse_custom_output(int fd, double *valuep) {
 
 static int
 cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
+    if (bench->cmd->custom_meas == NULL)
+        return 0;
+
     int rc = -1;
     char path[] = "/tmp/csbench_tmp_XXXXXX";
     int custom_output_fd = mkstemp(path);
@@ -1415,8 +1417,7 @@ cs_exec_and_measure(struct cs_bench *bench) {
     cs_sb_push(bench->systimes, cpu_end.system_time - cpu_start.system_time);
     cs_sb_push(bench->usertimes, cpu_end.user_time - cpu_start.user_time);
 
-    if (bench->cmd->custom_meas != NULL &&
-        cs_do_custom_measurements(bench, stdout_fd) == -1)
+    if (cs_do_custom_measurements(bench, stdout_fd) == -1)
         goto out;
 
     ret = 0;
@@ -1429,14 +1430,14 @@ out:
 }
 
 static int
-cs_warmup(struct cs_bench *bench, double time_limit) {
+cs_warmup(const struct cs_cmd *cmd, double time_limit) {
     if (time_limit < 0.0)
         return 0;
 
     double start_time = cs_get_time();
     double end_time;
     do {
-        if (cs_exec_cmd(bench->cmd, -1) == -1) {
+        if (cs_exec_cmd(cmd, -1) == -1) {
             fprintf(stderr, "error: failed to execute warmup command\n");
             return -1;
         }
@@ -1550,12 +1551,20 @@ cs_estimate_distr(const double *data, size_t count, size_t nresamp) {
         if (data[i] > max)
             max = data[i];
     }
+    double *ssa = malloc(count * sizeof(*ssa));
+    memcpy(ssa, data, count * sizeof(*ssa));
+    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
+    double q1 = ssa[count / 4];
+    double q3 = ssa[count * 3 / 4];
+    free(ssa);
 
     struct cs_distr distr;
     distr.mean = cs_estimate_mean(data, count, nresamp);
     distr.st_dev = cs_estimate_st_dev(data, count, nresamp);
     distr.min = min;
     distr.max = max;
+    distr.q1 = q1;
+    distr.q3 = q3;
     return distr;
 }
 
@@ -1621,13 +1630,14 @@ static void
 cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
                      struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
+    analysis->bench = bench;
     analysis->wall_distr = cs_estimate_distr(bench->wallclocks, count, nresamp);
     analysis->systime_est = cs_estimate_mean(bench->systimes, count, nresamp);
     analysis->usertime_est = cs_estimate_mean(bench->usertimes, count, nresamp);
     for (size_t i = 0; i < cs_sb_len(bench->cmd->custom_meas); ++i)
         analysis->custom_meas[i] =
             cs_estimate_distr(bench->custom_meas[i], count, nresamp);
-    analysis->outliers = cs_classify_outliers(bench->wallclocks, count);
+    analysis->outliers = cs_classify_outliers(&analysis->wall_distr);
     analysis->outlier_var =
         cs_outlier_variance(analysis->wall_distr.mean.point,
                             analysis->wall_distr.st_dev.point, count);
@@ -1649,8 +1659,8 @@ cs_print_exit_code_info(const struct cs_bench *bench) {
 }
 
 static void
-cs_print_benchmark_info(const struct cs_bench *bench,
-                        const struct cs_bench_analysis *analysis) {
+cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
+    const struct cs_bench *bench = analysis->bench;
     printf("command\t'%s'\n", bench->cmd->str);
     printf("%zu runs\n", bench->run_count);
     cs_print_exit_code_info(bench);
@@ -1874,8 +1884,7 @@ cs_compare_benches(struct cs_bench_results *results) {
 
 static int
 cs_export_json(const struct cs_settings *settings,
-               const struct cs_bench *benches, size_t bench_count,
-               const char *filename) {
+               const struct cs_bench_results *results, const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1883,6 +1892,8 @@ cs_export_json(const struct cs_settings *settings,
         return -1;
     }
 
+    size_t bench_count = results->bench_count;
+    const struct cs_bench *benches = results->benches;
     fprintf(f, "{ \"settings\": {");
     fprintf(f,
             "\"time_limit\": %f, \"runs\": %zu, \"min_runs\": %zu, "
@@ -1927,11 +1938,11 @@ cs_export_json(const struct cs_settings *settings,
 
 static int
 cs_handle_export(const struct cs_settings *settings,
-                 const struct cs_bench *benches, size_t bench_count,
+                 const struct cs_bench_results *results,
                  const struct cs_export_policy *policy) {
     switch (policy->kind) {
     case CS_EXPORT_JSON:
-        return cs_export_json(settings, benches, bench_count, policy->filename);
+        return cs_export_json(settings, results, policy->filename);
         break;
     case CS_DONT_EXPORT:
         break;
@@ -2184,33 +2195,28 @@ cs_python_has_matplotlib(void) {
 }
 
 static void
-cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
+cs_construct_kde(const struct cs_distr *distr, double *kde, size_t kde_size,
                  int is_ext, double *lowerp, double *stepp) {
-    double *ssa = malloc(count * sizeof(*ssa));
-    memcpy(ssa, data, count * sizeof(*ssa));
-    qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
-    double q1 = ssa[count / 4];
-    double q3 = ssa[count * 3 / 4];
-    double iqr = q3 - q1;
-    double st_dev = cs_stat_st_dev(data, count);
+    size_t count = distr->count;
+    double st_dev = distr->st_dev.point;
+    double mean = distr->mean.point;
+    double iqr = distr->q3 - distr->q1;
     double h = 0.9 * fmin(st_dev, iqr / 1.34) * pow(count, -0.2);
 
     double lower, upper;
     if (!is_ext) {
         // Calculate bounds for plot. Use 3 sigma rule to reject severe
         // outliers being plotted.
-        double mean = cs_stat_mean(data, count);
-        lower = fmax(mean - 3.0 * st_dev, ssa[0]);
-        upper = fmin(mean + 3.0 * st_dev, ssa[count - 1]);
+        lower = fmax(mean - 3.0 * st_dev, distr->min);
+        upper = fmin(mean + 3.0 * st_dev, distr->max);
     } else {
         // in case of extended plot make bounds larger to allow more outliers.
         // number 9 is empyrical, allowing resulting plot to be comprehendable
         // (if value is larger it is hard to see anything).
         // Don't think that this should be paramterized, as kde is only intended
         // for benchmark author to validate it, not to look pretty.
-        double mean = cs_stat_mean(data, count);
-        lower = fmax(mean - 9.0 * st_dev, ssa[0]);
-        upper = fmin(mean + 9.0 * st_dev, ssa[count - 1]);
+        lower = fmax(mean - 9.0 * st_dev, distr->min);
+        upper = fmin(mean + 9.0 * st_dev, distr->max);
     }
     double step = (upper - lower) / kde_size;
     double k_mult = 1.0 / sqrt(2.0 * 3.1415926536);
@@ -2218,7 +2224,7 @@ cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
         double x = lower + i * step;
         double kde_value = 0.0;
         for (size_t j = 0; j < count; ++j) {
-            double u = (x - data[j]) / h;
+            double u = (x - distr->data[j]) / h;
             double k = k_mult * exp(-0.5 * u * u);
             kde_value += k;
         }
@@ -2228,18 +2234,17 @@ cs_construct_kde(const double *data, size_t count, double *kde, size_t kde_size,
 
     *lowerp = lower;
     *stepp = step;
-    free(ssa);
 }
 
 static void
-cs_init_kde_plot(const struct cs_bench *bench, int is_ext,
+cs_init_kde_plot(const struct cs_bench_analysis *analysis, int is_ext,
                  struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
-    cs_construct_kde(bench->wallclocks, bench->run_count, plot->data,
-                     plot->count, is_ext, &plot->lower, &plot->step);
-    plot->mean = cs_stat_mean(bench->wallclocks, bench->run_count);
+    cs_construct_kde(&analysis->wall_distr, plot->data, plot->count, is_ext,
+                     &plot->lower, &plot->step);
+    plot->mean = analysis->wall_distr.mean.point;
 
     // linear interpolate between adjacent points to find height of line
     // with x equal mean
@@ -2297,17 +2302,15 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
 }
 
 static int
-cs_kde_plot(const struct cs_bench *bench,
-            const struct cs_bench_analysis *analysis,
+cs_kde_plot(const struct cs_bench_analysis *analysis,
             const char *output_filename, int is_ext) {
     int ret = 0;
     struct cs_kde_plot plot = {0};
-    plot.bench = bench;
+    plot.bench = analysis->bench;
     plot.outliers = &analysis->outliers;
     plot.output_filename = output_filename;
-    plot.title = bench->cmd->str;
-    cs_init_kde_plot(bench, is_ext, &plot);
-
+    plot.title = analysis->bench->cmd->str;
+    cs_init_kde_plot(analysis, is_ext, &plot);
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -2324,7 +2327,6 @@ cs_kde_plot(const struct cs_bench *bench,
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         ret = -1;
     }
-
 out:
     cs_free_kde_plot(&plot);
     return ret;
@@ -2367,12 +2369,12 @@ cs_make_plots(const struct cs_bench_results *results, const char *analyze_dir) {
 
     for (size_t i = 0; i < bench_count; ++i) {
         snprintf(buffer, sizeof(buffer), "%s/kde_%zu.svg", analyze_dir, i + 1);
-        if (cs_kde_plot(benches + i, analyses + i, buffer, 0) == -1)
+        if (cs_kde_plot(analyses + i, buffer, 0) == -1)
             return -1;
 
         snprintf(buffer, sizeof(buffer), "%s/kde_ext_%zu.svg", analyze_dir,
                  i + 1);
-        if (cs_kde_plot(benches + i, analyses + i, buffer, 1) == -1)
+        if (cs_kde_plot(analyses + i, buffer, 1) == -1)
             return -1;
     }
 
@@ -2522,25 +2524,21 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
         fprintf(f, "<div class=\"row\"><div class=\"col\">"
                    "<img src=\"violin.svg\"></div>");
         size_t best_idx = results->fastest_idx;
-        const struct cs_bench *best = results->benches + best_idx;
-        const struct cs_bench_analysis *best_analysis =
-            results->analyses + best_idx;
+        const struct cs_bench_analysis *best = results->analyses + best_idx;
         fprintf(f, "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
-                best->cmd->str);
+                best->bench->cmd->str);
         for (size_t i = 0; i < results->bench_count; ++i) {
-            const struct cs_bench *bench = results->benches + i;
             const struct cs_bench_analysis *analysis = results->analyses + i;
-            if (bench == best)
+            if (analysis == best)
                 continue;
 
             double ref, ref_st_dev;
             cs_ref_speed(analysis->wall_distr.mean.point,
                          analysis->wall_distr.st_dev.point,
-                         best_analysis->wall_distr.mean.point,
-                         best_analysis->wall_distr.st_dev.point, &ref,
-                         &ref_st_dev);
+                         best->wall_distr.mean.point,
+                         best->wall_distr.st_dev.point, &ref, &ref_st_dev);
             fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
-                    ref_st_dev, bench->cmd->str);
+                    ref_st_dev, analysis->bench->cmd->str);
         }
         fprintf(f, "</ul></div></div>");
     }
@@ -2641,7 +2639,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             plot.title = bench->cmd->str;
             plot.outliers = &analysis->outliers;
             plot.bench = bench;
-            cs_init_kde_plot(bench, 0, &plot);
+            cs_init_kde_plot(analysis, 0, &plot);
             cs_make_kde_plot(&plot, f);
             cs_free_kde_plot(&plot);
             fclose(f);
@@ -2661,7 +2659,7 @@ cs_dump_plot_src(const struct cs_bench_results *results,
             plot.title = bench->cmd->str;
             plot.outliers = &analysis->outliers;
             plot.bench = bench;
-            cs_init_kde_plot(bench, 1, &plot);
+            cs_init_kde_plot(analysis, 1, &plot);
             cs_make_kde_plot_ext(&plot, f);
             cs_free_kde_plot(&plot);
             fclose(f);
@@ -2741,7 +2739,7 @@ cs_run_benches(const struct cs_settings *settings,
             bench->custom_meas = calloc(count, sizeof(*bench->custom_meas));
         }
 
-        if (cs_warmup(bench, settings->warmup_time) == -1)
+        if (cs_warmup(bench->cmd, settings->warmup_time) == -1)
             return -1;
         if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
             return -1;
@@ -2845,23 +2843,20 @@ cs_print_cmd_comparison(const struct cs_bench_results *results) {
         return;
 
     size_t best_idx = results->fastest_idx;
-    const struct cs_bench *best = results->benches + best_idx;
-    const struct cs_bench_analysis *best_analysis =
-        results->analyses + best_idx;
-    printf("Fastest command '%s'\n", best->cmd->str);
+    const struct cs_bench_analysis *best = results->analyses + best_idx;
+    printf("Fastest command '%s'\n", best->bench->cmd->str);
     for (size_t i = 0; i < results->bench_count; ++i) {
-        const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
-        if (bench == best)
+        if (analysis == best)
             continue;
 
         double ref, ref_st_dev;
         cs_ref_speed(analysis->wall_distr.mean.point,
                      analysis->wall_distr.st_dev.point,
-                     best_analysis->wall_distr.mean.point,
-                     best_analysis->wall_distr.st_dev.point, &ref, &ref_st_dev);
+                     best->wall_distr.mean.point, best->wall_distr.st_dev.point,
+                     &ref, &ref_st_dev);
         printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
-               bench->cmd->str);
+               analysis->bench->cmd->str);
     }
 }
 
@@ -2893,11 +2888,8 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
 
 static void
 cs_print_analysis(const struct cs_bench_results *results) {
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        struct cs_bench *bench = results->benches + i;
-        struct cs_bench_analysis *analysis = results->analyses + i;
-        cs_print_benchmark_info(bench, analysis);
-    }
+    for (size_t i = 0; i < results->bench_count; ++i)
+        cs_print_benchmark_info(results->analyses + i);
 
     cs_print_cmd_comparison(results);
     cs_print_cmd_group_analysis(results);
@@ -2945,8 +2937,7 @@ cs_run(const struct cs_settings *settings) {
         goto out;
     cs_analyze_benches(settings, &results);
     cs_print_analysis(&results);
-    if (cs_handle_export(settings, results.benches, results.bench_count,
-                         &settings->export) == -1)
+    if (cs_handle_export(settings, &results, &settings->export) == -1)
         goto out;
     if (cs_handle_analyze(&results, settings->analyze_mode,
                           settings->analyze_dir, settings->plot_src) == -1)
