@@ -1544,18 +1544,13 @@ cs_estimate_st_dev(const double *data, size_t count, size_t nresamp) {
 
 static struct cs_distr
 cs_estimate_distr(const double *data, size_t count, size_t nresamp) {
-    double min = data[0], max = data[0];
-    for (size_t i = 1; i < count; ++i) {
-        if (data[i] < min)
-            min = data[i];
-        if (data[i] > max)
-            max = data[i];
-    }
     double *ssa = malloc(count * sizeof(*ssa));
     memcpy(ssa, data, count * sizeof(*ssa));
     qsort(ssa, count, sizeof(*ssa), cs_compare_doubles);
     double q1 = ssa[count / 4];
     double q3 = ssa[count * 3 / 4];
+    double min = ssa[0];
+    double max = ssa[count - 1];
     free(ssa);
 
     struct cs_distr distr;
