@@ -1937,7 +1937,7 @@ cs_make_whisker_plot(const struct cs_bench *benches, size_t bench_count,
         const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
         for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%f, ", benches->wallclocks[j]);
+            fprintf(f, "%f, ", bench->wallclocks[j]);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
@@ -1965,7 +1965,7 @@ cs_make_violin_plot(const struct cs_bench *benches, size_t bench_count,
         const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
         for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%f, ", benches->wallclocks[j]);
+            fprintf(f, "%f, ", bench->wallclocks[j]);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
