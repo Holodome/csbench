@@ -2542,6 +2542,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
                             const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
+    const struct cs_bench_analysis *analyses = results->analyses;
     char buf[4096];
     FILE *f;
 
@@ -2583,7 +2584,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
         }
         for (size_t i = 0; i < bench_count; ++i) {
             const struct cs_bench *bench = benches + i;
-            const struct cs_bench_analysis *analysis = results->analyses + i;
+            const struct cs_bench_analysis *analysis = analyses + i;
             struct cs_kde_plot plot = {0};
             plot.output_filename = buf;
             plot.title = bench->cmd->str;
@@ -2619,7 +2620,57 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             fclose(f);
         }
     }
-    // TODO: custom meas
+
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench_analysis *analysis = analyses + i;
+        const char *cmd_str = analysis->bench->cmd->str;
+        for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
+            const struct cs_custom_meas *meas =
+                analysis->bench->cmd->custom_meas + j;
+            const struct cs_bench_analysis *analysis = analyses + i;
+            struct cs_kde_plot plot = {0};
+            char buf1[256], buf2[256];
+            snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
+            if (meas->units)
+                snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
+                         meas->units);
+            else
+                snprintf(buf2, sizeof(buf2), "%s [s]", meas->name);
+            plot.output_filename = buf;
+            plot.title = buf1;
+            plot.xlabel = buf2;
+
+            f = cs_open_file_fmt("w", "%s/kde_%zu_%s.py", analyze_dir, i + 1,
+                                 meas->name);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/kde_%zu_%s.py\n",
+                        analyze_dir, i + 1, meas->name);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir, i + 1,
+                     meas->name);
+            cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
+            cs_make_kde_plot(&plot, f);
+            cs_free_kde_plot(&plot);
+            fclose(f);
+
+            f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%s.py", analyze_dir,
+                                 i + 1, meas->name);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/kde_ext_%zu_%s.py\n",
+                        analyze_dir, i + 1, meas->name);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
+                     i + 1, meas->name);
+            cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
+            cs_make_kde_plot_ext(&plot, f);
+            cs_free_kde_plot(&plot);
+            fclose(f);
+        }
+    }
 
     return 0;
 }
