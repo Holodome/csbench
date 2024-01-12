@@ -478,63 +478,69 @@ static void cs_parse_cli_args(int argc, char **argv,
         } else if (strcmp(opt, "--version") == 0) {
             cs_print_version_and_exit();
         } else if (strcmp(opt, "--warmup") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --warmup requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *runs_str = argv[cursor++];
             char *str_end;
             double value = strtod(runs_str, &str_end);
-            if (str_end == runs_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == runs_str) {
+                fprintf(stderr, "error: invalid --warmup argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value < 0.0) {
                 fprintf(stderr,
                         "error: time limit must be positive number or zero\n");
                 exit(EXIT_FAILURE);
             }
-
             settings->warmup_time = value;
         } else if (strcmp(opt, "--time-limit") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --time-limit requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *runs_str = argv[cursor++];
             char *str_end;
             double value = strtod(runs_str, &str_end);
-            if (str_end == runs_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == runs_str) {
+                fprintf(stderr, "error: invalid --time-limit argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value <= 0.0) {
                 fprintf(stderr, "error: time limit must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-
             settings->bench_stop.time_limit = value;
         } else if (strcmp(opt, "--runs") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --runs requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *runs_str = argv[cursor++];
             char *str_end;
             long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == runs_str) {
+                fprintf(stderr, "error: invalid --runs argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value <= 0) {
                 fprintf(stderr, "error: run count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
             settings->bench_stop.runs = value;
         } else if (strcmp(opt, "--min-runs") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --min-runs requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *runs_str = argv[cursor++];
             char *str_end;
             long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == runs_str) {
+                fprintf(stderr, "error: invalid --min-runs argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value <= 0) {
                 fprintf(stderr,
                         "error: resamples count must be positive number\n");
@@ -542,15 +548,17 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
             settings->bench_stop.min_runs = value;
         } else if (strcmp(opt, "--max-runs") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --max-runs requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *runs_str = argv[cursor++];
             char *str_end;
             long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == runs_str) {
+                fprintf(stderr, "error: invalid --max-runs argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value <= 0) {
                 fprintf(stderr,
                         "error: resamples count must be positive number\n");
@@ -558,21 +566,24 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
             settings->bench_stop.max_runs = value;
         } else if (strcmp(opt, "--prepare") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --prepare requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *prepare_str = argv[cursor++];
             settings->prepare = prepare_str;
         } else if (strcmp(opt, "--nrs") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --nrs requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *resamples_str = argv[cursor++];
             char *str_end;
             long value = strtol(resamples_str, &str_end, 10);
-            if (str_end == resamples_str)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (str_end == resamples_str) {
+                fprintf(stderr, "error: invalid --nrs argument\n");
+                exit(EXIT_FAILURE);
+            }
             if (value <= 0) {
                 fprintf(stderr,
                         "error: resamples count must be positive number\n");
@@ -580,17 +591,20 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
             settings->nresamp = value;
         } else if (strcmp(opt, "--shell") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --shell requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *shell = argv[cursor++];
             if (strcmp(shell, "none") == 0)
                 settings->shell = NULL;
             else
                 settings->shell = shell;
         } else if (strcmp(opt, "--output") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --output requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *out = argv[cursor++];
             if (strcmp(out, "null") == 0)
                 settings->output_policy = CS_OUTPUT_POLICY_NULL;
@@ -599,9 +613,10 @@ static void cs_parse_cli_args(int argc, char **argv,
             else
                 cs_print_help_and_exit(EXIT_FAILURE);
         } else if (strcmp(opt, "--input") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --input requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *input = argv[cursor++];
             if (strcmp(input, "null") == 0) {
                 settings->input_policy.kind = CS_INPUT_POLICY_NULL;
@@ -610,17 +625,19 @@ static void cs_parse_cli_args(int argc, char **argv,
                 settings->input_policy.file = input;
             }
         } else if (strcmp(opt, "--custom") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --custom requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *name = argv[cursor++];
             struct cs_custom_meas meas = {0};
             meas.name = name;
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--custom-t") == 0) {
-            if (cursor + 1 >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor + 1 >= argc) {
+                fprintf(stderr, "error: --custom-t requires 2 arguments\n");
+                exit(EXIT_FAILURE);
+            }
             const char *name = argv[cursor++];
             const char *cmd = argv[cursor++];
             struct cs_custom_meas meas = {0};
@@ -628,9 +645,10 @@ static void cs_parse_cli_args(int argc, char **argv,
             meas.str = cmd;
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--custom-x") == 0) {
-            if (cursor + 2 >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor + 2 >= argc) {
+                fprintf(stderr, "error: --custom-x requires 3 arguments\n");
+                exit(EXIT_FAILURE);
+            }
             const char *name = argv[cursor++];
             const char *units = argv[cursor++];
             const char *cmd = argv[cursor++];
@@ -640,9 +658,10 @@ static void cs_parse_cli_args(int argc, char **argv,
             meas.units = units;
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--scan") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --scan requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *scan_settings = argv[cursor++];
             double low, high, step;
             char *name;
@@ -651,16 +670,16 @@ static void cs_parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "error: invalid --scan argument\n");
                 exit(EXIT_FAILURE);
             }
-
             char **param_list = cs_range_to_param_list(low, high, step);
             struct cs_bench_param param = {0};
             param.name = name;
             param.values = param_list;
             cs_sb_push(settings->params, param);
         } else if (strcmp(opt, "--scanl") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --scanl requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *scan_settings = argv[cursor++];
             char *name, *scan_list;
             if (!cs_parse_scan_list_settings(scan_settings, &name,
@@ -675,16 +694,18 @@ static void cs_parse_cli_args(int argc, char **argv,
             param.values = param_list;
             cs_sb_push(settings->params, param);
         } else if (strcmp(opt, "--export-json") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --export-json requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *export_filename = argv[cursor++];
             settings->export.kind = CS_EXPORT_JSON;
             settings->export.filename = export_filename;
         } else if (strcmp(opt, "--analyze-dir") == 0) {
-            if (cursor >= argc)
-                cs_print_help_and_exit(EXIT_FAILURE);
-
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --analyze-dir requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
             const char *dir = argv[cursor++];
             settings->analyze_dir = dir;
         } else if (strcmp(opt, "--html") == 0) {
@@ -1592,7 +1613,7 @@ static void cs_estimate_distr(const double *data, size_t count, size_t nresamp,
 #define cs_fitting_curve_n_sq(_n) ((_n) * (_n))
 #define cs_fitting_curve_n_cube(_n) ((_n) * (_n) * (_n))
 #define cs_fitting_curve_logn(_n) log2(_n)
-#define cs_fitting_curve_nlogn(_n) ((_n)*log2(_n))
+#define cs_fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
 static double cs_fitting_curve(double n, enum cs_big_o complexity) {
     switch (complexity) {
