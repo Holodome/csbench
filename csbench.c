@@ -2407,19 +2407,6 @@ cs_make_plots(const struct cs_bench_results *results, int no_time,
     const struct cs_bench_analysis *analyses = results->analyses;
     char buf[4096];
 
-    if (!no_time) {
-        snprintf(buf, sizeof(buf), "%s/whisker.svg", analyze_dir);
-        if (cs_whisker_plot(benches, bench_count, buf) == -1)
-            return -1;
-
-        snprintf(buf, sizeof(buf), "%s/violin.svg", analyze_dir);
-        if (cs_violin_plot(benches, bench_count, buf) == -1)
-            return -1;
-    }
-
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct cs_bench_analysis *analysis = analyses + i;
-        const char *cmd_str = analysis->bench->cmd->str;
 #define cs_make_kdes(_distr, _title, _xlabel, _name)                           \
     do {                                                                       \
         snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir, i + 1,    \
@@ -2431,9 +2418,34 @@ cs_make_plots(const struct cs_bench_results *results, int no_time,
         if (cs_kde_plot(_distr, _title, _xlabel, buf, 1) == -1)                \
             return -1;                                                         \
     } while (0)
-        if (!no_time)
-            cs_make_kdes(&analysis->wall_distr, cmd_str, "time [s]", "wall");
 
+    if (!no_time) {
+        snprintf(buf, sizeof(buf), "%s/whisker.svg", analyze_dir);
+        if (cs_whisker_plot(benches, bench_count, buf) == -1)
+            return -1;
+
+        snprintf(buf, sizeof(buf), "%s/violin.svg", analyze_dir);
+        if (cs_violin_plot(benches, bench_count, buf) == -1)
+            return -1;
+
+        for (size_t i = 0; i < results->group_count; ++i) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses + i;
+            snprintf(buf, sizeof(buf), "%s/group_plot_%zu.svg", analyze_dir,
+                     i + 1);
+            if (cs_group_plot(analysis, buf) == -1)
+                return -1;
+        }
+        for (size_t i = 0; i < bench_count; ++i) {
+            const struct cs_bench_analysis *analysis = analyses + i;
+            const char *cmd_str = analysis->bench->cmd->str;
+            cs_make_kdes(&analysis->wall_distr, cmd_str, "time [s]", "wall");
+        }
+    }
+
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench_analysis *analysis = analyses + i;
+        const char *cmd_str = analysis->bench->cmd->str;
         for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
             const struct cs_custom_meas *meas =
                 analysis->bench->cmd->custom_meas + j;
@@ -2447,19 +2459,8 @@ cs_make_plots(const struct cs_bench_results *results, int no_time,
 
             cs_make_kdes(analysis->custom_meas + j, buf1, buf2, meas->name);
         }
+    }
 #undef cs_make_kdes
-    }
-
-    if (!no_time) {
-        for (size_t i = 0; i < results->group_count; ++i) {
-            const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses + i;
-            snprintf(buf, sizeof(buf), "%s/group_plot_%zu.svg", analyze_dir,
-                     i + 1);
-            if (cs_group_plot(analysis, buf) == -1)
-                return -1;
-        }
-    }
 
     return 0;
 }
@@ -2514,18 +2515,14 @@ cs_html_time_estimate(const char *name, const struct cs_est *est, FILE *f) {
 
 static void
 cs_html_estimate(const char *name, const struct cs_est *est, FILE *f) {
-    char buf1[256], buf2[256], buf3[256];
-    snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
-    snprintf(buf2, sizeof(buf2), "%.5g", est->point);
-    snprintf(buf3, sizeof(buf3), "%.5g", est->upper);
     fprintf(f,
             "<tr>"
             "<td>%s</td>"
-            "<td class=\"est-bound\">%s</td>"
-            "<td>%s</td>"
-            "<td class=\"est-bound\">%s</td>"
+            "<td class=\"est-bound\">%.5g</td>"
+            "<td>%.5g</td>"
+            "<td class=\"est-bound\">%.5g</td>"
             "</tr>",
-            name, buf1, buf2, buf3);
+            name, est->lower, est->point, est->upper);
 }
 
 static void
@@ -2734,17 +2731,25 @@ cs_html_report(const struct cs_bench_results *results, int no_time, FILE *f) {
     fprintf(f, "</body>");
 }
 
+__attribute__((format(printf, 2, 3))) static FILE *
+cs_open_file_fmt(const char *mode, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return fopen(buf, mode);
+}
+
 static int
 cs_make_html_report(const struct cs_bench_results *results, int no_time,
                     const char *analyze_dir) {
-    char buf[4096];
-    snprintf(buf, sizeof(buf), "%s/index.html", analyze_dir);
-    FILE *f = fopen(buf, "w");
+    FILE *f = cs_open_file_fmt("w", "%s/index.html", analyze_dir);
     if (f == NULL) {
-        fprintf(stderr, "error: failed to create file %s\n", buf);
+        fprintf(stderr, "error: failed to create file %s/index.html\n",
+                analyze_dir);
         return -1;
     }
-
     cs_html_report(results, no_time, f);
     fclose(f);
     return 0;
@@ -2756,87 +2761,77 @@ cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
     char buf[4096];
+    FILE *f;
 
+    // FIXME: file name mismatch with plots
     if (!no_time) {
-        {
-            snprintf(buf, sizeof(buf), "%s/whisker.py", analyze_dir);
-            FILE *f = fopen(buf, "w");
-            if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s\n", buf);
-                return -1;
-            }
-            snprintf(buf, sizeof(buf), "%s/whisker.svg", analyze_dir);
-            cs_make_whisker_plot(benches, bench_count, buf, f);
-            fclose(f);
+        f = cs_open_file_fmt("w", "%s/whisker.py", analyze_dir);
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s/whisker.py\n",
+                    analyze_dir);
+            return -1;
         }
-        {
-            snprintf(buf, sizeof(buf), "%s/violin.py", analyze_dir);
-            FILE *f = fopen(buf, "w");
-            if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s\n", buf);
-                return -1;
-            }
-            snprintf(buf, sizeof(buf), "%s/violin.svg", analyze_dir);
-            cs_make_violin_plot(benches, bench_count, buf, f);
-            fclose(f);
-        }
-        for (size_t i = 0; i < bench_count; ++i) {
-            const struct cs_bench *bench = benches + i;
-            const struct cs_bench_analysis *analysis = results->analyses + i;
-            {
-                snprintf(buf, sizeof(buf), "%s/kde_%zu.py", analyze_dir, i + 1);
-                FILE *f = fopen(buf, "w");
-                if (f == NULL) {
-                    fprintf(stderr, "error: failed to create file %s\n", buf);
-                    return -1;
-                }
-                snprintf(buf, sizeof(buf), "%s/kde_%zu.svg", analyze_dir,
-                         i + 1);
-                struct cs_kde_plot plot = {0};
-                plot.output_filename = buf;
-                plot.title = bench->cmd->str;
-                plot.distr = &analysis->wall_distr;
-                plot.xlabel = "time [s]";
-                cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
-                cs_make_kde_plot(&plot, f);
-                cs_free_kde_plot(&plot);
-                fclose(f);
-            }
-            {
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu.py", analyze_dir,
-                         i + 1);
-                FILE *f = fopen(buf, "w");
-                if (f == NULL) {
-                    fprintf(stderr, "error: failed to create file %s\n", buf);
-                    return -1;
-                }
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu.svg", analyze_dir,
-                         i + 1);
-                struct cs_kde_plot plot = {0};
-                plot.output_filename = buf;
-                plot.title = bench->cmd->str;
-                plot.distr = &analysis->wall_distr;
-                plot.xlabel = "time [s]";
-                cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
-                cs_make_kde_plot_ext(&plot, f);
-                cs_free_kde_plot(&plot);
-                fclose(f);
-            }
-        }
+        snprintf(buf, sizeof(buf), "%s/whisker.svg", analyze_dir);
+        cs_make_whisker_plot(benches, bench_count, buf, f);
+        fclose(f);
 
+        f = cs_open_file_fmt("w", "%s/violin.py", analyze_dir);
+        if (f == NULL) {
+            fprintf(stderr, "error: failed to create file %s/violin.py\n",
+                    analyze_dir);
+            return -1;
+        }
+        snprintf(buf, sizeof(buf), "%s/violin.svg", analyze_dir);
+        cs_make_violin_plot(benches, bench_count, buf, f);
+        fclose(f);
         for (size_t i = 0; i < results->group_count; ++i) {
             const struct cs_cmd_group_analysis *analysis =
                 results->group_analyses + i;
-            snprintf(buf, sizeof(buf), "%s/group_plot_%zu.py", analyze_dir,
-                     i + 1);
-            FILE *f = fopen(buf, "w");
+            f = cs_open_file_fmt("w", "%s/group_plot_%zu.py", analyze_dir,
+                                 i + 1);
             if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s\n", buf);
+                fprintf(stderr,
+                        "error: failed to create file %s/group_plot_%zu.py\n",
+                        analyze_dir, i + 1);
                 return -1;
             }
             snprintf(buf, sizeof(buf), "%s/group_plot_%zu.svg", analyze_dir,
                      i + 1);
             cs_make_group_plot(analysis, buf, f);
+            fclose(f);
+        }
+        for (size_t i = 0; i < bench_count; ++i) {
+            const struct cs_bench *bench = benches + i;
+            const struct cs_bench_analysis *analysis = results->analyses + i;
+            struct cs_kde_plot plot = {0};
+            plot.output_filename = buf;
+            plot.title = bench->cmd->str;
+            plot.xlabel = "time [s]";
+
+            f = cs_open_file_fmt("w", "%s/kde_%zu.py", analyze_dir, i + 1);
+            if (f == NULL) {
+                fprintf(stderr, "error: failed to create file %s/kde_%zu.py\n",
+                        analyze_dir, i + 1);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/kde_%zu.svg", analyze_dir, i + 1);
+            cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
+            cs_make_kde_plot(&plot, f);
+            cs_free_kde_plot(&plot);
+            fclose(f);
+
+            f = cs_open_file_fmt("w", "%s/kde_ext_%zu.py", analyze_dir, i + 1);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/kde_ext_%zu.py\n",
+                        analyze_dir, i + 1);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/kde_ext_%zu.svg", analyze_dir,
+                     i + 1);
+            cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
+            cs_make_kde_plot_ext(&plot, f);
+            cs_free_kde_plot(&plot);
             fclose(f);
         }
     }
