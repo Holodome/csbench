@@ -73,7 +73,7 @@ struct cs_bench_stop_policy {
 
 struct cs_custom_meas {
     const char *name;
-    const char *str;
+    const char *cmd;
     // if null interpret as seconds
     const char *units;
 };
@@ -399,7 +399,7 @@ err_free_name:
 static char **cs_range_to_param_list(double low, double high, double step) {
     assert(high > low);
     char **result = NULL;
-    for (double cursor = low; cursor <= high; cursor += step) {
+    for (double cursor = low; cursor <= high + 0.000001; cursor += step) {
         char buf[256];
         snprintf(buf, sizeof(buf), "%g", cursor);
         cs_sb_push(result, strdup(buf));
@@ -632,6 +632,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             const char *name = argv[cursor++];
             struct cs_custom_meas meas = {0};
             meas.name = name;
+            meas.cmd = "cat";
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--custom-t") == 0) {
             if (cursor + 1 >= argc) {
@@ -642,7 +643,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct cs_custom_meas meas = {0};
             meas.name = name;
-            meas.str = cmd;
+            meas.cmd = cmd;
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--custom-x") == 0) {
             if (cursor + 2 >= argc) {
@@ -654,7 +655,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct cs_custom_meas meas = {0};
             meas.name = name;
-            meas.str = cmd;
+            meas.cmd = cmd;
             meas.units = units;
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--scan") == 0) {
@@ -1254,10 +1255,7 @@ static int cs_execute_custom(struct cs_custom_meas *custom, int in_fd,
                              int out_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
-    if (custom->str)
-        argv[2] = (char *)custom->str;
-    else
-        argv[2] = "cat";
+    argv[2] = (char *)custom->cmd;
 
     pid_t pid = fork();
     if (pid == -1) {
@@ -2026,6 +2024,28 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
     }
 }
 
+static int cs_json_escape(char *buf, size_t buf_size, const char *src) {
+    char *end = buf + buf_size;
+    while (*src) {
+        if (buf >= end)
+            return -1;
+
+        int c = *src++;
+        if (c == '\"') {
+            *buf++ = '\\';
+            if (buf >= end)
+                return -1;
+            *buf++ = c;
+        } else {
+            *buf++ = c;
+        }
+    }
+    if (buf >= end)
+        return -1;
+    *buf = '\0';
+    return 0;
+}
+
 static int cs_export_json(const struct cs_settings *settings,
                           const struct cs_bench_results *results,
                           const char *filename) {
@@ -2036,41 +2056,68 @@ static int cs_export_json(const struct cs_settings *settings,
         return -1;
     }
 
+    char buf[4096];
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
-    fprintf(f, "{ \"settings\": {");
     fprintf(f,
+            "{ \"settings\": {"
             "\"time_limit\": %f, \"runs\": %zu, \"min_runs\": %zu, "
-            "\"max_runs\": %zu, \"warmup_time\": %f ",
+            "\"max_runs\": %zu, \"warmup_time\": %f, \"nresamp\": %zu "
+            "}, \"benches\": [",
             settings->bench_stop.time_limit, settings->bench_stop.runs,
             settings->bench_stop.min_runs, settings->bench_stop.max_runs,
-            settings->warmup_time);
-    fprintf(f, "}, \"benches\": [");
+            settings->warmup_time, settings->nresamp);
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
         fprintf(f, "{ ");
-        fprintf(f, "\"prepare\": \"%s\", ",
-                bench->prepare ? bench->prepare : "");
-        fprintf(f, "\"command\": \"%s\", ", bench->cmd->str);
+        if (bench->prepare)
+            cs_json_escape(buf, sizeof(buf), bench->prepare);
+        else
+            *buf = '\0';
+        fprintf(f, "\"prepare\": \"%s\", ", buf);
+        cs_json_escape(buf, sizeof(buf), bench->cmd->str);
+        fprintf(f, "\"command\": \"%s\", ", buf);
         size_t run_count = bench->run_count;
         fprintf(f, "\"run_count\": %zu, ", bench->run_count);
         fprintf(f, "\"wallclock\": [");
-        for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%f%s", bench->wallclocks[i],
-                    i != run_count - 1 ? ", " : "");
+        for (size_t j = 0; j < run_count; ++j)
+            fprintf(f, "%f%s", bench->wallclocks[j],
+                    j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"sys\": [");
-        for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%f%s", bench->systimes[i],
-                    i != run_count - 1 ? ", " : "");
+        for (size_t j = 0; j < run_count; ++j)
+            fprintf(f, "%f%s", bench->systimes[j],
+                    j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"user\": [");
-        for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%f%s", bench->usertimes[i],
-                    i != run_count - 1 ? ", " : "");
+        for (size_t j = 0; j < run_count; ++j)
+            fprintf(f, "%f%s", bench->usertimes[j],
+                    j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"exit_codes\": [");
-        for (size_t i = 0; i < run_count; ++i)
-            fprintf(f, "%d%s", bench->exit_codes[i],
-                    i != run_count - 1 ? ", " : "");
-        fprintf(f, "}");
+        for (size_t j = 0; j < run_count; ++j)
+            fprintf(f, "%d%s", bench->exit_codes[j],
+                    j != run_count - 1 ? ", " : "");
+        fprintf(f, "], \"custom_meas\": [");
+        for (size_t j = 0; j < bench->custom_meas_count; ++j) {
+            const struct cs_custom_meas *info = bench->cmd->custom_meas + j;
+            cs_json_escape(buf, sizeof(buf), info->name);
+            fprintf(f, "{ \"name\": \"%s\", ", buf);
+            if (info->units)
+                cs_json_escape(buf, sizeof(buf), info->units);
+            else
+                *buf = '\0';
+            fprintf(f, "\"units\": \"%s\",", buf);
+            cs_json_escape(buf, sizeof(buf), info->cmd);
+            fprintf(f,
+                    " \"cmd\": \"%s\", "
+                    "\"val\": [",
+                    buf);
+            for (size_t k = 0; k < run_count; ++k)
+                fprintf(f, "%f%s", bench->custom_meas[j][k],
+                        k != run_count - 1 ? ", " : "");
+            fprintf(f, "]}");
+            if (j != bench->custom_meas_count - 1)
+                fprintf(f, ", ");
+        }
+        fprintf(f, "]}");
         if (i != bench_count - 1)
             fprintf(f, ", ");
     }
