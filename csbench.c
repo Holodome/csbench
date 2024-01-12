@@ -735,10 +735,9 @@ static void cs_free_cli_settings(struct cs_cli_settings *settings) {
     cs_sb_free(settings->params);
 }
 
-static void cs_replace_str(char *buf, size_t buf_size, const char *src,
-                           const char *name, const char *value) {
-    // TODO: this should handle buffer overflow
-    (void)buf_size;
+static int cs_replace_str(char *buf, size_t buf_size, const char *src,
+                          const char *name, const char *value) {
+    char *buf_end = buf + buf_size;
     size_t param_name_len = strlen(name);
     char *wr_cursor = buf;
     const char *rd_cursor = src;
@@ -748,13 +747,20 @@ static void cs_replace_str(char *buf, size_t buf_size, const char *src,
             rd_cursor[param_name_len + 1] == '}') {
             rd_cursor += 2 + param_name_len;
             size_t len = strlen(value);
+            if (wr_cursor + len >= buf_end)
+                return -1;
             memcpy(wr_cursor, value, len);
             wr_cursor += len;
         } else {
+            if (wr_cursor >= buf_end)
+                return -1;
             *wr_cursor++ = *rd_cursor++;
         }
     }
+    if (wr_cursor >= buf_end)
+        return -1;
     *wr_cursor = '\0';
+    return 0;
 }
 
 static char **cs_split_shell_words(const char *cmd) {
@@ -1028,7 +1034,7 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
         int found_param = 0;
         for (size_t j = 0; j < cs_sb_len(cli->params); ++j) {
             const struct cs_bench_param *param = cli->params + j;
-            char buf[256];
+            char buf[4096];
             snprintf(buf, sizeof(buf), "{%s}", param->name);
             if (strstr(cmd_str, buf) == NULL)
                 continue;
@@ -1041,8 +1047,12 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
             group.var_values = calloc(its_in_group, sizeof(*group.var_values));
             for (size_t k = 0; k < its_in_group; ++k) {
                 const char *param_value = param->values[k];
-                cs_replace_str(buf, sizeof(buf), cmd_str, param->name,
-                               param_value);
+                if (cs_replace_str(buf, sizeof(buf), cmd_str, param->name,
+                                   param_value) == -1) {
+                    free(group.cmd_idxs);
+                    free(group.var_values);
+                    goto err_free_settings;
+                }
 
                 struct cs_cmd cmd = {0};
                 cmd.input = cli->input_policy;
@@ -2488,7 +2498,6 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
     char buf[4096];
     FILE *f;
 
-    // FIXME: file name mismatch with plots
     if (!no_time) {
         f = cs_open_file_fmt("w", "%s/whisker.py", analyze_dir);
         if (f == NULL) {
@@ -2533,26 +2542,29 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             plot.title = bench->cmd->str;
             plot.xlabel = "time [s]";
 
-            f = cs_open_file_fmt("w", "%s/kde_%zu.py", analyze_dir, i + 1);
+            f = cs_open_file_fmt("w", "%s/kde_%zu_wall.py", analyze_dir, i + 1);
             if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s/kde_%zu.py\n",
+                fprintf(stderr,
+                        "error: failed to create file %s/kde_%zu_wall.py\n",
                         analyze_dir, i + 1);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/kde_%zu.svg", analyze_dir, i + 1);
+            snprintf(buf, sizeof(buf), "%s/kde_%zu_wall.svg", analyze_dir,
+                     i + 1);
             cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
             cs_make_kde_plot(&plot, f);
             cs_free_kde_plot(&plot);
             fclose(f);
 
-            f = cs_open_file_fmt("w", "%s/kde_ext_%zu.py", analyze_dir, i + 1);
+            f = cs_open_file_fmt("w", "%s/kde_ext_%zu_wall.py", analyze_dir,
+                                 i + 1);
             if (f == NULL) {
                 fprintf(stderr,
-                        "error: failed to create file %s/kde_ext_%zu.py\n",
+                        "error: failed to create file %s/kde_ext_%zu_wall.py\n",
                         analyze_dir, i + 1);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/kde_ext_%zu.svg", analyze_dir,
+            snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_wall.svg", analyze_dir,
                      i + 1);
             cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
             cs_make_kde_plot_ext(&plot, f);

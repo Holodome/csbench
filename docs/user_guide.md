@@ -1,7 +1,6 @@
 # User guide
 
 This file is an informal description of `csbench`. 
-`csbench`'s selection of features and their implementation can be questionable, so you can read this text to try better understand author's opinion.
 
 ## Introduction
 
@@ -160,8 +159,7 @@ Also mean is close to the [mode](https://en.wikipedia.org/wiki/Mode_(statistics)
 
 ![](kde_bi.svg)
 
-Something is not right here! 
-Distribution seems bimodal: there are two peaks. 
+Distribution is bimodal: there are two peaks. 
 Let's look at the extended KDE plot, which also shows outliers, and how samples are scattered.
 
 ![](kde_ext_bi.svg)
@@ -175,3 +173,37 @@ This example was produced by starting compilation in the middle of benchmark to 
 
 This is OK benchmark results - although there are outliers, they don't seem to happen systematically. 
 Also note patterns in low mild outliers, which occur in bulk. 
+
+## Some other features
+
+### Get python sources used to make plots
+
+`--plot-src` option can be used to produce python files used to generate plots.
+Data is hardcoded in these scripts, so that in case user wants to modify them (change colors, add legend, change language...) they can do that with minimal effort.
+
+### Custom measurement units
+
+There are three options for custom measurements: `--custom`, `--custom-t`, `--custom-x`.
+They differ in units of measurement and how they extract values from stdout.
+|feature|--custom|--custom-t|--custom-x|
+|-------|--------|----------|----------|
+|units  |seconds | seconds  | custom   |
+|extract|cat     | custom   | custom   |
+
+Note that if one of `ps`, `us`, `ms`, `s` are used as custom unit, csbench interprets them and pretty prints the same way it does for wall clock time.
+
+### Debugging 
+
+`--output` can be set to `inherit`. This way stdout and stderr of executed commands are printed in the terminal, which can be useful for debugging.
+
+### Changing shell
+
+By default commands executed using /bin/sh. User has the option to change that using option `--shell`.
+Its argument is a command that expands in shell invocation. Command is executed by appending `-c` and command source to shell argv list. Alternatively, `none` can be used to execute commands using execvp directly. 
+
+### Removing wall clock analysis 
+
+If user specifies custom measurement, chances that they prefer these results over wall clock time analysis.
+However, wall clock time information is still included. 
+Option `--no-time` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report.
+Timing values are still collected however.
