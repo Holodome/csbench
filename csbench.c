@@ -278,8 +278,7 @@ struct cs_kde_plot {
 
 static __thread uint32_t rng_state;
 
-static void *
-cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
+static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
         void *result = calloc(sizeof(struct cs_sb_header) + stride * inc, 1);
         struct cs_sb_header *header = result;
@@ -301,20 +300,17 @@ cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
 }
 
 #if defined(__APPLE__)
-static double
-cs_get_time(void) {
+static double cs_get_time(void) {
     return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
 }
 #else
-static double
-cs_get_time(void) {
+static double cs_get_time(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 #endif
-static struct cs_cpu_time
-cs_getcputime(void) {
+static struct cs_cpu_time cs_getcputime(void) {
     struct rusage rus = {0};
     getrusage(RUSAGE_CHILDREN, &rus);
     struct cs_cpu_time time;
@@ -323,8 +319,7 @@ cs_getcputime(void) {
     return time;
 }
 
-static void
-cs_print_help_and_exit(int rc) {
+static void cs_print_help_and_exit(int rc) {
     printf(
         "A command-line benchmarking tool\n"
         "\n"
@@ -365,15 +360,14 @@ cs_print_help_and_exit(int rc) {
     exit(rc);
 }
 
-static void
-cs_print_version_and_exit(void) {
+static void cs_print_version_and_exit(void) {
     printf("csbench 0.1\n");
     exit(EXIT_SUCCESS);
 }
 
-static int
-cs_parse_range_scan_settings(const char *settings, char **namep, double *lowp,
-                             double *highp, double *stepp) {
+static int cs_parse_range_scan_settings(const char *settings, char **namep,
+                                        double *lowp, double *highp,
+                                        double *stepp) {
     char *name = NULL;
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
@@ -422,8 +416,7 @@ err_free_name:
     return 0;
 }
 
-static char **
-cs_range_to_param_list(double low, double high, double step) {
+static char **cs_range_to_param_list(double low, double high, double step) {
     assert(high > low);
     char **result = NULL;
     for (double cursor = low; cursor <= high; cursor += step) {
@@ -435,9 +428,8 @@ cs_range_to_param_list(double low, double high, double step) {
     return result;
 }
 
-static int
-cs_parse_scan_list_settings(const char *settings, char **namep,
-                            char **scan_listp) {
+static int cs_parse_scan_list_settings(const char *settings, char **namep,
+                                       char **scan_listp) {
     char *name = NULL;
     char *scan_list = NULL;
 
@@ -466,8 +458,7 @@ err_free_name:
     return 0;
 }
 
-static char **
-cs_parse_scan_list(const char *scan_list) {
+static char **cs_parse_scan_list(const char *scan_list) {
     char **param_list = NULL;
     const char *cursor = scan_list;
     const char *end = scan_list + strlen(scan_list);
@@ -490,8 +481,8 @@ cs_parse_scan_list(const char *scan_list) {
     return param_list;
 }
 
-static void
-cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
+static void cs_parse_cli_args(int argc, char **argv,
+                              struct cs_cli_settings *settings) {
     settings->bench_stop.time_limit = 5.0;
     settings->bench_stop.min_runs = 5;
     settings->warmup_time = 1.0;
@@ -730,8 +721,7 @@ cs_parse_cli_args(int argc, char **argv, struct cs_cli_settings *settings) {
     }
 }
 
-static void
-cs_apply_input_policy(const struct cs_input_policy *policy) {
+static void cs_apply_input_policy(const struct cs_input_policy *policy) {
     switch (policy->kind) {
     case CS_INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
@@ -756,8 +746,7 @@ cs_apply_input_policy(const struct cs_input_policy *policy) {
     }
 }
 
-static void
-cs_apply_output_policy(enum cs_output_policy_kind policy) {
+static void cs_apply_output_policy(enum cs_output_policy_kind policy) {
     switch (policy) {
     case CS_OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
@@ -775,8 +764,7 @@ cs_apply_output_policy(enum cs_output_policy_kind policy) {
     }
 }
 
-static int
-cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd) {
+static int cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd) {
     int rc = -1;
     pid_t pid = fork();
     if (pid == -1) {
@@ -824,8 +812,7 @@ out:
     return rc;
 }
 
-static char **
-cs_split_shell_words(const char *cmd) {
+static char **cs_split_shell_words(const char *cmd) {
     char **words = NULL;
     char *current_word = NULL;
 
@@ -1005,8 +992,7 @@ out:
     return words;
 }
 
-static int
-cs_compare_doubles(const void *a, const void *b) {
+static int cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
     if (arg1 < arg2)
@@ -1016,8 +1002,7 @@ cs_compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static struct cs_outliers
-cs_classify_outliers(const struct cs_distr *distr) {
+static struct cs_outliers cs_classify_outliers(const struct cs_distr *distr) {
     double q1 = distr->q1;
     double q3 = distr->q3;
     double iqr = q3 - q1;
@@ -1045,8 +1030,8 @@ cs_classify_outliers(const struct cs_distr *distr) {
     return result;
 }
 
-static double
-cs_c_max(double x, double u_a, double a, double sigma_b_2, double sigma_g_2) {
+static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
+                       double sigma_g_2) {
     double k = u_a - x;
     double d = k * k;
     double ad = a * d;
@@ -1056,14 +1041,13 @@ cs_c_max(double x, double u_a, double a, double sigma_b_2, double sigma_g_2) {
     return floor(-2.0 * k0 / (k1 + sqrt(det)));
 }
 
-static double
-cs_var_out(double c, double a, double sigma_b_2, double sigma_g_2) {
+static double cs_var_out(double c, double a, double sigma_b_2,
+                         double sigma_g_2) {
     double ac = a - c;
     return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
 }
 
-static double
-cs_outlier_variance(double mean, double st_dev, double a) {
+static double cs_outlier_variance(double mean, double st_dev, double a) {
     double sigma_b = st_dev;
     double u_a = mean / a;
     double u_g_min = u_a / 2.0;
@@ -1079,8 +1063,7 @@ cs_outlier_variance(double mean, double st_dev, double a) {
     return var_out_min;
 }
 
-static const char *
-cs_outliers_variance_str(double fraction) {
+static const char *cs_outliers_variance_str(double fraction) {
     if (fraction < 0.01)
         return "no";
     else if (fraction < 0.1)
@@ -1090,8 +1073,7 @@ cs_outliers_variance_str(double fraction) {
     return "a severe";
 }
 
-static uint32_t
-xorshift32(uint32_t *state) {
+static uint32_t xorshift32(uint32_t *state) {
     uint32_t x = *state;
     x ^= x << 13;
     x ^= x >> 17;
@@ -1099,16 +1081,14 @@ xorshift32(uint32_t *state) {
     return *state = x;
 }
 
-static double
-cs_stat_mean(const double *v, size_t count) {
+static double cs_stat_mean(const double *v, size_t count) {
     double result = 0.0;
     for (size_t i = 0; i < count; ++i)
         result += v[i];
     return result / (double)count;
 }
 
-static double
-cs_stat_st_dev(const double *v, size_t count) {
+static double cs_stat_st_dev(const double *v, size_t count) {
     double mean = cs_stat_mean(v, count);
     double result = 0.0;
     for (size_t i = 0; i < count; ++i) {
@@ -1118,33 +1098,16 @@ cs_stat_st_dev(const double *v, size_t count) {
     return sqrt(result / (double)count);
 }
 
-static double
-cs_fitting_curve_1(double n) {
-    (void)n;
-    return 1.0;
-}
-static double
-cs_fitting_curve_n(double n) {
-    return n;
-}
-static double
-cs_fitting_curve_n_sq(double n) {
-    return n * n;
-}
-static double
-cs_fitting_curve_n_cube(double n) {
-    return n * n * n;
-}
-static double
-cs_fitting_curve_logn(double n) {
-    return log2(n);
-}
-static double
-cs_fitting_curve_nlogn(double n) {
-    return n * log2(n);
-}
-static double
-cs_fitting_curve(double n, enum cs_big_o complexity) {
+// This monstosity is used to silence warnings.
+// Macros are used to explicitly inline.
+#define cs_fitting_curve_1(_n) ((double)_n, 1.0)
+#define cs_fitting_curve_n(_n) (_n)
+#define cs_fitting_curve_n_sq(_n) ((_n) * (_n))
+#define cs_fitting_curve_n_cube(_n) ((_n) * (_n) * (_n))
+#define cs_fitting_curve_logn(_n) log2(_n)
+#define cs_fitting_curve_nlogn(_n) ((_n) * log2(_n))
+
+static double cs_fitting_curve(double n, enum cs_big_o complexity) {
     switch (complexity) {
     case CS_O_1:
         return cs_fitting_curve_1(n);
@@ -1162,8 +1125,8 @@ cs_fitting_curve(double n, enum cs_big_o complexity) {
     return 0.0;
 }
 
-static void
-cs_resample(const double *src, size_t count, double *dst, uint32_t entropy) {
+static void cs_resample(const double *src, size_t count, double *dst,
+                        uint32_t entropy) {
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[xorshift32(&entropy) % count];
@@ -1273,8 +1236,7 @@ cs_mls(nlogn, cs_fitting_curve_nlogn)
     return best_fit;
 }
 
-static int
-cs_print_time(char *dst, size_t sz, double t) {
+static int cs_print_time(char *dst, size_t sz, double t) {
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -1310,8 +1272,7 @@ cs_print_time(char *dst, size_t sz, double t) {
     return count;
 }
 
-static int
-cs_process_finished_correctly(pid_t pid) {
+static int cs_process_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
@@ -1326,8 +1287,8 @@ cs_process_finished_correctly(pid_t pid) {
     return 0;
 }
 
-static int
-cs_execute_custom(struct cs_custom_meas *custom, int in_fd, int out_fd) {
+static int cs_execute_custom(struct cs_custom_meas *custom, int in_fd,
+                             int out_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     if (custom->str)
@@ -1359,8 +1320,7 @@ cs_execute_custom(struct cs_custom_meas *custom, int in_fd, int out_fd) {
     return 0;
 }
 
-static int
-cs_parse_custom_output(int fd, double *valuep) {
+static int cs_parse_custom_output(int fd, double *valuep) {
     char buf[4096];
     ssize_t nread = read(fd, buf, sizeof(buf));
     if (nread == -1) {
@@ -1384,8 +1344,7 @@ cs_parse_custom_output(int fd, double *valuep) {
     return 0;
 }
 
-static int
-cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
+static int cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
     if (bench->cmd->custom_meas == NULL)
         return 0;
 
@@ -1429,8 +1388,7 @@ out:
     return rc;
 }
 
-static int
-cs_exec_and_measure(struct cs_bench *bench) {
+static int cs_exec_and_measure(struct cs_bench *bench) {
     int ret = -1;
     int stdout_fd = -1;
     char path[] = "/tmp/csbench_out_XXXXXX";
@@ -1471,8 +1429,7 @@ out:
     return ret;
 }
 
-static int
-cs_warmup(const struct cs_cmd *cmd, double time_limit) {
+static int cs_warmup(const struct cs_cmd *cmd, double time_limit) {
     if (time_limit < 0.0)
         return 0;
 
@@ -1489,8 +1446,7 @@ cs_warmup(const struct cs_cmd *cmd, double time_limit) {
     return 0;
 }
 
-static int
-cs_execute_prepare(const char *cmd) {
+static int cs_execute_prepare(const char *cmd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -1522,9 +1478,8 @@ cs_execute_prepare(const char *cmd) {
     return 0;
 }
 
-static int
-cs_run_benchmark(struct cs_bench *bench,
-                 const struct cs_bench_stop_policy *policy) {
+static int cs_run_benchmark(struct cs_bench *bench,
+                            const struct cs_bench_stop_policy *policy) {
     if (policy->runs != 0) {
         for (size_t run_idx = 0; run_idx < policy->runs; ++run_idx) {
             if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
@@ -1567,9 +1522,8 @@ cs_run_benchmark(struct cs_bench *bench,
     return 0;
 }
 
-static void
-cs_estimate_distr(const double *data, size_t count, size_t nresamp,
-                  struct cs_distr *distr) {
+static void cs_estimate_distr(const double *data, size_t count, size_t nresamp,
+                              struct cs_distr *distr) {
     double *tmp = malloc(count * sizeof(*tmp));
     distr->data = data;
     distr->count = count;
@@ -1591,8 +1545,7 @@ cs_estimate_distr(const double *data, size_t count, size_t nresamp,
         cs_outlier_variance(distr->mean.point, distr->st_dev.point, count);
 }
 
-static void
-cs_print_time_estimate(const char *name, const struct cs_est *est) {
+static void cs_print_time_estimate(const char *name, const struct cs_est *est) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->lower);
     cs_print_time(buf2, sizeof(buf2), est->point);
@@ -1600,8 +1553,7 @@ cs_print_time_estimate(const char *name, const struct cs_est *est) {
     printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
 }
 
-static void
-cs_print_time_distr(const struct cs_distr *dist) {
+static void cs_print_time_distr(const struct cs_distr *dist) {
     char buf1[256], buf2[256];
     cs_print_time(buf1, sizeof(buf1), dist->min);
     cs_print_time(buf2, sizeof(buf2), dist->max);
@@ -1610,8 +1562,7 @@ cs_print_time_distr(const struct cs_distr *dist) {
     cs_print_time_estimate("st dev", &dist->st_dev);
 }
 
-static void
-cs_print_estimate(const char *name, const struct cs_est *est) {
+static void cs_print_estimate(const char *name, const struct cs_est *est) {
     char buf1[256], buf2[256], buf3[256];
     snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
     snprintf(buf2, sizeof(buf1), "%.5g", est->point);
@@ -1619,15 +1570,14 @@ cs_print_estimate(const char *name, const struct cs_est *est) {
     printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
-static void
-cs_print_distr(const struct cs_distr *dist) {
+static void cs_print_distr(const struct cs_distr *dist) {
     printf("min %.5g max %.5g\n", dist->min, dist->max);
     cs_print_estimate("mean", &dist->mean);
     cs_print_estimate("st dev", &dist->st_dev);
 }
 
-static void
-cs_print_outliers(const struct cs_outliers *outliers, size_t run_count) {
+static void cs_print_outliers(const struct cs_outliers *outliers,
+                              size_t run_count) {
     size_t outlier_count = outliers->low_mild + outliers->high_mild +
                            outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -1649,9 +1599,8 @@ cs_print_outliers(const struct cs_outliers *outliers, size_t run_count) {
     }
 }
 
-static void
-cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
-                     struct cs_bench_analysis *analysis) {
+static void cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
+                                 struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
     analysis->bench = bench;
     cs_estimate_distr(bench->wallclocks, count, nresamp, &analysis->wall_distr);
@@ -1662,8 +1611,7 @@ cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
                           analysis->custom_meas + i);
 }
 
-static void
-cs_print_exit_code_info(const struct cs_bench *bench) {
+static void cs_print_exit_code_info(const struct cs_bench *bench) {
     size_t count_nonzero = 0;
     for (size_t i = 0; i < bench->run_count; ++i)
         if (bench->exit_codes[i] != 0)
@@ -1677,15 +1625,14 @@ cs_print_exit_code_info(const struct cs_bench *bench) {
     }
 }
 
-static void
-cs_print_outlier_var(double var) {
+static void cs_print_outlier_var(double var) {
     printf("outlying measurements have %s (%.1f%%) effect on estimated "
            "standard deviation\n",
            cs_outliers_variance_str(var), var * 100.0);
 }
 
-static void
-cs_print_benchmark_info(const struct cs_bench_analysis *analysis, int no_time) {
+static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
+                                    int no_time) {
     const struct cs_bench *bench = analysis->bench;
     printf("command\t'%s'\n", bench->cmd->str);
     printf("%zu runs\n", bench->run_count);
@@ -1708,8 +1655,8 @@ cs_print_benchmark_info(const struct cs_bench_analysis *analysis, int no_time) {
     }
 }
 
-static int
-cs_extract_exec_and_argv(const char *cmd_str, char **exec, char ***argv) {
+static int cs_extract_exec_and_argv(const char *cmd_str, char **exec,
+                                    char ***argv) {
     int rc = 0;
     char **words = cs_split_shell_words(cmd_str);
     if (words == NULL) {
@@ -1730,27 +1677,22 @@ cs_extract_exec_and_argv(const char *cmd_str, char **exec, char ***argv) {
     return rc;
 }
 
-static int
-cs_init_cmd_exec(const char *shell, const char *cmd_str, struct cs_cmd *cmd) {
+static int cs_init_cmd_exec(const char *shell, const char *cmd_str,
+                            struct cs_cmd *cmd) {
+    if (cs_extract_exec_and_argv(shell, &cmd->exec, &cmd->argv) != 0)
+        return -1;
     if (shell) {
-        if (cs_extract_exec_and_argv(shell, &cmd->exec, &cmd->argv) != 0)
-            return -1;
         // pop NULL
         (void)cs_sb_pop(cmd->argv);
         cs_sb_push(cmd->argv, strdup("-c"));
         cs_sb_push(cmd->argv, strdup(cmd_str));
         cs_sb_push(cmd->argv, NULL);
-    } else {
-        if (cs_extract_exec_and_argv(cmd_str, &cmd->exec, &cmd->argv) != 0)
-            return -1;
     }
     cmd->str = strdup(cmd_str);
-
     return 0;
 }
 
-static void
-cs_free_settings(struct cs_settings *settings) {
+static void cs_free_settings(struct cs_settings *settings) {
     for (size_t i = 0; i < cs_sb_len(settings->cmds); ++i) {
         struct cs_cmd *cmd = settings->cmds + i;
         free(cmd->exec);
@@ -1769,9 +1711,8 @@ cs_free_settings(struct cs_settings *settings) {
     cs_sb_free(settings->cmd_groups);
 }
 
-static void
-cs_replace_str(char *buf, size_t buf_size, const char *src, const char *name,
-               const char *value) {
+static void cs_replace_str(char *buf, size_t buf_size, const char *src,
+                           const char *name, const char *value) {
     // TODO: this should handle buffer overflow
     (void)buf_size;
     size_t param_name_len = strlen(name);
@@ -1792,9 +1733,8 @@ cs_replace_str(char *buf, size_t buf_size, const char *src, const char *name,
     *wr_cursor = '\0';
 }
 
-static int
-cs_init_settings(const struct cs_cli_settings *cli,
-                 struct cs_settings *settings) {
+static int cs_init_settings(const struct cs_cli_settings *cli,
+                            struct cs_settings *settings) {
     settings->bench_stop = cli->bench_stop;
     settings->warmup_time = cli->warmup_time;
     settings->export = cli->export;
@@ -1806,6 +1746,8 @@ cs_init_settings(const struct cs_cli_settings *cli,
     settings->plot_src = cli->plot_src;
     settings->no_time = cli->no_time;
 
+    // try to catch invalid file as early as possible,
+    // because later error handling can become troublesome (after fork()).
     if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
         access(cli->input_policy.file, R_OK) == -1) {
         fprintf(stderr,
@@ -1879,8 +1821,7 @@ err_free_settings:
     return -1;
 }
 
-static void
-cs_free_cli_settings(struct cs_cli_settings *settings) {
+static void cs_free_cli_settings(struct cs_cli_settings *settings) {
     for (size_t i = 0; i < cs_sb_len(settings->params); ++i) {
         struct cs_bench_param *param = settings->params + i;
         free(param->name);
@@ -1893,8 +1834,7 @@ cs_free_cli_settings(struct cs_cli_settings *settings) {
     cs_sb_free(settings->params);
 }
 
-static void
-cs_compare_benches(struct cs_bench_results *results) {
+static void cs_compare_benches(struct cs_bench_results *results) {
     if (results->bench_count == 1)
         return;
 
@@ -1913,9 +1853,9 @@ cs_compare_benches(struct cs_bench_results *results) {
     results->fastest_idx = best_idx;
 }
 
-static int
-cs_export_json(const struct cs_settings *settings,
-               const struct cs_bench_results *results, const char *filename) {
+static int cs_export_json(const struct cs_settings *settings,
+                          const struct cs_bench_results *results,
+                          const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
@@ -1967,10 +1907,9 @@ cs_export_json(const struct cs_settings *settings,
     return 0;
 }
 
-static int
-cs_handle_export(const struct cs_settings *settings,
-                 const struct cs_bench_results *results,
-                 const struct cs_export_policy *policy) {
+static int cs_handle_export(const struct cs_settings *settings,
+                            const struct cs_bench_results *results,
+                            const struct cs_export_policy *policy) {
     switch (policy->kind) {
     case CS_EXPORT_JSON:
         return cs_export_json(settings, results, policy->filename);
@@ -1981,9 +1920,9 @@ cs_handle_export(const struct cs_settings *settings,
     return 0;
 }
 
-static void
-cs_make_whisker_plot(const struct cs_bench *benches, size_t bench_count,
-                     const char *output_filename, FILE *f) {
+static void cs_make_whisker_plot(const struct cs_bench *benches,
+                                 size_t bench_count,
+                                 const char *output_filename, FILE *f) {
     fprintf(f, "data = [");
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
@@ -2010,9 +1949,9 @@ cs_make_whisker_plot(const struct cs_bench *benches, size_t bench_count,
             output_filename);
 }
 
-static void
-cs_make_violin_plot(const struct cs_bench *benches, size_t bench_count,
-                    const char *output_filename, FILE *f) {
+static void cs_make_violin_plot(const struct cs_bench *benches,
+                                size_t bench_count, const char *output_filename,
+                                FILE *f) {
     fprintf(f, "data = [");
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
@@ -2039,8 +1978,7 @@ cs_make_violin_plot(const struct cs_bench *benches, size_t bench_count,
             output_filename);
 }
 
-static void
-cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
+static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
     fprintf(f, "y = [");
     for (size_t i = 0; i < plot->count; ++i)
         fprintf(f, "%f, ", plot->data[i]);
@@ -2064,8 +2002,7 @@ cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
             plot->output_filename);
 }
 
-static void
-cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
+static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
     double max_y = 0;
     for (size_t i = 0; i < plot->count; ++i)
         if (plot->data[i] > max_y)
@@ -2146,9 +2083,8 @@ cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             plot->xlabel, plot->output_filename);
 }
 
-static void
-cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
-                   const char *output_filename, FILE *f) {
+static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
+                               const char *output_filename, FILE *f) {
     fprintf(f, "x = [");
     for (size_t i = 0; i < analysis->cmd_count; ++i)
         fprintf(f, "%f, ", analysis->data[i].value_double);
@@ -2180,8 +2116,7 @@ cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
             output_filename);
 }
 
-static int
-cs_python_found(void) {
+static int cs_python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -2199,8 +2134,7 @@ cs_python_found(void) {
     return cs_process_finished_correctly(pid);
 }
 
-static int
-cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
+static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
         return -1;
@@ -2235,8 +2169,7 @@ cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     return 0;
 }
 
-static int
-cs_python_has_matplotlib(void) {
+static int cs_python_has_matplotlib(void) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid))
@@ -2247,9 +2180,9 @@ cs_python_has_matplotlib(void) {
     return cs_process_finished_correctly(pid);
 }
 
-static void
-cs_construct_kde(const struct cs_distr *distr, double *kde, size_t kde_size,
-                 int is_ext, double *lowerp, double *stepp) {
+static void cs_construct_kde(const struct cs_distr *distr, double *kde,
+                             size_t kde_size, int is_ext, double *lowerp,
+                             double *stepp) {
     size_t count = distr->count;
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
@@ -2283,9 +2216,8 @@ cs_construct_kde(const struct cs_distr *distr, double *kde, size_t kde_size,
     *stepp = step;
 }
 
-static void
-cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
-                 struct cs_kde_plot *plot) {
+static void cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
+                             struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->distr = distr;
     plot->count = kde_points;
@@ -2308,14 +2240,10 @@ cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
     }
 }
 
-static void
-cs_free_kde_plot(struct cs_kde_plot *plot) {
-    free(plot->data);
-}
+static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
-static int
-cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
-                const char *output_filename) {
+static int cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
+                           const char *output_filename) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -2331,9 +2259,8 @@ cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
     return 0;
 }
 
-static int
-cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
-               const char *output_filename) {
+static int cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
+                          const char *output_filename) {
     FILE *script;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
@@ -2349,9 +2276,9 @@ cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
     return 0;
 }
 
-static int
-cs_kde_plot(const struct cs_distr *distr, const char *title, const char *xlabel,
-            const char *output_filename, int is_ext) {
+static int cs_kde_plot(const struct cs_distr *distr, const char *title,
+                       const char *xlabel, const char *output_filename,
+                       int is_ext) {
     int ret = 0;
     struct cs_kde_plot plot = {0};
     plot.output_filename = output_filename;
@@ -2379,9 +2306,8 @@ out:
     return ret;
 }
 
-static int
-cs_group_plot(const struct cs_cmd_group_analysis *analysis,
-              const char *output_filename) {
+static int cs_group_plot(const struct cs_cmd_group_analysis *analysis,
+                         const char *output_filename) {
     int ret = 0;
     FILE *script;
     pid_t pid;
@@ -2399,9 +2325,8 @@ cs_group_plot(const struct cs_cmd_group_analysis *analysis,
     return ret;
 }
 
-static int
-cs_make_plots(const struct cs_bench_results *results, int no_time,
-              const char *analyze_dir) {
+static int cs_make_plots(const struct cs_bench_results *results, int no_time,
+                         const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
     const struct cs_bench_analysis *analyses = results->analyses;
@@ -2465,9 +2390,8 @@ cs_make_plots(const struct cs_bench_results *results, int no_time,
     return 0;
 }
 
-static void
-cs_ref_speed(double u1, double sigma1, double u2, double sigma2, double *ref_u,
-             double *ref_sigma) {
+static void cs_ref_speed(double u1, double sigma1, double u2, double sigma2,
+                         double *ref_u, double *ref_sigma) {
     double ref = u1 / u2;
     // propagate standard deviation for formula (t1 / t2)
     double a = sigma1 / u1;
@@ -2478,8 +2402,7 @@ cs_ref_speed(double u1, double sigma1, double u2, double sigma2, double *ref_u,
     *ref_sigma = ref_st_dev;
 }
 
-static const char *
-cs_big_o_str(enum cs_big_o complexity) {
+static const char *cs_big_o_str(enum cs_big_o complexity) {
     switch (complexity) {
     case CS_O_1:
         return "constant (O(1))";
@@ -2497,8 +2420,8 @@ cs_big_o_str(enum cs_big_o complexity) {
     return NULL;
 }
 
-static void
-cs_html_time_estimate(const char *name, const struct cs_est *est, FILE *f) {
+static void cs_html_time_estimate(const char *name, const struct cs_est *est,
+                                  FILE *f) {
     char buf1[256], buf2[256], buf3[256];
     cs_print_time(buf1, sizeof(buf1), est->lower);
     cs_print_time(buf2, sizeof(buf2), est->point);
@@ -2513,8 +2436,8 @@ cs_html_time_estimate(const char *name, const struct cs_est *est, FILE *f) {
             name, buf1, buf2, buf3);
 }
 
-static void
-cs_html_estimate(const char *name, const struct cs_est *est, FILE *f) {
+static void cs_html_estimate(const char *name, const struct cs_est *est,
+                             FILE *f) {
     fprintf(f,
             "<tr>"
             "<td>%s</td>"
@@ -2525,9 +2448,8 @@ cs_html_estimate(const char *name, const struct cs_est *est, FILE *f) {
             name, est->lower, est->point, est->upper);
 }
 
-static void
-cs_html_outliers(const struct cs_outliers *outliers, double outlier_var,
-                 size_t run_count, FILE *f) {
+static void cs_html_outliers(const struct cs_outliers *outliers,
+                             double outlier_var, size_t run_count, FILE *f) {
     size_t outlier_count = outliers->low_mild + outliers->high_mild +
                            outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -2555,9 +2477,8 @@ cs_html_outliers(const struct cs_outliers *outliers, double outlier_var,
             cs_outliers_variance_str(outlier_var), outlier_var * 100.0);
 }
 
-static void
-cs_html_wall_distr(const struct cs_bench_analysis *analysis, size_t i,
-                   FILE *f) {
+static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
+                               size_t i, FILE *f) {
     const struct cs_bench *bench = analysis->bench;
     fprintf(f,
             "<div class=\"row\">"
@@ -2591,9 +2512,10 @@ cs_html_wall_distr(const struct cs_bench_analysis *analysis, size_t i,
     fprintf(f, "</div></div></div>");
 }
 
-static void
-cs_html_custom_distr(const struct cs_bench *bench, const struct cs_distr *distr,
-                     const struct cs_custom_meas *info, size_t i, FILE *f) {
+static void cs_html_custom_distr(const struct cs_bench *bench,
+                                 const struct cs_distr *distr,
+                                 const struct cs_custom_meas *info, size_t i,
+                                 FILE *f) {
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>%s kde plot</h3>"
@@ -2629,10 +2551,9 @@ cs_html_custom_distr(const struct cs_bench *bench, const struct cs_distr *distr,
     fprintf(f, "</div></div></div>");
 }
 
-static void
-cs_html_compare(const struct cs_bench_analysis *best,
-                const struct cs_bench_analysis *analyses, size_t bench_count,
-                FILE *f) {
+static void cs_html_compare(const struct cs_bench_analysis *best,
+                            const struct cs_bench_analysis *analyses,
+                            size_t bench_count, FILE *f) {
     fprintf(f,
             "<h2>comparison</h2>"
             "<div class=\"row\"><div class=\"col\">"
@@ -2655,9 +2576,8 @@ cs_html_compare(const struct cs_bench_analysis *best,
     fprintf(f, "</ul></div></div>");
 }
 
-static void
-cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis, size_t i,
-                  FILE *f) {
+static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
+                              size_t i, FILE *f) {
     const struct cs_cmd_group *group = analysis->group;
     fprintf(f,
             "<h2>group '%s' with parameter %s</h2>"
@@ -2684,8 +2604,8 @@ cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis, size_t i,
     fprintf(f, "</div></div>");
 }
 
-static void
-cs_html_report(const struct cs_bench_results *results, int no_time, FILE *f) {
+static void cs_html_report(const struct cs_bench_results *results, int no_time,
+                           FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -2741,9 +2661,8 @@ cs_open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
-static int
-cs_make_html_report(const struct cs_bench_results *results, int no_time,
-                    const char *analyze_dir) {
+static int cs_make_html_report(const struct cs_bench_results *results,
+                               int no_time, const char *analyze_dir) {
     FILE *f = cs_open_file_fmt("w", "%s/index.html", analyze_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/index.html\n",
@@ -2755,9 +2674,8 @@ cs_make_html_report(const struct cs_bench_results *results, int no_time,
     return 0;
 }
 
-static int
-cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
-                 const char *analyze_dir) {
+static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
+                            const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
     char buf[4096];
@@ -2840,10 +2758,9 @@ cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
     return 0;
 }
 
-static int
-cs_handle_analyze(const struct cs_bench_results *results,
-                  enum cs_analyze_mode mode, const char *analyze_dir,
-                  int plot_src, int no_time) {
+static int cs_handle_analyze(const struct cs_bench_results *results,
+                             enum cs_analyze_mode mode, const char *analyze_dir,
+                             int plot_src, int no_time) {
     if (mode == CS_DONT_ANALYZE)
         return 0;
 
@@ -2880,9 +2797,8 @@ cs_handle_analyze(const struct cs_bench_results *results,
     return 0;
 }
 
-static int
-cs_run_benches(const struct cs_settings *settings,
-               struct cs_bench_results *results) {
+static int cs_run_benches(const struct cs_settings *settings,
+                          struct cs_bench_results *results) {
     results->bench_count = cs_sb_len(settings->cmds);
     results->benches = calloc(results->bench_count, sizeof(*results->benches));
     for (size_t i = 0; i < results->bench_count; ++i) {
@@ -2904,8 +2820,7 @@ cs_run_benches(const struct cs_settings *settings,
     return 0;
 }
 
-static int
-cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
+static int cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
     const struct cs_cmd_in_group_data *a = arg1;
     const struct cs_cmd_in_group_data *b = arg2;
     if (a->mean < b->mean)
@@ -2915,9 +2830,8 @@ cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
     return 0;
 }
 
-static void
-cs_analyze_cmd_groups(const struct cs_settings *settings,
-                      struct cs_bench_results *results) {
+static void cs_analyze_cmd_groups(const struct cs_settings *settings,
+                                  struct cs_bench_results *results) {
     size_t group_count = results->group_count = cs_sb_len(settings->cmd_groups);
     results->group_count = group_count;
     results->group_analyses =
@@ -2972,9 +2886,8 @@ cs_analyze_cmd_groups(const struct cs_settings *settings,
     }
 }
 
-static void
-cs_analyze_benches(const struct cs_settings *settings,
-                   struct cs_bench_results *results) {
+static void cs_analyze_benches(const struct cs_settings *settings,
+                               struct cs_bench_results *results) {
     results->analyses =
         calloc(results->bench_count, sizeof(*results->analyses));
     for (size_t i = 0; i < results->bench_count; ++i) {
@@ -2992,8 +2905,7 @@ cs_analyze_benches(const struct cs_settings *settings,
     cs_analyze_cmd_groups(settings, results);
 }
 
-static void
-cs_print_cmd_comparison(const struct cs_bench_results *results) {
+static void cs_print_cmd_comparison(const struct cs_bench_results *results) {
     if (results->bench_count == 1)
         return;
 
@@ -3041,8 +2953,8 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
     }
 }
 
-static void
-cs_print_analysis(const struct cs_bench_results *results, int no_time) {
+static void cs_print_analysis(const struct cs_bench_results *results,
+                              int no_time) {
     for (size_t i = 0; i < results->bench_count; ++i)
         cs_print_benchmark_info(results->analyses + i, no_time);
 
@@ -3050,8 +2962,7 @@ cs_print_analysis(const struct cs_bench_results *results, int no_time) {
     cs_print_cmd_group_analysis(results);
 }
 
-static void
-cs_free_bench_results(struct cs_bench_results *results) {
+static void cs_free_bench_results(struct cs_bench_results *results) {
     // these ifs are needed because results can be partially initialized in
     // case of failure
     if (results->benches) {
@@ -3084,8 +2995,7 @@ cs_free_bench_results(struct cs_bench_results *results) {
     free(results->group_analyses);
 }
 
-static int
-cs_run(const struct cs_settings *settings) {
+static int cs_run(const struct cs_settings *settings) {
     int ret = -1;
     struct cs_bench_results results = {0};
     if (cs_run_benches(settings, &results) == -1)
@@ -3105,8 +3015,7 @@ out:
     return ret;
 }
 
-int
-main(int argc, char **argv) {
+int main(int argc, char **argv) {
     int rc = EXIT_FAILURE;
     struct cs_cli_settings cli = {0};
     cs_parse_cli_args(argc, argv, &cli);
