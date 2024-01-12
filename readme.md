@@ -11,10 +11,10 @@ This tools aims to address that issue.
 
 Writing benchmarks for any parameter requires wasting time on boilerplate task-specific code which performs counting of some parameters with further analysis.
 
-Undoubtably, complex benchmarks with strict requirements demand high level of detail, but in most cases simpler solution would suffice. 
+Undoubtedly, complex benchmarks with strict requirements demand high level of detail, but in most cases simpler solution would suffice. 
 But still work from the developer is being done akin to more complex task.
 
-`csbench` tries to be *good enough* for purposes of unsofisticated benchmarking. 
+`csbench` tries to be *good enough* for purposes of unsophisticated benchmarking. 
 
 ## What can it do?
 
@@ -29,6 +29,8 @@ But still work from the developer is being done akin to more complex task.
 It does not has any dependencies for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.
 
 ## Examples
+
+Also see [user guide](docs/user_guide.md).
 
 `csbench` can be used to compare execution time of multiple commands.
 Also see [generated html report](https://holodome.github.io/csbench).
