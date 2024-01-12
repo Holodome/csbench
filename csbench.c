@@ -2490,7 +2490,143 @@ cs_big_o_str(enum cs_big_o complexity) {
 }
 
 static void
-cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
+cs_html_time_estimate(const char *name, const struct cs_est *est, FILE *f) {
+    char buf1[256], buf2[256], buf3[256];
+    cs_print_time(buf1, sizeof(buf1), est->lower);
+    cs_print_time(buf2, sizeof(buf2), est->point);
+    cs_print_time(buf3, sizeof(buf3), est->upper);
+    fprintf(f,
+            "<tr>"
+            "<td>%s</td>"
+            "<td class=\"est-bound\">%s</td>"
+            "<td>%s</td>"
+            "<td class=\"est-bound\">%s</td>"
+            "</tr>",
+            name, buf1, buf2, buf3);
+}
+
+static void
+cs_html_estimate(const char *name, const struct cs_est *est, FILE *f) {
+    char buf1[256], buf2[256], buf3[256];
+    snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
+    snprintf(buf2, sizeof(buf2), "%.5g", est->point);
+    snprintf(buf3, sizeof(buf3), "%.5g", est->upper);
+    fprintf(f,
+            "<tr>"
+            "<td>%s</td>"
+            "<td class=\"est-bound\">%s</td>"
+            "<td>%s</td>"
+            "<td class=\"est-bound\">%s</td>"
+            "</tr>",
+            name, buf1, buf2, buf3);
+}
+
+static void
+cs_html_outliers(const struct cs_outliers *outliers, double outlier_var,
+                 size_t run_count, FILE *f) {
+    size_t outlier_count = outliers->low_mild + outliers->high_mild +
+                           outliers->low_severe + outliers->high_severe;
+    if (outlier_count != 0) {
+        fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>", outlier_count,
+                (double)outlier_count / run_count * 100.0);
+        if (outliers->low_severe)
+            fprintf(f, "<li>%zu (%.2f%%) low severe</li>", outliers->low_severe,
+                    (double)outliers->low_severe / run_count * 100.0);
+        if (outliers->low_mild)
+            fprintf(f, "<li>%zu (%.2f%%) low mild</li>", outliers->low_mild,
+                    (double)outliers->low_mild / run_count * 100.0);
+        if (outliers->high_mild)
+            fprintf(f, "<li>%zu (%.2f%%) high mild</li>", outliers->high_mild,
+                    (double)outliers->high_mild / run_count * 100.0);
+        if (outliers->high_severe)
+            fprintf(f, "<li>%zu (%.2f%%) high severe</li>",
+                    outliers->high_severe,
+                    (double)outliers->high_severe / run_count * 100.0);
+        fprintf(f, "</ul>");
+    }
+    fprintf(f,
+            "<p>outlying measurements have %s (%.1f%%) effect on "
+            "estimated "
+            "standard deviation</p>",
+            cs_outliers_variance_str(outlier_var), outlier_var * 100.0);
+}
+
+static void
+cs_html_wall_distr(const struct cs_bench_analysis *analysis, size_t i,
+                   FILE *f) {
+    const struct cs_bench *bench = analysis->bench;
+    fprintf(f,
+            "<div class=\"row\">"
+            "<div class=\"col\"><h3>time kde plot</h3>"
+            "<a href=\"kde_ext_%zu_wall.svg\"><img "
+            "src=\"kde_%zu_wall.svg\"></a></div>",
+            i, i);
+    fprintf(f,
+            "<div class=\"col\"><h3>statistics</h3>"
+            "<div class=\"stats\">"
+            "<p>%zu runs</p>",
+            bench->run_count);
+    char buf[256];
+    cs_print_time(buf, sizeof(buf), analysis->wall_distr.min);
+    fprintf(f, "<p>min %s</p>", buf);
+    cs_print_time(buf, sizeof(buf), analysis->wall_distr.max);
+    fprintf(f, "<p>max %s</p>", buf);
+    fprintf(f, "<table><thead><tr>"
+               "<th></th>"
+               "<th class=\"est-bound\">lower bound</th>"
+               "<th class=\"est-bound\">estimate</th>"
+               "<th class=\"est-bound\">upper bound</th>"
+               "</tr></thead><tbody>");
+    cs_html_time_estimate("mean", &analysis->wall_distr.mean, f);
+    cs_html_time_estimate("st dev", &analysis->wall_distr.st_dev, f);
+    cs_html_time_estimate("systime", &analysis->systime_est, f);
+    cs_html_time_estimate("usrtime", &analysis->usertime_est, f);
+    fprintf(f, "</tbody></table>");
+    cs_html_outliers(&analysis->wall_distr.outliers,
+                     analysis->wall_distr.outlier_var, bench->run_count, f);
+    fprintf(f, "</div></div></div>");
+}
+
+static void
+cs_html_custom_distr(const struct cs_bench *bench, const struct cs_distr *distr,
+                     const struct cs_custom_meas *info, size_t i, FILE *f) {
+    fprintf(f,
+            "<div class=\"row\">"
+            "<div class=\"col\"><h3>%s kde plot</h3>"
+            "<a href=\"kde_ext_%zu_%s.svg\"><img "
+            "src=\"kde_%zu_%s.svg\"></a></div>",
+            info->name, i, info->name, i, info->name);
+    fprintf(f,
+            "<div class=\"col\"><h3>statistics</h3>"
+            "<div class=\"stats\">"
+            "<p>%zu runs</p>",
+            bench->run_count);
+    char buf[256];
+    if (info->units == NULL)
+        cs_print_time(buf, sizeof(buf), distr->min);
+    else
+        snprintf(buf, sizeof(buf), "%.5g %s", distr->min, info->units);
+    fprintf(f, "<p>min %s</p>", buf);
+    if (info->units == NULL)
+        cs_print_time(buf, sizeof(buf), distr->min);
+    else
+        snprintf(buf, sizeof(buf), "%.5g", distr->min);
+    fprintf(f, "<p>max %s</p>", buf);
+    fprintf(f, "<table><thead><tr>"
+               "<th></th>"
+               "<th class=\"est-bound\">lower bound</th>"
+               "<th class=\"est-bound\">estimate</th>"
+               "<th class=\"est-bound\">upper bound</th>"
+               "</tr></thead><tbody>");
+    cs_html_estimate("mean", &distr->mean, f);
+    cs_html_estimate("st dev", &distr->st_dev, f);
+    fprintf(f, "</tbody></table>");
+    cs_html_outliers(&distr->outliers, distr->outlier_var, bench->run_count, f);
+    fprintf(f, "</div></div></div>");
+}
+
+static void
+cs_html_report(const struct cs_bench_results *results, FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -2511,84 +2647,14 @@ cs_print_html_report(const struct cs_bench_results *results, FILE *f) {
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
-        fprintf(f, "<h2>command '%s'</h2>", bench->cmd->str);
-        fprintf(f, "<div class=\"row\">");
-        fprintf(f, "<div class=\"col\"><h3>time kde plot</h3>");
-        fprintf(f,
-                "<a href=\"kde_ext_%zu.svg\"><img "
-                "src=\"kde_%zu.svg\"></a></div>",
-                i + 1, i + 1);
-        fprintf(f, "<div class=\"col\"><h3>statistics</h3>");
-        fprintf(f, "<div class=\"stats\">");
-        fprintf(f, "<p>%zu runs</p>", bench->run_count);
-        char buf[256];
-        cs_print_time(buf, sizeof(buf), analysis->wall_distr.min);
-        fprintf(f, "<p>min %s</p>", buf);
-        cs_print_time(buf, sizeof(buf), analysis->wall_distr.max);
-        fprintf(f, "<p>max %s</p>", buf);
-        fprintf(f, "<table>");
-        fprintf(f, "<thead><tr>"
-                   "<th></th>"
-                   "<th class=\"est-bound\">lower bound</th>"
-                   "<th class=\"est-bound\">estimate</th>"
-                   "<th class=\"est-bound\">upper bound</th>"
-                   "</tr></thead><tbody>");
-#define cs_html_estimate(_name, _est)                                          \
-    do {                                                                       \
-        char buf1[256], buf2[256], buf3[256];                                  \
-        cs_print_time(buf1, sizeof(buf1), (_est)->lower);                      \
-        cs_print_time(buf2, sizeof(buf2), (_est)->point);                      \
-        cs_print_time(buf3, sizeof(buf3), (_est)->upper);                      \
-        fprintf(f,                                                             \
-                "<tr>"                                                         \
-                "<td>" _name "</td>"                                           \
-                "<td class=\"est-bound\">%s</td>"                              \
-                "<td>%s</td>"                                                  \
-                "<td class=\"est-bound\">%s</td>"                              \
-                "</tr>",                                                       \
-                buf1, buf2, buf3);                                             \
-    } while (0)
-        cs_html_estimate("mean", &analysis->wall_distr.mean);
-        cs_html_estimate("st dev", &analysis->wall_distr.st_dev);
-        cs_html_estimate("systime", &analysis->systime_est);
-        cs_html_estimate("usrtime", &analysis->usertime_est);
-#undef cs_html_estimate
-        fprintf(f, "</tbody></table>");
-        {
-            const struct cs_outliers *outliers = &analysis->wall_distr.outliers;
-            size_t outlier_count = outliers->low_mild + outliers->high_mild +
-                                   outliers->low_severe + outliers->high_severe;
-            if (outlier_count != 0) {
-                size_t run_count = bench->run_count;
-                fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>",
-                        outlier_count,
-                        (double)outlier_count / bench->run_count * 100.0);
-                if (outliers->low_severe)
-                    fprintf(f, "<li>%zu (%.2f%%) low severe</li>",
-                            outliers->low_severe,
-                            (double)outliers->low_severe / run_count * 100.0);
-                if (outliers->low_mild)
-                    fprintf(f, "<li>%zu (%.2f%%) low mild</li>",
-                            outliers->low_mild,
-                            (double)outliers->low_mild / run_count * 100.0);
-                if (outliers->high_mild)
-                    fprintf(f, "<li>%zu (%.2f%%) high mild</li>",
-                            outliers->high_mild,
-                            (double)outliers->high_mild / run_count * 100.0);
-                if (outliers->high_severe)
-                    fprintf(f, "<li>%zu (%.2f%%) high severe</li>",
-                            outliers->high_severe,
-                            (double)outliers->high_severe / run_count * 100.0);
-                fprintf(f, "</ul>");
-            }
-            fprintf(f,
-                    "<p>outlying measurements have %s (%.1f%%) effect on "
-                    "estimated "
-                    "standard deviation</p>",
-                    cs_outliers_variance_str(analysis->wall_distr.outlier_var),
-                    analysis->wall_distr.outlier_var * 100.0);
+        fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
+        cs_html_wall_distr(analysis, i + 1, f);
+        for (size_t j = 0; j < bench->custom_meas_count; ++j) {
+            const struct cs_distr *distr = analysis->custom_meas + j;
+            const struct cs_custom_meas *info = bench->cmd->custom_meas + j;
+            cs_html_custom_distr(bench, distr, info, i + 1, f);
         }
-        fprintf(f, "</div></div></div>");
+        fprintf(f, "</div>");
     }
 
     if (results->bench_count != 1) {
@@ -2658,7 +2724,7 @@ cs_make_html_report(const struct cs_bench_results *results,
         return -1;
     }
 
-    cs_print_html_report(results, f);
+    cs_html_report(results, f);
     fclose(f);
     return 0;
 }
