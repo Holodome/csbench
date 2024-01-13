@@ -256,7 +256,7 @@ struct cs_cpu_time {
     double system_time;
 };
 
-struct cs_whisker_plot {
+struct cs_violin_plot {
     size_t count;
     double **data;
     char *ylabel;
@@ -2333,10 +2333,10 @@ static char *cs_axis_label(const struct cs_custom_meas *meas) {
     return str;
 }
 
-static void cs_init_whisker_plot_wall(const struct cs_bench *benches,
-                                      size_t bench_count,
-                                      const char *output_filename,
-                                      struct cs_whisker_plot *plot) {
+static void cs_init_violin_plot_wall(const struct cs_bench *benches,
+                                     size_t bench_count,
+                                     const char *output_filename,
+                                     struct cs_violin_plot *plot) {
     plot->output_filename = output_filename;
     plot->count = bench_count;
     plot->benches = benches;
@@ -2350,10 +2350,10 @@ static void cs_init_whisker_plot_wall(const struct cs_bench *benches,
     }
 }
 
-static void cs_init_whisker_plot_custom(const struct cs_bench *benches,
-                                        size_t bench_count, size_t custom_idx,
-                                        const char *output_filename,
-                                        struct cs_whisker_plot *plot) {
+static void cs_init_violin_plot_custom(const struct cs_bench *benches,
+                                       size_t bench_count, size_t custom_idx,
+                                       const char *output_filename,
+                                       struct cs_violin_plot *plot) {
     plot->output_filename = output_filename;
     plot->count = bench_count;
     plot->benches = benches;
@@ -2367,34 +2367,7 @@ static void cs_init_whisker_plot_custom(const struct cs_bench *benches,
     }
 }
 
-static void cs_make_whisker_plot(const struct cs_whisker_plot *plot, FILE *f) {
-    fprintf(f, "data = [");
-    for (size_t i = 0; i < plot->count; ++i) {
-        const struct cs_bench *bench = plot->benches + i;
-        fprintf(f, "[");
-        for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%g, ", plot->data[i][j]);
-        fprintf(f, "], ");
-    }
-    fprintf(f, "]\n");
-    fprintf(f, "names = [");
-    for (size_t i = 0; i < plot->count; ++i) {
-        const struct cs_bench *bench = plot->benches + i;
-        fprintf(f, "'%s', ", bench->cmd->str);
-    }
-    fprintf(f, "]\n");
-    fprintf(f,
-            "import matplotlib.pyplot as plt\n"
-            "plt.ioff()\n"
-            "plt.xlabel('command')\n"
-            "plt.ylabel('%s')\n"
-            "plt.boxplot(data)\n"
-            "plt.xticks(list(range(1, len(names) + 1)), names)\n"
-            "plt.savefig('%s')\n",
-            plot->ylabel, plot->output_filename);
-}
-
-static void cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *f) {
+static void cs_make_violin_plot(const struct cs_violin_plot *plot, FILE *f) {
     fprintf(f, "data = [");
     for (size_t i = 0; i < plot->count; ++i) {
         const struct cs_bench *bench = plot->benches + i;
@@ -2421,7 +2394,7 @@ static void cs_make_violin_plot(const struct cs_whisker_plot *plot, FILE *f) {
             plot->ylabel, plot->output_filename);
 }
 
-static void cs_free_whisker_plot(struct cs_whisker_plot *plot) {
+static void cs_free_violin_plot(struct cs_violin_plot *plot) {
     for (size_t i = 0; i < plot->count; ++i)
         free(plot->data[i]);
     free(plot->data);
@@ -2654,23 +2627,7 @@ static void cs_free_kde_plot(struct cs_kde_plot *plot) {
     free(plot->xlabel);
 }
 
-static int cs_whisker_plot(const struct cs_whisker_plot *plot) {
-    FILE *f;
-    pid_t pid;
-    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
-        fprintf(stderr, "error: failed to launch python\n");
-        return -1;
-    }
-    cs_make_whisker_plot(plot, f);
-    fclose(f);
-    if (!cs_process_finished_correctly(pid)) {
-        fprintf(stderr, "error: python finished with non-zero exit code\n");
-        return -1;
-    }
-    return 0;
-}
-
-static int cs_violin_plot(const struct cs_whisker_plot *plot) {
+static int cs_violin_plot(const struct cs_violin_plot *plot) {
     FILE *f;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
@@ -2732,31 +2689,18 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
 
     if (!no_time) {
         {
-            f = cs_open_file_fmt("w", "%s/whisker.py", analyze_dir);
+            f = cs_open_file_fmt("w", "%s/violin_wall.py", analyze_dir);
             if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s/whisker.py\n",
+                fprintf(stderr,
+                        "error: failed to create file %s/violin_wall.py\n",
                         analyze_dir);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/whisker.svg", analyze_dir);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_wall(benches, bench_count, buf, &plot);
-            cs_make_whisker_plot(&plot, f);
-            cs_free_whisker_plot(&plot);
-            fclose(f);
-        }
-        {
-            f = cs_open_file_fmt("w", "%s/violin.py", analyze_dir);
-            if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s/violin.py\n",
-                        analyze_dir);
-                return -1;
-            }
-            snprintf(buf, sizeof(buf), "%s/violin.svg", analyze_dir);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_wall(benches, bench_count, buf, &plot);
+            snprintf(buf, sizeof(buf), "%s/violin_wall.svg", analyze_dir);
+            struct cs_violin_plot plot = {0};
+            cs_init_violin_plot_wall(benches, bench_count, buf, &plot);
             cs_make_violin_plot(&plot, f);
-            cs_free_whisker_plot(&plot);
+            cs_free_violin_plot(&plot);
             fclose(f);
         }
         for (size_t i = 0; i < results->group_count; ++i) {
@@ -2818,26 +2762,41 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
         }
     }
 
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct cs_bench_analysis *analysis = analyses + i;
-        const char *cmd_str = analysis->bench->cmd->str;
-        for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
-            const struct cs_custom_meas *meas =
-                analysis->bench->cmd->custom_meas + j;
+    for (size_t i = 0; i < results->custom_meas_count; ++i) {
+        const struct cs_custom_meas *meas = results->custom_meas + i;
+        {
+            f = cs_open_file_fmt("w", "%s/violin_%s.py", analyze_dir,
+                                 meas->name);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/violin_%s.py\n",
+                        analyze_dir, meas->name);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
+                     meas->name);
+            struct cs_violin_plot plot = {0};
+            cs_init_violin_plot_custom(benches, bench_count, i, buf, &plot);
+            cs_make_violin_plot(&plot, f);
+            cs_free_violin_plot(&plot);
+            fclose(f);
+        }
+        for (size_t j = 0; j < bench_count; ++j) {
             const struct cs_bench_analysis *analysis = analyses + i;
+            const char *cmd_str = analysis->bench->cmd->str;
             {
                 f = cs_open_file_fmt("w", "%s/kde_%zu_%s.py", analyze_dir,
-                                     i + 1, meas->name);
+                                     j + 1, meas->name);
                 if (f == NULL) {
                     fprintf(stderr,
                             "error: failed to create file %s/kde_%zu_%s.py\n",
-                            analyze_dir, i + 1, meas->name);
+                            analyze_dir, j + 1, meas->name);
                     return -1;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
-                         i + 1, meas->name);
+                         j + 1, meas->name);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_custom(analysis->custom_meas + j, cmd_str,
+                cs_init_kde_plot_custom(analysis->custom_meas + i, cmd_str,
                                         meas, buf, &plot);
                 cs_make_kde_plot(&plot, f);
                 cs_free_kde_plot(&plot);
@@ -2845,18 +2804,18 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             }
             {
                 f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%s.py", analyze_dir,
-                                     i + 1, meas->name);
+                                     j + 1, meas->name);
                 if (f == NULL) {
                     fprintf(
                         stderr,
                         "error: failed to create file %s/kde_ext_%zu_%s.py\n",
-                        analyze_dir, i + 1, meas->name);
+                        analyze_dir, j + 1, meas->name);
                     return -1;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
-                         i + 1, meas->name);
+                         j + 1, meas->name);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_custom_ext(analysis->custom_meas + j, cmd_str,
+                cs_init_kde_plot_custom_ext(analysis->custom_meas + i, cmd_str,
                                             meas, buf, &plot);
                 cs_make_kde_plot_ext(&plot, f);
                 cs_free_kde_plot(&plot);
@@ -2877,20 +2836,11 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
 
     if (!no_time) {
         {
-            snprintf(buf, sizeof(buf), "%s/whisker_wall.svg", analyze_dir);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_wall(benches, bench_count, buf, &plot);
-            int ret = cs_whisker_plot(&plot);
-            cs_free_whisker_plot(&plot);
-            if (ret == -1)
-                return -1;
-        }
-        {
             snprintf(buf, sizeof(buf), "%s/violin_wall.svg", analyze_dir);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_wall(benches, bench_count, buf, &plot);
+            struct cs_violin_plot plot = {0};
+            cs_init_violin_plot_wall(benches, bench_count, buf, &plot);
             int ret = cs_violin_plot(&plot);
-            cs_free_whisker_plot(&plot);
+            cs_free_violin_plot(&plot);
             if (ret == -1)
                 return -1;
         }
@@ -2934,38 +2884,24 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
     for (size_t i = 0; i < results->custom_meas_count; ++i) {
         const struct cs_custom_meas *meas = results->custom_meas + i;
         {
-            snprintf(buf, sizeof(buf), "%s/whisker_%s.svg", analyze_dir,
-                     meas->name);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_custom(benches, bench_count, i, buf, &plot);
-            int ret = cs_whisker_plot(&plot);
-            cs_free_whisker_plot(&plot);
-            if (ret == -1)
-                return -1;
-        }
-        {
             snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
                      meas->name);
-            struct cs_whisker_plot plot = {0};
-            cs_init_whisker_plot_custom(benches, bench_count, i, buf, &plot);
+            struct cs_violin_plot plot = {0};
+            cs_init_violin_plot_custom(benches, bench_count, i, buf, &plot);
             int ret = cs_violin_plot(&plot);
-            cs_free_whisker_plot(&plot);
+            cs_free_violin_plot(&plot);
             if (ret == -1)
                 return -1;
         }
-    }
 
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct cs_bench_analysis *analysis = analyses + i;
-        const char *cmd_str = analysis->bench->cmd->str;
-        for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
-            const struct cs_custom_meas *meas =
-                analysis->bench->cmd->custom_meas + j;
+        for (size_t j = 0; j < bench_count; ++j) {
+            const struct cs_bench_analysis *analysis = analyses + j;
+            const char *cmd_str = analysis->bench->cmd->str;
             {
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
-                         i + 1, meas->name);
+                         j + 1, meas->name);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_custom(analysis->custom_meas + j, cmd_str,
+                cs_init_kde_plot_custom(analysis->custom_meas + i, cmd_str,
                                         meas, buf, &plot);
                 int ret = cs_kde_plot(&plot);
                 cs_free_kde_plot(&plot);
@@ -2974,9 +2910,9 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
             }
             {
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
-                         i + 1, meas->name);
+                         j + 1, meas->name);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_custom_ext(analysis->custom_meas + j, cmd_str,
+                cs_init_kde_plot_custom_ext(analysis->custom_meas + i, cmd_str,
                                             meas, buf, &plot);
                 int ret = cs_kde_plot(&plot);
                 cs_free_kde_plot(&plot);
