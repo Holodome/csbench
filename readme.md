@@ -75,12 +75,12 @@ $ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | 
 command 'psql postgres -f 8q.sql'
 100 runs
 custom measurement exec
-min 14.377 max 14.559
-   mean   14.412   14.423   14.435
- st dev 0.014708 0.028473  0.04585
-found 7 outliers across 100 measurements (7.00%)
+min 14.38 ms max 14.78 ms
+   mean 14.41 ms 14.42 ms 14.45 ms
+ st dev 14.21 μs 46.76 μs 94.13 μs
+found 10 outliers across 100 measurements (10.00%)
 4 (4.00%) high mild
-3 (3.00%) high severe
+6 (6.00%) high severe
 outlying measurements have no (1.0%) effect on estimated standard deviation
 ```
 
