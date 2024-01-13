@@ -269,7 +269,7 @@ struct cs_whisker_plot {
 struct cs_kde_plot {
     const struct cs_distr *distr;
     char *xlabel;
-    char *title;
+    const char *title;
     double lower;
     double step;
     double *data;
@@ -277,6 +277,7 @@ struct cs_kde_plot {
     double mean;
     double mean_y;
     const char *output_filename;
+    int is_ext;
 };
 
 #define cs_sb_header(_a)                                                       \
@@ -2496,9 +2497,29 @@ static void cs_construct_kde(const struct cs_distr *distr, double *kde,
     *stepp = step;
 }
 
-static void cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
-                             struct cs_kde_plot *plot) {
+#define cs_init_kde_plot_wall(_distr, _title, _output_filename, _plot)         \
+    cs_init_kde_plot_internal(_distr, _title, cs_time_axis_label(), 0,         \
+                              _output_filename, _plot)
+#define cs_init_kde_plot_wall_ext(_distr, _title, _output_filename, _plot)     \
+    cs_init_kde_plot_internal(_distr, _title, cs_time_axis_label(), 1,         \
+                              _output_filename, _plot)
+#define cs_init_kde_plot_custom(_distr, _title, _meas, _output_filename,       \
+                                _plot)                                         \
+    cs_init_kde_plot_internal(_distr, _title, cs_axis_label(_meas), 0,         \
+                              _output_filename, _plot)
+#define cs_init_kde_plot_custom_ext(_distr, _title, _meas, _output_filename,   \
+                                    _plot)                                     \
+    cs_init_kde_plot_internal(_distr, _title, cs_axis_label(_meas), 1,         \
+                              _output_filename, _plot)
+static void cs_init_kde_plot_internal(const struct cs_distr *distr,
+                                      const char *title, char *xlabel,
+                                      int is_ext, const char *output_filename,
+                                      struct cs_kde_plot *plot) {
     size_t kde_points = 200;
+    plot->is_ext = is_ext;
+    plot->output_filename = output_filename;
+    plot->xlabel = xlabel;
+    plot->title = title;
     plot->distr = distr;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
@@ -2521,6 +2542,7 @@ static void cs_init_kde_plot(const struct cs_distr *distr, int is_ext,
 }
 
 static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
+    assert(!plot->is_ext);
     fprintf(f, "y = [");
     for (size_t i = 0; i < plot->count; ++i)
         fprintf(f, "%g, ", plot->data[i]);
@@ -2545,6 +2567,7 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
 }
 
 static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
+    assert(plot->is_ext);
     double max_y = 0;
     for (size_t i = 0; i < plot->count; ++i)
         if (plot->data[i] > max_y)
@@ -2629,7 +2652,6 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
 static void cs_free_kde_plot(struct cs_kde_plot *plot) {
     free(plot->data);
     free(plot->xlabel);
-    free(plot->title);
 }
 
 static int cs_whisker_plot(const struct cs_whisker_plot *plot) {
@@ -2666,7 +2688,6 @@ static int cs_violin_plot(const struct cs_whisker_plot *plot) {
 
 static int cs_group_plot(const struct cs_cmd_group_analysis *analysis,
                          const char *output_filename) {
-    int ret = 0;
     FILE *f;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
@@ -2679,38 +2700,26 @@ static int cs_group_plot(const struct cs_cmd_group_analysis *analysis,
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         return -1;
     }
-
-    return ret;
+    return 0;
 }
 
-static int cs_kde_plot(const struct cs_distr *distr, const char *title,
-                       const char *xlabel, const char *output_filename,
-                       int is_ext) {
-    int ret = 0;
-    struct cs_kde_plot plot = {0};
-    plot.output_filename = strdup(output_filename);
-    plot.title = strdup(title);
-    plot.xlabel = strdup(xlabel);
-    cs_init_kde_plot(distr, is_ext, &plot);
+static int cs_kde_plot(const struct cs_kde_plot *plot) {
     FILE *f;
     pid_t pid;
     if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
-        ret = -1;
-        goto out;
+        return -1;
     }
-    if (is_ext)
-        cs_make_kde_plot_ext(&plot, f);
+    if (plot->is_ext)
+        cs_make_kde_plot_ext(plot, f);
     else
-        cs_make_kde_plot(&plot, f);
+        cs_make_kde_plot(plot, f);
     fclose(f);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
-        ret = -1;
+        return -1;
     }
-out:
-    cs_free_kde_plot(&plot);
-    return ret;
+    return 0;
 }
 
 static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
@@ -2769,39 +2778,43 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
         for (size_t i = 0; i < bench_count; ++i) {
             const struct cs_bench *bench = benches + i;
             const struct cs_bench_analysis *analysis = analyses + i;
-            struct cs_kde_plot plot = {0};
-            plot.output_filename = buf;
-            plot.title = bench->cmd->str;
-            plot.xlabel = "time [s]";
-
-            f = cs_open_file_fmt("w", "%s/kde_%zu_wall.py", analyze_dir, i + 1);
-            if (f == NULL) {
-                fprintf(stderr,
-                        "error: failed to create file %s/kde_%zu_wall.py\n",
-                        analyze_dir, i + 1);
-                return -1;
+            const char *cmd_str = bench->cmd->str;
+            {
+                f = cs_open_file_fmt("w", "%s/kde_%zu_wall.py", analyze_dir,
+                                     i + 1);
+                if (f == NULL) {
+                    fprintf(stderr,
+                            "error: failed to create file %s/kde_%zu_wall.py\n",
+                            analyze_dir, i + 1);
+                    return -1;
+                }
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_wall.svg", analyze_dir,
+                         i + 1);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_wall(analysis->custom_meas + i, cmd_str, buf,
+                                      &plot);
+                cs_make_kde_plot(&plot, f);
+                cs_free_kde_plot(&plot);
+                fclose(f);
             }
-            snprintf(buf, sizeof(buf), "%s/kde_%zu_wall.svg", analyze_dir,
-                     i + 1);
-            cs_init_kde_plot(&analysis->wall_distr, 0, &plot);
-            cs_make_kde_plot(&plot, f);
-            cs_free_kde_plot(&plot);
-            fclose(f);
-
-            f = cs_open_file_fmt("w", "%s/kde_ext_%zu_wall.py", analyze_dir,
-                                 i + 1);
-            if (f == NULL) {
-                fprintf(stderr,
-                        "error: failed to create file %s/kde_ext_%zu_wall.py\n",
-                        analyze_dir, i + 1);
-                return -1;
+            {
+                f = cs_open_file_fmt("w", "%s/kde_ext_%zu_wall.py", analyze_dir,
+                                     i + 1);
+                if (f == NULL) {
+                    fprintf(stderr,
+                            "error: failed to create file %s/kde_%zu_wall.py\n",
+                            analyze_dir, i + 1);
+                    return -1;
+                }
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_wall.svg",
+                         analyze_dir, i + 1);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_wall_ext(analysis->custom_meas + i, cmd_str,
+                                          buf, &plot);
+                cs_make_kde_plot_ext(&plot, f);
+                cs_free_kde_plot(&plot);
+                fclose(f);
             }
-            snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_wall.svg", analyze_dir,
-                     i + 1);
-            cs_init_kde_plot(&analysis->wall_distr, 1, &plot);
-            cs_make_kde_plot_ext(&plot, f);
-            cs_free_kde_plot(&plot);
-            fclose(f);
         }
     }
 
@@ -2813,11 +2826,6 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
                 analysis->bench->cmd->custom_meas + j;
             const struct cs_bench_analysis *analysis = analyses + i;
             {
-                struct cs_kde_plot plot = {0};
-                plot.output_filename = buf;
-                asprintf(&plot.title, "%s by %s", cmd_str, meas->name);
-                plot.xlabel = cs_axis_label(meas);
-
                 f = cs_open_file_fmt("w", "%s/kde_%zu_%s.py", analyze_dir,
                                      i + 1, meas->name);
                 if (f == NULL) {
@@ -2828,17 +2836,14 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
                          i + 1, meas->name);
-                cs_init_kde_plot(&analysis->custom_meas[j], 0, &plot);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_custom(analysis->custom_meas + j, cmd_str,
+                                        meas, buf, &plot);
                 cs_make_kde_plot(&plot, f);
                 cs_free_kde_plot(&plot);
                 fclose(f);
             }
-
             {
-                struct cs_kde_plot plot = {0};
-                plot.output_filename = buf;
-                asprintf(&plot.title, "%s by %s", cmd_str, meas->name);
-                plot.xlabel = cs_axis_label(meas);
                 f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%s.py", analyze_dir,
                                      i + 1, meas->name);
                 if (f == NULL) {
@@ -2850,7 +2855,9 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
                          i + 1, meas->name);
-                cs_init_kde_plot(&analysis->custom_meas[j], 1, &plot);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_custom_ext(analysis->custom_meas + j, cmd_str,
+                                            meas, buf, &plot);
                 cs_make_kde_plot_ext(&plot, f);
                 cs_free_kde_plot(&plot);
                 fclose(f);
@@ -2867,18 +2874,6 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
     const struct cs_bench *benches = results->benches;
     const struct cs_bench_analysis *analyses = results->analyses;
     char buf[4096];
-
-#define cs_make_kdes(_distr, _title, _xlabel, _name)                           \
-    do {                                                                       \
-        snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir, i + 1,    \
-                 _name);                                                       \
-        if (cs_kde_plot(_distr, _title, _xlabel, buf, 0) == -1)                \
-            return -1;                                                         \
-        snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,       \
-                 i + 1, _name);                                                \
-        if (cs_kde_plot(_distr, _title, _xlabel, buf, 1) == -1)                \
-            return -1;                                                         \
-    } while (0)
 
     if (!no_time) {
         {
@@ -2911,7 +2906,28 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
         for (size_t i = 0; i < bench_count; ++i) {
             const struct cs_bench_analysis *analysis = analyses + i;
             const char *cmd_str = analysis->bench->cmd->str;
-            cs_make_kdes(&analysis->wall_distr, cmd_str, "time [s]", "wall");
+            {
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_wall.svg", analyze_dir,
+                         i + 1);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_wall(&analysis->wall_distr, cmd_str, buf,
+                                      &plot);
+                int ret = cs_kde_plot(&plot);
+                cs_free_kde_plot(&plot);
+                if (ret == -1)
+                    return -1;
+            }
+            {
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_wall.svg",
+                         analyze_dir, i + 1);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_wall_ext(&analysis->wall_distr, cmd_str, buf,
+                                          &plot);
+                int ret = cs_kde_plot(&plot);
+                cs_free_kde_plot(&plot);
+                if (ret == -1)
+                    return -1;
+            }
         }
     }
 
@@ -2945,14 +2961,30 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
         for (size_t j = 0; j < analysis->bench->custom_meas_count; ++j) {
             const struct cs_custom_meas *meas =
                 analysis->bench->cmd->custom_meas + j;
-            char buf1[256], buf2[256];
-            snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
-            snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
-                     cs_units_str(&meas->units));
-            cs_make_kdes(analysis->custom_meas + j, buf1, buf2, meas->name);
+            {
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
+                         i + 1, meas->name);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_custom(analysis->custom_meas + j, cmd_str,
+                                        meas, buf, &plot);
+                int ret = cs_kde_plot(&plot);
+                cs_free_kde_plot(&plot);
+                if (ret == -1)
+                    return -1;
+            }
+            {
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
+                         i + 1, meas->name);
+                struct cs_kde_plot plot = {0};
+                cs_init_kde_plot_custom_ext(analysis->custom_meas + j, cmd_str,
+                                            meas, buf, &plot);
+                int ret = cs_kde_plot(&plot);
+                cs_free_kde_plot(&plot);
+                if (ret == -1)
+                    return -1;
+            }
         }
     }
-#undef cs_make_kdes
 
     return 0;
 }
