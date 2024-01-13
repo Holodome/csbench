@@ -190,7 +190,7 @@ They differ in units of measurement and how they extract values from stdout.
 |units  |seconds | seconds  | custom   |
 |extract|cat     | custom   | custom   |
 
-Note that if one of `ps`, `us`, `ms`, `s` are used as custom unit, csbench interprets them and pretty prints the same way it does for wall clock time.
+Note that if one of `ns`, `us`, `ms`, `s` are used as custom unit, csbench interprets them and pretty prints the same way it does for wall clock time.
 
 ### Debugging 
 

@@ -71,11 +71,19 @@ struct cs_bench_stop_policy {
     size_t max_runs;
 };
 
+enum cs_meas_units {
+    CS_MU_S,
+    CS_MU_MS,
+    CS_MU_US,
+    CS_MU_NS,
+    CS_MU_CUSTOM
+};
+
 struct cs_custom_meas {
     const char *name;
     const char *cmd;
-    // if null interpret as seconds
-    const char *units;
+    enum cs_meas_units units;
+    const char *units_str;
 };
 
 struct cs_bench_param {
@@ -656,7 +664,18 @@ static void cs_parse_cli_args(int argc, char **argv,
             struct cs_custom_meas meas = {0};
             meas.name = name;
             meas.cmd = cmd;
-            meas.units = units;
+            if (strcmp(units, "s") == 0) {
+                meas.units = CS_MU_S;
+            } else if (strcmp(units, "ms") == 0) {
+                meas.units = CS_MU_MS;
+            } else if (strcmp(units, "us") == 0) {
+                meas.units = CS_MU_US;
+            } else if (strcmp(units, "ns") == 0) {
+                meas.units = CS_MU_NS;
+            } else {
+                meas.units = CS_MU_CUSTOM;
+                meas.units_str = units;
+            }
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--scan") == 0) {
             if (cursor >= argc) {
@@ -1816,7 +1835,7 @@ static void cs_print_exit_code_info(const struct cs_bench *bench) {
     }
 }
 
-static int cs_print_time(char *dst, size_t sz, double t) {
+static int cs_format_time(char *dst, size_t sz, double t) {
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -1852,21 +1871,25 @@ static int cs_print_time(char *dst, size_t sz, double t) {
     return count;
 }
 
-static void cs_print_time_estimate(const char *name, const struct cs_est *est) {
-    char buf1[256], buf2[256], buf3[256];
-    cs_print_time(buf1, sizeof(buf1), est->lower);
-    cs_print_time(buf2, sizeof(buf2), est->point);
-    cs_print_time(buf3, sizeof(buf3), est->upper);
-    printf("%7s %s %s %s\n", name, buf1, buf2, buf3);
-}
-
-static void cs_print_time_distr(const struct cs_distr *dist) {
-    char buf1[256], buf2[256];
-    cs_print_time(buf1, sizeof(buf1), dist->min);
-    cs_print_time(buf2, sizeof(buf2), dist->max);
-    printf("min %s max %s\n", buf1, buf2);
-    cs_print_time_estimate("mean", &dist->mean);
-    cs_print_time_estimate("st dev", &dist->st_dev);
+static void cs_format_custom(char *buf, size_t buf_size, double value,
+                             const struct cs_custom_meas *meas) {
+    switch (meas->units) {
+    case CS_MU_S:
+        cs_format_time(buf, buf_size, value);
+        break;
+    case CS_MU_MS:
+        cs_format_time(buf, buf_size, value * 0.001);
+        break;
+    case CS_MU_US:
+        cs_format_time(buf, buf_size, value * 0.000001);
+        break;
+    case CS_MU_NS:
+        cs_format_time(buf, buf_size, value * 0.000000001);
+        break;
+    case CS_MU_CUSTOM:
+        snprintf(buf, buf_size, "%.5g %s", value, meas->units_str);
+        break;
+    }
 }
 
 static void cs_print_outliers(const struct cs_outliers *outliers,
@@ -1908,18 +1931,68 @@ static void cs_print_outlier_var(double var) {
            cs_outliers_variance_str(var), var * 100.0);
 }
 
-static void cs_print_estimate(const char *name, const struct cs_est *est) {
+#define cs_print_time_estimate(_name, _est)                                    \
+    cs_print_estimate(_name, _est, &(struct cs_custom_meas){0})
+static void cs_print_estimate(const char *name, const struct cs_est *est,
+                              const struct cs_custom_meas *meas) {
     char buf1[256], buf2[256], buf3[256];
-    snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
-    snprintf(buf2, sizeof(buf1), "%.5g", est->point);
-    snprintf(buf3, sizeof(buf1), "%.5g", est->upper);
+    switch (meas->units) {
+    case CS_MU_S:
+        cs_format_time(buf1, sizeof(buf1), est->lower);
+        cs_format_time(buf2, sizeof(buf2), est->point);
+        cs_format_time(buf3, sizeof(buf3), est->upper);
+        break;
+    case CS_MU_MS:
+        cs_format_time(buf1, sizeof(buf1), est->lower * 0.001);
+        cs_format_time(buf2, sizeof(buf2), est->point * 0.001);
+        cs_format_time(buf3, sizeof(buf3), est->upper * 0.001);
+        break;
+    case CS_MU_US:
+        cs_format_time(buf1, sizeof(buf1), est->lower * 0.000001);
+        cs_format_time(buf2, sizeof(buf2), est->point * 0.000001);
+        cs_format_time(buf3, sizeof(buf3), est->upper * 0.000001);
+        break;
+    case CS_MU_NS:
+        cs_format_time(buf1, sizeof(buf1), est->lower * 0.000000001);
+        cs_format_time(buf2, sizeof(buf2), est->point * 0.000000001);
+        cs_format_time(buf3, sizeof(buf3), est->upper * 0.000000001);
+        break;
+    case CS_MU_CUSTOM:
+        snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
+        snprintf(buf2, sizeof(buf1), "%.5g", est->point);
+        snprintf(buf3, sizeof(buf1), "%.5g", est->upper);
+        break;
+    }
+
     printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
-static void cs_print_distr(const struct cs_distr *dist) {
-    printf("min %.5g max %.5g\n", dist->min, dist->max);
-    cs_print_estimate("mean", &dist->mean);
-    cs_print_estimate("st dev", &dist->st_dev);
+static const char *cs_meas_units_str(const struct cs_custom_meas *meas) {
+    switch (meas->units) {
+    case CS_MU_S:
+        return "s";
+    case CS_MU_MS:
+        return "ms";
+    case CS_MU_US:
+        return "us";
+    case CS_MU_NS:
+        return "ns";
+    case CS_MU_CUSTOM:
+        return meas->units_str;
+    }
+    return NULL;
+}
+
+#define cs_print_time_distr(_dist)                                             \
+    cs_print_custom_distr(_dist, &(struct cs_custom_meas){0})
+static void cs_print_custom_distr(const struct cs_distr *dist,
+                                  const struct cs_custom_meas *meas) {
+    char buf1[256], buf2[256];
+    cs_format_custom(buf1, sizeof(buf1), dist->min, meas);
+    cs_format_custom(buf2, sizeof(buf2), dist->max, meas);
+    printf("min %s max %s\n", buf1, buf2);
+    cs_print_estimate("mean", &dist->mean, meas);
+    cs_print_estimate("st dev", &dist->st_dev, meas);
 }
 
 static void cs_ref_speed(double u1, double sigma1, double u2, double sigma2,
@@ -1967,10 +2040,8 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
     }
     for (size_t i = 0; i < bench->custom_meas_count; ++i) {
         printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
-        if (analysis->bench->cmd->custom_meas[i].units)
-            cs_print_distr(analysis->custom_meas + i);
-        else
-            cs_print_time_distr(analysis->custom_meas + i);
+        cs_print_custom_distr(analysis->custom_meas + i,
+                              bench->cmd->custom_meas + i);
         cs_print_outliers(&analysis->custom_meas[i].outliers, bench->run_count);
         cs_print_outlier_var(analysis->custom_meas[i].outlier_var);
     }
@@ -2008,11 +2079,11 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
         printf("command group '%s' with parameter %s\n", group->template,
                group->var_name);
         char buf[256];
-        cs_print_time(buf, sizeof(buf), analysis->data[0].mean);
+        cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
         printf("lowest time %s with %s=%s\n", buf, group->var_name,
                analysis->data[0].value);
-        cs_print_time(buf, sizeof(buf),
-                      analysis->data[analysis->cmd_count - 1].mean);
+        cs_format_time(buf, sizeof(buf),
+                       analysis->data[analysis->cmd_count - 1].mean);
         printf("highest time %s with %s=%s\n", buf, group->var_name,
                analysis->data[analysis->cmd_count - 1].value);
         if (analysis->values_are_doubles) {
@@ -2100,10 +2171,7 @@ static int cs_export_json(const struct cs_settings *settings,
             const struct cs_custom_meas *info = bench->cmd->custom_meas + j;
             cs_json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
-            if (info->units)
-                cs_json_escape(buf, sizeof(buf), info->units);
-            else
-                *buf = '\0';
+            cs_json_escape(buf, sizeof(buf), cs_meas_units_str(info));
             fprintf(f, "\"units\": \"%s\",", buf);
             cs_json_escape(buf, sizeof(buf), info->cmd);
             fprintf(f,
@@ -2631,11 +2699,8 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             struct cs_kde_plot plot = {0};
             char buf1[256], buf2[256];
             snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
-            if (meas->units)
-                snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
-                         meas->units);
-            else
-                snprintf(buf2, sizeof(buf2), "%s [s]", meas->name);
+            snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
+                     cs_meas_units_str(meas));
             plot.output_filename = buf;
             plot.title = buf1;
             plot.xlabel = buf2;
@@ -2726,12 +2791,8 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
                 analysis->bench->cmd->custom_meas + j;
             char buf1[256], buf2[256];
             snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
-            if (meas->units)
-                snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
-                         meas->units);
-            else
-                snprintf(buf2, sizeof(buf2), "%s [s]", meas->name);
-
+            snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
+                     cs_meas_units_str(meas));
             cs_make_kdes(analysis->custom_meas + j, buf1, buf2, meas->name);
         }
     }
@@ -2740,12 +2801,14 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
     return 0;
 }
 
-static void cs_html_time_estimate(const char *name, const struct cs_est *est,
-                                  FILE *f) {
+#define cs_html_time_estimate(_name, _est, _f)                                 \
+    cs_html_estimate(_name, _est, &(struct cs_custom_meas){0}, f)
+static void cs_html_estimate(const char *name, const struct cs_est *est,
+                             const struct cs_custom_meas *meas, FILE *f) {
     char buf1[256], buf2[256], buf3[256];
-    cs_print_time(buf1, sizeof(buf1), est->lower);
-    cs_print_time(buf2, sizeof(buf2), est->point);
-    cs_print_time(buf3, sizeof(buf3), est->upper);
+    cs_format_custom(buf1, sizeof(buf1), est->lower, meas);
+    cs_format_custom(buf2, sizeof(buf2), est->point, meas);
+    cs_format_custom(buf3, sizeof(buf3), est->upper, meas);
     fprintf(f,
             "<tr>"
             "<td>%s</td>"
@@ -2800,9 +2863,9 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
             "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
-    cs_print_time(buf, sizeof(buf), analysis->wall_distr.min);
+    cs_format_time(buf, sizeof(buf), analysis->wall_distr.min);
     fprintf(f, "<p>min %s</p>", buf);
-    cs_print_time(buf, sizeof(buf), analysis->wall_distr.max);
+    cs_format_time(buf, sizeof(buf), analysis->wall_distr.max);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, "<table><thead><tr>"
                "<th></th>"
@@ -2818,18 +2881,6 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
     cs_html_outliers(&analysis->wall_distr.outliers,
                      analysis->wall_distr.outlier_var, bench->run_count, f);
     fprintf(f, "</div></div></div>");
-}
-
-static void cs_html_estimate(const char *name, const struct cs_est *est,
-                             FILE *f) {
-    fprintf(f,
-            "<tr>"
-            "<td>%s</td>"
-            "<td class=\"est-bound\">%.5g</td>"
-            "<td>%.5g</td>"
-            "<td class=\"est-bound\">%.5g</td>"
-            "</tr>",
-            name, est->lower, est->point, est->upper);
 }
 
 static void cs_html_custom_distr(const struct cs_bench *bench,
@@ -2848,15 +2899,9 @@ static void cs_html_custom_distr(const struct cs_bench *bench,
             "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
-    if (info->units == NULL)
-        cs_print_time(buf, sizeof(buf), distr->min);
-    else
-        snprintf(buf, sizeof(buf), "%.5g %s", distr->min, info->units);
+    cs_format_custom(buf, sizeof(buf), distr->min, info);
     fprintf(f, "<p>min %s</p>", buf);
-    if (info->units == NULL)
-        cs_print_time(buf, sizeof(buf), distr->min);
-    else
-        snprintf(buf, sizeof(buf), "%.5g", distr->min);
+    cs_format_custom(buf, sizeof(buf), distr->max, info);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, "<table><thead><tr>"
                "<th></th>"
@@ -2864,8 +2909,8 @@ static void cs_html_custom_distr(const struct cs_bench *bench,
                "<th class=\"est-bound\">estimate</th>"
                "<th class=\"est-bound\">upper bound</th>"
                "</tr></thead><tbody>");
-    cs_html_estimate("mean", &distr->mean, f);
-    cs_html_estimate("st dev", &distr->st_dev, f);
+    cs_html_estimate("mean", &distr->mean, info, f);
+    cs_html_estimate("st dev", &distr->st_dev, info, f);
     fprintf(f, "</tbody></table>");
     cs_html_outliers(&distr->outliers, distr->outlier_var, bench->run_count, f);
     fprintf(f, "</div></div></div>");
@@ -2905,13 +2950,13 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
             "<img src=\"group_plot_%zu.svg\"></div>",
             group->template, group->var_name, i);
     char buf[256];
-    cs_print_time(buf, sizeof(buf), analysis->data[0].mean);
+    cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
     fprintf(f,
             "<div class=\"col stats\">"
             "<p>lowest time %s with %s=%s</p>",
             buf, group->var_name, analysis->data[0].value);
-    cs_print_time(buf, sizeof(buf),
-                  analysis->data[analysis->cmd_count - 1].mean);
+    cs_format_time(buf, sizeof(buf),
+                   analysis->data[analysis->cmd_count - 1].mean);
     fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
             analysis->data[analysis->cmd_count - 1].value);
     if (analysis->values_are_doubles) {
