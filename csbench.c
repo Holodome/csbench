@@ -244,6 +244,9 @@ struct cs_bench_results {
     struct cs_bench *benches;
     struct cs_bench_analysis *analyses;
     size_t fastest_idx;
+    size_t custom_meas_count;
+    size_t *fastest_custom_meas;
+    const struct cs_custom_meas *custom_meas;
     size_t group_count;
     struct cs_cmd_group_analysis *group_analyses;
 };
@@ -1756,6 +1759,17 @@ static void cs_compare_benches(struct cs_bench_results *results) {
     size_t bench_count = results->bench_count;
     size_t best_idx = 0;
     double best_mean = results->analyses[0].wall_distr.mean.point;
+    size_t custom_meas_count = results->benches[0].custom_meas_count;
+    double *best_custom = NULL;
+    if (custom_meas_count) {
+        results->custom_meas_count = custom_meas_count;
+        results->custom_meas = results->benches[0].cmd->custom_meas;
+        results->fastest_custom_meas =
+            calloc(custom_meas_count, sizeof(*results->fastest_custom_meas));
+        best_custom = calloc(custom_meas_count, sizeof(*best_custom));
+        for (size_t i = 0; i < custom_meas_count; ++i)
+            best_custom[i] = results->analyses[0].custom_meas[i].mean.point;
+    }
     for (size_t i = 1; i < bench_count; ++i) {
         const struct cs_bench_analysis *analysis = results->analyses + i;
         double mean = analysis->wall_distr.mean.point;
@@ -1763,7 +1777,18 @@ static void cs_compare_benches(struct cs_bench_results *results) {
             best_idx = i;
             best_mean = mean;
         }
+
+        for (size_t j = 0; j < custom_meas_count; ++j) {
+            mean = analysis->custom_meas[j].mean.point;
+            if (mean < best_custom[j]) {
+                best_custom[j] = mean;
+                results->fastest_custom_meas[j] = i;
+            }
+        }
     }
+
+    if (best_custom)
+        free(best_custom);
 
     results->fastest_idx = best_idx;
 }
@@ -2044,50 +2069,77 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
     }
 }
 
-static void cs_print_cmd_comparison(const struct cs_bench_results *results) {
+static void cs_print_cmd_comparison(const struct cs_bench_results *results,
+                                    int no_time) {
     if (results->bench_count == 1)
         return;
 
-    size_t best_idx = results->fastest_idx;
-    const struct cs_bench_analysis *best = results->analyses + best_idx;
-    printf("Fastest command '%s'\n", best->bench->cmd->str);
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        const struct cs_bench_analysis *analysis = results->analyses + i;
-        if (analysis == best)
-            continue;
+    if (!no_time) {
+        size_t best_idx = results->fastest_idx;
+        const struct cs_bench_analysis *best = results->analyses + best_idx;
+        printf("fastest command '%s'\n", best->bench->cmd->str);
+        for (size_t i = 0; i < results->bench_count; ++i) {
+            const struct cs_bench_analysis *analysis = results->analyses + i;
+            if (analysis == best)
+                continue;
 
-        double ref, ref_st_dev;
-        cs_ref_speed(analysis->wall_distr.mean.point,
-                     analysis->wall_distr.st_dev.point,
-                     best->wall_distr.mean.point, best->wall_distr.st_dev.point,
-                     &ref, &ref_st_dev);
-        printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
-               analysis->bench->cmd->str);
+            double ref, ref_st_dev;
+            cs_ref_speed(analysis->wall_distr.mean.point,
+                         analysis->wall_distr.st_dev.point,
+                         best->wall_distr.mean.point,
+                         best->wall_distr.st_dev.point, &ref, &ref_st_dev);
+            printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
+                   analysis->bench->cmd->str);
+        }
+    }
+
+    size_t custom_meas_count = results->custom_meas_count;
+    for (size_t i = 0; i < custom_meas_count; ++i) {
+        size_t best_idx = results->fastest_custom_meas[i];
+        const struct cs_bench_analysis *best = results->analyses + best_idx;
+        const struct cs_custom_meas *meas = results->custom_meas + i;
+        printf("custom measurement %s\n", meas->name);
+        printf("fastest command '%s'\n", best->bench->cmd->str);
+        for (size_t j = 0; j < results->bench_count; ++j) {
+            const struct cs_bench_analysis *analysis = results->analyses + j;
+            if (analysis == best)
+                continue;
+
+            double ref, ref_st_dev;
+            cs_ref_speed(analysis->custom_meas[i].mean.point,
+                         analysis->custom_meas[i].st_dev.point,
+                         best->custom_meas[i].mean.point,
+                         best->custom_meas[i].st_dev.point, &ref, &ref_st_dev);
+            printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
+                   analysis->bench->cmd->str);
+        }
     }
 }
 
-static void
-cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
-    for (size_t i = 0; i < results->group_count; ++i) {
-        const struct cs_cmd_group_analysis *analysis =
-            results->group_analyses + i;
-        const struct cs_cmd_group *group = analysis->group;
+static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
+                                        int no_time) {
+    if (!no_time) {
+        for (size_t i = 0; i < results->group_count; ++i) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses + i;
+            const struct cs_cmd_group *group = analysis->group;
 
-        printf("command group '%s' with parameter %s\n", group->template,
-               group->var_name);
-        char buf[256];
-        cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
-        printf("lowest time %s with %s=%s\n", buf, group->var_name,
-               analysis->data[0].value);
-        cs_format_time(buf, sizeof(buf),
-                       analysis->data[analysis->cmd_count - 1].mean);
-        printf("highest time %s with %s=%s\n", buf, group->var_name,
-               analysis->data[analysis->cmd_count - 1].value);
-        if (analysis->values_are_doubles) {
-            printf("mean time is most likely %s in terms of parameter\n",
-                   cs_big_o_str(analysis->complexity));
-            printf("linear coef %.3f rms %.3f\n", analysis->coef,
-                   analysis->rms);
+            printf("command group '%s' with parameter %s\n", group->template,
+                   group->var_name);
+            char buf[256];
+            cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
+            printf("lowest time %s with %s=%s\n", buf, group->var_name,
+                   analysis->data[0].value);
+            cs_format_time(buf, sizeof(buf),
+                           analysis->data[analysis->cmd_count - 1].mean);
+            printf("highest time %s with %s=%s\n", buf, group->var_name,
+                   analysis->data[analysis->cmd_count - 1].value);
+            if (analysis->values_are_doubles) {
+                printf("mean time is most likely %s in terms of parameter\n",
+                       cs_big_o_str(analysis->complexity));
+                printf("linear coef %.3f rms %.3f\n", analysis->coef,
+                       analysis->rms);
+            }
         }
     }
 }
@@ -2459,12 +2511,13 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "points))\n",
             plot->distr->outliers.low_severe_x,
             plot->distr->outliers.high_severe_x);
-    fprintf(
-        f,
-        "mild_points = list(filter(lambda x: (%f < x[0] < %f) or (%f < x[0] < "
-        "%f), points))\n",
-        plot->distr->outliers.low_severe_x, plot->distr->outliers.low_mild_x,
-        plot->distr->outliers.high_mild_x, plot->distr->outliers.high_severe_x);
+    fprintf(f,
+            "mild_points = list(filter(lambda x: (%f < x[0] < %f) or (%f < "
+            "x[0] < "
+            "%f), points))\n",
+            plot->distr->outliers.low_severe_x,
+            plot->distr->outliers.low_mild_x, plot->distr->outliers.high_mild_x,
+            plot->distr->outliers.high_severe_x);
     fprintf(f, "reg_points = list(filter(lambda x: %f < x[0] < %f, points))\n",
             plot->distr->outliers.low_mild_x,
             plot->distr->outliers.high_mild_x);
@@ -2939,31 +2992,33 @@ static void cs_html_compare(const struct cs_bench_analysis *best,
 }
 
 static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
-                              size_t i, FILE *f) {
-    const struct cs_cmd_group *group = analysis->group;
-    fprintf(f,
-            "<h2>group '%s' with parameter %s</h2>"
-            "<div class=\"row\"><div class=\"col\">"
-            "<img src=\"group_plot_%zu.svg\"></div>",
-            group->template, group->var_name, i);
-    char buf[256];
-    cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
-    fprintf(f,
-            "<div class=\"col stats\">"
-            "<p>lowest time %s with %s=%s</p>",
-            buf, group->var_name, analysis->data[0].value);
-    cs_format_time(buf, sizeof(buf),
-                   analysis->data[analysis->cmd_count - 1].mean);
-    fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
-            analysis->data[analysis->cmd_count - 1].value);
-    if (analysis->values_are_doubles) {
+                              size_t i, int no_time, FILE *f) {
+    if (!no_time) {
+        const struct cs_cmd_group *group = analysis->group;
         fprintf(f,
-                "<p>mean time is most likely %s in terms of parameter</p>"
-                "<p>linear coef %.3f rms %.3f</p>",
-                cs_big_o_str(analysis->complexity), analysis->coef,
-                analysis->rms);
+                "<h2>group '%s' with parameter %s</h2>"
+                "<div class=\"row\"><div class=\"col\">"
+                "<img src=\"group_plot_%zu.svg\"></div>",
+                group->template, group->var_name, i);
+        char buf[256];
+        cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
+        fprintf(f,
+                "<div class=\"col stats\">"
+                "<p>lowest time %s with %s=%s</p>",
+                buf, group->var_name, analysis->data[0].value);
+        cs_format_time(buf, sizeof(buf),
+                       analysis->data[analysis->cmd_count - 1].mean);
+        fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
+                analysis->data[analysis->cmd_count - 1].value);
+        if (analysis->values_are_doubles) {
+            fprintf(f,
+                    "<p>mean time is most likely %s in terms of parameter</p>"
+                    "<p>linear coef %.3f rms %.3f</p>",
+                    cs_big_o_str(analysis->complexity), analysis->coef,
+                    analysis->rms);
+        }
+        fprintf(f, "</div></div>");
     }
-    fprintf(f, "</div></div>");
 }
 
 static void cs_html_report(const struct cs_bench_results *results, int no_time,
@@ -3008,7 +3063,7 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
     for (size_t i = 0; i < results->group_count; ++i) {
         const struct cs_cmd_group_analysis *analysis =
             results->group_analyses + i;
-        cs_html_cmd_group(analysis, i + 1, f);
+        cs_html_cmd_group(analysis, i + 1, no_time, f);
     }
     fprintf(f, "</body>");
 }
@@ -3060,8 +3115,8 @@ static void cs_print_analysis(const struct cs_bench_results *results,
     for (size_t i = 0; i < results->bench_count; ++i)
         cs_print_benchmark_info(results->analyses + i, no_time);
 
-    cs_print_cmd_comparison(results);
-    cs_print_cmd_group_analysis(results);
+    cs_print_cmd_comparison(results, no_time);
+    cs_print_cmd_group_analysis(results, no_time);
 }
 
 static int cs_handle_export(const struct cs_settings *settings,
@@ -3159,6 +3214,7 @@ static void cs_free_bench_results(struct cs_bench_results *results) {
     free(results->benches);
     free(results->analyses);
     free(results->group_analyses);
+    free(results->fastest_custom_meas);
 }
 
 static int cs_run(const struct cs_settings *settings) {
