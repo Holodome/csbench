@@ -71,7 +71,7 @@ struct cs_bench_stop_policy {
     size_t max_runs;
 };
 
-enum cs_meas_units {
+enum cs_units_kind {
     CS_MU_S,
     CS_MU_MS,
     CS_MU_US,
@@ -79,11 +79,15 @@ enum cs_meas_units {
     CS_MU_CUSTOM
 };
 
+struct cs_units {
+    enum cs_units_kind kind;
+    const char *str;
+};
+
 struct cs_custom_meas {
     const char *name;
     const char *cmd;
-    enum cs_meas_units units;
-    const char *units_str;
+    struct cs_units units;
 };
 
 struct cs_bench_param {
@@ -167,6 +171,7 @@ struct cs_outliers {
     size_t low_mild;
     size_t high_mild;
     size_t high_severe;
+    double var;
 };
 
 // Describes distribution and is useful for passing benchmark data and analysis
@@ -185,7 +190,6 @@ struct cs_distr {
     double p95;
     double p99;
     struct cs_outliers outliers;
-    double outlier_var;
 };
 
 struct cs_bench {
@@ -665,16 +669,16 @@ static void cs_parse_cli_args(int argc, char **argv,
             meas.name = name;
             meas.cmd = cmd;
             if (strcmp(units, "s") == 0) {
-                meas.units = CS_MU_S;
+                meas.units.kind = CS_MU_S;
             } else if (strcmp(units, "ms") == 0) {
-                meas.units = CS_MU_MS;
+                meas.units.kind = CS_MU_MS;
             } else if (strcmp(units, "us") == 0) {
-                meas.units = CS_MU_US;
+                meas.units.kind = CS_MU_US;
             } else if (strcmp(units, "ns") == 0) {
-                meas.units = CS_MU_NS;
+                meas.units.kind = CS_MU_NS;
             } else {
-                meas.units = CS_MU_CUSTOM;
-                meas.units_str = units;
+                meas.units.kind = CS_MU_CUSTOM;
+                meas.units.str = units;
             }
             cs_sb_push(settings->custom_meas, meas);
         } else if (strcmp(opt, "--scan") == 0) {
@@ -1539,34 +1543,6 @@ cs_bootstrap(st_dev, cs_stat_st_dev)
 
 #undef cs_bootstrap
 
-static struct cs_outliers cs_classify_outliers(const struct cs_distr *distr) {
-    double q1 = distr->q1;
-    double q3 = distr->q3;
-    double iqr = q3 - q1;
-    double los = q1 - (iqr * 3.0);
-    double lom = q1 - (iqr * 1.5);
-    double him = q3 + (iqr * 1.5);
-    double his = q3 + (iqr * 3.0);
-
-    struct cs_outliers result = {0};
-    result.low_severe_x = los;
-    result.low_mild_x = lom;
-    result.high_mild_x = him;
-    result.high_severe_x = his;
-    for (size_t i = 0; i < distr->count; ++i) {
-        double v = distr->data[i];
-        if (v < los)
-            ++result.low_severe;
-        else if (v > his)
-            ++result.high_severe;
-        else if (v < lom)
-            ++result.low_mild;
-        else if (v > him)
-            ++result.high_mild;
-    }
-    return result;
-}
-
 static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
                        double sigma_g_2) {
     double k = u_a - x;
@@ -1600,6 +1576,35 @@ static double cs_outlier_variance(double mean, double st_dev, double a) {
     return var_out_min;
 }
 
+static void cs_classify_outliers(struct cs_distr *distr) {
+    struct cs_outliers *outliers = &distr->outliers;
+    double q1 = distr->q1;
+    double q3 = distr->q3;
+    double iqr = q3 - q1;
+    double los = q1 - (iqr * 3.0);
+    double lom = q1 - (iqr * 1.5);
+    double him = q3 + (iqr * 1.5);
+    double his = q3 + (iqr * 3.0);
+
+    outliers->low_severe_x = los;
+    outliers->low_mild_x = lom;
+    outliers->high_mild_x = him;
+    outliers->high_severe_x = his;
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < los)
+            ++outliers->low_severe;
+        else if (v > his)
+            ++outliers->high_severe;
+        else if (v < lom)
+            ++outliers->low_mild;
+        else if (v > him)
+            ++outliers->high_mild;
+    }
+    outliers->var = cs_outlier_variance(distr->mean.point, distr->st_dev.point,
+                                        distr->count);
+}
+
 static int cs_compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
@@ -1628,9 +1633,7 @@ static void cs_estimate_distr(const double *data, size_t count, size_t nresamp,
     distr->min = tmp[0];
     distr->max = tmp[count - 1];
     free(tmp);
-    distr->outliers = cs_classify_outliers(distr);
-    distr->outlier_var =
-        cs_outlier_variance(distr->mean.point, distr->st_dev.point, count);
+    cs_classify_outliers(distr);
 }
 
 // This monstosity is used to silence warnings.
@@ -1872,8 +1875,8 @@ static int cs_format_time(char *dst, size_t sz, double t) {
 }
 
 static void cs_format_custom(char *buf, size_t buf_size, double value,
-                             const struct cs_custom_meas *meas) {
-    switch (meas->units) {
+                             const struct cs_units *units) {
+    switch (units->kind) {
     case CS_MU_S:
         cs_format_time(buf, buf_size, value);
         break;
@@ -1887,9 +1890,19 @@ static void cs_format_custom(char *buf, size_t buf_size, double value,
         cs_format_time(buf, buf_size, value * 0.000000001);
         break;
     case CS_MU_CUSTOM:
-        snprintf(buf, buf_size, "%.5g %s", value, meas->units_str);
+        snprintf(buf, buf_size, "%.5g %s", value, units->str);
         break;
     }
+}
+
+static const char *cs_outliers_variance_str(double fraction) {
+    if (fraction < 0.01)
+        return "no";
+    else if (fraction < 0.1)
+        return "a slight";
+    else if (fraction < 0.5)
+        return "a moderate";
+    return "a severe";
 }
 
 static void cs_print_outliers(const struct cs_outliers *outliers,
@@ -1913,30 +1926,17 @@ static void cs_print_outliers(const struct cs_outliers *outliers,
             printf("%zu (%.2f%%) high severe\n", outliers->high_severe,
                    (double)outliers->high_severe / run_count * 100.0);
     }
-}
-
-static const char *cs_outliers_variance_str(double fraction) {
-    if (fraction < 0.01)
-        return "no";
-    else if (fraction < 0.1)
-        return "a slight";
-    else if (fraction < 0.5)
-        return "a moderate";
-    return "a severe";
-}
-
-static void cs_print_outlier_var(double var) {
     printf("outlying measurements have %s (%.1f%%) effect on estimated "
            "standard deviation\n",
-           cs_outliers_variance_str(var), var * 100.0);
+           cs_outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
 #define cs_print_time_estimate(_name, _est)                                    \
-    cs_print_estimate(_name, _est, &(struct cs_custom_meas){0})
+    cs_print_estimate(_name, _est, &(struct cs_units){0})
 static void cs_print_estimate(const char *name, const struct cs_est *est,
-                              const struct cs_custom_meas *meas) {
+                              const struct cs_units *units) {
     char buf1[256], buf2[256], buf3[256];
-    switch (meas->units) {
+    switch (units->kind) {
     case CS_MU_S:
         cs_format_time(buf1, sizeof(buf1), est->lower);
         cs_format_time(buf2, sizeof(buf2), est->point);
@@ -1967,8 +1967,8 @@ static void cs_print_estimate(const char *name, const struct cs_est *est,
     printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
-static const char *cs_meas_units_str(const struct cs_custom_meas *meas) {
-    switch (meas->units) {
+static const char *cs_units_str(const struct cs_units *units) {
+    switch (units->kind) {
     case CS_MU_S:
         return "s";
     case CS_MU_MS:
@@ -1978,21 +1978,20 @@ static const char *cs_meas_units_str(const struct cs_custom_meas *meas) {
     case CS_MU_NS:
         return "ns";
     case CS_MU_CUSTOM:
-        return meas->units_str;
+        return units->str;
     }
     return NULL;
 }
 
-#define cs_print_time_distr(_dist)                                             \
-    cs_print_custom_distr(_dist, &(struct cs_custom_meas){0})
-static void cs_print_custom_distr(const struct cs_distr *dist,
-                                  const struct cs_custom_meas *meas) {
+#define cs_print_time_distr(_dist) cs_print_distr(_dist, &(struct cs_units){0})
+static void cs_print_distr(const struct cs_distr *dist,
+                           const struct cs_units *units) {
     char buf1[256], buf2[256];
-    cs_format_custom(buf1, sizeof(buf1), dist->min, meas);
-    cs_format_custom(buf2, sizeof(buf2), dist->max, meas);
+    cs_format_custom(buf1, sizeof(buf1), dist->min, units);
+    cs_format_custom(buf2, sizeof(buf2), dist->max, units);
     printf("min %s max %s\n", buf1, buf2);
-    cs_print_estimate("mean", &dist->mean, meas);
-    cs_print_estimate("st dev", &dist->st_dev, meas);
+    cs_print_estimate("mean", &dist->mean, units);
+    cs_print_estimate("st dev", &dist->st_dev, units);
 }
 
 static void cs_ref_speed(double u1, double sigma1, double u2, double sigma2,
@@ -2028,7 +2027,8 @@ static const char *cs_big_o_str(enum cs_big_o complexity) {
 static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
                                     int no_time) {
     const struct cs_bench *bench = analysis->bench;
-    printf("command\t'%s'\n", bench->cmd->str);
+    const struct cs_cmd *cmd = bench->cmd;
+    printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
     if (!no_time) {
         cs_print_exit_code_info(bench);
@@ -2036,14 +2036,11 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
         cs_print_time_estimate("systime", &analysis->systime_est);
         cs_print_time_estimate("usrtime", &analysis->usertime_est);
         cs_print_outliers(&analysis->wall_distr.outliers, bench->run_count);
-        cs_print_outlier_var(analysis->wall_distr.outlier_var);
     }
     for (size_t i = 0; i < bench->custom_meas_count; ++i) {
-        printf("custom measurement %s\n", bench->cmd->custom_meas[i].name);
-        cs_print_custom_distr(analysis->custom_meas + i,
-                              bench->cmd->custom_meas + i);
+        printf("custom measurement %s\n", cmd->custom_meas[i].name);
+        cs_print_distr(analysis->custom_meas + i, &cmd->custom_meas[i].units);
         cs_print_outliers(&analysis->custom_meas[i].outliers, bench->run_count);
-        cs_print_outlier_var(analysis->custom_meas[i].outlier_var);
     }
 }
 
@@ -2171,7 +2168,7 @@ static int cs_export_json(const struct cs_settings *settings,
             const struct cs_custom_meas *info = bench->cmd->custom_meas + j;
             cs_json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
-            cs_json_escape(buf, sizeof(buf), cs_meas_units_str(info));
+            cs_json_escape(buf, sizeof(buf), cs_units_str(&info->units));
             fprintf(f, "\"units\": \"%s\",", buf);
             cs_json_escape(buf, sizeof(buf), info->cmd);
             fprintf(f,
@@ -2241,20 +2238,20 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     }
 
     close(pipe_fds[0]);
-    FILE *script = fdopen(pipe_fds[1], "w");
+    FILE *f = fdopen(pipe_fds[1], "w");
 
     *pidp = pid;
-    *inp = script;
+    *inp = f;
     return 0;
 }
 static int cs_python_has_matplotlib(void) {
-    FILE *script;
+    FILE *f;
     pid_t pid;
-    if (cs_launch_python_stdin_pipe(&script, &pid))
+    if (cs_launch_python_stdin_pipe(&f, &pid))
         return 0;
 
-    fprintf(script, "import matplotlib.pyplot as plt\n");
-    fclose(script);
+    fprintf(f, "import matplotlib.pyplot as plt\n");
+    fclose(f);
     return cs_process_finished_correctly(pid);
 }
 
@@ -2525,14 +2522,14 @@ static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
 static int cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
                            const char *output_filename) {
-    FILE *script;
+    FILE *f;
     pid_t pid;
-    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
         return -1;
     }
-    cs_make_whisker_plot(benches, bench_count, output_filename, script);
-    fclose(script);
+    cs_make_whisker_plot(benches, bench_count, output_filename, f);
+    fclose(f);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         return -1;
@@ -2542,14 +2539,14 @@ static int cs_whisker_plot(const struct cs_bench *benches, size_t bench_count,
 
 static int cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
                           const char *output_filename) {
-    FILE *script;
+    FILE *f;
     pid_t pid;
-    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
         return -1;
     }
-    cs_make_violin_plot(benches, bench_count, output_filename, script);
-    fclose(script);
+    cs_make_violin_plot(benches, bench_count, output_filename, f);
+    fclose(f);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         return -1;
@@ -2560,14 +2557,14 @@ static int cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
 static int cs_group_plot(const struct cs_cmd_group_analysis *analysis,
                          const char *output_filename) {
     int ret = 0;
-    FILE *script;
+    FILE *f;
     pid_t pid;
-    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
         return -1;
     }
-    cs_make_group_plot(analysis, output_filename, script);
-    fclose(script);
+    cs_make_group_plot(analysis, output_filename, f);
+    fclose(f);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         return -1;
@@ -2585,18 +2582,18 @@ static int cs_kde_plot(const struct cs_distr *distr, const char *title,
     plot.title = title;
     plot.xlabel = xlabel;
     cs_init_kde_plot(distr, is_ext, &plot);
-    FILE *script;
+    FILE *f;
     pid_t pid;
-    if (cs_launch_python_stdin_pipe(&script, &pid) == -1) {
+    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
         fprintf(stderr, "error: failed to launch python\n");
         ret = -1;
         goto out;
     }
     if (is_ext)
-        cs_make_kde_plot_ext(&plot, script);
+        cs_make_kde_plot_ext(&plot, f);
     else
-        cs_make_kde_plot(&plot, script);
-    fclose(script);
+        cs_make_kde_plot(&plot, f);
+    fclose(f);
     if (!cs_process_finished_correctly(pid)) {
         fprintf(stderr, "error: python finished with non-zero exit code\n");
         ret = -1;
@@ -2700,7 +2697,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             char buf1[256], buf2[256];
             snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
             snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
-                     cs_meas_units_str(meas));
+                     cs_units_str(&meas->units));
             plot.output_filename = buf;
             plot.title = buf1;
             plot.xlabel = buf2;
@@ -2792,7 +2789,7 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
             char buf1[256], buf2[256];
             snprintf(buf1, sizeof(buf1), "%s by %s", cmd_str, meas->name);
             snprintf(buf2, sizeof(buf2), "%s [%s]", meas->name,
-                     cs_meas_units_str(meas));
+                     cs_units_str(&meas->units));
             cs_make_kdes(analysis->custom_meas + j, buf1, buf2, meas->name);
         }
     }
@@ -2802,13 +2799,13 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
 }
 
 #define cs_html_time_estimate(_name, _est, _f)                                 \
-    cs_html_estimate(_name, _est, &(struct cs_custom_meas){0}, f)
+    cs_html_estimate(_name, _est, &(struct cs_units){0}, f)
 static void cs_html_estimate(const char *name, const struct cs_est *est,
-                             const struct cs_custom_meas *meas, FILE *f) {
+                             const struct cs_units *units, FILE *f) {
     char buf1[256], buf2[256], buf3[256];
-    cs_format_custom(buf1, sizeof(buf1), est->lower, meas);
-    cs_format_custom(buf2, sizeof(buf2), est->point, meas);
-    cs_format_custom(buf3, sizeof(buf3), est->upper, meas);
+    cs_format_custom(buf1, sizeof(buf1), est->lower, units);
+    cs_format_custom(buf2, sizeof(buf2), est->point, units);
+    cs_format_custom(buf3, sizeof(buf3), est->upper, units);
     fprintf(f,
             "<tr>"
             "<td>%s</td>"
@@ -2820,7 +2817,7 @@ static void cs_html_estimate(const char *name, const struct cs_est *est,
 }
 
 static void cs_html_outliers(const struct cs_outliers *outliers,
-                             double outlier_var, size_t run_count, FILE *f) {
+                             size_t run_count, FILE *f) {
     size_t outlier_count = outliers->low_mild + outliers->high_mild +
                            outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -2845,12 +2842,13 @@ static void cs_html_outliers(const struct cs_outliers *outliers,
             "<p>outlying measurements have %s (%.1f%%) effect on "
             "estimated "
             "standard deviation</p>",
-            cs_outliers_variance_str(outlier_var), outlier_var * 100.0);
+            cs_outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
 static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
                                size_t i, FILE *f) {
     const struct cs_bench *bench = analysis->bench;
+    const struct cs_distr *distr = &analysis->wall_distr;
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>time kde plot</h3>"
@@ -2863,9 +2861,9 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
             "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
-    cs_format_time(buf, sizeof(buf), analysis->wall_distr.min);
+    cs_format_time(buf, sizeof(buf), distr->min);
     fprintf(f, "<p>min %s</p>", buf);
-    cs_format_time(buf, sizeof(buf), analysis->wall_distr.max);
+    cs_format_time(buf, sizeof(buf), distr->max);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, "<table><thead><tr>"
                "<th></th>"
@@ -2873,20 +2871,19 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
                "<th class=\"est-bound\">estimate</th>"
                "<th class=\"est-bound\">upper bound</th>"
                "</tr></thead><tbody>");
-    cs_html_time_estimate("mean", &analysis->wall_distr.mean, f);
-    cs_html_time_estimate("st dev", &analysis->wall_distr.st_dev, f);
+    cs_html_time_estimate("mean", &distr->mean, f);
+    cs_html_time_estimate("st dev", &distr->st_dev, f);
     cs_html_time_estimate("systime", &analysis->systime_est, f);
     cs_html_time_estimate("usrtime", &analysis->usertime_est, f);
     fprintf(f, "</tbody></table>");
-    cs_html_outliers(&analysis->wall_distr.outliers,
-                     analysis->wall_distr.outlier_var, bench->run_count, f);
+    cs_html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, "</div></div></div>");
 }
 
-static void cs_html_custom_distr(const struct cs_bench *bench,
-                                 const struct cs_distr *distr,
-                                 const struct cs_custom_meas *info, size_t i,
-                                 FILE *f) {
+static void cs_html_distr(const struct cs_bench *bench,
+                          const struct cs_distr *distr,
+                          const struct cs_custom_meas *info, size_t i,
+                          FILE *f) {
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>%s kde plot</h3>"
@@ -2899,9 +2896,9 @@ static void cs_html_custom_distr(const struct cs_bench *bench,
             "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
-    cs_format_custom(buf, sizeof(buf), distr->min, info);
+    cs_format_custom(buf, sizeof(buf), distr->min, &info->units);
     fprintf(f, "<p>min %s</p>", buf);
-    cs_format_custom(buf, sizeof(buf), distr->max, info);
+    cs_format_custom(buf, sizeof(buf), distr->max, &info->units);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, "<table><thead><tr>"
                "<th></th>"
@@ -2909,10 +2906,10 @@ static void cs_html_custom_distr(const struct cs_bench *bench,
                "<th class=\"est-bound\">estimate</th>"
                "<th class=\"est-bound\">upper bound</th>"
                "</tr></thead><tbody>");
-    cs_html_estimate("mean", &distr->mean, info, f);
-    cs_html_estimate("st dev", &distr->st_dev, info, f);
+    cs_html_estimate("mean", &distr->mean, &info->units, f);
+    cs_html_estimate("st dev", &distr->st_dev, &info->units, f);
     fprintf(f, "</tbody></table>");
-    cs_html_outliers(&distr->outliers, distr->outlier_var, bench->run_count, f);
+    cs_html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, "</div></div></div>");
 }
 
@@ -2997,7 +2994,7 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
         for (size_t j = 0; j < bench->custom_meas_count; ++j) {
             const struct cs_distr *distr = analysis->custom_meas + j;
             const struct cs_custom_meas *info = bench->cmd->custom_meas + j;
-            cs_html_custom_distr(bench, distr, info, i + 1, f);
+            cs_html_distr(bench, distr, info, i + 1, f);
         }
         fprintf(f, "</div>");
     }
