@@ -2384,6 +2384,8 @@ static void cs_make_violin_plot(const struct cs_violin_plot *plot, FILE *f) {
     }
     fprintf(f, "]\n");
     fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.xlabel('command')\n"
@@ -2420,6 +2422,8 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
     }
     fprintf(f, "]\n");
     fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.title('%s')\n"
@@ -2526,6 +2530,8 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
     fprintf(f, "]\n");
 
     fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.title('%s')\n"
@@ -2587,6 +2593,8 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
     fprintf(f, "]\n");
 
     fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.title('%s')\n"
@@ -2625,58 +2633,6 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
 static void cs_free_kde_plot(struct cs_kde_plot *plot) {
     free(plot->data);
     free(plot->xlabel);
-}
-
-static int cs_violin_plot(const struct cs_violin_plot *plot) {
-    FILE *f;
-    pid_t pid;
-    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
-        fprintf(stderr, "error: failed to launch python\n");
-        return -1;
-    }
-    cs_make_violin_plot(plot, f);
-    fclose(f);
-    if (!cs_process_finished_correctly(pid)) {
-        fprintf(stderr, "error: python finished with non-zero exit code\n");
-        return -1;
-    }
-    return 0;
-}
-
-static int cs_group_plot(const struct cs_cmd_group_analysis *analysis,
-                         const char *output_filename) {
-    FILE *f;
-    pid_t pid;
-    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
-        fprintf(stderr, "error: failed to launch python\n");
-        return -1;
-    }
-    cs_make_group_plot(analysis, output_filename, f);
-    fclose(f);
-    if (!cs_process_finished_correctly(pid)) {
-        fprintf(stderr, "error: python finished with non-zero exit code\n");
-        return -1;
-    }
-    return 0;
-}
-
-static int cs_kde_plot(const struct cs_kde_plot *plot) {
-    FILE *f;
-    pid_t pid;
-    if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
-        fprintf(stderr, "error: failed to launch python\n");
-        return -1;
-    }
-    if (plot->is_ext)
-        cs_make_kde_plot_ext(plot, f);
-    else
-        cs_make_kde_plot(plot, f);
-    fclose(f);
-    if (!cs_process_finished_correctly(pid)) {
-        fprintf(stderr, "error: python finished with non-zero exit code\n");
-        return -1;
-    }
-    return 0;
 }
 
 static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
@@ -2833,16 +2789,23 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
     const struct cs_bench *benches = results->benches;
     const struct cs_bench_analysis *analyses = results->analyses;
     char buf[4096];
-
+    pid_t *processes = NULL;
+    int ret = -1;
+    FILE *f;
+    pid_t pid;
     if (!no_time) {
         {
             snprintf(buf, sizeof(buf), "%s/violin_wall.svg", analyze_dir);
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto err;
+            }
             struct cs_violin_plot plot = {0};
             cs_init_violin_plot_wall(benches, bench_count, buf, &plot);
-            int ret = cs_violin_plot(&plot);
+            cs_make_violin_plot(&plot, f);
+            fclose(f);
             cs_free_violin_plot(&plot);
-            if (ret == -1)
-                return -1;
+            cs_sb_push(processes, pid);
         }
 
         for (size_t i = 0; i < results->group_count; ++i) {
@@ -2850,8 +2813,13 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
                 results->group_analyses + i;
             snprintf(buf, sizeof(buf), "%s/group_plot_%zu.svg", analyze_dir,
                      i + 1);
-            if (cs_group_plot(analysis, buf) == -1)
-                return -1;
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto err;
+            }
+            cs_make_group_plot(analysis, buf, f);
+            fclose(f);
+            cs_sb_push(processes, pid);
         }
         for (size_t i = 0; i < bench_count; ++i) {
             const struct cs_bench_analysis *analysis = analyses + i;
@@ -2859,24 +2827,32 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
             {
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_wall.svg", analyze_dir,
                          i + 1);
+                if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto err;
+                }
                 struct cs_kde_plot plot = {0};
                 cs_init_kde_plot_wall(&analysis->wall_distr, cmd_str, buf,
                                       &plot);
-                int ret = cs_kde_plot(&plot);
+                cs_make_kde_plot(&plot, f);
+                fclose(f);
                 cs_free_kde_plot(&plot);
-                if (ret == -1)
-                    return -1;
+                cs_sb_push(processes, pid);
             }
             {
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_wall.svg",
                          analyze_dir, i + 1);
+                if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto err;
+                }
                 struct cs_kde_plot plot = {0};
                 cs_init_kde_plot_wall_ext(&analysis->wall_distr, cmd_str, buf,
                                           &plot);
-                int ret = cs_kde_plot(&plot);
+                cs_make_kde_plot_ext(&plot, f);
+                fclose(f);
                 cs_free_kde_plot(&plot);
-                if (ret == -1)
-                    return -1;
+                cs_sb_push(processes, pid);
             }
         }
     }
@@ -2886,12 +2862,16 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
         {
             snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
                      meas->name);
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto err;
+            }
             struct cs_violin_plot plot = {0};
             cs_init_violin_plot_custom(benches, bench_count, i, buf, &plot);
-            int ret = cs_violin_plot(&plot);
+            cs_make_violin_plot(&plot, f);
+            fclose(f);
             cs_free_violin_plot(&plot);
-            if (ret == -1)
-                return -1;
+            cs_sb_push(processes, pid);
         }
 
         for (size_t j = 0; j < bench_count; ++j) {
@@ -2900,29 +2880,45 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
             {
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
                          j + 1, meas->name);
+                if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto err;
+                }
                 struct cs_kde_plot plot = {0};
                 cs_init_kde_plot_custom(analysis->custom_meas + i, cmd_str,
                                         meas, buf, &plot);
-                int ret = cs_kde_plot(&plot);
+                cs_make_kde_plot(&plot, f);
+                fclose(f);
                 cs_free_kde_plot(&plot);
-                if (ret == -1)
-                    return -1;
+                cs_sb_push(processes, pid);
             }
             {
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
                          j + 1, meas->name);
+                if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto err;
+                }
                 struct cs_kde_plot plot = {0};
                 cs_init_kde_plot_custom_ext(analysis->custom_meas + i, cmd_str,
                                             meas, buf, &plot);
-                int ret = cs_kde_plot(&plot);
+                cs_make_kde_plot_ext(&plot, f);
+                fclose(f);
                 cs_free_kde_plot(&plot);
-                if (ret == -1)
-                    return -1;
+                cs_sb_push(processes, pid);
             }
         }
     }
 
-    return 0;
+    ret = 0;
+err:
+    for (size_t i = 0; i < cs_sb_len(processes); ++i) {
+        if (!cs_process_finished_correctly(processes[i])) {
+            fprintf(stderr, "error: python finished with non-zero exit code\n");
+            ret = -1;
+        }
+    }
+    return ret;
 }
 
 #define cs_html_time_estimate(_name, _est, _f)                                 \
