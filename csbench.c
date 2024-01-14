@@ -2585,8 +2585,8 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
                                  grp_idx, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
-                        "error: failed to create file %s/violin_%zu.py\n",
-                        analyze_dir, meas_idx);
+                        "error: failed to create file %s/group_%zu_%zu.py\n",
+                        analyze_dir, grp_idx, meas_idx);
                 return -1;
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
@@ -2723,6 +2723,54 @@ out:
         }
     }
     return ret;
+}
+
+static int cs_make_plots_readme(const struct cs_bench_results *results,
+                                int no_wall, const char *analyze_dir) {
+    FILE *f = cs_open_file_fmt("w", "%s/readme.md", analyze_dir);
+    if (f == NULL) {
+        fprintf(stderr, "error: failed to create file %s/readme.md\n",
+                analyze_dir);
+        return -1;
+    }
+    fprintf(f, "# csbench analyze map\n");
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (meas_idx == 0 && no_wall)
+            continue;
+        const struct cs_meas *meas = results->meas + meas_idx;
+        fprintf(f, "## measurement %s\n", meas->name);
+        fprintf(f, "* [violin plot](violin_%zu.svg)\n", meas_idx);
+        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[meas_idx] + grp_idx;
+            fprintf(
+                f,
+                "* [command group '%s' regression plot](group_%zu_%zu.svg)\n",
+                analysis->group->template, grp_idx, meas_idx);
+        }
+        fprintf(f, "### KDE plots\n");
+        fprintf(f, "#### regular\n");
+        for (size_t bench_idx = 0; bench_idx < results->bench_count;
+             ++bench_idx) {
+            const struct cs_bench_analysis *analysis =
+                results->analyses + bench_idx;
+            const char *cmd_str = analysis->bench->cmd->str;
+            fprintf(f, "* [%s](kde_%zu_%zu.svg)\n", cmd_str, bench_idx,
+                    meas_idx);
+        }
+        fprintf(f, "#### extended\n");
+        for (size_t bench_idx = 0; bench_idx < results->bench_count;
+             ++bench_idx) {
+            const struct cs_bench_analysis *analysis =
+                results->analyses + bench_idx;
+            const char *cmd_str = analysis->bench->cmd->str;
+            fprintf(f, "* [%s](kde_ext_%zu_%zu.svg)\n", cmd_str, bench_idx,
+                    meas_idx);
+        }
+    }
+
+    fclose(f);
+    return 0;
 }
 
 #define cs_html_time_estimate(_name, _est, _f)                                 \
@@ -3060,6 +3108,9 @@ static int cs_handle_analyze(const struct cs_bench_results *results,
             return -1;
 
         if (cs_make_plots(results, no_wall, analyze_dir) == -1)
+            return -1;
+
+        if (cs_make_plots_readme(results, no_wall, analyze_dir) == -1)
             return -1;
     }
 
