@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -65,9 +66,9 @@ enum cs_analyze_mode {
 
 struct cs_bench_stop_policy {
     double time_limit;
-    size_t runs;
-    size_t min_runs;
-    size_t max_runs;
+    int runs;
+    int min_runs;
+    int max_runs;
 };
 
 enum cs_units_kind {
@@ -100,7 +101,7 @@ struct cs_cli_settings {
     const char **cmds;
     struct cs_bench_stop_policy bench_stop;
     double warmup_time;
-    size_t nresamp;
+    int nresamp;
     const char *shell;
     struct cs_export_policy export;
     struct cs_meas *meas;
@@ -141,7 +142,7 @@ struct cs_settings {
     struct cs_cmd_group *cmd_groups;
     struct cs_bench_stop_policy bench_stop;
     double warmup_time;
-    size_t nresamp;
+    int nresamp;
     struct cs_meas *meas;
     const char *prepare_cmd;
     struct cs_export_policy export;
@@ -162,15 +163,15 @@ struct cs_est {
 };
 
 struct cs_outliers {
+    double var;
     double low_severe_x;
     double low_mild_x;
     double high_mild_x;
     double high_severe_x;
-    size_t low_severe;
-    size_t low_mild;
-    size_t high_mild;
-    size_t high_severe;
-    double var;
+    int low_severe;
+    int low_mild;
+    int high_mild;
+    int high_severe;
 };
 
 // Describes distribution and is useful for passing benchmark data and analysis
@@ -1435,7 +1436,7 @@ static int cs_warmup(const struct cs_cmd *cmd, double time_limit) {
 static int cs_run_benchmark(struct cs_bench *bench,
                             const struct cs_bench_stop_policy *policy) {
     if (policy->runs != 0) {
-        for (size_t run_idx = 0; run_idx < policy->runs; ++run_idx) {
+        for (int run_idx = 0; run_idx < policy->runs; ++run_idx) {
             if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
                 return -1;
             if (cs_exec_and_measure(bench) == -1)
@@ -1510,11 +1511,11 @@ static double cs_stat_st_dev(const double *v, size_t count) {
 
 #define cs_bootstrap(_name, _stat_fn)                                          \
     static void cs_do_bootstrap_##_name(const double *src, size_t count,       \
-                                        double *tmp, size_t resamples,         \
+                                        double *tmp, int resamples,            \
                                         double *min_d, double *max_d) {        \
         double min = INFINITY;                                                 \
         double max = -INFINITY;                                                \
-        for (size_t sample = 0; sample < resamples; ++sample) {                \
+        for (int sample = 0; sample < resamples; ++sample) {                   \
             cs_resample(src, count, tmp, xorshift32(&rng_state));              \
             double stat = _stat_fn(tmp, count);                                \
             if (stat < min)                                                    \
@@ -1526,15 +1527,14 @@ static double cs_stat_st_dev(const double *v, size_t count) {
         *max_d = max;                                                          \
     }                                                                          \
     static void cs_bootstrap_##_name(const double *data, size_t count,         \
-                                     double *tmp, size_t resamples,            \
+                                     double *tmp, int resamples,               \
                                      struct cs_est *est) {                     \
         est->point = _stat_fn(data, count);                                    \
         cs_do_bootstrap_##_name(data, count, tmp, resamples, &est->lower,      \
                                 &est->upper);                                  \
     }                                                                          \
     static __attribute__((used)) void cs_estimate_##_name(                     \
-        const double *data, size_t count, size_t resamples,                    \
-        struct cs_est *est) {                                                  \
+        const double *data, size_t count, int resamples, struct cs_est *est) { \
         double *tmp = malloc(count * sizeof(*tmp));                            \
         cs_bootstrap_##_name(data, count, tmp, resamples, est);                \
         free(tmp);                                                             \
@@ -1729,7 +1729,7 @@ static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
     return best_fit;
 }
 
-static void cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
+static void cs_analyze_benchmark(const struct cs_bench *bench, int nresamp,
                                  struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
     analysis->bench = bench;
@@ -1917,23 +1917,23 @@ static const char *cs_outliers_variance_str(double fraction) {
 
 static void cs_print_outliers(const struct cs_outliers *outliers,
                               size_t run_count) {
-    size_t outlier_count = outliers->low_mild + outliers->high_mild +
-                           outliers->low_severe + outliers->high_severe;
+    int outlier_count = outliers->low_mild + outliers->high_mild +
+                        outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
-        printf("found %zu outliers across %zu measurements (%.2f%%)\n",
+        printf("found %d outliers across %zu measurements (%.2f%%)\n",
                outlier_count, run_count,
                (double)outlier_count / run_count * 100.0);
         if (outliers->low_severe)
-            printf("%zu (%.2f%%) low severe\n", outliers->low_severe,
+            printf("%d (%.2f%%) low severe\n", outliers->low_severe,
                    (double)outliers->low_severe / run_count * 100.0);
         if (outliers->low_mild)
-            printf("%zu (%.2f%%) low mild\n", outliers->low_mild,
+            printf("%d (%.2f%%) low mild\n", outliers->low_mild,
                    (double)outliers->low_mild / run_count * 100.0);
         if (outliers->high_mild)
-            printf("%zu (%.2f%%) high mild\n", outliers->high_mild,
+            printf("%d (%.2f%%) high mild\n", outliers->high_mild,
                    (double)outliers->high_mild / run_count * 100.0);
         if (outliers->high_severe)
-            printf("%zu (%.2f%%) high severe\n", outliers->high_severe,
+            printf("%d (%.2f%%) high severe\n", outliers->high_severe,
                    (double)outliers->high_severe / run_count * 100.0);
     }
     printf("outlying measurements have %s (%.1f%%) effect on estimated "
@@ -2154,8 +2154,8 @@ static int cs_export_json(const struct cs_settings *settings,
     const struct cs_bench *benches = results->benches;
     fprintf(f,
             "{ \"settings\": {"
-            "\"time_limit\": %f, \"runs\": %zu, \"min_runs\": %zu, "
-            "\"max_runs\": %zu, \"warmup_time\": %f, \"nresamp\": %zu "
+            "\"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
+            "\"max_runs\": %d, \"warmup_time\": %f, \"nresamp\": %d "
             "}, \"benches\": [",
             settings->bench_stop.time_limit, settings->bench_stop.runs,
             settings->bench_stop.min_runs, settings->bench_stop.max_runs,
@@ -2793,22 +2793,22 @@ static void cs_html_estimate(const char *name, const struct cs_est *est,
 
 static void cs_html_outliers(const struct cs_outliers *outliers,
                              size_t run_count, FILE *f) {
-    size_t outlier_count = outliers->low_mild + outliers->high_mild +
-                           outliers->low_severe + outliers->high_severe;
+    int outlier_count = outliers->low_mild + outliers->high_mild +
+                        outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
-        fprintf(f, "<p>found %zu outliers (%.2f%%)</p><ul>", outlier_count,
+        fprintf(f, "<p>found %d outliers (%.2f%%)</p><ul>", outlier_count,
                 (double)outlier_count / run_count * 100.0);
         if (outliers->low_severe)
-            fprintf(f, "<li>%zu (%.2f%%) low severe</li>", outliers->low_severe,
+            fprintf(f, "<li>%d (%.2f%%) low severe</li>", outliers->low_severe,
                     (double)outliers->low_severe / run_count * 100.0);
         if (outliers->low_mild)
-            fprintf(f, "<li>%zu (%.2f%%) low mild</li>", outliers->low_mild,
+            fprintf(f, "<li>%d (%.2f%%) low mild</li>", outliers->low_mild,
                     (double)outliers->low_mild / run_count * 100.0);
         if (outliers->high_mild)
-            fprintf(f, "<li>%zu (%.2f%%) high mild</li>", outliers->high_mild,
+            fprintf(f, "<li>%d (%.2f%%) high mild</li>", outliers->high_mild,
                     (double)outliers->high_mild / run_count * 100.0);
         if (outliers->high_severe)
-            fprintf(f, "<li>%zu (%.2f%%) high severe</li>",
+            fprintf(f, "<li>%d (%.2f%%) high severe</li>",
                     outliers->high_severe,
                     (double)outliers->high_severe / run_count * 100.0);
         fprintf(f, "</ul>");
