@@ -22,7 +22,6 @@
 #include <mach/mach.h>
 #endif
 
-// Stretchy buffer
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
 struct cs_sb_header {
@@ -30,7 +29,7 @@ struct cs_sb_header {
     size_t capacity;
 };
 
-enum cs_input_policy_kind {
+enum cs_input_kind {
     CS_INPUT_POLICY_NULL,
     // load input from file (supplied later)
     CS_INPUT_POLICY_FILE
@@ -38,11 +37,11 @@ enum cs_input_policy_kind {
 
 // How to handle input of command?
 struct cs_input_policy {
-    enum cs_input_policy_kind kind;
+    enum cs_input_kind kind;
     const char *file;
 };
 
-enum cs_output_policy_kind {
+enum cs_output_kind {
     CS_OUTPUT_POLICY_NULL,
     // Print output to controlling terminal
     CS_OUTPUT_POLICY_INHERIT,
@@ -106,8 +105,8 @@ struct cs_cli_settings {
     struct cs_export_policy export;
     struct cs_meas *meas;
     const char *prepare;
-    struct cs_input_policy input_policy;
-    enum cs_output_policy_kind output_policy;
+    struct cs_input_policy input;
+    enum cs_output_kind output;
     const char *analyze_dir;
     enum cs_analyze_mode analyze_mode;
     struct cs_bench_param *params;
@@ -122,7 +121,7 @@ struct cs_cmd {
     char *exec;
     char **argv;
     struct cs_input_policy input;
-    enum cs_output_policy_kind output;
+    enum cs_output_kind output;
     struct cs_meas *meas;
 };
 
@@ -623,9 +622,9 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
             const char *out = argv[cursor++];
             if (strcmp(out, "null") == 0)
-                settings->output_policy = CS_OUTPUT_POLICY_NULL;
+                settings->output = CS_OUTPUT_POLICY_NULL;
             else if (strcmp(out, "inherit") == 0)
-                settings->output_policy = CS_OUTPUT_POLICY_INHERIT;
+                settings->output = CS_OUTPUT_POLICY_INHERIT;
             else
                 cs_print_help_and_exit(EXIT_FAILURE);
         } else if (strcmp(opt, "--input") == 0) {
@@ -635,10 +634,10 @@ static void cs_parse_cli_args(int argc, char **argv,
             }
             const char *input = argv[cursor++];
             if (strcmp(input, "null") == 0) {
-                settings->input_policy.kind = CS_INPUT_POLICY_NULL;
+                settings->input.kind = CS_INPUT_POLICY_NULL;
             } else {
-                settings->input_policy.kind = CS_INPUT_POLICY_FILE;
-                settings->input_policy.file = input;
+                settings->input.kind = CS_INPUT_POLICY_FILE;
+                settings->input.file = input;
             }
         } else if (strcmp(opt, "--custom") == 0) {
             if (cursor >= argc) {
@@ -1042,12 +1041,12 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
 
     // try to catch invalid file as early as possible,
     // because later error handling can become troublesome (after fork()).
-    if (cli->input_policy.kind == CS_INPUT_POLICY_FILE &&
-        access(cli->input_policy.file, R_OK) == -1) {
+    if (cli->input.kind == CS_INPUT_POLICY_FILE &&
+        access(cli->input.file, R_OK) == -1) {
         fprintf(stderr,
                 "error: file specified as command input is not accessable "
                 "(%s)\n",
-                cli->input_policy.file);
+                cli->input.file);
         return -1;
     }
 
@@ -1083,8 +1082,8 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
                 }
 
                 struct cs_cmd cmd = {0};
-                cmd.input = cli->input_policy;
-                cmd.output = cli->output_policy;
+                cmd.input = cli->input;
+                cmd.output = cli->output;
                 cmd.meas = settings->meas;
                 if (cs_init_cmd_exec(cli->shell, buf, &cmd) == -1) {
                     free(group.cmd_idxs);
@@ -1103,8 +1102,8 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
 
         if (!found_param) {
             struct cs_cmd cmd = {0};
-            cmd.input = cli->input_policy;
-            cmd.output = cli->output_policy;
+            cmd.input = cli->input;
+            cmd.output = cli->output;
             cmd.meas = settings->meas;
             if (cs_init_cmd_exec(cli->shell, cmd_str, &cmd) == -1)
                 goto err_free_settings;
@@ -1165,7 +1164,7 @@ static void cs_apply_input_policy(const struct cs_input_policy *policy) {
     }
 }
 
-static void cs_apply_output_policy(enum cs_output_policy_kind policy) {
+static void cs_apply_output_policy(enum cs_output_kind policy) {
     switch (policy) {
     case CS_OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
@@ -2944,8 +2943,7 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
-        fprintf(f, "<div><h2>command '%s'</h2>",
-                bench->cmd->str);
+        fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
         if (!no_time)
             cs_html_wall_distr(analysis, i + 1, f);
         for (size_t j = 1; j < bench->meas_count; ++j) {
