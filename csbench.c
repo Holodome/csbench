@@ -229,6 +229,8 @@ struct cs_cmd_group_analysis {
     const struct cs_cmd_group *group;
     size_t cmd_count;
     struct cs_cmd_in_group_data *data;
+    const struct cs_cmd_in_group_data *slowest;
+    const struct cs_cmd_in_group_data *fastest;
     int values_are_doubles;
     enum cs_big_o complexity;
     double coef;
@@ -251,20 +253,12 @@ struct cs_cpu_time {
     double system_time;
 };
 
-struct cs_violin_plot {
-    size_t count;
-    double **data;
-    char *ylabel;
-    const struct cs_bench *benches;
-    const char *output_filename;
-};
-
 // data needed to construct kde plot. data here is kde points computed from
 // original data
 struct cs_kde_plot {
     const struct cs_distr *distr;
-    char *xlabel;
     const char *title;
+    const struct cs_meas *meas;
     double lower;
     double step;
     double *data;
@@ -1735,16 +1729,6 @@ static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
     return best_fit;
 }
 
-static int cs_compare_cmds_in_group(const void *arg1, const void *arg2) {
-    const struct cs_cmd_in_group_data *a = arg1;
-    const struct cs_cmd_in_group_data *b = arg2;
-    if (a->mean < b->mean)
-        return -1;
-    if (a->mean > b->mean)
-        return 1;
-    return 0;
-}
-
 static void cs_analyze_benchmark(const struct cs_bench *bench, size_t nresamp,
                                  struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
@@ -1798,6 +1782,7 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
             analysis->cmd_count = cmd_count;
             analysis->data = calloc(cmd_count, sizeof(*analysis->data));
             int values_are_doubles = 1;
+            double slowest = -INFINITY, fastest = INFINITY;
             for (size_t cmd_idx = 0; cmd_idx < cmd_count; ++cmd_idx) {
                 const char *value = group->var_values[cmd_idx];
                 const struct cs_cmd *cmd =
@@ -1814,12 +1799,21 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
                 double value_double = strtod(value, &end);
                 if (end == value)
                     values_are_doubles = 0;
-                analysis->data[cmd_idx] = (struct cs_cmd_in_group_data){
-                    value, value_double,
-                    results->analyses[bench_idx].meas[meas_idx].mean.point};
+                double mean =
+                    results->analyses[bench_idx].meas[meas_idx].mean.point;
+                struct cs_cmd_in_group_data *data = analysis->data + cmd_idx;
+                data->mean = mean;
+                data->value = value;
+                data->value_double = value_double;
+                if (mean > slowest) {
+                    slowest = mean;
+                    analysis->slowest = data;
+                }
+                if (mean < fastest) {
+                    fastest = mean;
+                    analysis->fastest = data;
+                }
             }
-            qsort(analysis->data, cmd_count, sizeof(*analysis->data),
-                  cs_compare_cmds_in_group);
             analysis->values_are_doubles = values_are_doubles;
             if (values_are_doubles) {
                 double *x = calloc(cmd_count, sizeof(*x));
@@ -2294,82 +2288,64 @@ cs_open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
-#define cs_time_axis_label() strdup("time [s]")
-static char *cs_axis_label(const struct cs_meas *meas) {
-    char *str;
-    asprintf(&str, "%s [%s]", meas->name, cs_units_str(&meas->units));
-    return str;
-}
-
-static void cs_init_violin_plot(const struct cs_bench *benches,
+static void cs_make_violin_plot(const struct cs_bench *benches,
                                 size_t bench_count, size_t meas_idx,
-                                const char *output_filename,
-                                struct cs_violin_plot *plot) {
-    plot->output_filename = output_filename;
-    plot->count = bench_count;
-    plot->benches = benches;
-    plot->ylabel = cs_time_axis_label();
-    plot->data = calloc(plot->count, sizeof(*plot->data));
-    for (size_t i = 0; i < plot->count; ++i) {
-        size_t run_count = benches[i].run_count;
-        plot->data[i] = calloc(run_count, sizeof(double));
-        memcpy(plot->data[i], benches[i].meas[meas_idx],
-               run_count * sizeof(double));
-    }
-}
-
-static void cs_make_violin_plot(const struct cs_violin_plot *plot, FILE *f) {
+                                const char *output_filename, FILE *f) {
+    const struct cs_meas *meas = benches[0].cmd->meas + meas_idx;
     fprintf(f, "data = [");
-    for (size_t i = 0; i < plot->count; ++i) {
-        const struct cs_bench *bench = plot->benches + i;
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
         for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%g, ", plot->data[i][j]);
+            fprintf(f, "%g, ", bench->meas[meas_idx][j]);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
     fprintf(f, "names = [");
-    for (size_t i = 0; i < plot->count; ++i) {
-        const struct cs_bench *bench = plot->benches + i;
+    for (size_t i = 0; i < bench_count; ++i) {
+        const struct cs_bench *bench = benches + i;
         fprintf(f, "'%s', ", bench->cmd->str);
     }
-    fprintf(f, "]\n");
     fprintf(f,
+            "]\n"
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.xlabel('command')\n"
-            "plt.ylabel('%s')\n"
+            "plt.ylabel('%s [%s]')\n"
             "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s')\n",
-            plot->ylabel, plot->output_filename);
-}
-
-static void cs_free_violin_plot(struct cs_violin_plot *plot) {
-    for (size_t i = 0; i < plot->count; ++i)
-        free(plot->data[i]);
-    free(plot->data);
-    free(plot->ylabel);
+            meas->name, cs_units_str(&meas->units), output_filename);
 }
 
 static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
                                const char *output_filename, FILE *f) {
-    fprintf(f, "points = [");
-    for (size_t i = 0; i < analysis->cmd_count; ++i)
-        fprintf(f, "(%g, %g), ", analysis->data[i].value_double,
-                analysis->data[i].mean);
-    fprintf(f, "]\n");
-    fprintf(f, "points.sort(key=lambda it: it[0])\n");
-    fprintf(f, "x = [it[0] for it in points]\n");
-    fprintf(f, "y = [it[1] for it in points]\n");
-    fprintf(f, "regr = [");
+    fprintf(f, "x = [");
     for (size_t i = 0; i < analysis->cmd_count; ++i) {
-        double v =
-            analysis->coef * cs_fitting_curve(analysis->data[i].value_double,
-                                              analysis->complexity);
+        double v = analysis->data[i].value_double;
         fprintf(f, "%g, ", v);
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "y = [");
+    for (size_t i = 0; i < analysis->cmd_count; ++i)
+        fprintf(f, "%g, ", analysis->data[i].mean);
+    fprintf(f, "]\n");
+    size_t nregr = 100;
+    double lowest_x = analysis->data[0].value_double,
+           highest_x = analysis->data[analysis->cmd_count - 1].value_double;
+    double regr_x_step = (highest_x - lowest_x) / nregr;
+    fprintf(f, "regrx = [");
+    for (size_t i = 0; i < nregr; ++i)
+        fprintf(f, "%g, ", lowest_x + regr_x_step * i);
+    fprintf(f, "]\n");
+    fprintf(f, "regry = [");
+    for (size_t i = 0; i < nregr; ++i) {
+        double regr =
+            analysis->coef *
+            cs_fitting_curve(lowest_x + regr_x_step * i, analysis->complexity);
+        fprintf(f, "%g, ", regr);
     }
     fprintf(f, "]\n");
     fprintf(f,
@@ -2378,7 +2354,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.title('%s')\n"
-            "plt.plot(x, regr, color='red', alpha=0.3, interpolate=True)\n"
+            "plt.plot(regrx, regry, color='red', alpha=0.3)\n"
             "plt.plot(x, y, '.-')\n"
             "plt.xticks(x)\n"
             "plt.grid()\n"
@@ -2426,19 +2402,18 @@ static void cs_construct_kde(const struct cs_distr *distr, double *kde,
 }
 
 #define cs_init_kde_plot(_distr, _title, _meas, _output_filename, _plot)       \
-    cs_init_kde_plot_internal(_distr, _title, cs_axis_label(_meas), 0,         \
-                              _output_filename, _plot)
+    cs_init_kde_plot_internal(_distr, _title, _meas, 0, _output_filename, _plot)
 #define cs_init_kde_plot_ext(_distr, _title, _meas, _output_filename, _plot)   \
-    cs_init_kde_plot_internal(_distr, _title, cs_axis_label(_meas), 1,         \
-                              _output_filename, _plot)
+    cs_init_kde_plot_internal(_distr, _title, _meas, 1, _output_filename, _plot)
 static void cs_init_kde_plot_internal(const struct cs_distr *distr,
-                                      const char *title, char *xlabel,
-                                      int is_ext, const char *output_filename,
+                                      const char *title,
+                                      const struct cs_meas *meas, int is_ext,
+                                      const char *output_filename,
                                       struct cs_kde_plot *plot) {
     size_t kde_points = 200;
     plot->is_ext = is_ext;
     plot->output_filename = output_filename;
-    plot->xlabel = xlabel;
+    plot->meas = meas;
     plot->title = title;
     plot->distr = distr;
     plot->count = kde_points;
@@ -2471,7 +2446,6 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
     for (size_t i = 0; i < plot->count; ++i)
         fprintf(f, "%g, ", plot->lower + plot->step * i);
     fprintf(f, "]\n");
-
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
@@ -2481,11 +2455,11 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%g, [0], [%g])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s')\n"
+            "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s')\n",
-            plot->title, plot->mean, plot->mean_y, plot->xlabel,
-            plot->output_filename);
+            plot->title, plot->mean, plot->mean_y, plot->meas->name,
+            cs_units_str(&plot->meas->units), plot->output_filename);
 }
 
 static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
@@ -2534,7 +2508,6 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
     for (size_t i = 0; i < kde_count; ++i)
         fprintf(f, "%g, ", plot->data[i]);
     fprintf(f, "]\n");
-
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
@@ -2565,18 +2538,16 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
                 plot->distr->outliers.high_severe_x);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s')\n"
+            "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('runs')\n"
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->xlabel, plot->output_filename);
+            plot->meas->name, cs_units_str(&plot->meas->units),
+            plot->output_filename);
 }
 
-static void cs_free_kde_plot(struct cs_kde_plot *plot) {
-    free(plot->data);
-    free(plot->xlabel);
-}
+static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
 static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
                             const char *analyze_dir) {
@@ -2600,10 +2571,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             }
             snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
                      meas->name);
-            struct cs_violin_plot plot = {0};
-            cs_init_violin_plot(benches, bench_count, i, buf, &plot);
-            cs_make_violin_plot(&plot, f);
-            cs_free_violin_plot(&plot);
+            cs_make_violin_plot(benches, bench_count, i, buf, f);
             fclose(f);
         }
         for (size_t j = 0; j < results->group_count; ++j) {
@@ -2688,11 +2656,8 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            struct cs_violin_plot plot = {0};
-            cs_init_violin_plot(benches, bench_count, i, buf, &plot);
-            cs_make_violin_plot(&plot, f);
+            cs_make_violin_plot(benches, bench_count, i, buf, f);
             fclose(f);
-            cs_free_violin_plot(&plot);
             cs_sb_push(processes, pid);
         }
         for (size_t j = 0; j < results->group_count; ++j) {
@@ -2916,11 +2881,11 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
     fprintf(f,
             "<div class=\"col stats\">"
             "<p>lowest time %s with %s=%s</p>",
-            buf, group->var_name, analysis->data[0].value);
+            buf, group->var_name, analysis->slowest->value);
     cs_format_time(buf, sizeof(buf),
                    analysis->data[analysis->cmd_count - 1].mean);
     fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
-            analysis->data[analysis->cmd_count - 1].value);
+            analysis->fastest->value);
     if (analysis->values_are_doubles) {
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
