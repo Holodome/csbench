@@ -243,7 +243,7 @@ struct cs_bench_results {
     size_t *fastest_meas;
     const struct cs_meas *meas;
     size_t group_count;
-    struct cs_cmd_group_analysis *group_analyses;
+    struct cs_cmd_group_analysis **group_analyses;
 };
 
 struct cs_cpu_time {
@@ -1783,53 +1783,57 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
     size_t group_count = results->group_count = cs_sb_len(settings->cmd_groups);
     results->group_count = group_count;
     results->group_analyses =
-        calloc(group_count, sizeof(*results->group_analyses));
-    for (size_t i = 0; i < group_count; ++i) {
-        const struct cs_cmd_group *group = settings->cmd_groups + i;
-        size_t cmd_count = group->count;
+        calloc(results->meas_count, sizeof(*results->group_analyses));
+    for (size_t i = 0; i < results->meas_count; ++i)
+        results->group_analyses[i] =
+            calloc(group_count, sizeof(*results->group_analyses[i]));
 
-        struct cs_cmd_group_analysis *analysis = results->group_analyses + i;
-        analysis->group = group;
-        analysis->cmd_count = cmd_count;
-        analysis->data = calloc(analysis->cmd_count, sizeof(*analysis->data));
-
-        int values_are_doubles = 1;
-        for (size_t j = 0; j < cmd_count; ++j) {
-            const char *value = group->var_values[j];
-            const struct cs_cmd *cmd = settings->cmds + group->cmd_idxs[j];
-            size_t bench_idx = -1;
-            for (size_t k = 0; k < results->bench_count; ++k) {
-                if (results->benches[k].cmd == cmd) {
-                    bench_idx = k;
-                    break;
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
+            const struct cs_cmd_group *group = settings->cmd_groups + group_idx;
+            size_t cmd_count = group->count;
+            struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[meas_idx] + group_idx;
+            analysis->group = group;
+            analysis->cmd_count = cmd_count;
+            analysis->data = calloc(cmd_count, sizeof(*analysis->data));
+            int values_are_doubles = 1;
+            for (size_t cmd_idx = 0; cmd_idx < cmd_count; ++cmd_idx) {
+                const char *value = group->var_values[cmd_idx];
+                const struct cs_cmd *cmd =
+                    settings->cmds + group->cmd_idxs[cmd_idx];
+                size_t bench_idx = -1;
+                for (size_t i = 0; i < results->bench_count; ++i) {
+                    if (results->benches[i].cmd == cmd) {
+                        bench_idx = i;
+                        break;
+                    }
                 }
+                assert(bench_idx != (size_t)-1);
+                char *end = NULL;
+                double value_double = strtod(value, &end);
+                if (end == value)
+                    values_are_doubles = 0;
+                analysis->data[cmd_idx] = (struct cs_cmd_in_group_data){
+                    value, value_double,
+                    results->analyses[bench_idx].meas[meas_idx].mean.point};
             }
-            assert(bench_idx != (size_t)-1);
+            qsort(analysis->data, cmd_count, sizeof(*analysis->data),
+                  cs_compare_cmds_in_group);
+            analysis->values_are_doubles = values_are_doubles;
+            if (values_are_doubles) {
+                double *x = calloc(cmd_count, sizeof(*x));
+                double *y = calloc(cmd_count, sizeof(*y));
+                for (size_t i = 0; i < cmd_count; ++i) {
+                    x[i] = analysis->data[i].value_double;
+                    y[i] = analysis->data[i].mean;
+                }
 
-            char *end = NULL;
-            double value_double = strtod(value, &end);
-            if (end == value)
-                values_are_doubles = 0;
-
-            analysis->data[j] = (struct cs_cmd_in_group_data){
-                value, value_double,
-                results->analyses[bench_idx].meas[0].mean.point};
-        }
-        qsort(analysis->data, cmd_count, sizeof(*analysis->data),
-              cs_compare_cmds_in_group);
-        analysis->values_are_doubles = values_are_doubles;
-        if (values_are_doubles) {
-            double *x = calloc(cmd_count, sizeof(*x));
-            double *y = calloc(cmd_count, sizeof(*y));
-            for (size_t j = 0; j < cmd_count; ++j) {
-                x[j] = analysis->data[j].value_double;
-                y[j] = analysis->data[j].mean;
+                analysis->complexity =
+                    cs_mls(x, y, cmd_count, &analysis->coef, &analysis->rms);
+                free(x);
+                free(y);
             }
-
-            analysis->complexity =
-                cs_mls(x, y, cmd_count, &analysis->coef, &analysis->rms);
-            free(x);
-            free(y);
         }
     }
 }
@@ -2089,10 +2093,12 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results,
 
 static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
                                         int no_time) {
-    if (!no_time) {
-        for (size_t i = 0; i < results->group_count; ++i) {
+    for (size_t i = 0; i < results->meas_count; ++i) {
+        if (i == 0 && no_time)
+            continue;
+        for (size_t j = 0; j < results->group_count; ++j) {
             const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses + i;
+                results->group_analyses[i] + j;
             const struct cs_cmd_group *group = analysis->group;
 
             printf("command group '%s' with parameter %s\n", group->template,
@@ -2108,7 +2114,7 @@ static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
             if (analysis->values_are_doubles) {
                 printf("mean time is most likely %s in terms of parameter\n",
                        cs_big_o_str(analysis->complexity));
-                printf("linear coef %.3f rms %.3f\n", analysis->coef,
+                printf("linear coef %g rms %.3f\n", analysis->coef,
                        analysis->rms);
             }
         }
@@ -2350,14 +2356,14 @@ static void cs_free_violin_plot(struct cs_violin_plot *plot) {
 
 static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
                                const char *output_filename, FILE *f) {
-    fprintf(f, "x = [");
+    fprintf(f, "points = [");
     for (size_t i = 0; i < analysis->cmd_count; ++i)
-        fprintf(f, "%g, ", analysis->data[i].value_double);
+        fprintf(f, "(%g, %g), ", analysis->data[i].value_double,
+                analysis->data[i].mean);
     fprintf(f, "]\n");
-    fprintf(f, "y = [");
-    for (size_t i = 0; i < analysis->cmd_count; ++i)
-        fprintf(f, "%g, ", analysis->data[i].mean);
-    fprintf(f, "]\n");
+    fprintf(f, "points.sort(key=lambda it: it[0])\n");
+    fprintf(f, "x = [it[0] for it in points]\n");
+    fprintf(f, "y = [it[1] for it in points]\n");
     fprintf(f, "regr = [");
     for (size_t i = 0; i < analysis->cmd_count; ++i) {
         double v =
@@ -2372,7 +2378,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
             "import matplotlib.pyplot as plt\n"
             "plt.ioff()\n"
             "plt.title('%s')\n"
-            "plt.plot(x, regr, color='red', alpha=0.3)\n"
+            "plt.plot(x, regr, color='red', alpha=0.3, interpolate=True)\n"
             "plt.plot(x, y, '.-')\n"
             "plt.xticks(x)\n"
             "plt.grid()\n"
@@ -2600,6 +2606,22 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
             cs_free_violin_plot(&plot);
             fclose(f);
         }
+        for (size_t j = 0; j < results->group_count; ++j) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[i] + j;
+            f = cs_open_file_fmt("w", "%s/group_%s_%s.py", analyze_dir,
+                                 analysis->group->var_name, meas->name);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/violin_%s.py\n",
+                        analyze_dir, meas->name);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/group_%s_%s.svg", analyze_dir,
+                     analysis->group->var_name, meas->name);
+            cs_make_group_plot(analysis, buf, f);
+            fclose(f);
+        }
         for (size_t j = 0; j < bench_count; ++j) {
             const struct cs_bench_analysis *analysis = analyses + i;
             const char *cmd_str = analysis->bench->cmd->str;
@@ -2673,7 +2695,19 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
             cs_free_violin_plot(&plot);
             cs_sb_push(processes, pid);
         }
-
+        for (size_t j = 0; j < results->group_count; ++j) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[i] + j;
+            snprintf(buf, sizeof(buf), "%s/group_%s_%s.svg", analyze_dir,
+                     analysis->group->var_name, meas->name);
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto out;
+            }
+            cs_make_group_plot(analysis, buf, f);
+            fclose(f);
+            cs_sb_push(processes, pid);
+        }
         for (size_t j = 0; j < bench_count; ++j) {
             const struct cs_bench_analysis *analysis = analyses + j;
             const char *cmd_str = analysis->bench->cmd->str;
@@ -2838,34 +2872,10 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_time,
                             FILE *f) {
     if (results->bench_count == 1)
         return;
-
-    if (!no_time) {
-        const struct cs_bench_analysis *best =
-            results->analyses + results->fastest_meas[0];
-        fprintf(f,
-                "<h2>comparison</h2>"
-                "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"violin.svg\"></div>"
-                "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
-                best->bench->cmd->str);
-        for (size_t i = 0; i < results->bench_count; ++i) {
-            const struct cs_bench_analysis *analysis = results->analyses + i;
-            if (analysis == best)
-                continue;
-
-            double ref, ref_st_dev;
-            cs_ref_speed(analysis->meas[0].mean.point,
-                         analysis->meas[0].st_dev.point,
-                         best->meas[0].mean.point, best->meas[0].st_dev.point,
-                         &ref, &ref_st_dev);
-            fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
-                    ref_st_dev, analysis->bench->cmd->str);
-        }
-        fprintf(f, "</ul></div></div>");
-    }
-
     size_t meas_count = results->meas_count;
-    for (size_t i = 1; i < meas_count; ++i) {
+    for (size_t i = 0; i < meas_count; ++i) {
+        if (i == 0 && no_time)
+            continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
         const struct cs_meas *meas = results->meas + i;
@@ -2893,33 +2903,32 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_time,
 }
 
 static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
-                              size_t i, int no_time, FILE *f) {
-    if (!no_time) {
-        const struct cs_cmd_group *group = analysis->group;
+                              const struct cs_meas *meas, FILE *f) {
+    const struct cs_cmd_group *group = analysis->group;
+    fprintf(f,
+            "<h2>group '%s' with parameter %s</h2>"
+            "<div class=\"row\"><div class=\"col\">"
+            "<img src=\"group_%s_%s.svg\"></div>",
+            group->template, group->var_name, analysis->group->var_name,
+            meas->name);
+    char buf[256];
+    cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
+    fprintf(f,
+            "<div class=\"col stats\">"
+            "<p>lowest time %s with %s=%s</p>",
+            buf, group->var_name, analysis->data[0].value);
+    cs_format_time(buf, sizeof(buf),
+                   analysis->data[analysis->cmd_count - 1].mean);
+    fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
+            analysis->data[analysis->cmd_count - 1].value);
+    if (analysis->values_are_doubles) {
         fprintf(f,
-                "<h2>group '%s' with parameter %s</h2>"
-                "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"group_plot_%zu.svg\"></div>",
-                group->template, group->var_name, i);
-        char buf[256];
-        cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
-        fprintf(f,
-                "<div class=\"col stats\">"
-                "<p>lowest time %s with %s=%s</p>",
-                buf, group->var_name, analysis->data[0].value);
-        cs_format_time(buf, sizeof(buf),
-                       analysis->data[analysis->cmd_count - 1].mean);
-        fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
-                analysis->data[analysis->cmd_count - 1].value);
-        if (analysis->values_are_doubles) {
-            fprintf(f,
-                    "<p>mean time is most likely %s in terms of parameter</p>"
-                    "<p>linear coef %.3f rms %.3f</p>",
-                    cs_big_o_str(analysis->complexity), analysis->coef,
-                    analysis->rms);
-        }
-        fprintf(f, "</div></div>");
+                "<p>mean time is most likely %s in terms of parameter</p>"
+                "<p>linear coef %g rms %.3f</p>",
+                cs_big_o_str(analysis->complexity), analysis->coef,
+                analysis->rms);
     }
+    fprintf(f, "</div></div>");
 }
 
 static void cs_html_report(const struct cs_bench_results *results, int no_time,
@@ -2957,10 +2966,15 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
 
     cs_html_compare(results, no_time, f);
 
-    for (size_t i = 0; i < results->group_count; ++i) {
-        const struct cs_cmd_group_analysis *analysis =
-            results->group_analyses + i;
-        cs_html_cmd_group(analysis, i + 1, no_time, f);
+    for (size_t i = 0; i < results->meas_count; ++i) {
+        if (i == 0 && no_time)
+            continue;
+        const struct cs_meas *meas = results->meas + i;
+        for (size_t j = 0; j < results->group_count; ++j) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[i] + j;
+            cs_html_cmd_group(analysis, meas, f);
+        }
     }
     fprintf(f, "</body>");
 }
@@ -3093,9 +3107,13 @@ static void cs_free_bench_results(struct cs_bench_results *results) {
             free(analysis->meas);
         }
     }
-    for (size_t i = 0; i < results->group_count; ++i) {
-        struct cs_cmd_group_analysis *analysis = results->group_analyses + i;
-        free(analysis->data);
+    for (size_t i = 0; i < results->meas_count; ++i) {
+        for (size_t j = 0; j < results->group_count; ++j) {
+            struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[i] + j;
+            free(analysis->data);
+        }
+        free(results->group_analyses[i]);
     }
     free(results->benches);
     free(results->analyses);
