@@ -113,6 +113,7 @@ struct cs_cli_settings {
     struct cs_bench_param *params;
     int plot_src;
     int no_wall;
+    int threads;
 };
 
 // Description of command to benchmark.
@@ -150,6 +151,7 @@ struct cs_settings {
     const char *analyze_dir;
     int plot_src;
     int no_wall;
+    int threads;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -343,6 +345,7 @@ static void cs_print_help_and_exit(int rc) {
         "--scan <i>/<n>/<m>[/<s>] - parameter scan i in range(n, m, s). s can "
         "be omitted\n"
         "--scanl <i>/a[,...]  - parameter scacn comma separated options\n"
+        "--jobs <n>           - specify number of threads\n"
         "--export-json <file> - export benchmark results to json\n"
         "--analyze-dir <dir>  - directory where analysis will be saved at\n"
         "--plot               - make plots as images\n"
@@ -477,6 +480,7 @@ static char **cs_parse_scan_list(const char *scan_list) {
 
 static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_cli_settings *settings) {
+    settings->threads = 1;
     settings->bench_stop.time_limit = 5.0;
     settings->bench_stop.min_runs = 5;
     settings->warmup_time = 1.0;
@@ -721,6 +725,23 @@ static void cs_parse_cli_args(int argc, char **argv,
             param.name = name;
             param.values = param_list;
             cs_sb_push(settings->params, param);
+        } else if (strcmp(opt, "--jobs") == 0) {
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --jobs requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
+            const char *threads_str = argv[cursor++];
+            char *str_end;
+            long value = strtol(threads_str, &str_end, 10);
+            if (str_end == threads_str) {
+                fprintf(stderr, "error: invalid --jobs argument\n");
+                exit(EXIT_FAILURE);
+            }
+            if (value <= 0) {
+                fprintf(stderr, "error: jobs count must be positive number\n");
+                exit(EXIT_FAILURE);
+            }
+            settings->threads = value;
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --export-json requires 1 argument\n");
@@ -1029,6 +1050,7 @@ static void cs_free_settings(struct cs_settings *settings) {
 
 static int cs_init_settings(const struct cs_cli_settings *cli,
                             struct cs_settings *settings) {
+    settings->threads = cli->threads;
     settings->bench_stop = cli->bench_stop;
     settings->warmup_time = cli->warmup_time;
     settings->export = cli->export;
