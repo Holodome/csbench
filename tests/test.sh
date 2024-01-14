@@ -28,8 +28,8 @@ distclean() {
 distclean
 $b ls --plot > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 3 ] &&                                        \
-[ -f "$dist_dir/kde_1_time.svg" ] && [ -f "$dist_dir/kde_ext_1_time.svg" ] && \
-[ -f "$dist_dir/violin_time.svg" ] || die
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/violin_0.svg" ] || die
 
 #
 # case 2 - check that plots are generated for two commands
@@ -38,9 +38,9 @@ $b ls --plot > /dev/null || die
 distclean
 $b ls pwd --plot > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 5 ] &&                                        \
-[ -f "$dist_dir/kde_1_time.svg" ] && [ -f "$dist_dir/kde_ext_1_time.svg" ] && \
-[ -f "$dist_dir/kde_2_time.svg" ] && [ -f "$dist_dir/kde_ext_2_time.svg" ] && \
-[ -f "$dist_dir/violin_time.svg" ] || die
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
+[ -f "$dist_dir/violin_0.svg" ] || die
 
 #
 # case 3 - check that plots are generated for custom measurement
@@ -49,10 +49,10 @@ $b ls pwd --plot > /dev/null || die
 distclean
 $b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 6 ] &&                                        \
-[ -f "$dist_dir/kde_1_time.svg" ] && [ -f "$dist_dir/kde_ext_1_time.svg" ] && \
-[ -f "$dist_dir/violin_time.svg" ] &&                                         \
-[ -f "$dist_dir/kde_1_aaa.svg" ] && [ -f "$dist_dir/kde_ext_1_aaa.svg" ] &&   \
-[ -f "$dist_dir/violin_aaa.svg" ] || die
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/violin_0.svg" ] &&                                         \
+[ -f "$dist_dir/kde_0_1.svg" ] && [ -f "$dist_dir/kde_ext_0_1.svg" ] &&   \
+[ -f "$dist_dir/violin_1.svg" ] || die
 
 #
 # case 4 - check that plots are generated for parameter
@@ -61,10 +61,10 @@ $b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die
 distclean 
 $b 'echo {n}' --plot --scanl n/1,2 > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 6 ] &&                                        \
-[ -f "$dist_dir/group_n_time.svg" ] &&                                        \
-[ -f "$dist_dir/kde_1_time.svg" ] && [ -f "$dist_dir/kde_ext_1_time.svg" ] && \
-[ -f "$dist_dir/kde_2_time.svg" ] && [ -f "$dist_dir/kde_ext_2_time.svg" ] && \
-[ -f "$dist_dir/violin_time.svg" ] || die
+[ -f "$dist_dir/group_0_0.svg" ] &&                                        \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
+[ -f "$dist_dir/violin_0.svg" ] || die
 
 #
 # case 5 - check that html report is generated in all basic cases
@@ -90,9 +90,11 @@ $b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 24 ] || die
-files="group_n_t.svg kde_1_time.svg kde_3_t.svg kde_4_time.svg kde_ext_1_t.svg kde_ext_2_time.svg kde_ext_4_t.svg kde_ext_5_time.svg
-group_n_time.svg kde_2_t.svg kde_3_time.svg kde_5_t.svg kde_ext_1_time.svg kde_ext_3_t.svg kde_ext_4_time.svg violin_t.svg
-kde_1_t.svg kde_2_time.svg kde_4_t.svg kde_5_time.svg kde_ext_2_t.svg kde_ext_3_time.svg kde_ext_5_t.svg violin_time.svg"
+files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
+kde_0_1.svg kde_1_1.svg kde_2_1.svg kde_3_1.svg kde_4_1.svg
+kde_ext_0_1.svg kde_ext_1_1.svg kde_ext_2_1.svg kde_ext_3_1.svg kde_ext_4_1.svg
+group_0_0.svg group_0_1.svg violin_0.svg violin_1.svg"
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
 done
@@ -103,9 +105,9 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
-files="group_n_t.svg kde_3_t.svg kde_ext_1_t.svg kde_ext_4_t.svg 
-kde_2_t.svg kde_5_t.svg kde_ext_3_t.svg violin_t.svg
-kde_1_t.svg kde_4_t.svg kde_ext_2_t.svg kde_ext_5_t.svg"
+files="kde_0_1.svg kde_1_1.svg kde_2_1.svg kde_3_1.svg kde_4_1.svg
+kde_ext_0_1.svg kde_ext_1_1.svg kde_ext_2_1.svg kde_ext_3_1.svg kde_ext_4_1.svg
+group_0_1.svg violin_1.svg"
 [ $(ls "$dist_dir" | wc -l) -eq 12 ] || die
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
@@ -118,9 +120,11 @@ done
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --plot-src > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 48 ] || die
-files="group_n_t.svg kde_1_time.svg kde_3_t.svg kde_4_time.svg kde_ext_1_t.svg kde_ext_2_time.svg kde_ext_4_t.svg kde_ext_5_time.svg
-group_n_time.svg kde_2_t.svg kde_3_time.svg kde_5_t.svg kde_ext_1_time.svg kde_ext_3_t.svg kde_ext_4_time.svg violin_t.svg
-kde_1_t.svg kde_2_time.svg kde_4_t.svg kde_5_time.svg kde_ext_2_t.svg kde_ext_3_time.svg kde_ext_5_t.svg violin_time.svg"
+files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
+kde_0_1.svg kde_1_1.svg kde_2_1.svg kde_3_1.svg kde_4_1.svg
+kde_ext_0_1.svg kde_ext_1_1.svg kde_ext_2_1.svg kde_ext_3_1.svg kde_ext_4_1.svg
+group_0_0.svg group_0_1.svg violin_0.svg violin_1.svg"
 for file in $files ; do
     f=$(echo "$dist_dir/$file" | sed "s/svg/py/")
     [ -f "$f" ] || die

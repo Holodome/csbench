@@ -289,8 +289,6 @@ struct cs_kde_plot {
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
-#define CS_WALL_MEAS_IDX 0
-
 static __thread uint32_t rng_state;
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -485,7 +483,7 @@ static void cs_parse_cli_args(int argc, char **argv,
     settings->shell = "/bin/sh";
     settings->analyze_dir = ".csbench";
     cs_sb_push(settings->meas,
-               ((struct cs_meas){"time", NULL, {CS_MU_S, NULL}}));
+               ((struct cs_meas){"wall clock time", NULL, {CS_MU_S, NULL}}));
 
     int cursor = 1;
     while (cursor < argc) {
@@ -2045,11 +2043,10 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
     printf("%zu runs\n", bench->run_count);
     if (!no_wall) {
         cs_print_exit_code_info(bench);
-        cs_print_time_distr(&analysis->meas[CS_WALL_MEAS_IDX]);
+        cs_print_time_distr(&analysis->meas[0]);
         cs_print_time_estimate("systime", &analysis->systime_est);
         cs_print_time_estimate("usrtime", &analysis->usertime_est);
-        cs_print_outliers(&analysis->meas[CS_WALL_MEAS_IDX].outliers,
-                          run_count);
+        cs_print_outliers(&analysis->meas[0].outliers, run_count);
     }
     for (size_t i = 1; i < bench->meas_count; ++i) {
         const struct cs_meas *info = cmd->meas + i;
@@ -2067,7 +2064,7 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results,
 
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
-        if (no_wall && i == CS_WALL_MEAS_IDX)
+        if (no_wall && i == 0)
             continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2093,7 +2090,7 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results,
 static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
                                         int no_wall) {
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == CS_WALL_MEAS_IDX && no_wall)
+        if (i == 0 && no_wall)
             continue;
         for (size_t j = 0; j < results->group_count; ++j) {
             const struct cs_cmd_group_analysis *analysis =
@@ -2562,75 +2559,77 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
     const struct cs_bench_analysis *analyses = results->analyses;
     char buf[4096];
     FILE *f;
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == CS_WALL_MEAS_IDX && no_wall)
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (meas_idx == 0 && no_wall)
             continue;
-        const struct cs_meas *meas = results->meas + i;
+        const struct cs_meas *meas = results->meas + meas_idx;
         {
-            f = cs_open_file_fmt("w", "%s/violin_%s.py", analyze_dir,
-                                 meas->name);
+            f = cs_open_file_fmt("w", "%s/violin_%zu.py", analyze_dir,
+                                 meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
-                        "error: failed to create file %s/violin_%s.py\n",
-                        analyze_dir, meas->name);
+                        "error: failed to create file %s/violin_%zu.py\n",
+                        analyze_dir, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
-                     meas->name);
-            cs_make_violin_plot(benches, bench_count, i, buf, f);
+            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
+                     meas_idx);
+            cs_make_violin_plot(benches, bench_count, meas_idx, buf, f);
             fclose(f);
         }
-        for (size_t j = 0; j < results->group_count; ++j) {
+        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
-            f = cs_open_file_fmt("w", "%s/group_%s_%s.py", analyze_dir,
-                                 analysis->group->var_name, meas->name);
+                results->group_analyses[meas_idx] + grp_idx;
+            f = cs_open_file_fmt("w", "%s/group_%zu_%zu.py", analyze_dir,
+
+                                 grp_idx, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
-                        "error: failed to create file %s/violin_%s.py\n",
-                        analyze_dir, meas->name);
+                        "error: failed to create file %s/violin_%zu.py\n",
+                        analyze_dir, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/group_%s_%s.svg", analyze_dir,
-                     analysis->group->var_name, meas->name);
+            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
+                     grp_idx, meas_idx);
             cs_make_group_plot(analysis, buf, f);
             fclose(f);
         }
-        for (size_t j = 0; j < bench_count; ++j) {
-            const struct cs_bench_analysis *analysis = analyses + i;
+        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+            const struct cs_bench_analysis *analysis = analyses + bench_idx;
             const char *cmd_str = analysis->bench->cmd->str;
             {
-                f = cs_open_file_fmt("w", "%s/kde_%zu_%s.py", analyze_dir,
-                                     j + 1, meas->name);
+                f = cs_open_file_fmt("w", "%s/kde_%zu_%zu.py", analyze_dir,
+                                     bench_idx, meas_idx);
                 if (f == NULL) {
                     fprintf(stderr,
-                            "error: failed to create file %s/kde_%zu_%s.py\n",
-                            analyze_dir, j + 1, meas->name);
+                            "error: failed to create file %s/kde_%zu_%zu.py\n",
+                            analyze_dir, bench_idx, meas_idx);
                     return -1;
                 }
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
-                         j + 1, meas->name);
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", analyze_dir,
+                         bench_idx, meas_idx);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot(analysis->meas + i, cmd_str, meas, buf, &plot);
+                cs_init_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf,
+                                 &plot);
                 cs_make_kde_plot(&plot, f);
                 cs_free_kde_plot(&plot);
                 fclose(f);
             }
             {
-                f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%s.py", analyze_dir,
-                                     j + 1, meas->name);
+                f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", analyze_dir,
+                                     bench_idx, meas_idx);
                 if (f == NULL) {
                     fprintf(
                         stderr,
-                        "error: failed to create file %s/kde_ext_%zu_%s.py\n",
-                        analyze_dir, j + 1, meas->name);
+                        "error: failed to create file %s/kde_ext_%zu_%zu.py\n",
+                        analyze_dir, bench_idx, meas_idx);
                     return -1;
                 }
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
-                         j + 1, meas->name);
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
+                         analyze_dir, bench_idx, meas_idx);
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_ext(analysis->meas + i, cmd_str, meas, buf,
-                                     &plot);
+                cs_init_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas,
+                                     buf, &plot);
                 cs_make_kde_plot_ext(&plot, f);
                 cs_free_kde_plot(&plot);
                 fclose(f);
@@ -2651,26 +2650,26 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_wall,
     int ret = -1;
     FILE *f;
     pid_t pid;
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == CS_WALL_MEAS_IDX && no_wall)
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (meas_idx == 0 && no_wall)
             continue;
-        const struct cs_meas *meas = results->meas + i;
+        const struct cs_meas *meas = results->meas + meas_idx;
         {
-            snprintf(buf, sizeof(buf), "%s/violin_%s.svg", analyze_dir,
-                     meas->name);
+            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
+                     meas_idx);
             if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            cs_make_violin_plot(benches, bench_count, i, buf, f);
+            cs_make_violin_plot(benches, bench_count, meas_idx, buf, f);
             fclose(f);
             cs_sb_push(processes, pid);
         }
-        for (size_t j = 0; j < results->group_count; ++j) {
+        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
-            snprintf(buf, sizeof(buf), "%s/group_%s_%s.svg", analyze_dir,
-                     analysis->group->var_name, meas->name);
+                results->group_analyses[meas_idx] + grp_idx;
+            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
+                     grp_idx, meas_idx);
             if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
@@ -2679,33 +2678,34 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_wall,
             fclose(f);
             cs_sb_push(processes, pid);
         }
-        for (size_t j = 0; j < bench_count; ++j) {
-            const struct cs_bench_analysis *analysis = analyses + j;
+        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+            const struct cs_bench_analysis *analysis = analyses + bench_idx;
             const char *cmd_str = analysis->bench->cmd->str;
             {
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%s.svg", analyze_dir,
-                         j + 1, meas->name);
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", analyze_dir,
+                         bench_idx, meas_idx);
                 if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot(analysis->meas + i, cmd_str, meas, buf, &plot);
+                cs_init_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf,
+                                 &plot);
                 cs_make_kde_plot(&plot, f);
                 fclose(f);
                 cs_free_kde_plot(&plot);
                 cs_sb_push(processes, pid);
             }
             {
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%s.svg", analyze_dir,
-                         j + 1, meas->name);
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
+                         analyze_dir, bench_idx, meas_idx);
                 if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
                 struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_ext(analysis->meas + i, cmd_str, meas, buf,
-                                     &plot);
+                cs_init_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas,
+                                     buf, &plot);
                 cs_make_kde_plot_ext(&plot, f);
                 fclose(f);
                 cs_free_kde_plot(&plot);
@@ -2773,15 +2773,15 @@ static void cs_html_outliers(const struct cs_outliers *outliers,
 }
 
 static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
-                               size_t i, FILE *f) {
+                               size_t bench_idx, FILE *f) {
     const struct cs_bench *bench = analysis->bench;
     const struct cs_distr *distr = &analysis->meas[0];
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>time kde plot</h3>"
-            "<a href=\"kde_ext_%zu_time.svg\"><img "
-            "src=\"kde_%zu_time.svg\"></a></div>",
-            i, i);
+            "<a href=\"kde_ext_%zu_0.svg\"><img "
+            "src=\"kde_%zu_0.svg\"></a></div>",
+            bench_idx, bench_idx);
     fprintf(f,
             "<div class=\"col\"><h3>statistics</h3>"
             "<div class=\"stats\">"
@@ -2809,13 +2809,14 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
 
 static void cs_html_distr(const struct cs_bench *bench,
                           const struct cs_distr *distr,
-                          const struct cs_meas *info, size_t i, FILE *f) {
+                          const struct cs_meas *info, size_t bench_idx,
+                          size_t meas_idx, FILE *f) {
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>%s kde plot</h3>"
-            "<a href=\"kde_ext_%zu_%s.svg\"><img "
-            "src=\"kde_%zu_%s.svg\"></a></div>",
-            info->name, i, info->name, i, info->name);
+            "<a href=\"kde_ext_%zu_%zu.svg\"><img "
+            "src=\"kde_%zu_%zu.svg\"></a></div>",
+            info->name, bench_idx, meas_idx, bench_idx, meas_idx);
     fprintf(f,
             "<div class=\"col\"><h3>statistics</h3>"
             "<div class=\"stats\">"
@@ -2845,28 +2846,28 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_wall,
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
-    for (size_t i = 0; i < meas_count; ++i) {
-        if (i == CS_WALL_MEAS_IDX && no_wall)
+    for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+        if (meas_idx == 0 && no_wall)
             continue;
-        size_t best_idx = results->fastest_meas[i];
+        size_t best_idx = results->fastest_meas[meas_idx];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
-        const struct cs_meas *meas = results->meas + i;
+        const struct cs_meas *meas = results->meas + meas_idx;
         fprintf(f,
                 "<div><h3>%s comparison</h3>"
                 "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"violin_%s.svg\"></div>"
+                "<img src=\"violin_%zu.svg\"></div>"
                 "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
-                meas->name, meas->name, best->bench->cmd->str);
+                meas->name, meas_idx, best->bench->cmd->str);
         for (size_t j = 0; j < results->bench_count; ++j) {
             const struct cs_bench_analysis *analysis = results->analyses + j;
             if (analysis == best)
                 continue;
 
             double ref, ref_st_dev;
-            cs_ref_speed(analysis->meas[i].mean.point,
-                         analysis->meas[i].st_dev.point,
-                         best->meas[i].mean.point, best->meas[i].st_dev.point,
-                         &ref, &ref_st_dev);
+            cs_ref_speed(analysis->meas[meas_idx].mean.point,
+                         analysis->meas[meas_idx].st_dev.point,
+                         best->meas[meas_idx].mean.point,
+                         best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
             fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
                     ref_st_dev, analysis->bench->cmd->str);
         }
@@ -2876,13 +2877,14 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_wall,
 }
 
 static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
-                              const struct cs_meas *meas, FILE *f) {
+                              const struct cs_meas *meas, size_t meas_idx,
+                              size_t grp_idx, FILE *f) {
     const struct cs_cmd_group *group = analysis->group;
     fprintf(f,
             "<h4>measurement %s</h4>"
             "<div class=\"row\"><div class=\"col\">"
-            "<img src=\"group_%s_%s.svg\"></div>",
-            meas->name, analysis->group->var_name, meas->name);
+            "<img src=\"group_%zu_%zu.svg\"></div>",
+            meas->name, grp_idx, meas_idx);
     char buf[256];
     cs_format_time(buf, sizeof(buf), analysis->fastest->mean);
     fprintf(f,
@@ -2905,17 +2907,17 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
 static void cs_html_paramter_analysis(const struct cs_bench_results *results,
                                       int no_wall, FILE *f) {
     fprintf(f, "<div><h2>parameter analysis</h2>");
-    for (size_t group_idx = 0; group_idx < results->group_count; ++group_idx) {
+    for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
         fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
                 results->group_analyses[0][0].group->template,
                 results->group_analyses[0][0].group->var_name);
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (meas_idx == CS_WALL_MEAS_IDX && no_wall)
+            if (meas_idx == 0 && no_wall)
                 continue;
             const struct cs_meas *meas = results->meas + meas_idx;
             const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses[meas_idx] + group_idx;
-            cs_html_cmd_group(analysis, meas, f);
+                results->group_analyses[meas_idx] + grp_idx;
+            cs_html_cmd_group(analysis, meas, meas_idx, grp_idx, f);
         }
         fprintf(f, "</div>");
     }
@@ -2943,16 +2945,17 @@ static void cs_html_report(const struct cs_bench_results *results, int no_wall,
 
     cs_html_paramter_analysis(results, no_wall, f);
     cs_html_compare(results, no_wall, f);
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        const struct cs_bench *bench = results->benches + i;
-        const struct cs_bench_analysis *analysis = results->analyses + i;
+    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+        const struct cs_bench *bench = results->benches + bench_idx;
+        const struct cs_bench_analysis *analysis =
+            results->analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
         if (!no_wall)
-            cs_html_wall_distr(analysis, i + 1, f);
-        for (size_t j = 1; j < bench->meas_count; ++j) {
-            const struct cs_distr *distr = analysis->meas + j;
-            const struct cs_meas *info = bench->cmd->meas + j;
-            cs_html_distr(bench, distr, info, i + 1, f);
+            cs_html_wall_distr(analysis, bench_idx, f);
+        for (size_t meas_idx = 1; meas_idx < bench->meas_count; ++meas_idx) {
+            const struct cs_distr *distr = analysis->meas + meas_idx;
+            const struct cs_meas *info = bench->cmd->meas + meas_idx;
+            cs_html_distr(bench, distr, info, bench_idx, meas_idx, f);
         }
         fprintf(f, "</div>");
     }
@@ -2963,10 +2966,10 @@ static int cs_run_benches(const struct cs_settings *settings,
                           struct cs_bench_results *results) {
     results->bench_count = cs_sb_len(settings->cmds);
     results->benches = calloc(results->bench_count, sizeof(*results->benches));
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        struct cs_bench *bench = results->benches + i;
+    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+        struct cs_bench *bench = results->benches + bench_idx;
         bench->prepare = settings->prepare_cmd;
-        bench->cmd = settings->cmds + i;
+        bench->cmd = settings->cmds + bench_idx;
         bench->meas_count = cs_sb_len(bench->cmd->meas);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
         if (cs_warmup(bench->cmd, settings->warmup_time) == -1)
@@ -2984,9 +2987,9 @@ static void cs_analyze_benches(const struct cs_settings *settings,
         calloc(results->bench_count, sizeof(*results->analyses));
     results->meas_count = cs_sb_len(settings->meas);
     results->meas = settings->meas;
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        struct cs_bench *bench = results->benches + i;
-        struct cs_bench_analysis *analysis = results->analyses + i;
+    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+        struct cs_bench *bench = results->benches + bench_idx;
+        struct cs_bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         cs_analyze_benchmark(bench, settings->nresamp, analysis);
     }
