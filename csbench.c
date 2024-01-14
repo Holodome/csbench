@@ -1153,15 +1153,6 @@ static double cs_get_time(void) {
 }
 #endif
 
-static struct cs_cpu_time cs_getcputime(void) {
-    struct rusage rus = {0};
-    getrusage(RUSAGE_CHILDREN, &rus);
-    struct cs_cpu_time time;
-    time.user_time = rus.ru_utime.tv_sec + (double)rus.ru_utime.tv_usec / 1e6;
-    time.system_time = rus.ru_stime.tv_sec + (double)rus.ru_stime.tv_usec / 1e6;
-    return time;
-}
-
 static void cs_apply_input_policy(const struct cs_input_policy *policy) {
     switch (policy->kind) {
     case CS_INPUT_POLICY_NULL: {
@@ -1205,7 +1196,8 @@ static void cs_apply_output_policy(enum cs_output_kind policy) {
     }
 }
 
-static int cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd) {
+static int cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd,
+                       struct rusage *rusage) {
     int rc = -1;
     pid_t pid = fork();
     if (pid == -1) {
@@ -1237,7 +1229,7 @@ static int cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd) {
 
     int status = 0;
     pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+    if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
             perror("waitpid");
         goto out;
@@ -1409,11 +1401,14 @@ static int cs_exec_and_measure(struct cs_bench *bench) {
         }
     }
 
-    volatile struct cs_cpu_time cpu_start = cs_getcputime();
+    struct rusage rusage = {0};
     volatile double wall_clock_start = cs_get_time();
-    volatile int rc = cs_exec_cmd(bench->cmd, stdout_fd);
+    volatile int rc = cs_exec_cmd(bench->cmd, stdout_fd, &rusage);
     volatile double wall_clock_end = cs_get_time();
-    volatile struct cs_cpu_time cpu_end = cs_getcputime();
+    double systime =
+        rusage.ru_stime.tv_sec + (double)rusage.ru_stime.tv_usec / 1e6;
+    double usertime =
+        rusage.ru_utime.tv_sec + (double)rusage.ru_utime.tv_usec / 1e6;
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");
@@ -1422,8 +1417,8 @@ static int cs_exec_and_measure(struct cs_bench *bench) {
 
     ++bench->run_count;
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->systimes, cpu_end.system_time - cpu_start.system_time);
-    cs_sb_push(bench->usertimes, cpu_end.user_time - cpu_start.user_time);
+    cs_sb_push(bench->systimes, systime);
+    cs_sb_push(bench->usertimes, usertime);
     cs_sb_push(bench->meas[0], wall_clock_end - wall_clock_start);
 
     if (cs_do_custom_measurements(bench, stdout_fd) == -1)
@@ -1445,7 +1440,7 @@ static int cs_warmup(const struct cs_cmd *cmd, double time_limit) {
     double start_time = cs_get_time();
     double end_time;
     do {
-        if (cs_exec_cmd(cmd, -1) == -1) {
+        if (cs_exec_cmd(cmd, -1, NULL) == -1) {
             fprintf(stderr, "error: failed to execute warmup command\n");
             return -1;
         }
