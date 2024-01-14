@@ -1,4 +1,4 @@
-# csbench
+#csbench
 
 `csbench` is cross-platform batteries included benchmarking tool.
 
@@ -71,7 +71,7 @@ In this example SQL script is run under `EXPLAIN ANALYZE`, which prints executio
 Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
 
 ```
-$ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' --runs 100 --no-time
+$ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' --runs 100 --no-wall
 command 'psql postgres -f 8q.sql'
 100 runs
 custom measurement exec
@@ -116,7 +116,7 @@ start = timer()
 quicksort(arr)
 end = timer()
 print(end - start)
-$ csbench 'echo {n} | python3 quicksort.py' --custom t --scan n/100/10000/1000 --html --no-time
+$ csbench 'echo {n} | python3 quicksort.py' --custom t --scan n/100/10000/1000 --html --no-wall
 ...
 command group 'echo {n} | python3 quicksort.py' with parameter n
 lowest time 111.5 μs with n=100

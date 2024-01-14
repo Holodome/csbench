@@ -111,7 +111,7 @@ struct cs_cli_settings {
     enum cs_analyze_mode analyze_mode;
     struct cs_bench_param *params;
     int plot_src;
-    int no_time;
+    int no_wall;
 };
 
 // Description of command to benchmark.
@@ -148,7 +148,7 @@ struct cs_settings {
     enum cs_analyze_mode analyze_mode;
     const char *analyze_dir;
     int plot_src;
-    int no_time;
+    int no_wall;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -289,6 +289,8 @@ struct cs_kde_plot {
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
+#define CS_WALL_MEAS_IDX 0
+
 static __thread uint32_t rng_state;
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -347,7 +349,7 @@ static void cs_print_help_and_exit(int rc) {
         "--plot               - make plots as images\n"
         "--html               - make html report\n"
         "--plot-src           - dump python scripts used to generate plots\n"
-        "--no-time            - do not print default time statistics\n"
+        "--no-wall            - do not print wall clock time statistics\n"
         "--help               - print this message\n"
         "--version            - print version\n");
     exit(rc);
@@ -741,8 +743,8 @@ static void cs_parse_cli_args(int argc, char **argv,
             settings->analyze_mode = CS_ANALYZE_PLOT;
         } else if (strcmp(opt, "--plot-src") == 0) {
             settings->plot_src = 1;
-        } else if (strcmp(opt, "--no-time") == 0) {
-            settings->no_time = 1;
+        } else if (strcmp(opt, "--no-wall") == 0) {
+            settings->no_wall = 1;
         } else {
             cs_sb_push(settings->cmds, opt);
         }
@@ -1037,7 +1039,7 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
     settings->analyze_dir = cli->analyze_dir;
     settings->meas = cli->meas;
     settings->plot_src = cli->plot_src;
-    settings->no_time = cli->no_time;
+    settings->no_wall = cli->no_wall;
 
     // try to catch invalid file as early as possible,
     // because later error handling can become troublesome (after fork()).
@@ -2035,18 +2037,19 @@ static const char *cs_big_o_str(enum cs_big_o complexity) {
 }
 
 static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
-                                    int no_time) {
+                                    int no_wall) {
     const struct cs_bench *bench = analysis->bench;
     size_t run_count = bench->run_count;
     const struct cs_cmd *cmd = bench->cmd;
     printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
-    if (!no_time) {
+    if (!no_wall) {
         cs_print_exit_code_info(bench);
-        cs_print_time_distr(&analysis->meas[0]);
+        cs_print_time_distr(&analysis->meas[CS_WALL_MEAS_IDX]);
         cs_print_time_estimate("systime", &analysis->systime_est);
         cs_print_time_estimate("usrtime", &analysis->usertime_est);
-        cs_print_outliers(&analysis->meas[0].outliers, run_count);
+        cs_print_outliers(&analysis->meas[CS_WALL_MEAS_IDX].outliers,
+                          run_count);
     }
     for (size_t i = 1; i < bench->meas_count; ++i) {
         const struct cs_meas *info = cmd->meas + i;
@@ -2058,13 +2061,13 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
 }
 
 static void cs_print_cmd_comparison(const struct cs_bench_results *results,
-                                    int no_time) {
+                                    int no_wall) {
     if (results->bench_count == 1)
         return;
 
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
-        if (no_time && i == 0)
+        if (no_wall && i == CS_WALL_MEAS_IDX)
             continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2088,9 +2091,9 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results,
 }
 
 static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
-                                        int no_time) {
+                                        int no_wall) {
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_time)
+        if (i == CS_WALL_MEAS_IDX && no_wall)
             continue;
         for (size_t j = 0; j < results->group_count; ++j) {
             const struct cs_cmd_group_analysis *analysis =
@@ -2552,7 +2555,7 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
 
 static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
-static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
+static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
                             const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
@@ -2560,7 +2563,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
     char buf[4096];
     FILE *f;
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_time)
+        if (i == CS_WALL_MEAS_IDX && no_wall)
             continue;
         const struct cs_meas *meas = results->meas + i;
         {
@@ -2638,7 +2641,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_time,
     return 0;
 }
 
-static int cs_make_plots(const struct cs_bench_results *results, int no_time,
+static int cs_make_plots(const struct cs_bench_results *results, int no_wall,
                          const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
@@ -2649,7 +2652,7 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_time,
     FILE *f;
     pid_t pid;
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_time)
+        if (i == CS_WALL_MEAS_IDX && no_wall)
             continue;
         const struct cs_meas *meas = results->meas + i;
         {
@@ -2836,14 +2839,14 @@ static void cs_html_distr(const struct cs_bench *bench,
     fprintf(f, "</div></div></div>");
 }
 
-static void cs_html_compare(const struct cs_bench_results *results, int no_time,
+static void cs_html_compare(const struct cs_bench_results *results, int no_wall,
                             FILE *f) {
     if (results->bench_count == 1)
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
-        if (i == 0 && no_time)
+        if (i == CS_WALL_MEAS_IDX && no_wall)
             continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2900,14 +2903,14 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
 }
 
 static void cs_html_paramter_analysis(const struct cs_bench_results *results,
-                                      int no_time, FILE *f) {
+                                      int no_wall, FILE *f) {
     fprintf(f, "<div><h2>parameter analysis</h2>");
     for (size_t group_idx = 0; group_idx < results->group_count; ++group_idx) {
         fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
                 results->group_analyses[0][0].group->template,
                 results->group_analyses[0][0].group->var_name);
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (meas_idx == 0 && no_time)
+            if (meas_idx == CS_WALL_MEAS_IDX && no_wall)
                 continue;
             const struct cs_meas *meas = results->meas + meas_idx;
             const struct cs_cmd_group_analysis *analysis =
@@ -2919,7 +2922,7 @@ static void cs_html_paramter_analysis(const struct cs_bench_results *results,
     fprintf(f, "</div>");
 }
 
-static void cs_html_report(const struct cs_bench_results *results, int no_time,
+static void cs_html_report(const struct cs_bench_results *results, int no_wall,
                            FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
@@ -2938,13 +2941,13 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
             "</style></head>");
     fprintf(f, "<body>");
 
-    cs_html_paramter_analysis(results, no_time, f);
-    cs_html_compare(results, no_time, f);
+    cs_html_paramter_analysis(results, no_wall, f);
+    cs_html_compare(results, no_wall, f);
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
         fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
-        if (!no_time)
+        if (!no_wall)
             cs_html_wall_distr(analysis, i + 1, f);
         for (size_t j = 1; j < bench->meas_count; ++j) {
             const struct cs_distr *distr = analysis->meas + j;
@@ -2992,12 +2995,12 @@ static void cs_analyze_benches(const struct cs_settings *settings,
 }
 
 static void cs_print_analysis(const struct cs_bench_results *results,
-                              int no_time) {
+                              int no_wall) {
     for (size_t i = 0; i < results->bench_count; ++i)
-        cs_print_benchmark_info(results->analyses + i, no_time);
+        cs_print_benchmark_info(results->analyses + i, no_wall);
 
-    cs_print_cmd_comparison(results, no_time);
-    cs_print_cmd_group_analysis(results, no_time);
+    cs_print_cmd_comparison(results, no_wall);
+    cs_print_cmd_group_analysis(results, no_wall);
 }
 
 static int cs_handle_export(const struct cs_settings *settings,
@@ -3013,21 +3016,21 @@ static int cs_handle_export(const struct cs_settings *settings,
 }
 
 static int cs_make_html_report(const struct cs_bench_results *results,
-                               int no_time, const char *analyze_dir) {
+                               int no_wall, const char *analyze_dir) {
     FILE *f = cs_open_file_fmt("w", "%s/index.html", analyze_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/index.html\n",
                 analyze_dir);
         return -1;
     }
-    cs_html_report(results, no_time, f);
+    cs_html_report(results, no_wall, f);
     fclose(f);
     return 0;
 }
 
 static int cs_handle_analyze(const struct cs_bench_results *results,
                              enum cs_analyze_mode mode, const char *analyze_dir,
-                             int plot_src, int no_time) {
+                             int plot_src, int no_wall) {
     if (mode == CS_DONT_ANALYZE)
         return 0;
 
@@ -3050,15 +3053,15 @@ static int cs_handle_analyze(const struct cs_bench_results *results,
             return -1;
         }
 
-        if (plot_src && cs_dump_plot_src(results, no_time, analyze_dir) == -1)
+        if (plot_src && cs_dump_plot_src(results, no_wall, analyze_dir) == -1)
             return -1;
 
-        if (cs_make_plots(results, no_time, analyze_dir) == -1)
+        if (cs_make_plots(results, no_wall, analyze_dir) == -1)
             return -1;
     }
 
     if (mode == CS_ANALYZE_HTML &&
-        cs_make_html_report(results, no_time, analyze_dir) == -1)
+        cs_make_html_report(results, no_wall, analyze_dir) == -1)
         return -1;
 
     return 0;
@@ -3104,14 +3107,13 @@ static int cs_run(const struct cs_settings *settings) {
     if (cs_run_benches(settings, &results) == -1)
         goto out;
     cs_analyze_benches(settings, &results);
-    cs_print_analysis(&results, settings->no_time);
+    cs_print_analysis(&results, settings->no_wall);
     if (cs_handle_export(settings, &results) == -1)
         goto out;
     if (cs_handle_analyze(&results, settings->analyze_mode,
                           settings->analyze_dir, settings->plot_src,
-                          settings->no_time) == -1)
+                          settings->no_wall) == -1)
         goto out;
-
     ret = 0;
 out:
     cs_free_bench_results(&results);

@@ -1,4 +1,4 @@
-# User guide
+#User guide
 
 This file is an informal description of `csbench`. 
 
@@ -18,7 +18,7 @@ In the first case it is hard to write benchmark in a way reflecting that how the
 Selection of timing mechanism is of a most importance. 
 Despite the fact that there is a lot of [community knowledge](https://book.easyperf.net/perf_book) on how to do CPU benchmarks, it does not become easy.
 
-In the second case it is hard to select the form of visualization accurately conveying the data ([link](https://clauswilke.com/dataviz/)). 
+In the second case it is hard to select the form of visualization accurately conveying the data ([link](https://clauswilke.com/dataviz/)).
 And moreover, it is even harder to do that automatically.  
 For example, bucket size of histogram is always chosen manually.
 
@@ -65,7 +65,7 @@ $ cat test.py # not actual code
 start = time()
 n = fib(100) # do something
 print(time() - start)
-$ csbench 'python3 test.py' --custom py-time --no-time
+$ csbench 'python3 test.py' --custom py-time --no-wall
 ```
 #### run parameterized benchmark and use custom parameter
 ```sh
@@ -73,7 +73,7 @@ $ cat test.py # not actual code
 start = time()
 n = fib(int(input())) # do something
 print(time() - start)
-$ csbench 'echo {n} | python3 test.py' --custom py-time --no-time --scan n/1/100/10
+$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --scan n/1/100/10
 ```
 
 ## How to understand and use `csbench` output
@@ -205,5 +205,5 @@ Its argument is a command that expands in shell invocation. Command is executed 
 
 If user specifies custom measurement, chances that they prefer these results over wall clock time analysis.
 However, wall clock time information is still included. 
-Option `--no-time` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report.
+Option `--no-wall` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report.
 Timing values are still collected however.

@@ -98,11 +98,11 @@ for file in $files ; do
 done
 
 #
-# case 7 - check that --no-time works on quicksort example
+# case 7 - check that --no-wall works on quicksort example
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-time > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
 files="group_n_t.svg kde_3_t.svg kde_ext_1_t.svg kde_ext_4_t.svg 
 kde_2_t.svg kde_5_t.svg kde_ext_3_t.svg violin_t.svg
 kde_1_t.svg kde_4_t.svg kde_ext_2_t.svg kde_ext_5_t.svg"
