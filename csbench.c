@@ -1885,8 +1885,8 @@ static int cs_format_time(char *dst, size_t sz, double t) {
     return count;
 }
 
-static void cs_format_custom(char *buf, size_t buf_size, double value,
-                             const struct cs_units *units) {
+static void cs_format_meas(char *buf, size_t buf_size, double value,
+                           const struct cs_units *units) {
     switch (units->kind) {
     case CS_MU_S:
         cs_format_time(buf, buf_size, value);
@@ -1998,8 +1998,8 @@ static const char *cs_units_str(const struct cs_units *units) {
 static void cs_print_distr(const struct cs_distr *dist,
                            const struct cs_units *units) {
     char buf1[256], buf2[256];
-    cs_format_custom(buf1, sizeof(buf1), dist->min, units);
-    cs_format_custom(buf2, sizeof(buf2), dist->max, units);
+    cs_format_meas(buf1, sizeof(buf1), dist->min, units);
+    cs_format_meas(buf2, sizeof(buf2), dist->max, units);
     printf("min %s max %s\n", buf1, buf2);
     cs_print_estimate("mean", &dist->mean, units);
     cs_print_estimate("st dev", &dist->st_dev, units);
@@ -2319,7 +2319,7 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
             "plt.ylabel('%s [%s]')\n"
             "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
-            "plt.savefig('%s')\n",
+            "plt.savefig('%s', bbox_inches='tight')\n",
             meas->name, cs_units_str(&meas->units), output_filename);
 }
 
@@ -2363,7 +2363,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
             "plt.grid()\n"
             "plt.xlabel('%s')\n"
             "plt.ylabel('%s [%s]')\n"
-            "plt.savefig('%s')\n",
+            "plt.savefig('%s', bbox_inches='tight')\n",
             analysis->group->template, analysis->group->var_name,
             analysis->meas->name, cs_units_str(&analysis->meas->units),
             output_filename);
@@ -2461,7 +2461,7 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
-            "plt.savefig('%s')\n",
+            "plt.savefig('%s', bbox_inches='tight')\n",
             plot->title, plot->mean, plot->mean_y, plot->meas->name,
             cs_units_str(&plot->meas->units), plot->output_filename);
 }
@@ -2728,9 +2728,9 @@ out:
 static void cs_html_estimate(const char *name, const struct cs_est *est,
                              const struct cs_units *units, FILE *f) {
     char buf1[256], buf2[256], buf3[256];
-    cs_format_custom(buf1, sizeof(buf1), est->lower, units);
-    cs_format_custom(buf2, sizeof(buf2), est->point, units);
-    cs_format_custom(buf3, sizeof(buf3), est->upper, units);
+    cs_format_meas(buf1, sizeof(buf1), est->lower, units);
+    cs_format_meas(buf2, sizeof(buf2), est->point, units);
+    cs_format_meas(buf3, sizeof(buf3), est->upper, units);
     fprintf(f,
             "<tr>"
             "<td>%s</td>"
@@ -2820,9 +2820,9 @@ static void cs_html_distr(const struct cs_bench *bench,
             "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
-    cs_format_custom(buf, sizeof(buf), distr->min, &info->units);
+    cs_format_meas(buf, sizeof(buf), distr->min, &info->units);
     fprintf(f, "<p>min %s</p>", buf);
-    cs_format_custom(buf, sizeof(buf), distr->max, &info->units);
+    cs_format_meas(buf, sizeof(buf), distr->max, &info->units);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, "<table><thead><tr>"
                "<th></th>"
@@ -2841,6 +2841,7 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_time,
                             FILE *f) {
     if (results->bench_count == 1)
         return;
+    fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
         if (i == 0 && no_time)
@@ -2849,7 +2850,7 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_time,
         const struct cs_bench_analysis *best = results->analyses + best_idx;
         const struct cs_meas *meas = results->meas + i;
         fprintf(f,
-                "<h2>comparison for %s</h2>"
+                "<div><h3>%s comparison</h3>"
                 "<div class=\"row\"><div class=\"col\">"
                 "<img src=\"violin_%s.svg\"></div>"
                 "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
@@ -2867,19 +2868,19 @@ static void cs_html_compare(const struct cs_bench_results *results, int no_time,
             fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
                     ref_st_dev, analysis->bench->cmd->str);
         }
-        fprintf(f, "</ul></div></div>");
+        fprintf(f, "</ul></div></div></div>");
     }
+    fprintf(f, "</div>");
 }
 
 static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
                               const struct cs_meas *meas, FILE *f) {
     const struct cs_cmd_group *group = analysis->group;
     fprintf(f,
-            "<h2>group '%s' with parameter %s</h2>"
+            "<h4>measurement %s</h4>"
             "<div class=\"row\"><div class=\"col\">"
             "<img src=\"group_%s_%s.svg\"></div>",
-            group->template, group->var_name, analysis->group->var_name,
-            meas->name);
+            meas->name, analysis->group->var_name, meas->name);
     char buf[256];
     cs_format_time(buf, sizeof(buf), analysis->fastest->mean);
     fprintf(f,
@@ -2899,6 +2900,26 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
     fprintf(f, "</div></div>");
 }
 
+static void cs_html_paramter_analysis(const struct cs_bench_results *results,
+                                      int no_time, FILE *f) {
+    fprintf(f, "<div><h2>parameter analysis</h2>");
+    for (size_t group_idx = 0; group_idx < results->group_count; ++group_idx) {
+        fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
+                results->group_analyses[0][0].group->template,
+                results->group_analyses[0][0].group->var_name);
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            if (meas_idx == 0 && no_time)
+                continue;
+            const struct cs_meas *meas = results->meas + meas_idx;
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[meas_idx] + group_idx;
+            cs_html_cmd_group(analysis, meas, f);
+        }
+        fprintf(f, "</div>");
+    }
+    fprintf(f, "</div>");
+}
+
 static void cs_html_report(const struct cs_bench_results *results, int no_time,
                            FILE *f) {
     fprintf(f,
@@ -2909,29 +2930,22 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
             "<title>csbench</title>"
             "<style>body { margin: 40px auto; max-width: 960px; line-height: "
             "1.6; color: #444; padding: 0 10px; font: 14px Helvetica Neue }"
-            "h1, h2, h3 { line-height: 1.2; text-align: center }"
+            "h1, h2, h3, h4 { line-height: 1.2; text-align: center }"
             ".est-bound { opacity: 0.5 }"
             "th, td { padding-right: 3px; padding-bottom: 3px }"
             "th { font-weight: 200 }"
             ".col { flex: 50%% }"
             ".row { display: flex }"
-            ".stats { margin-top: 80px }"
             "</style></head>");
     fprintf(f, "<body>");
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_time)
-            continue;
-        const struct cs_meas *meas = results->meas + i;
-        for (size_t j = 0; j < results->group_count; ++j) {
-            const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
-            cs_html_cmd_group(analysis, meas, f);
-        }
-    }
+
+    cs_html_paramter_analysis(results, no_time, f);
+    cs_html_compare(results, no_time, f);
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
-        fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
+        fprintf(f, "<div><h2>command '%s'</h2>",
+                bench->cmd->str);
         if (!no_time)
             cs_html_wall_distr(analysis, i + 1, f);
         for (size_t j = 1; j < bench->meas_count; ++j) {
@@ -2941,7 +2955,6 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
         }
         fprintf(f, "</div>");
     }
-    cs_html_compare(results, no_time, f);
     fprintf(f, "</body>");
 }
 
