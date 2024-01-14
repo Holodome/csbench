@@ -226,6 +226,7 @@ struct cs_cmd_in_group_data {
 };
 
 struct cs_cmd_group_analysis {
+    const struct cs_meas *meas;
     const struct cs_cmd_group *group;
     size_t cmd_count;
     struct cs_cmd_in_group_data *data;
@@ -1773,11 +1774,13 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
             calloc(group_count, sizeof(*results->group_analyses[i]));
 
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        const struct cs_meas *meas = results->meas + meas_idx;
         for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
             const struct cs_cmd_group *group = settings->cmd_groups + group_idx;
             size_t cmd_count = group->count;
             struct cs_cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + group_idx;
+            analysis->meas = meas;
             analysis->group = group;
             analysis->cmd_count = cmd_count;
             analysis->data = calloc(cmd_count, sizeof(*analysis->data));
@@ -2100,11 +2103,11 @@ static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
             char buf[256];
             cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
             printf("lowest time %s with %s=%s\n", buf, group->var_name,
-                   analysis->data[0].value);
+                   analysis->fastest->value);
             cs_format_time(buf, sizeof(buf),
                            analysis->data[analysis->cmd_count - 1].mean);
             printf("highest time %s with %s=%s\n", buf, group->var_name,
-                   analysis->data[analysis->cmd_count - 1].value);
+                   analysis->slowest->value);
             if (analysis->values_are_doubles) {
                 printf("mean time is most likely %s in terms of parameter\n",
                        cs_big_o_str(analysis->complexity));
@@ -2359,9 +2362,10 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
             "plt.xticks(x)\n"
             "plt.grid()\n"
             "plt.xlabel('%s')\n"
-            "plt.ylabel('time [s]')\n"
+            "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s')\n",
             analysis->group->template, analysis->group->var_name,
+            analysis->meas->name, cs_units_str(&analysis->meas->units),
             output_filename);
 }
 
@@ -2877,15 +2881,14 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
             group->template, group->var_name, analysis->group->var_name,
             meas->name);
     char buf[256];
-    cs_format_time(buf, sizeof(buf), analysis->data[0].mean);
+    cs_format_time(buf, sizeof(buf), analysis->fastest->mean);
     fprintf(f,
             "<div class=\"col stats\">"
             "<p>lowest time %s with %s=%s</p>",
-            buf, group->var_name, analysis->slowest->value);
-    cs_format_time(buf, sizeof(buf),
-                   analysis->data[analysis->cmd_count - 1].mean);
+            buf, group->var_name, analysis->fastest->value);
+    cs_format_time(buf, sizeof(buf), analysis->slowest->mean);
     fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, group->var_name,
-            analysis->fastest->value);
+            analysis->slowest->value);
     if (analysis->values_are_doubles) {
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
@@ -2915,6 +2918,16 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
             ".stats { margin-top: 80px }"
             "</style></head>");
     fprintf(f, "<body>");
+    for (size_t i = 0; i < results->meas_count; ++i) {
+        if (i == 0 && no_time)
+            continue;
+        const struct cs_meas *meas = results->meas + i;
+        for (size_t j = 0; j < results->group_count; ++j) {
+            const struct cs_cmd_group_analysis *analysis =
+                results->group_analyses[i] + j;
+            cs_html_cmd_group(analysis, meas, f);
+        }
+    }
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct cs_bench *bench = results->benches + i;
         const struct cs_bench_analysis *analysis = results->analyses + i;
@@ -2928,19 +2941,7 @@ static void cs_html_report(const struct cs_bench_results *results, int no_time,
         }
         fprintf(f, "</div>");
     }
-
     cs_html_compare(results, no_time, f);
-
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_time)
-            continue;
-        const struct cs_meas *meas = results->meas + i;
-        for (size_t j = 0; j < results->group_count; ++j) {
-            const struct cs_cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
-            cs_html_cmd_group(analysis, meas, f);
-        }
-    }
     fprintf(f, "</body>");
 }
 

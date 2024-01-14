@@ -33,7 +33,7 @@ It does not has any dependencies for basic operation. `python3` binary with `mat
 Also see [user guide](docs/user_guide.md).
 
 `csbench` can be used to compare execution time of multiple commands.
-Also see [generated html report](https://holodome.github.io/csbench).
+Also see [generated html report](https://holodome.github.io/csbench/cmp).
 ```
 $ csbench ls exa --shell none --html
 command 'ls'
@@ -86,22 +86,43 @@ outlying measurements have no (1.0%) effect on estimated standard deviation
 
 Parameterized benchmarking is shown in the following example.
 `csbench` is able to find dependencies of measured values on benchmark
-parameters. `sleep` is run multiple times with linear time arguments
-given in CLI arguments, and `csbench` is able to find this linear dependency.
+parameters. Python script executes quicksort on random array which size given 
+in standard input. `csbench` does regression to find dependencies 
+between input parameters and values measured.
+Note that this script does its own timing, which helps eliminate noise 
+from process startup.
+Also see [generated html report](https://holodome.github.io/csbench/regr).
 
 ```
-$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1 --runs 10
+$ cat quicksort.py
+from timeit import default_timer as timer
+import random
+
+def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+
+    pivot = arr[0]
+    left = [x for x in arr[1:] if x < pivot]
+    right = [x for x in arr[1:] if x >= pivot]
+    return quicksort(left) + [pivot] + quicksort(right)
+
+def gen_arr(n):
+    return [random.randrange(n) for _ in range(n)]
+
+n = int(input())
+arr = gen_arr(n)
+start = timer()
+quicksort(arr)
+end = timer()
+print(end - start)
+$ csbench 'echo {n} | python3 quicksort.py' --custom t --scan n/100/10000/1000 --html --no-time
 ...
-Fastest command 'sleep 0.1'
-1.911 ± 0.051 times faster than 'sleep 0.2'
-2.807 ± 0.071 times faster than 'sleep 0.3'
-3.687 ± 0.093 times faster than 'sleep 0.4'
-4.587 ± 0.116 times faster than 'sleep 0.5'
-command group 'sleep {t}' with parameter t
-lowest time 113.0 ms with t=0.1
-highest time 518.2 ms with t=0.5
-mean time is most likely linear (O(N)) in terms of parameter
-linear coef 1.046 rms 0.017
+command group 'echo {n} | python3 quicksort.py' with parameter n
+lowest time 111.5 μs with n=100
+highest time 13.33 ms with n=9100
+mean time is most likely linearithmic (O(N*log(N))) in terms of parameter
+linear coef 1.12172e-07 rms 0.014
 ```
 
 ## Inspiration
