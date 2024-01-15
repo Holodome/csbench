@@ -99,9 +99,6 @@ struct cs_bench_param {
 // supplied by user prior to benchmark start.
 struct cs_cli_settings {
     const char **cmds;
-    struct cs_bench_stop_policy bench_stop;
-    double warmup_time;
-    int nresamp;
     const char *shell;
     struct cs_export_policy export;
     struct cs_meas *meas;
@@ -111,9 +108,6 @@ struct cs_cli_settings {
     const char *analyze_dir;
     enum cs_analyze_mode analyze_mode;
     struct cs_bench_param *params;
-    int plot_src;
-    int no_wall;
-    int threads;
 };
 
 // Description of command to benchmark.
@@ -141,17 +135,11 @@ struct cs_cmd_group {
 struct cs_settings {
     struct cs_cmd *cmds;
     struct cs_cmd_group *cmd_groups;
-    struct cs_bench_stop_policy bench_stop;
-    double warmup_time;
-    int nresamp;
     struct cs_meas *meas;
     const char *prepare_cmd;
     struct cs_export_policy export;
     enum cs_analyze_mode analyze_mode;
     const char *analyze_dir;
-    int plot_src;
-    int no_wall;
-    int threads;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -293,6 +281,14 @@ struct cs_kde_plot {
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
 static __thread uint32_t rng_state;
+// These are applicaton settings made global. Only put small settings with
+// trivial types that don't require allocation/deallocation.
+static double g_warmup_time = 1.0;
+static int g_threads = 1;
+static int g_no_wall = 0;
+static int g_plot_src = 0;
+static int g_nresamp = 100000;
+static struct cs_bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 
 static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -480,11 +476,6 @@ static char **cs_parse_scan_list(const char *scan_list) {
 
 static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_cli_settings *settings) {
-    settings->threads = 1;
-    settings->bench_stop.time_limit = 5.0;
-    settings->bench_stop.min_runs = 5;
-    settings->warmup_time = 1.0;
-    settings->nresamp = 100000;
     settings->shell = "/bin/sh";
     settings->analyze_dir = ".csbench";
     cs_sb_push(settings->meas,
@@ -514,7 +505,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                         "error: time limit must be positive number or zero\n");
                 exit(EXIT_FAILURE);
             }
-            settings->warmup_time = value;
+            g_warmup_time = value;
         } else if (strcmp(opt, "--time-limit") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --time-limit requires 1 argument\n");
@@ -531,7 +522,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "error: time limit must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->bench_stop.time_limit = value;
+            g_bench_stop.time_limit = value;
         } else if (strcmp(opt, "--runs") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --runs requires 1 argument\n");
@@ -548,7 +539,8 @@ static void cs_parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "error: run count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->bench_stop.runs = value;
+
+            g_bench_stop.runs = value;
         } else if (strcmp(opt, "--min-runs") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --min-runs requires 1 argument\n");
@@ -566,7 +558,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                         "error: resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->bench_stop.min_runs = value;
+            g_bench_stop.min_runs = value;
         } else if (strcmp(opt, "--max-runs") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --max-runs requires 1 argument\n");
@@ -584,7 +576,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                         "error: resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->bench_stop.max_runs = value;
+            g_bench_stop.max_runs = value;
         } else if (strcmp(opt, "--prepare") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --prepare requires 1 argument\n");
@@ -609,7 +601,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                         "error: resamples count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->nresamp = value;
+            g_nresamp = value;
         } else if (strcmp(opt, "--shell") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --shell requires 1 argument\n");
@@ -741,7 +733,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "error: jobs count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-            settings->threads = value;
+            g_threads = value;
         } else if (strcmp(opt, "--export-json") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --export-json requires 1 argument\n");
@@ -762,9 +754,9 @@ static void cs_parse_cli_args(int argc, char **argv,
         } else if (strcmp(opt, "--plot") == 0) {
             settings->analyze_mode = CS_ANALYZE_PLOT;
         } else if (strcmp(opt, "--plot-src") == 0) {
-            settings->plot_src = 1;
+            g_plot_src = 1;
         } else if (strcmp(opt, "--no-wall") == 0) {
-            settings->no_wall = 1;
+            g_no_wall = 1;
         } else {
             cs_sb_push(settings->cmds, opt);
         }
@@ -1050,17 +1042,11 @@ static void cs_free_settings(struct cs_settings *settings) {
 
 static int cs_init_settings(const struct cs_cli_settings *cli,
                             struct cs_settings *settings) {
-    settings->threads = cli->threads;
-    settings->bench_stop = cli->bench_stop;
-    settings->warmup_time = cli->warmup_time;
     settings->export = cli->export;
     settings->prepare_cmd = cli->prepare;
-    settings->nresamp = cli->nresamp;
     settings->analyze_mode = cli->analyze_mode;
     settings->analyze_dir = cli->analyze_dir;
     settings->meas = cli->meas;
-    settings->plot_src = cli->plot_src;
-    settings->no_wall = cli->no_wall;
 
     // try to catch invalid file as early as possible,
     // because later error handling can become troublesome (after fork()).
@@ -1433,7 +1419,8 @@ out:
     return ret;
 }
 
-static int cs_warmup(const struct cs_cmd *cmd, double time_limit) {
+static int cs_warmup(const struct cs_cmd *cmd) {
+    double time_limit = g_warmup_time;
     if (time_limit < 0.0)
         return 0;
 
@@ -1450,10 +1437,9 @@ static int cs_warmup(const struct cs_cmd *cmd, double time_limit) {
     return 0;
 }
 
-static int cs_run_benchmark(struct cs_bench *bench,
-                            const struct cs_bench_stop_policy *policy) {
-    if (policy->runs != 0) {
-        for (int run_idx = 0; run_idx < policy->runs; ++run_idx) {
+static int cs_run_benchmark(struct cs_bench *bench) {
+    if (g_bench_stop.runs != 0) {
+        for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
             if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
                 return -1;
             if (cs_exec_and_measure(bench) == -1)
@@ -1466,9 +1452,9 @@ static int cs_run_benchmark(struct cs_bench *bench,
     double niter_accum = 1;
     size_t niter = 1;
     double start_time = cs_get_time();
-    double time_limit = policy->time_limit;
-    size_t min_runs = policy->min_runs;
-    size_t max_runs = policy->max_runs;
+    double time_limit = g_bench_stop.time_limit;
+    size_t min_runs = g_bench_stop.min_runs;
+    size_t max_runs = g_bench_stop.max_runs;
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare && cs_execute_prepare(bench->prepare) == -1)
@@ -1528,11 +1514,11 @@ static double cs_stat_st_dev(const double *v, size_t count) {
 
 #define cs_bootstrap(_name, _stat_fn)                                          \
     static void cs_do_bootstrap_##_name(const double *src, size_t count,       \
-                                        double *tmp, int resamples,            \
-                                        double *min_d, double *max_d) {        \
+                                        double *tmp, double *min_d,            \
+                                        double *max_d) {                       \
         double min = INFINITY;                                                 \
         double max = -INFINITY;                                                \
-        for (int sample = 0; sample < resamples; ++sample) {                   \
+        for (int sample = 0; sample < g_nresamp; ++sample) {                   \
             cs_resample(src, count, tmp, xorshift32(&rng_state));              \
             double stat = _stat_fn(tmp, count);                                \
             if (stat < min)                                                    \
@@ -1544,16 +1530,14 @@ static double cs_stat_st_dev(const double *v, size_t count) {
         *max_d = max;                                                          \
     }                                                                          \
     static void cs_bootstrap_##_name(const double *data, size_t count,         \
-                                     double *tmp, int resamples,               \
-                                     struct cs_est *est) {                     \
+                                     double *tmp, struct cs_est *est) {        \
         est->point = _stat_fn(data, count);                                    \
-        cs_do_bootstrap_##_name(data, count, tmp, resamples, &est->lower,      \
-                                &est->upper);                                  \
+        cs_do_bootstrap_##_name(data, count, tmp, &est->lower, &est->upper);   \
     }                                                                          \
     static __attribute__((used)) void cs_estimate_##_name(                     \
-        const double *data, size_t count, int resamples, struct cs_est *est) { \
+        const double *data, size_t count, struct cs_est *est) {                \
         double *tmp = malloc(count * sizeof(*tmp));                            \
-        cs_bootstrap_##_name(data, count, tmp, resamples, est);                \
+        cs_bootstrap_##_name(data, count, tmp, est);                           \
         free(tmp);                                                             \
     }
 
@@ -1634,13 +1618,13 @@ static int cs_compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static void cs_estimate_distr(const double *data, size_t count, size_t nresamp,
+static void cs_estimate_distr(const double *data, size_t count,
                               struct cs_distr *distr) {
     double *tmp = malloc(count * sizeof(*tmp));
     distr->data = data;
     distr->count = count;
-    cs_bootstrap_mean(data, count, tmp, nresamp, &distr->mean);
-    cs_bootstrap_st_dev(data, count, tmp, nresamp, &distr->st_dev);
+    cs_bootstrap_mean(data, count, tmp, &distr->mean);
+    cs_bootstrap_st_dev(data, count, tmp, &distr->st_dev);
     memcpy(tmp, data, count * sizeof(*tmp));
     qsort(tmp, count, sizeof(*tmp), cs_compare_doubles);
     distr->q1 = tmp[count / 4];
@@ -1746,14 +1730,14 @@ static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
     return best_fit;
 }
 
-static void cs_analyze_benchmark(const struct cs_bench *bench, int nresamp,
+static void cs_analyze_benchmark(const struct cs_bench *bench,
                                  struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
     analysis->bench = bench;
-    cs_estimate_mean(bench->systimes, count, nresamp, &analysis->systime_est);
-    cs_estimate_mean(bench->usertimes, count, nresamp, &analysis->usertime_est);
+    cs_estimate_mean(bench->systimes, count, &analysis->systime_est);
+    cs_estimate_mean(bench->usertimes, count, &analysis->usertime_est);
     for (size_t i = 0; i < bench->meas_count; ++i)
-        cs_estimate_distr(bench->meas[i], count, nresamp, analysis->meas + i);
+        cs_estimate_distr(bench->meas[i], count, analysis->meas + i);
 }
 
 static void cs_compare_benches(struct cs_bench_results *results) {
@@ -2051,14 +2035,13 @@ static const char *cs_big_o_str(enum cs_big_o complexity) {
     return NULL;
 }
 
-static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
-                                    int no_wall) {
+static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
     const struct cs_bench *bench = analysis->bench;
     size_t run_count = bench->run_count;
     const struct cs_cmd *cmd = bench->cmd;
     printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
-    if (!no_wall) {
+    if (!g_no_wall) {
         cs_print_exit_code_info(bench);
         cs_print_time_distr(&analysis->meas[0]);
         cs_print_time_estimate("systime", &analysis->systime_est);
@@ -2074,14 +2057,13 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis,
     }
 }
 
-static void cs_print_cmd_comparison(const struct cs_bench_results *results,
-                                    int no_wall) {
+static void cs_print_cmd_comparison(const struct cs_bench_results *results) {
     if (results->bench_count == 1)
         return;
 
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
-        if (no_wall && i == 0)
+        if (g_no_wall && i == 0)
             continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2104,10 +2086,10 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results,
     }
 }
 
-static void cs_print_cmd_group_analysis(const struct cs_bench_results *results,
-                                        int no_wall) {
+static void
+cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && no_wall)
+        if (i == 0 && g_no_wall)
             continue;
         for (size_t j = 0; j < results->group_count; ++j) {
             const struct cs_cmd_group_analysis *analysis =
@@ -2156,8 +2138,7 @@ static int cs_json_escape(char *buf, size_t buf_size, const char *src) {
     return 0;
 }
 
-static int cs_export_json(const struct cs_settings *settings,
-                          const struct cs_bench_results *results,
+static int cs_export_json(const struct cs_bench_results *results,
                           const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
@@ -2174,9 +2155,8 @@ static int cs_export_json(const struct cs_settings *settings,
             "\"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
             "\"max_runs\": %d, \"warmup_time\": %f, \"nresamp\": %d "
             "}, \"benches\": [",
-            settings->bench_stop.time_limit, settings->bench_stop.runs,
-            settings->bench_stop.min_runs, settings->bench_stop.max_runs,
-            settings->warmup_time, settings->nresamp);
+            g_bench_stop.time_limit, g_bench_stop.runs, g_bench_stop.min_runs,
+            g_bench_stop.max_runs, g_warmup_time, g_nresamp);
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
         fprintf(f, "{ ");
@@ -2569,7 +2549,7 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
 
 static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
-static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
+static int cs_dump_plot_src(const struct cs_bench_results *results,
                             const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
@@ -2577,7 +2557,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
     char buf[4096];
     FILE *f;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && no_wall)
+        if (meas_idx == 0 && g_no_wall)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
         {
@@ -2636,10 +2616,10 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
                 f = cs_open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", analyze_dir,
                                      bench_idx, meas_idx);
                 if (f == NULL) {
-                    fprintf(
-                        stderr,
-                        "error: failed to create file %s/kde_ext_%zu_%zu.py\n",
-                        analyze_dir, bench_idx, meas_idx);
+                    fprintf(stderr,
+                            "error: failed to create file "
+                            "%s/kde_ext_%zu_%zu.py\n",
+                            analyze_dir, bench_idx, meas_idx);
                     return -1;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
@@ -2657,7 +2637,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results, int no_wall,
     return 0;
 }
 
-static int cs_make_plots(const struct cs_bench_results *results, int no_wall,
+static int cs_make_plots(const struct cs_bench_results *results,
                          const char *analyze_dir) {
     size_t bench_count = results->bench_count;
     const struct cs_bench *benches = results->benches;
@@ -2668,7 +2648,7 @@ static int cs_make_plots(const struct cs_bench_results *results, int no_wall,
     FILE *f;
     pid_t pid;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && no_wall)
+        if (meas_idx == 0 && g_no_wall)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
         {
@@ -2743,7 +2723,7 @@ out:
 }
 
 static int cs_make_plots_readme(const struct cs_bench_results *results,
-                                int no_wall, const char *analyze_dir) {
+                                const char *analyze_dir) {
     FILE *f = cs_open_file_fmt("w", "%s/readme.md", analyze_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/readme.md\n",
@@ -2752,7 +2732,7 @@ static int cs_make_plots_readme(const struct cs_bench_results *results,
     }
     fprintf(f, "# csbench analyze map\n");
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && no_wall)
+        if (meas_idx == 0 && g_no_wall)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
         fprintf(f, "## measurement %s\n", meas->name);
@@ -2760,10 +2740,10 @@ static int cs_make_plots_readme(const struct cs_bench_results *results,
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cs_cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
-            fprintf(
-                f,
-                "* [command group '%s' regression plot](group_%zu_%zu.svg)\n",
-                analysis->group->template, grp_idx, meas_idx);
+            fprintf(f,
+                    "* [command group '%s' regression "
+                    "plot](group_%zu_%zu.svg)\n",
+                    analysis->group->template, grp_idx, meas_idx);
         }
         fprintf(f, "### KDE plots\n");
         fprintf(f, "#### regular\n");
@@ -2905,14 +2885,13 @@ static void cs_html_distr(const struct cs_bench *bench,
     fprintf(f, "</div></div></div>");
 }
 
-static void cs_html_compare(const struct cs_bench_results *results, int no_wall,
-                            FILE *f) {
+static void cs_html_compare(const struct cs_bench_results *results, FILE *f) {
     if (results->bench_count == 1)
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
-        if (meas_idx == 0 && no_wall)
+        if (meas_idx == 0 && g_no_wall)
             continue;
         size_t best_idx = results->fastest_meas[meas_idx];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2970,14 +2949,14 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
 }
 
 static void cs_html_paramter_analysis(const struct cs_bench_results *results,
-                                      int no_wall, FILE *f) {
+                                      FILE *f) {
     fprintf(f, "<div><h2>parameter analysis</h2>");
     for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
         fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
                 results->group_analyses[0][0].group->template,
                 results->group_analyses[0][0].group->var_name);
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (meas_idx == 0 && no_wall)
+            if (meas_idx == 0 && g_no_wall)
                 continue;
             const struct cs_meas *meas = results->meas + meas_idx;
             const struct cs_cmd_group_analysis *analysis =
@@ -2989,8 +2968,7 @@ static void cs_html_paramter_analysis(const struct cs_bench_results *results,
     fprintf(f, "</div>");
 }
 
-static void cs_html_report(const struct cs_bench_results *results, int no_wall,
-                           FILE *f) {
+static void cs_html_report(const struct cs_bench_results *results, FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -3008,14 +2986,14 @@ static void cs_html_report(const struct cs_bench_results *results, int no_wall,
             "</style></head>");
     fprintf(f, "<body>");
 
-    cs_html_paramter_analysis(results, no_wall, f);
-    cs_html_compare(results, no_wall, f);
+    cs_html_paramter_analysis(results, f);
+    cs_html_compare(results, f);
     for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
         const struct cs_bench *bench = results->benches + bench_idx;
         const struct cs_bench_analysis *analysis =
             results->analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
-        if (!no_wall)
+        if (!g_no_wall)
             cs_html_wall_distr(analysis, bench_idx, f);
         for (size_t meas_idx = 1; meas_idx < bench->meas_count; ++meas_idx) {
             const struct cs_distr *distr = analysis->meas + meas_idx;
@@ -3025,6 +3003,14 @@ static void cs_html_report(const struct cs_bench_results *results, int no_wall,
         fprintf(f, "</div>");
     }
     fprintf(f, "</body>");
+}
+
+static int cs_run_bench(struct cs_bench *bench) {
+    if (cs_warmup(bench->cmd) == -1)
+        return -1;
+    if (cs_run_benchmark(bench) == -1)
+        return -1;
+    return 0;
 }
 
 static int cs_run_benches(const struct cs_settings *settings,
@@ -3037,10 +3023,7 @@ static int cs_run_benches(const struct cs_settings *settings,
         bench->cmd = settings->cmds + bench_idx;
         bench->meas_count = cs_sb_len(bench->cmd->meas);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
-        if (cs_warmup(bench->cmd, settings->warmup_time) == -1)
-            return -1;
-        if (cs_run_benchmark(bench, &settings->bench_stop) == -1)
-            return -1;
+        cs_run_bench(bench);
     }
 
     return 0;
@@ -3056,26 +3039,25 @@ static void cs_analyze_benches(const struct cs_settings *settings,
         struct cs_bench *bench = results->benches + bench_idx;
         struct cs_bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
-        cs_analyze_benchmark(bench, settings->nresamp, analysis);
+        cs_analyze_benchmark(bench, analysis);
     }
     cs_compare_benches(results);
     cs_analyze_cmd_groups(settings, results);
 }
 
-static void cs_print_analysis(const struct cs_bench_results *results,
-                              int no_wall) {
+static void cs_print_analysis(const struct cs_bench_results *results) {
     for (size_t i = 0; i < results->bench_count; ++i)
-        cs_print_benchmark_info(results->analyses + i, no_wall);
+        cs_print_benchmark_info(results->analyses + i);
 
-    cs_print_cmd_comparison(results, no_wall);
-    cs_print_cmd_group_analysis(results, no_wall);
+    cs_print_cmd_comparison(results);
+    cs_print_cmd_group_analysis(results);
 }
 
 static int cs_handle_export(const struct cs_settings *settings,
                             const struct cs_bench_results *results) {
     switch (settings->export.kind) {
     case CS_EXPORT_JSON:
-        return cs_export_json(settings, results, settings->export.filename);
+        return cs_export_json(results, settings->export.filename);
         break;
     case CS_DONT_EXPORT:
         break;
@@ -3084,21 +3066,22 @@ static int cs_handle_export(const struct cs_settings *settings,
 }
 
 static int cs_make_html_report(const struct cs_bench_results *results,
-                               int no_wall, const char *analyze_dir) {
+                               const char *analyze_dir) {
     FILE *f = cs_open_file_fmt("w", "%s/index.html", analyze_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/index.html\n",
                 analyze_dir);
         return -1;
     }
-    cs_html_report(results, no_wall, f);
+    cs_html_report(results, f);
     fclose(f);
     return 0;
 }
 
 static int cs_handle_analyze(const struct cs_bench_results *results,
-                             enum cs_analyze_mode mode, const char *analyze_dir,
-                             int plot_src, int no_wall) {
+                             enum cs_analyze_mode mode,
+                             const char *analyze_dir) {
+
     if (mode == CS_DONT_ANALYZE)
         return 0;
 
@@ -3121,18 +3104,18 @@ static int cs_handle_analyze(const struct cs_bench_results *results,
             return -1;
         }
 
-        if (plot_src && cs_dump_plot_src(results, no_wall, analyze_dir) == -1)
+        if (g_plot_src && cs_dump_plot_src(results, analyze_dir) == -1)
             return -1;
 
-        if (cs_make_plots(results, no_wall, analyze_dir) == -1)
+        if (cs_make_plots(results, analyze_dir) == -1)
             return -1;
 
-        if (cs_make_plots_readme(results, no_wall, analyze_dir) == -1)
+        if (cs_make_plots_readme(results, analyze_dir) == -1)
             return -1;
     }
 
     if (mode == CS_ANALYZE_HTML &&
-        cs_make_html_report(results, no_wall, analyze_dir) == -1)
+        cs_make_html_report(results, analyze_dir) == -1)
         return -1;
 
     return 0;
@@ -3178,12 +3161,11 @@ static int cs_run(const struct cs_settings *settings) {
     if (cs_run_benches(settings, &results) == -1)
         goto out;
     cs_analyze_benches(settings, &results);
-    cs_print_analysis(&results, settings->no_wall);
+    cs_print_analysis(&results);
     if (cs_handle_export(settings, &results) == -1)
         goto out;
     if (cs_handle_analyze(&results, settings->analyze_mode,
-                          settings->analyze_dir, settings->plot_src,
-                          settings->no_wall) == -1)
+                          settings->analyze_dir) == -1)
         goto out;
     ret = 0;
 out:
