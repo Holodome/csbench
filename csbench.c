@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <math.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -289,7 +290,7 @@ struct cs_run_bench_thread_data {
 static __thread uint32_t rng_state;
 // These are applicaton settings made global. Only put small settings with
 // trivial types that don't require allocation/deallocation.
-static double g_warmup_time = 1.0;
+static double g_warmup_time = 0.1;
 static int g_threads = 1;
 static int g_no_wall = 0;
 static int g_plot_src = 0;
@@ -1014,14 +1015,17 @@ static int cs_extract_exec_and_argv(const char *cmd_str, char **exec,
 
 static int cs_init_cmd_exec(const char *shell, const char *cmd_str,
                             struct cs_cmd *cmd) {
-    if (cs_extract_exec_and_argv(shell, &cmd->exec, &cmd->argv) != 0)
-        return -1;
     if (shell) {
+        if (cs_extract_exec_and_argv(shell, &cmd->exec, &cmd->argv) != 0)
+            return -1;
         // pop NULL
         (void)cs_sb_pop(cmd->argv);
         cs_sb_push(cmd->argv, strdup("-c"));
         cs_sb_push(cmd->argv, strdup(cmd_str));
         cs_sb_push(cmd->argv, NULL);
+    } else {
+        if (cs_extract_exec_and_argv(cmd_str, &cmd->exec, &cmd->argv) != 0)
+            return -1;
     }
     cmd->str = strdup(cmd_str);
     return 0;
@@ -1645,9 +1649,7 @@ static void cs_estimate_distr(const double *data, size_t count,
     cs_classify_outliers(distr);
 }
 
-// This monstosity is used to silence warnings.
-// Macros are used to explicitly inline.
-#define cs_fitting_curve_1(_n) ((double)_n, 1.0)
+#define cs_fitting_curve_1(...) (1.0)
 #define cs_fitting_curve_n(_n) (_n)
 #define cs_fitting_curve_n_sq(_n) ((_n) * (_n))
 #define cs_fitting_curve_n_cube(_n) ((_n) * (_n) * (_n))
@@ -1675,6 +1677,7 @@ static double cs_fitting_curve(double n, enum cs_big_o complexity) {
 #define cs_mls(_name, _fitting)                                                \
     static double cs_mls_##_name(const double *x, const double *y,             \
                                  size_t count, double *rmsp) {                 \
+        (void)x;                                                               \
         double sigma_gn_sq = 0.0;                                              \
         double sigma_t = 0.0;                                                  \
         double sigma_t_gn = 0.0;                                               \
@@ -3036,7 +3039,6 @@ static int cs_run_benches(const struct cs_settings *settings,
         bench->cmd = settings->cmds + bench_idx;
         bench->meas_count = cs_sb_len(bench->cmd->meas);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
-        cs_run_bench(bench);
     }
     if (g_threads == 1) {
         for (size_t bench_idx = 0; bench_idx < results->bench_count;

@@ -159,3 +159,13 @@ cat $j | jq -e '.["benches"].[] | .["custom_meas"].[] | .["name"]' > /dev/null |
 cat $j | jq -e '.["benches"].[] | .["custom_meas"].[] | .["units"]' > /dev/null || die
 cat $j | jq -e '.["benches"].[] | .["custom_meas"].[] | .["cmd"]' > /dev/null || die
 cat $j | jq -e '.["benches"].[] | .["custom_meas"].[] | .["val"].[]' > /dev/null || die
+
+#
+# case 10 - check --shell none
+#
+
+distclean
+$b ls --plot --shell none > /dev/null || die 
+[ $(ls "$dist_dir" | wc -l) -eq 4 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/violin_0.svg" ] && [ -f "$dist_dir/readme.md" ] || die

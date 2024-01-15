@@ -1,5 +1,5 @@
 CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 #-O0 -g -fsanitize=address
-LDFLAGS += -lm #-fsanitize=address
+LDFLAGS += -lm -lpthread #-fsanitize=address
 DEPFLAGS = -MT $@ -MMD -MP -MF $*.d
 
 OBJS := csbench.o
