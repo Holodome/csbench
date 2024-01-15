@@ -16,11 +16,11 @@ Both groups are similar in the sense that doing them good requires a lot of effo
 
 In the first case it is hard to write benchmark in a way reflecting that how the program is actually used. 
 Selection of timing mechanism is of a most importance. 
-Despite the fact that there is a lot of [community knowledge](https://book.easyperf.net/perf_book) on how to do CPU benchmarks, it does not become easy.
+Despite the fact that there are a lot of [materials](https://book.easyperf.net/perf_book) on how to do CPU benchmarks, it does not become easy.
 
 In the second case it is hard to select the form of visualization accurately conveying the data ([link](https://clauswilke.com/dataviz/)).
 And moreover, it is even harder to do that automatically.  
-For example, bucket size of histogram is always chosen manually.
+For example, bucket size of histogram should always chosen manually, otherwise image would be incomprehensible.
 
 `csbench` tries to aid developers doing both kinds of benchmarks. How is this going to be achieved?
 By being easy to use in most common cases and allowing easy modification for more complex ones. 
@@ -207,3 +207,8 @@ If user specifies custom measurement, chances that they prefer these results ove
 However, wall clock time information is still included. 
 Option `--no-wall` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report.
 Timing values are still collected however.
+
+### Parallel benchmarking
+
+The default behaviour of `csbench` is to benchmark all commands sequentially.
+It is possible to run benchmarks in parallel. Number of threads can be specified using `--jobs` option. Note that in some cases it may be undesirable to execute commands in parallel, for example in cases they are performing a lot of IO.
