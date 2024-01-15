@@ -1,4 +1,4 @@
-#csbench
+# csbench
 
 `csbench` is cross-platform batteries included benchmarking tool.
 

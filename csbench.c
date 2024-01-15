@@ -3047,6 +3047,7 @@ static int cs_run_benches(const struct cs_settings *settings,
         return 0;
     }
 
+    // Execute parallel for. Each thread gets a number of commands to benchmark
     int ret = -1;
     size_t thread_count = g_threads;
     if (results->bench_count < thread_count)
