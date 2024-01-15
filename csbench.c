@@ -260,6 +260,12 @@ struct cs_kde_plot {
     int is_ext;
 };
 
+struct cs_run_bench_thread_data {
+    struct cs_bench *benches;
+    size_t low_idx;
+    size_t high_idx;
+};
+
 #define cs_sb_header(_a)                                                       \
     ((struct cs_sb_header *)((char *)(_a) - sizeof(struct cs_sb_header)))
 #define cs_sb_size(_a) (cs_sb_header(_a)->size)
@@ -3013,6 +3019,13 @@ static int cs_run_bench(struct cs_bench *bench) {
     return 0;
 }
 
+static void *cs_run_bench_thread(void *raw) {
+    struct cs_run_bench_thread_data *data = raw;
+    for (size_t i = data->low_idx; i < data->high_idx; ++i)
+        cs_run_bench(data->benches + i);
+    return NULL;
+}
+
 static int cs_run_benches(const struct cs_settings *settings,
                           struct cs_bench_results *results) {
     results->bench_count = cs_sb_len(settings->cmds);
@@ -3025,8 +3038,49 @@ static int cs_run_benches(const struct cs_settings *settings,
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
         cs_run_bench(bench);
     }
+    if (g_threads == 1) {
+        for (size_t bench_idx = 0; bench_idx < results->bench_count;
+             ++bench_idx)
+            cs_run_bench(results->benches + bench_idx);
+        return 0;
+    }
 
-    return 0;
+    int ret = -1;
+    size_t thread_count = g_threads;
+    if (results->bench_count < thread_count)
+        thread_count = results->bench_count;
+
+    pthread_t *threads = calloc(thread_count, sizeof(*threads));
+    struct cs_run_bench_thread_data *thread_data =
+        calloc(thread_count, sizeof(*thread_data));
+    size_t width = results->bench_count / thread_count;
+    for (size_t i = 0; i < thread_count; ++i) {
+        thread_data[i].benches = results->benches;
+        thread_data[i].low_idx = i * width;
+        thread_data[i].high_idx = (i + 1) * width;
+        if (thread_data[i].high_idx > results->bench_count)
+            thread_data[i].high_idx = results->bench_count;
+    }
+
+    for (size_t i = 0; i < thread_count; ++i) {
+        int ret = pthread_create(threads + i, NULL, cs_run_bench_thread,
+                                 thread_data + i);
+        if (ret != 0) {
+            for (size_t j = 0; j < i; ++j)
+                pthread_join(threads[j], NULL);
+            fprintf(stderr, "error: failed to spawn thread\n");
+            goto err;
+        }
+    }
+
+    for (size_t i = 0; i < thread_count; ++i)
+        pthread_join(threads[i], NULL);
+
+    ret = 0;
+err:
+    free(thread_data);
+    free(threads);
+    return ret;
 }
 
 static void cs_analyze_benches(const struct cs_settings *settings,
