@@ -169,3 +169,11 @@ $b ls --plot --shell none > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 4 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/violin_0.svg" ] && [ -f "$dist_dir/readme.md" ] || die
+
+#
+# case 11 - check summary plot multiple parameterized commands
+#
+
+distclean
+$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --plot-src > /dev/null || die
+[ -f "$dist_dir/group_1.svg" ] || die

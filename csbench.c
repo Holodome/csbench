@@ -1700,6 +1700,7 @@ static int cs_compare_doubles(const void *a, const void *b) {
 
 static void cs_estimate_distr(const double *data, size_t count,
                               struct cs_distr *distr) {
+    assert(count);
     double *tmp = malloc(count * sizeof(*tmp));
     distr->data = data;
     distr->count = count;
@@ -1812,6 +1813,7 @@ static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
 static void cs_analyze_benchmark(const struct cs_bench *bench,
                                  struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
+    assert(count);
     analysis->bench = bench;
     cs_estimate_mean(bench->systimes, count, &analysis->systime_est);
     cs_estimate_mean(bench->usertimes, count, &analysis->usertime_est);
@@ -2392,50 +2394,73 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
             meas->name, cs_units_str(&meas->units), output_filename);
 }
 
-static void cs_make_group_plot(const struct cs_cmd_group_analysis *analysis,
-                               const char *output_filename, FILE *f) {
+static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
+                               size_t count, const char *output_filename,
+                               FILE *f) {
     fprintf(f, "x = [");
-    for (size_t i = 0; i < analysis->cmd_count; ++i) {
-        double v = analysis->data[i].value_double;
+    for (size_t i = 0; i < analyses[0].cmd_count; ++i) {
+        double v = analyses[0].data[i].value_double;
         fprintf(f, "%g, ", v);
     }
     fprintf(f, "]\n");
     fprintf(f, "y = [");
-    for (size_t i = 0; i < analysis->cmd_count; ++i)
-        fprintf(f, "%g, ", analysis->data[i].mean);
+    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+        fprintf(f, "[");
+        for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i)
+            fprintf(f, "%g, ", analyses[grp_idx].data[i].mean);
+        fprintf(f, "],");
+    }
     fprintf(f, "]\n");
     size_t nregr = 100;
-    double lowest_x = analysis->data[0].value_double,
-           highest_x = analysis->data[analysis->cmd_count - 1].value_double;
+    double lowest_x = INFINITY;
+    double highest_x = -INFINITY;
+    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+        double low = analyses[grp_idx].data[0].value_double;
+        if (low < lowest_x)
+            lowest_x = low;
+        double high = analyses[grp_idx]
+                          .data[analyses[grp_idx].cmd_count - 1]
+                          .value_double;
+        if (high > highest_x)
+            highest_x = high;
+    }
+
     double regr_x_step = (highest_x - lowest_x) / nregr;
     fprintf(f, "regrx = [");
     for (size_t i = 0; i < nregr; ++i)
         fprintf(f, "%g, ", lowest_x + regr_x_step * i);
     fprintf(f, "]\n");
     fprintf(f, "regry = [");
-    for (size_t i = 0; i < nregr; ++i) {
-        double regr =
-            analysis->coef *
-            cs_fitting_curve(lowest_x + regr_x_step * i, analysis->complexity);
-        fprintf(f, "%g, ", regr);
+    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+        const struct cs_cmd_group_analysis *analysis = analyses + grp_idx;
+        fprintf(f, "[");
+        for (size_t i = 0; i < nregr; ++i) {
+            double regr =
+                analysis->coef * cs_fitting_curve(lowest_x + regr_x_step * i,
+                                                  analysis->complexity);
+            fprintf(f, "%g, ", regr);
+        }
+        fprintf(f, "],");
     }
     fprintf(f, "]\n");
+    fprintf(f, "import matplotlib as mpl\n"
+               "mpl.use('svg')\n"
+               "import matplotlib.pyplot as plt\n"
+               "plt.ioff()\n");
+    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+        fprintf(f,
+                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3)\n"
+                "plt.plot(x, y[%zu], '.-')\n",
+                grp_idx, grp_idx);
+    }
     fprintf(f,
-            "import matplotlib as mpl\n"
-            "mpl.use('svg')\n"
-            "import matplotlib.pyplot as plt\n"
-            "plt.ioff()\n"
-            "plt.title('%s')\n"
-            "plt.plot(regrx, regry, color='red', alpha=0.3)\n"
-            "plt.plot(x, y, '.-')\n"
             "plt.xticks(x)\n"
             "plt.grid()\n"
             "plt.xlabel('%s')\n"
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analysis->group->template, analysis->group->var_name,
-            analysis->meas->name, cs_units_str(&analysis->meas->units),
-            output_filename);
+            analyses[0].group->var_name, analyses[0].meas->name,
+            cs_units_str(&analyses[0].meas->units), output_filename);
 }
 
 static void cs_construct_kde(const struct cs_distr *distr, double *kde,
@@ -2651,7 +2676,6 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             const struct cs_cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
             f = cs_open_file_fmt("w", "%s/group_%zu_%zu.py", analyze_dir,
-
                                  grp_idx, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
@@ -2661,7 +2685,22 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
                      grp_idx, meas_idx);
-            cs_make_group_plot(analysis, buf, f);
+            cs_make_group_plot(analysis, 1, buf, f);
+            fclose(f);
+        }
+        if (results->group_count > 1) {
+            const struct cs_cmd_group_analysis *analyses =
+                results->group_analyses[meas_idx];
+            f = cs_open_file_fmt("w", "%s/group_%zu.py", analyze_dir, meas_idx);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file %s/group_%zu.py\n",
+                        analyze_dir, meas_idx);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", analyze_dir,
+                     meas_idx);
+            cs_make_group_plot(analyses, results->group_count, buf, f);
             fclose(f);
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
@@ -2744,7 +2783,20 @@ static int cs_make_plots(const struct cs_bench_results *results,
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            cs_make_group_plot(analysis, buf, f);
+            cs_make_group_plot(analysis, 1, buf, f);
+            fclose(f);
+            cs_sb_push(processes, pid);
+        }
+        if (results->group_count > 1) {
+            const struct cs_cmd_group_analysis *analyses =
+                results->group_analyses[meas_idx];
+            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", analyze_dir,
+                     meas_idx);
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto out;
+            }
+            cs_make_group_plot(analyses, results->group_count, buf, f);
             fclose(f);
             cs_sb_push(processes, pid);
         }
@@ -3023,14 +3075,24 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
 
 static void cs_html_paramter_analysis(const struct cs_bench_results *results,
                                       FILE *f) {
+    if (!results->group_count)
+        return;
     fprintf(f, "<div><h2>parameter analysis</h2>");
-    for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-        fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
-                results->group_analyses[0][0].group->template,
-                results->group_analyses[0][0].group->var_name);
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (meas_idx == 0 && g_no_wall)
-                continue;
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (meas_idx == 0 && g_no_wall)
+            continue;
+        if (results->group_count > 1)
+            fprintf(f,
+                    "<div><h3>summary for %s</h3>"
+                    "<div class=\"row\"><div class=\"col\">"
+                    "<img src=\"group_%zu.svg\">"
+                    "<div class=\"col\"></div>"
+                    "</div></div></div>",
+                    results->meas[meas_idx].name, meas_idx);
+        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
+            fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
+                    results->group_analyses[0][grp_idx].group->template,
+                    results->group_analyses[0][grp_idx].group->var_name);
             const struct cs_meas *meas = results->meas + meas_idx;
             const struct cs_cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
@@ -3117,6 +3179,7 @@ static int cs_run_benches(const struct cs_settings *settings,
     if (results->bench_count < thread_count)
         thread_count = results->bench_count;
 
+    assert(thread_count > 1);
     pthread_t *threads = calloc(thread_count, sizeof(*threads));
     struct cs_run_bench_thread_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
@@ -3125,9 +3188,8 @@ static int cs_run_benches(const struct cs_settings *settings,
         thread_data[i].benches = results->benches;
         thread_data[i].low_idx = i * width;
         thread_data[i].high_idx = (i + 1) * width;
-        if (thread_data[i].high_idx > results->bench_count)
-            thread_data[i].high_idx = results->bench_count;
     }
+    thread_data[thread_count - 1].high_idx = results->bench_count;
 
     for (size_t i = 0; i < thread_count; ++i) {
         int ret = pthread_create(threads + i, NULL, cs_run_bench_thread,
@@ -3179,7 +3241,6 @@ static int cs_handle_export(const struct cs_settings *settings,
     switch (settings->export.kind) {
     case CS_EXPORT_JSON:
         return cs_export_json(results, settings->export.filename);
-        break;
     case CS_DONT_EXPORT:
         break;
     }
@@ -3202,7 +3263,6 @@ static int cs_make_html_report(const struct cs_bench_results *results,
 static int cs_handle_analyze(const struct cs_bench_results *results,
                              enum cs_analyze_mode mode,
                              const char *analyze_dir) {
-
     if (mode == CS_DONT_ANALYZE)
         return 0;
 
