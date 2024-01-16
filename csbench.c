@@ -318,119 +318,117 @@ static void *cs_sb_grow_impl(void *arr, size_t inc, size_t stride) {
     return header + 1;
 }
 
+// clang-format off
 static void cs_print_help_and_exit(int rc) {
-    printf("A command line benchmarking tool\n"
-           "\n"
-           "Usage: csbench [OPTIONS] <command>...\n"
-           "\n"
-           "Arguments:\n"
-           "  <command>...\n"
-           "          The command to benchmark. Can be a shell command line,\n"
-           "          like 'ls $(pwd) && echo 1', or a direct executable    \n"
-           "          invocation, like 'sleep 0.5'. Former is not available \n"
-           "          when --shell none is specified. Can contain parameters\n"
-           "          in the form 'sleep {n}', see --scan family of options.\n"
-           "          If multiple commands are given, their comparison will \n"
-           "          be performed.\n"
-           "\n");
-    printf("Options:\n"
-           "  -W, --warmup <t>\n"
-           "          Perform warump runs for at least <t> seconds before \n"
-           "          actual benchmark of each command. \n"
-           "  -R, --runs <n>\n"
-           "          Perform exactly <n> benchmark runs of each command.\n"
-           "          This option overrides --time-limit, --min-runs and \n"
-           "          --max-runs.\n"
-           "  -T, --time-limit <t>\n"
-           "          Run each benchmark for at least <t> seconds.\n"
-           "  --min-runs <n>\n"
-           "          Run each benchmark at least <n> times, used in \n"
-           "          conjunction with --time-limit and --max-runs.\n"
-           "  --max-runs <n>\n"
-           "          Run each benchmark at most <n> times, used in \n"
-           "          conjunction with --time-limit and --min-runs.\n"
-           "  -P, --prepare <cmd>\n"
-           "          Execute <cmd> in default shell before each benchmark \n"
-           "          run.\n"
-           "  --nrs <n>\n"
-           "          Specify number of resamples used in boostrapping.\n"
-           "          Default value is 100000\n");
-    printf("  -S, --shell <cmd>\n"
-           "          Specify shell used for executing commands. Can be both\n"
-           "          shell name, like 'bash', or command line like \n"
-           "          'bash --norc'. Either way, '-c' and benchmarked command\n"
-           "          are appended to argument list. <cmd> can also be none\n"
-           "          specifying that commands should be executed without a \n"
-           "          shell directly with exec.\n"
-           "  --output <where>\n"
-           "          Specify what to do with benchmarked commands' stdout\n"
-           "          and stdder. Can be set to 'inherit' - output will\n"
-           "          be printed to terminal, or 'none' - output will be\n"
-           "          piped to /dev/null. The latter is the default option.\n"
-           "  --input <where>\n"
-           "          Specify how each command should receive its input.\n"
-           "          <where> can be a file name, or none. In the latter case\n"
-           "          /dev/null is piped to stdin.\n"
-           "  --custom <name>\n"
-           "          Add custom measurement with <name>. Attempts to parse\n"
-           "          real value from each command's stdout and interprets\n"
-           "          it in seconds.\n"
-           "  --custom-t <name> <cmd>\n"
-           "          Add custom measurement with <name>. Pipes each \n"
-           "          commands stdout to <cmd> and tries to parse real value\n"
-           "          from its output and interprets it in seconds. \n"
-           "          This can be used to extract a number, for example,\n"
-           "          using grep. Alias for --custom-x <name> 's' <cmd>.\n");
     printf(
-        "  --custom-x <name> <units> <cmd>\n"
-        "          Add custom measurement with <name>. Pipes each \n"
-        "          commands stdout to <cmd> and tries to parse real value\n"
-        "          from its output and interprets it in <units>. \n"
-        "          <units> can be one of the time units 's', 'ms', 'us', \n"
-        "          'ns', in which case results will pretty printed.\n"
-        "          Alternatively <units> can be any string.\n"
-        "  --scan <i>/<n>/<m>[/<s>]\n"
-        "          Add parameter with name <i> running in range from \n"
-        "          <n> to <m> with step <s>. <s> is optional, default \n"
-        "          is 1. Can be used from command in the form '{<i>}'.\n"
-        "  --scan <i>/v[,...]\n"
-        "          Add paramter with name <i> running values from comma\n"
-        "          separated list <v>.\n"
-        "  -j, --jobs <n>\n"
-        "          Execute benchmarks in parallel with <n> threads.\n"
-        "          Default option is to execute all benchmarks sequentially\n"
-        "  --export-json <f>\n"
-        "          Export benchmark results without analysis as json.\n"
-        "  --analyze-dir <d>\n"
-        "          Specify directory where plots, html report and other\n"
-        "          analysis results will be placed. Default is '.csbench'\n"
-        "          in current directory.\n");
-    printf("  --plot\n"
-           "          Generate plots. For each benchmark KDE is generated in\n"
-           "          two variants. For each paramter (--scan and --scanl)\n"
-           "          paramter values are plotted against mean time.\n"
-           "          Single violin plot is produced if multiple commands are\n"
-           "          specified. For each measurement (--custom and others)\n"
-           "          its own group of plots is generated. Also readme.md\n"
-           "          file is generated, which helps to decipher plot file\n"
-           "          names.\n"
-           "  --plot-src\n"
-           "          Next to each plot file place python script used to \n"
-           "          produce it. Can be used to quickly patch up plots\n"
-           "          for presentation.\n"
-           "  --html\n"
-           "          Genereate html report. Implies --plot.\n"
-           "  --no-wall\n"
-           "          Exclude wall clock information from command line\n"
-           "          output, plots, html report. Commonly used with\n"
-           "          custom measurements (--custom and others) when\n"
-           "          wall clock information is useless.\n"
-           "  --help\n"
-           "          Print help.\n"
-           "  --version\n"
-           "          Print version.\n");
+"A command line benchmarking tool\n"
+"\n"
+"Usage: csbench [OPTIONS] <command>...\n"
+"\n"
+"Arguments:\n"
+"  <command>...\n"
+"          The command to benchmark. Can be a shell command line, like \n"
+"          'ls $(pwd) && echo 1', or a direct executable invocation, like \n"
+"          'sleep 0.5'. Former is not available when --shell none is specified.\n" 
+"          Can contain parameters in the form 'sleep {n}', see --scan family \n"
+"          of options. If multiple commands are given, their comparison will be\n"
+"          performed.\n"
+"\n"
+    );
+    printf(
+"Options:\n"
+"  -W, --warmup <t>\n"
+"          Perform warump runs for at least <t> seconds before actual benchmark\n"
+"          of each command.\n"
+"  -R, --runs <n>\n"
+"          Perform exactly <n> benchmark runs of each command. This option \n"
+"          overrides --time-limit, --min-runs and --max-runs.\n"
+"  -T, --time-limit <t>\n"
+"          Run each benchmark for at least <t> seconds.\n"
+"  --min-runs <n>\n"
+"          Run each benchmark at least <n> times, used in conjunction with \n"
+"          --time-limit and --max-runs.\n"
+"  --max-runs <n>\n"
+"          Run each benchmark at most <n> times, used in conjunction with \n"
+"          --time-limit and --min-runs.\n"
+"  -P, --prepare <cmd>\n"
+"          Execute <cmd> in default shell before each benchmark run.\n"
+"  --nrs <n>\n"
+"          Specify number of resamples used in boostrapping. Default value is\n"
+"          100000\n"
+    );
+    printf(
+"  -S, --shell <cmd>\n"
+"          Specify shell used for executing commands. Can be both shell name,\n"
+"          like 'bash', or command line like 'bash --norc'. Either way, '-c'\n"
+"          and benchmarked command are appended to argument list. <cmd> can\n"
+"          also be none specifying that commands should be executed without a\n"
+"          shell directly with exec.\n"
+"  --output <where>\n"
+"          Specify what to do with benchmarked commands' stdout and stdder.\n"
+"          Can be set to 'inherit' - output will be printed to terminal, or\n"
+"          'none' - output will be piped to /dev/null. The latter is the\n"
+"          default option.\n"
+"  --input <where>\n"
+"          Specify how each command should receive its input. <where> can be a\n"
+"          file name, or none. In the latter case /dev/null is piped to stdin.\n"
+"  --custom <name>\n"
+"          Add custom measurement with <name>. Attempts to parse real value\n"
+"          from each command's stdout and interprets it in seconds.\n"
+"  --custom-t <name> <cmd>\n"
+"          Add custom measurement with <name>. Pipes each commands stdout to\n"
+"          <cmd> and tries to parse real value from its output and interprets\n"
+"          it in seconds. This can be used to extract a number, for example,\n"
+"          using grep. Alias for --custom-x <name> 's' <cmd>.\n"
+    );
+    printf(
+"  --custom-x <name> <units> <cmd>\n"
+"          Add custom measurement with <name>. Pipes each commands stdout to\n"
+"          <cmd> and tries to parse real value from its output and interprets\n"
+"          it in <units>. <units> can be one of the time units 's', 'ms','us',\n"
+"          'ns', in which case results will pretty printed. Alternatively\n"
+"          <units> can be any string.\n"
+"  --scan <i>/<n>/<m>[/<s>]\n"
+"          Add parameter with name <i> running in range from <n> to <m> with\n"
+"          step <s>. <s> is optional, default is 1. Can be used from commandin\n"
+"          the form '{<i>}'.\n"
+"  --scan <i>/v[,...]\n"
+"          Add paramter with name <i> running values from comma separated list\n"
+"          <v>.\n"
+"  -j, --jobs <n>\n"
+"          Execute benchmarks in parallel with <n> threads. Default option is\n"
+"          to execute all benchmarks sequentially\n"
+"  --export-json <f>\n"
+"          Export benchmark results without analysis as json.\n"
+"  --analyze-dir <d>\n"
+"          Specify directory where plots, html report and other analysis\n"
+"          results will be placed. Default is '.csbench' in current directory.\n"
+    );
+    printf(
+"  --plot\n"
+"          Generate plots. For each benchmark KDE is generated in two variants.\n"
+"          For each paramter (--scan and --scanl) paramter values are plotted\n"
+"          against mean time. Single violin plot is produced if multiple\n"
+"          commands are specified. For each measurement (--custom and others)\n"
+"          its own group of plots is generated. Also readme.md file is\n"
+"          generated, which helps to decipher plot file names.\n"
+"  --plot-src\n"
+"          Next to each plot file place python script used to produce it. Can\n"
+"          be used to quickly patch up plots for presentation.\n"
+"  --html\n"
+"          Genereate html report. Implies --plot.\n"
+"  --no-wall\n"
+"          Exclude wall clock information from command line output, plots, html\n"
+"          report. Commonly used with custom measurements (--custom and others)\n"
+"          when wall clock information is excessive.\n"
+"  --help\n"
+"          Print help.\n"
+"  --version\n"
+"          Print version.\n"
+    );
     exit(rc);
 }
+// clang-format on
 
 static void cs_print_version_and_exit(void) {
     printf("csbench 0.1\n");
@@ -1299,7 +1297,7 @@ static int cs_exec_cmd(const struct cs_cmd *cmd, int stdout_fd,
     pid_t wpid;
     if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
-            perror("waitpid");
+            perror("wait4");
         goto out;
     }
 
@@ -2304,10 +2302,8 @@ static int cs_python_found(void) {
     if (pid == 0) {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        if (execlp("python3", "python3", "--version", NULL) == -1) {
-            perror("execlp");
+        if (execlp("python3", "python3", "--version", NULL) == -1)
             _exit(-1);
-        }
     }
 
     return cs_process_finished_correctly(pid);
@@ -2327,17 +2323,13 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     if (pid == 0) {
         close(pipe_fds[1]);
         close(STDIN_FILENO);
-        if (dup2(pipe_fds[0], STDIN_FILENO) == -1) {
-            perror("dup2");
+        if (dup2(pipe_fds[0], STDIN_FILENO) == -1)
             _exit(-1);
-        }
         // we don't need any output
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        if (execlp("python3", "python3", NULL) == -1) {
-            perror("execlp");
+        if (execlp("python3", "python3", NULL) == -1)
             _exit(-1);
-        }
     }
 
     close(pipe_fds[0]);
