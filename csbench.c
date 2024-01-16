@@ -602,7 +602,7 @@ static void cs_parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.time_limit = value;
-        } else if (strcmp(opt, "--runs") == 0 || strcmp(opt, "--R") == 0) {
+        } else if (strcmp(opt, "--runs") == 0 || strcmp(opt, "-R") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --runs requires 1 argument\n");
                 exit(EXIT_FAILURE);
@@ -796,7 +796,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             param.name = name;
             param.values = param_list;
             cs_sb_push(settings->params, param);
-        } else if (strcmp(opt, "--jobs") == 0 || strcmp(opt, "--j") == 0) {
+        } else if (strcmp(opt, "--jobs") == 0 || strcmp(opt, "-j") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --jobs requires 1 argument\n");
                 exit(EXIT_FAILURE);
@@ -3112,7 +3112,7 @@ static int cs_run_benches(const struct cs_settings *settings,
         bench->meas_count = cs_sb_len(bench->cmd->meas);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
     }
-    if (g_threads == 1) {
+    if (g_threads <= 1 || results->bench_count == 1) {
         for (size_t bench_idx = 0; bench_idx < results->bench_count;
              ++bench_idx)
             cs_run_bench(results->benches + bench_idx);

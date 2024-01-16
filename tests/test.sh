@@ -9,7 +9,7 @@ dist_dir=/tmp/.csbench
 if [ -z "$csbench" ]; then
     csbench=csbench 
 fi
-b="$csbench --runs 2 --warmup 0 --analyze-dir $dist_dir"
+b="$csbench -R 2 -W 0 --analyze-dir $dist_dir -j $(nproc)"
 
 die () {
     echo error, see -x log
