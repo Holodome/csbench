@@ -848,6 +848,10 @@ static void cs_parse_cli_args(int argc, char **argv,
         } else if (strcmp(opt, "--no-wall") == 0) {
             g_no_wall = 1;
         } else {
+            if (*opt == '-') {
+                fprintf(stderr, "error: unknown option %s\n", opt);
+                exit(EXIT_FAILURE);
+            }
             cs_sb_push(settings->cmds, opt);
         }
     }
@@ -1413,6 +1417,11 @@ static int cs_parse_custom_output(int fd, double *valuep) {
     }
     buf[nread] = '\0';
 
+    if (nread == 0) {
+        fprintf(stderr, "error: custom measurement output is empty\n");
+        return -1;
+    }
+
     char *end = NULL;
     double value = strtod(buf, &end);
     if (end == buf) {
@@ -1454,8 +1463,12 @@ static int cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
         }
 
         double value;
-        if (cs_parse_custom_output(custom_output_fd, &value) == -1)
+        if (cs_parse_custom_output(custom_output_fd, &value) == -1) {
+            fprintf(stderr,
+                    "note: when trying to execute '%s' on command '%s'\n",
+                    custom->name, bench->cmd->str);
             goto out;
+        }
 
         cs_sb_push(bench->meas[i], value);
     }
@@ -2408,6 +2421,7 @@ static void cs_prettify_plot(const struct cs_units *units, double min,
     if (log10(max) - log10(min) > 3.0)
         plot->logscale = 1;
 
+    plot->multiplier = 1;
     if (cs_units_is_time(units)) {
         if (max < 1e-6) {
             plot->units_str = "ns";
@@ -2420,11 +2434,9 @@ static void cs_prettify_plot(const struct cs_units *units, double min,
             plot->multiplier = 1e3;
         } else {
             plot->units_str = "s";
-            plot->multiplier = 1;
         }
     } else {
         plot->units_str = cs_units_str(units);
-        plot->multiplier = 1.0;
     }
 }
 
