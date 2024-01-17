@@ -216,6 +216,15 @@ struct cs_cmd_in_group_data {
     double mean;
 };
 
+struct cs_ols_regress {
+    enum cs_big_o complexity;
+    // function is of the form f(x) = a * F(x) + b where F(x) is determined
+    // by complexity.
+    double a;
+    double b;
+    double rms;
+};
+
 struct cs_cmd_group_analysis {
     const struct cs_meas *meas;
     const struct cs_cmd_group *group;
@@ -224,9 +233,7 @@ struct cs_cmd_group_analysis {
     const struct cs_cmd_in_group_data *slowest;
     const struct cs_cmd_in_group_data *fastest;
     int values_are_doubles;
-    enum cs_big_o complexity;
-    double coef;
-    double rms;
+    struct cs_ols_regress regress;
 };
 
 struct cs_bench_results {
@@ -1409,7 +1416,7 @@ static int cs_parse_custom_output(int fd, double *valuep) {
     char *end = NULL;
     double value = strtod(buf, &end);
     if (end == buf) {
-        fprintf(stderr, "error: invalid custom measurement output\n");
+        fprintf(stderr, "error: invalid custom measurement output '%s'\n", buf);
         return -1;
     }
 
@@ -1582,6 +1589,7 @@ static void cs_resample(const double *src, size_t count, double *dst,
 }
 
 static double cs_stat_mean(const double *v, size_t count) {
+    assert(count);
     double result = 0.0;
     for (size_t i = 0; i < count; ++i)
         result += v[i];
@@ -1589,6 +1597,7 @@ static double cs_stat_mean(const double *v, size_t count) {
 }
 
 static double cs_stat_st_dev(const double *v, size_t count) {
+    assert(count);
     double mean = cs_stat_mean(v, count);
     double result = 0.0;
     for (size_t i = 0; i < count; ++i) {
@@ -1622,6 +1631,7 @@ static double cs_stat_st_dev(const double *v, size_t count) {
     }                                                                          \
     static __attribute__((used)) void cs_estimate_##_name(                     \
         const double *data, size_t count, struct cs_est *est) {                \
+        assert(count);                                                         \
         double *tmp = malloc(count * sizeof(*tmp));                            \
         cs_bootstrap_##_name(data, count, tmp, est);                           \
         free(tmp);                                                             \
@@ -1733,27 +1743,35 @@ static void cs_estimate_distr(const double *data, size_t count,
 #define cs_fitting_curve_logn(_n) log2(_n)
 #define cs_fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
-static double cs_fitting_curve(double n, enum cs_big_o complexity) {
-    switch (complexity) {
+static double cs_ols_approx(const struct cs_ols_regress *regress, double n) {
+    double f;
+    switch (regress->complexity) {
     case CS_O_1:
-        return cs_fitting_curve_1(n);
+        f = cs_fitting_curve_1(n);
+        break;
     case CS_O_N:
-        return cs_fitting_curve_n(n);
+        f = cs_fitting_curve_n(n);
+        break;
     case CS_O_N_SQ:
-        return cs_fitting_curve_n_sq(n);
+        f = cs_fitting_curve_n_sq(n);
+        break;
     case CS_O_N_CUBE:
-        return cs_fitting_curve_n_cube(n);
+        f = cs_fitting_curve_n_cube(n);
+        break;
     case CS_O_LOGN:
-        return cs_fitting_curve_logn(n);
+        f = cs_fitting_curve_logn(n);
+        break;
     case CS_O_NLOGN:
-        return cs_fitting_curve_nlogn(n);
+        f = cs_fitting_curve_nlogn(n);
+        break;
     }
-    return 0.0;
+    return regress->a * f + regress->b;
 }
 
 #define cs_mls(_name, _fitting)                                                \
     static double cs_mls_##_name(const double *x, const double *y,             \
-                                 size_t count, double *rmsp) {                 \
+                                 size_t count, double adjust_y,                \
+                                 double *rmsp) {                               \
         (void)x;                                                               \
         double sigma_gn_sq = 0.0;                                              \
         double sigma_t = 0.0;                                                  \
@@ -1761,14 +1779,14 @@ static double cs_fitting_curve(double n, enum cs_big_o complexity) {
         for (size_t i = 0; i < count; ++i) {                                   \
             double gn_i = _fitting(x[i]);                                      \
             sigma_gn_sq += gn_i * gn_i;                                        \
-            sigma_t += y[i];                                                   \
-            sigma_t_gn += y[i] * gn_i;                                         \
+            sigma_t += y[i] - adjust_y;                                        \
+            sigma_t_gn += (y[i] - adjust_y) * gn_i;                            \
         }                                                                      \
         double coef = sigma_t_gn / sigma_gn_sq;                                \
         double rms = 0.0;                                                      \
         for (size_t i = 0; i < count; ++i) {                                   \
             double fit = coef * _fitting(x[i]);                                \
-            double a = y[i] - fit;                                             \
+            double a = (y[i] - adjust_y) - fit;                                \
             rms += a * a;                                                      \
         }                                                                      \
         double mean = sigma_t / count;                                         \
@@ -1785,16 +1803,22 @@ cs_mls(nlogn, cs_fitting_curve_nlogn)
 
 #undef cs_mls
 
-static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
-                            double *coefp, double *rmsp) {
+static void cs_mls(const double *x, const double *y, size_t count,
+                   struct cs_ols_regress *result)
+{
+    double min_y = INFINITY;
+    for (size_t i = 0; i < count; ++i)
+        if (y[i] < min_y)
+            min_y = y[i];
+
     enum cs_big_o best_fit = CS_O_1;
     double best_fit_coef, best_fit_rms;
-    best_fit_coef = cs_mls_1(x, y, count, &best_fit_rms);
+    best_fit_coef = cs_mls_1(x, y, count, min_y, &best_fit_rms);
 
 #define cs_check(_name, _e)                                                    \
     do {                                                                       \
         double coef, rms;                                                      \
-        coef = _name(x, y, count, &rms);                                       \
+        coef = _name(x, y, count, min_y, &rms);                                \
         if (rms < best_fit_rms) {                                              \
             best_fit = _e;                                                     \
             best_fit_coef = coef;                                              \
@@ -1810,10 +1834,10 @@ static enum cs_big_o cs_mls(const double *x, const double *y, size_t count,
 
 #undef cs_check
 
-    *coefp = best_fit_coef;
-    *rmsp = best_fit_rms;
-
-    return best_fit;
+    result->a = best_fit_coef;
+    result->b = min_y;
+    result->rms = best_fit_rms;
+    result->complexity = best_fit;
 }
 
 static void cs_analyze_benchmark(const struct cs_bench *bench,
@@ -1912,9 +1936,7 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
                     x[i] = analysis->data[i].value_double;
                     y[i] = analysis->data[i].mean;
                 }
-
-                analysis->complexity =
-                    cs_mls(x, y, cmd_count, &analysis->coef, &analysis->rms);
+                cs_mls(x, y, cmd_count, &analysis->regress);
                 free(x);
                 free(y);
             }
@@ -2195,9 +2217,9 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
                    analysis->slowest->value);
             if (analysis->values_are_doubles) {
                 printf("mean time is most likely %s in terms of parameter\n",
-                       cs_big_o_str(analysis->complexity));
-                printf("linear coef %g rms %.3f\n", analysis->coef,
-                       analysis->rms);
+                       cs_big_o_str(analysis->regress.complexity));
+                printf("linear coef %g rms %.3f\n", analysis->regress.a,
+                       analysis->regress.rms);
             }
         }
     }
@@ -2510,8 +2532,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
         fprintf(f, "[");
         for (size_t i = 0; i < nregr; ++i) {
             double regr =
-                analysis->coef * cs_fitting_curve(lowest_x + regr_x_step * i,
-                                                  analysis->complexity);
+                cs_ols_approx(&analysis->regress, lowest_x + regr_x_step * i);
             fprintf(f, "%g, ", regr * prettify.multiplier);
         }
         fprintf(f, "],");
@@ -3155,8 +3176,8 @@ static void cs_html_cmd_group(const struct cs_cmd_group_analysis *analysis,
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
                 "<p>linear coef %g rms %.3f</p>",
-                cs_big_o_str(analysis->complexity), analysis->coef,
-                analysis->rms);
+                cs_big_o_str(analysis->regress.complexity), analysis->regress.a,
+                analysis->regress.rms);
     }
     fprintf(f, "</div></div>");
 }
@@ -3239,7 +3260,8 @@ static int cs_run_bench(struct cs_bench *bench) {
 static void *cs_run_bench_thread(void *raw) {
     struct cs_run_bench_thread_data *data = raw;
     for (size_t i = data->low_idx; i < data->high_idx; ++i)
-        cs_run_bench(data->benches + i);
+        if (cs_run_bench(data->benches + i) == -1)
+            return (void *)-1;
     return NULL;
 }
 
@@ -3290,10 +3312,14 @@ static int cs_run_benches(const struct cs_settings *settings,
         }
     }
 
-    for (size_t i = 0; i < thread_count; ++i)
-        pthread_join(threads[i], NULL);
-
     ret = 0;
+    for (size_t i = 0; i < thread_count; ++i) {
+        void *thread_retval;
+        pthread_join(threads[i], &thread_retval);
+        if (thread_retval == (void *)-1)
+            ret = -1;
+    }
+
 err:
     free(thread_data);
     free(threads);
