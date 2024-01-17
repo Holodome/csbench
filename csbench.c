@@ -267,6 +267,12 @@ struct cs_run_bench_thread_data {
     size_t high_idx;
 };
 
+struct cs_prettify_plot {
+    const char *units_str;
+    double multiplier;
+    int logscale;
+};
+
 #define cs_sb_header(_a)                                                       \
     ((struct cs_sb_header *)((char *)(_a) - sizeof(struct cs_sb_header)))
 #define cs_sb_size(_a) (cs_sb_header(_a)->size)
@@ -2362,16 +2368,69 @@ cs_open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
+static int cs_units_is_time(const struct cs_units *units) {
+    switch (units->kind) {
+    case CS_MU_S:
+    case CS_MU_MS:
+    case CS_MU_NS:
+    case CS_MU_US:
+        return 1;
+    case CS_MU_CUSTOM:
+        return 0;
+    }
+    return 0;
+}
+
+static void cs_prettify_plot(const struct cs_units *units, double min,
+                             double max, struct cs_prettify_plot *plot) {
+    if (log10(max) - log10(min) > 3.0)
+        plot->logscale = 1;
+
+    if (cs_units_is_time(units)) {
+        if (max < 1e-6) {
+            plot->units_str = "ns";
+            plot->multiplier = 1e9;
+        } else if (max < 1e-3) {
+            plot->units_str = "us";
+            plot->multiplier = 1e6;
+        } else if (max < 1.0) {
+            plot->units_str = "ms";
+            plot->multiplier = 1e3;
+        } else {
+            plot->units_str = "s";
+            plot->multiplier = 1;
+        }
+    } else {
+        plot->units_str = cs_units_str(units);
+        plot->multiplier = 1.0;
+    }
+}
+
 static void cs_make_violin_plot(const struct cs_bench *benches,
                                 size_t bench_count, size_t meas_idx,
                                 const char *output_filename, FILE *f) {
+    double max = -INFINITY, min = INFINITY;
+    for (size_t i = 0; i < bench_count; ++i) {
+        for (size_t j = 0; j < benches[i].run_count; ++j) {
+            double v = benches[i].meas[meas_idx][j];
+            if (v > max)
+                max = v;
+            if (v < min)
+                min = v;
+        }
+    }
+
+    struct cs_prettify_plot prettify = {0};
+    cs_prettify_plot(&benches[0].cmd->meas[meas_idx].units, min, max,
+                     &prettify);
+
     const struct cs_meas *meas = benches[0].cmd->meas + meas_idx;
     fprintf(f, "data = [");
     for (size_t i = 0; i < bench_count; ++i) {
         const struct cs_bench *bench = benches + i;
         fprintf(f, "[");
         for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%g, ", bench->meas[meas_idx][j]);
+            fprintf(f, "%g, ", bench->meas[meas_idx][j] * prettify.multiplier);
         fprintf(f, "], ");
     }
     fprintf(f, "]\n");
@@ -2391,12 +2450,26 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
             "plt.violinplot(data)\n"
             "plt.xticks(list(range(1, len(names) + 1)), names)\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            meas->name, cs_units_str(&meas->units), output_filename);
+            meas->name, prettify.units_str, output_filename);
 }
 
 static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
                                size_t count, const char *output_filename,
                                FILE *f) {
+    double max = -INFINITY, min = INFINITY;
+    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+        for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i) {
+            double v = analyses[grp_idx].data[i].mean;
+            if (v > max)
+                max = v;
+            if (v < min)
+                min = v;
+        }
+    }
+
+    struct cs_prettify_plot prettify = {0};
+    cs_prettify_plot(&analyses[0].meas->units, min, max, &prettify);
+
     fprintf(f, "x = [");
     for (size_t i = 0; i < analyses[0].cmd_count; ++i) {
         double v = analyses[0].data[i].value_double;
@@ -2407,7 +2480,8 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f, "[");
         for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i)
-            fprintf(f, "%g, ", analyses[grp_idx].data[i].mean);
+            fprintf(f, "%g, ",
+                    analyses[grp_idx].data[i].mean * prettify.multiplier);
         fprintf(f, "],");
     }
     fprintf(f, "]\n");
@@ -2438,7 +2512,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
             double regr =
                 analysis->coef * cs_fitting_curve(lowest_x + regr_x_step * i,
                                                   analysis->complexity);
-            fprintf(f, "%g, ", regr);
+            fprintf(f, "%g, ", regr * prettify.multiplier);
         }
         fprintf(f, "],");
     }
@@ -2453,6 +2527,8 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
                 "plt.plot(x, y[%zu], '.-')\n",
                 grp_idx, grp_idx);
     }
+    if (prettify.logscale)
+        fprintf(f, "plt.yscale('log')\n");
     fprintf(f,
             "plt.xticks(x)\n"
             "plt.grid()\n"
@@ -2460,7 +2536,7 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
             analyses[0].group->var_name, analyses[0].meas->name,
-            cs_units_str(&analyses[0].meas->units), output_filename);
+            prettify.units_str, output_filename);
 }
 
 static void cs_construct_kde(const struct cs_distr *distr, double *kde,
@@ -2536,13 +2612,19 @@ static void cs_init_kde_plot_internal(const struct cs_distr *distr,
 
 static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
     assert(!plot->is_ext);
+    double min = plot->lower;
+    double max = plot->lower + plot->step * (plot->count - 1);
+    struct cs_prettify_plot prettify = {0};
+    cs_prettify_plot(&plot->meas->units, min, max, &prettify);
+
     fprintf(f, "y = [");
     for (size_t i = 0; i < plot->count; ++i)
         fprintf(f, "%g, ", plot->data[i]);
     fprintf(f, "]\n");
     fprintf(f, "x = [");
     for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->lower + plot->step * i);
+        fprintf(f, "%g, ",
+                (plot->lower + plot->step * i) * prettify.multiplier);
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib as mpl\n"
@@ -2556,16 +2638,17 @@ static void cs_make_kde_plot(const struct cs_kde_plot *plot, FILE *f) {
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            plot->title, plot->mean, plot->mean_y, plot->meas->name,
-            cs_units_str(&plot->meas->units), plot->output_filename);
+            plot->title, plot->mean * prettify.multiplier, plot->mean_y,
+            plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
 static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
     assert(plot->is_ext);
-    double max_y = 0;
-    for (size_t i = 0; i < plot->count; ++i)
-        if (plot->data[i] > max_y)
-            max_y = plot->data[i];
+    double min = plot->lower;
+    double max = plot->lower + plot->step * (plot->count - 1);
+    struct cs_prettify_plot prettify = {0};
+    cs_prettify_plot(&plot->meas->units, min, max, &prettify);
+
     double max_point_x = 0;
     fprintf(f, "points = [");
     for (size_t i = 0; i < plot->distr->count; ++i) {
@@ -2574,32 +2657,33 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             continue;
         if (v > max_point_x)
             max_point_x = v;
-        fprintf(f, "(%g, %g), ", v,
-                (double)(i + 1) / plot->distr->count * max_y);
+        fprintf(f, "(%g, %g), ", v * prettify.multiplier,
+                (double)(i + 1) / plot->distr->count * max);
     }
     fprintf(f, "]\n");
     fprintf(f,
             "severe_points = list(filter(lambda x: x[0] < %g or x[0] > %g, "
             "points))\n",
-            plot->distr->outliers.low_severe_x,
-            plot->distr->outliers.high_severe_x);
+            plot->distr->outliers.low_severe_x * prettify.multiplier,
+            plot->distr->outliers.high_severe_x * prettify.multiplier);
     fprintf(f,
             "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < "
             "x[0] < "
             "%f), points))\n",
-            plot->distr->outliers.low_severe_x,
-            plot->distr->outliers.low_mild_x, plot->distr->outliers.high_mild_x,
-            plot->distr->outliers.high_severe_x);
+            plot->distr->outliers.low_severe_x * prettify.multiplier,
+            plot->distr->outliers.low_mild_x * prettify.multiplier,
+            plot->distr->outliers.high_mild_x * prettify.multiplier,
+            plot->distr->outliers.high_severe_x * prettify.multiplier);
     fprintf(f, "reg_points = list(filter(lambda x: %g < x[0] < %g, points))\n",
-            plot->distr->outliers.low_mild_x,
-            plot->distr->outliers.high_mild_x);
+            plot->distr->outliers.low_mild_x * prettify.multiplier,
+            plot->distr->outliers.high_mild_x * prettify.multiplier);
     size_t kde_count = 0;
     fprintf(f, "x = [");
     for (size_t i = 0; i < plot->count; ++i, ++kde_count) {
         double x = plot->lower + plot->step * i;
         if (x > max_point_x)
             break;
-        fprintf(f, "%g, ", x);
+        fprintf(f, "%g, ", x * prettify.multiplier);
     }
     fprintf(f, "]\n");
     fprintf(f, "y = [");
@@ -2622,18 +2706,18 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             plot->title, plot->mean);
     if (plot->distr->outliers.low_mild_x > plot->lower)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.low_mild_x);
+                plot->distr->outliers.low_mild_x * prettify.multiplier);
     if (plot->distr->outliers.low_severe_x > plot->lower)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.low_severe_x);
+                plot->distr->outliers.low_severe_x * prettify.multiplier);
     if (plot->distr->outliers.high_mild_x <
         plot->lower + plot->count * plot->step)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.high_mild_x);
+                plot->distr->outliers.high_mild_x * prettify.multiplier);
     if (plot->distr->outliers.high_severe_x <
         plot->lower + plot->count * plot->step)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.high_severe_x);
+                plot->distr->outliers.high_severe_x * prettify.multiplier);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('%s [%s]')\n"
@@ -2641,8 +2725,7 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->meas->name, cs_units_str(&plot->meas->units),
-            plot->output_filename);
+            plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
 static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
