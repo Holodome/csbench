@@ -268,10 +268,12 @@ struct cs_kde_plot {
     int is_ext;
 };
 
-struct cs_run_bench_thread_data {
-    struct cs_bench *benches;
-    size_t low_idx;
-    size_t high_idx;
+struct cs_parfor_data {
+    void *arr;
+    size_t stride;
+    size_t low;
+    size_t high;
+    int (*fn)(void *);
 };
 
 struct cs_prettify_plot {
@@ -300,7 +302,7 @@ struct cs_prettify_plot {
 #define cs_sb_pop(_a) ((_a)[--cs_sb_size(_a)])
 #define cs_sb_purge(_a) ((_a) ? (cs_sb_size(_a) = 0) : 0)
 
-static __thread uint32_t rng_state;
+static __thread uint32_t g_rng_state;
 // These are applicaton settings made global. Only put small settings with
 // trivial types that don't require allocation/deallocation.
 static int g_allow_nonzero = 0;
@@ -1640,7 +1642,7 @@ static double cs_stat_st_dev(const double *v, size_t count) {
         double min = INFINITY;                                                 \
         double max = -INFINITY;                                                \
         for (int sample = 0; sample < g_nresamp; ++sample) {                   \
-            cs_resample(src, count, tmp, xorshift32(&rng_state));              \
+            cs_resample(src, count, tmp, xorshift32(&g_rng_state));            \
             double stat = _stat_fn(tmp, count);                                \
             if (stat < min)                                                    \
                 min = stat;                                                    \
@@ -1866,11 +1868,10 @@ static void cs_mls(const double *x, const double *y, size_t count,
     result->complexity = best_fit;
 }
 
-static void cs_analyze_benchmark(const struct cs_bench *bench,
-                                 struct cs_bench_analysis *analysis) {
+static void cs_analyze_benchmark(struct cs_bench_analysis *analysis) {
+    const struct cs_bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count);
-    analysis->bench = bench;
     cs_estimate_mean(bench->systimes, count, &analysis->systime_est);
     cs_estimate_mean(bench->usertimes, count, &analysis->usertime_est);
     for (size_t i = 0; i < bench->meas_count; ++i)
@@ -2979,6 +2980,7 @@ out:
             ret = -1;
         }
     }
+    cs_sb_free(processes);
     return ret;
 }
 
@@ -3275,60 +3277,60 @@ static void cs_html_report(const struct cs_bench_results *results, FILE *f) {
     fprintf(f, "</body>");
 }
 
-static int cs_run_bench(struct cs_bench *bench) {
+static int cs_run_bench(struct cs_bench_analysis *analysis) {
+    struct cs_bench *bench = (void *)analysis->bench;
     if (cs_warmup(bench->cmd) == -1)
         return -1;
     if (cs_run_benchmark(bench) == -1)
         return -1;
+    cs_analyze_benchmark(analysis);
     return 0;
 }
 
-static void *cs_run_bench_thread(void *raw) {
-    struct cs_run_bench_thread_data *data = raw;
-    for (size_t i = data->low_idx; i < data->high_idx; ++i)
-        if (cs_run_bench(data->benches + i) == -1)
+static int cs_run_benchw(void *data) { return cs_run_bench(data); }
+
+static void *cs_parfor_worker(void *raw) {
+    struct cs_parfor_data *data = raw;
+    for (size_t i = data->low; i < data->high; ++i)
+        if (data->fn((char *)data->arr + data->stride * i) == -1)
             return (void *)-1;
     return NULL;
 }
 
-static int cs_run_benches(const struct cs_settings *settings,
-                          struct cs_bench_results *results) {
-    results->bench_count = cs_sb_len(settings->cmds);
-    results->benches = calloc(results->bench_count, sizeof(*results->benches));
-    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
-        struct cs_bench *bench = results->benches + bench_idx;
-        bench->prepare = settings->prepare_cmd;
-        bench->cmd = settings->cmds + bench_idx;
-        bench->meas_count = cs_sb_len(bench->cmd->meas);
-        bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
-    }
-    if (g_threads <= 1 || results->bench_count == 1) {
-        for (size_t bench_idx = 0; bench_idx < results->bench_count;
-             ++bench_idx)
-            cs_run_bench(results->benches + bench_idx);
+static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
+                           size_t stride) {
+    if (g_threads <= 1 || count == 1) {
+        for (size_t i = 0; i < count; ++i) {
+            void *data = (char *)arr + stride * i;
+            if (body(data) == -1)
+                return -1;
+        }
         return 0;
     }
-
-    // Execute parallel for. Each thread gets a number of commands to benchmark
     int ret = -1;
     size_t thread_count = g_threads;
-    if (results->bench_count < thread_count)
-        thread_count = results->bench_count;
+    if (count < thread_count)
+        thread_count = count;
 
     assert(thread_count > 1);
     pthread_t *threads = calloc(thread_count, sizeof(*threads));
-    struct cs_run_bench_thread_data *thread_data =
+    struct cs_parfor_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
-    size_t width = results->bench_count / thread_count;
-    for (size_t i = 0; i < thread_count; ++i) {
-        thread_data[i].benches = results->benches;
-        thread_data[i].low_idx = i * width;
-        thread_data[i].high_idx = (i + 1) * width;
+    size_t width = count / thread_count;
+    size_t remainder = count % thread_count;
+    for (size_t i = 0, cursor = 0; i < thread_count; ++i) {
+        thread_data[i].fn = body;
+        thread_data[i].arr = arr;
+        thread_data[i].stride = stride;
+        thread_data[i].low = cursor;
+        size_t advance = width;
+        if (i < remainder) 
+            ++advance;
+        thread_data[i].high = cursor + advance;
+        cursor += advance;
     }
-    thread_data[thread_count - 1].high_idx = results->bench_count;
-
     for (size_t i = 0; i < thread_count; ++i) {
-        int ret = pthread_create(threads + i, NULL, cs_run_bench_thread,
+        int ret = pthread_create(threads + i, NULL, cs_parfor_worker,
                                  thread_data + i);
         if (ret != 0) {
             for (size_t j = 0; j < i; ++j)
@@ -3352,18 +3354,31 @@ err:
     return ret;
 }
 
-static void cs_analyze_benches(const struct cs_settings *settings,
-                               struct cs_bench_results *results) {
+static int cs_run_benches(const struct cs_settings *settings,
+                          struct cs_bench_results *results) {
+    results->bench_count = cs_sb_len(settings->cmds);
+    results->benches = calloc(results->bench_count, sizeof(*results->benches));
     results->analyses =
         calloc(results->bench_count, sizeof(*results->analyses));
     results->meas_count = cs_sb_len(settings->meas);
     results->meas = settings->meas;
     for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
         struct cs_bench *bench = results->benches + bench_idx;
+        bench->prepare = settings->prepare_cmd;
+        bench->cmd = settings->cmds + bench_idx;
+        bench->meas_count = cs_sb_len(bench->cmd->meas);
+        bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
         struct cs_bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
-        cs_analyze_benchmark(bench, analysis);
+        analysis->bench = bench;
     }
+
+    return cs_parallel_for(cs_run_benchw, results->analyses,
+                           results->bench_count, sizeof(*results->analyses));
+}
+
+static void cs_analyze_benches(const struct cs_settings *settings,
+                               struct cs_bench_results *results) {
     cs_compare_benches(results);
     cs_analyze_cmd_groups(settings, results);
 }
@@ -3503,7 +3518,7 @@ int main(int argc, char **argv) {
     if (cs_init_settings(&cli, &settings) == -1)
         goto free_cli;
 
-    rng_state = time(NULL);
+    g_rng_state = time(NULL);
     if (cs_run(&settings) == -1)
         goto free_settings;
 
