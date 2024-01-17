@@ -2649,6 +2649,11 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
     struct cs_prettify_plot prettify = {0};
     cs_prettify_plot(&plot->meas->units, min, max, &prettify);
 
+    double max_y = -INFINITY;
+    for (size_t i = 0; i < plot->count; ++i)
+        if (plot->data[i] > max_y)
+            max_y = plot->data[i];
+
     double max_point_x = 0;
     fprintf(f, "points = [");
     for (size_t i = 0; i < plot->distr->count; ++i) {
@@ -2658,7 +2663,7 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
         if (v > max_point_x)
             max_point_x = v;
         fprintf(f, "(%g, %g), ", v * prettify.multiplier,
-                (double)(i + 1) / plot->distr->count * max);
+                (double)(i + 1) / plot->distr->count * max_y);
     }
     fprintf(f, "]\n");
     fprintf(f,
@@ -2703,7 +2708,7 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
             "color='orange')\n"
             "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2)\n"
             "plt.axvline(x=%f)\n",
-            plot->title, plot->mean);
+            plot->title, plot->mean * prettify.multiplier);
     if (plot->distr->outliers.low_mild_x > plot->lower)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.low_mild_x * prettify.multiplier);
