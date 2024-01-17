@@ -303,6 +303,7 @@ struct cs_prettify_plot {
 static __thread uint32_t rng_state;
 // These are applicaton settings made global. Only put small settings with
 // trivial types that don't require allocation/deallocation.
+static int g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
 static int g_no_wall = 0;
@@ -434,6 +435,9 @@ static void cs_print_help_and_exit(int rc) {
 "          Exclude wall clock information from command line output, plots, html\n"
 "          report. Commonly used with custom measurements (--custom and others)\n"
 "          when wall clock information is excessive.\n"
+"  --allow-nonzero\n"
+"          Accept commands with non-zero exit code. Default behaviour is to\n"
+"          abort benchmarking.\n"
 "  --help\n"
 "          Print help.\n"
 "  --version\n"
@@ -847,6 +851,8 @@ static void cs_parse_cli_args(int argc, char **argv,
             g_plot_src = 1;
         } else if (strcmp(opt, "--no-wall") == 0) {
             g_no_wall = 1;
+        } else if (strcmp(opt, "--allow-nonzero") == 0) {
+            g_allow_nonzero = 1;
         } else {
             if (*opt == '-') {
                 fprintf(stderr, "error: unknown option %s\n", opt);
@@ -1507,6 +1513,13 @@ static int cs_exec_and_measure(struct cs_bench *bench) {
         goto out;
     }
 
+    if (!g_allow_nonzero && rc != 0) {
+        fprintf(stderr,
+                "error: command '%s' finished with non-zero exit code\n",
+                bench->cmd->str);
+        goto out;
+    }
+
     ++bench->run_count;
     cs_sb_push(bench->exit_codes, rc);
     cs_sb_push(bench->systimes, systime);
@@ -1963,6 +1976,7 @@ static void cs_print_exit_code_info(const struct cs_bench *bench) {
         if (bench->exit_codes[i] != 0)
             ++count_nonzero;
 
+    assert(g_allow_nonzero ? 1 : count_nonzero == 0);
     if (count_nonzero == bench->run_count) {
         printf("all commands have non-zero exit code: %d\n",
                bench->exit_codes[0]);
