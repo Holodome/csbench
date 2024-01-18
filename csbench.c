@@ -269,6 +269,7 @@ struct cs_kde_plot {
 };
 
 struct cs_parfor_data {
+    pthread_t id;
     void *arr;
     size_t stride;
     size_t low;
@@ -1609,66 +1610,74 @@ static uint32_t xorshift32(uint32_t *state) {
     return *state = x;
 }
 
-static void cs_resample(const double *src, size_t count, double *dst,
-                        uint32_t entropy) {
+static void cs_resample(const double *src, size_t count, double *dst) {
+    uint32_t entropy = xorshift32(&g_rng_state);
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[xorshift32(&entropy) % count];
+    g_rng_state = entropy;
 }
 
-static double cs_stat_mean(const double *v, size_t count) {
-    assert(count);
-    double result = 0.0;
+static void cs_bootstrap_mean(const double *src, size_t count, double *tmp,
+                              struct cs_est *est) {
+    double sum = 0;
     for (size_t i = 0; i < count; ++i)
-        result += v[i];
-    return result / (double)count;
+        sum += src[i];
+    est->point = sum / (double)count;
+    double min = INFINITY;
+    double max = -INFINITY;
+    for (int sample = 0; sample < g_nresamp; ++sample) {
+        cs_resample(src, count, tmp);
+        sum = 0;
+        for (size_t i = 0; i < count; ++i)
+            sum += tmp[i];
+        min = fmin(sum, min);
+        max = fmax(sum, max);
+    }
+    est->lower = min / (double)count;
+    est->upper = max / (double)count;
 }
 
-static double cs_stat_st_dev(const double *v, size_t count) {
-    assert(count);
-    double mean = cs_stat_mean(v, count);
-    double result = 0.0;
+static void cs_bootstrap_mean_st_dev(const double *src, size_t count,
+                                     double *tmp, struct cs_est *meane,
+                                     struct cs_est *st_deve) {
+    double rec_count = 1.0 / (double)count;
+    double sum = 0;
+    for (size_t i = 0; i < count; ++i)
+        sum += src[i];
+    double mean = sum * rec_count;
+    meane->point = mean;
+    double rss = 0;
     for (size_t i = 0; i < count; ++i) {
-        double t = v[i] - mean;
-        result += t * t;
+        double a = src[i] - mean;
+        rss += a * a;
     }
-    return sqrt(result / (double)count);
+    st_deve->point = sqrt(rss * rec_count);
+    double min_mean = INFINITY;
+    double max_mean = -INFINITY;
+    double min_rss = INFINITY;
+    double max_rss = -INFINITY;
+    for (int sample = 0; sample < g_nresamp; ++sample) {
+        cs_resample(src, count, tmp);
+        sum = 0;
+        for (size_t i = 0; i < count; ++i)
+            sum += tmp[i];
+        mean = sum * rec_count;
+        min_mean = fmin(min_mean, mean);
+        max_mean = fmax(max_mean, mean);
+        rss = 0.0;
+        for (size_t i = 0; i < count; ++i) {
+            double a = tmp[i] - mean;
+            rss += a * a;
+        }
+        min_rss = fmin(min_rss, rss);
+        max_rss = fmax(max_rss, rss);
+    }
+    meane->lower = min_mean;
+    meane->upper = max_mean;
+    st_deve->lower = sqrt(min_rss * rec_count);
+    st_deve->upper = sqrt(max_rss * rec_count);
 }
-
-#define cs_bootstrap(_name, _stat_fn)                                          \
-    static void cs_do_bootstrap_##_name(const double *src, size_t count,       \
-                                        double *tmp, double *min_d,            \
-                                        double *max_d) {                       \
-        double min = INFINITY;                                                 \
-        double max = -INFINITY;                                                \
-        for (int sample = 0; sample < g_nresamp; ++sample) {                   \
-            cs_resample(src, count, tmp, xorshift32(&g_rng_state));            \
-            double stat = _stat_fn(tmp, count);                                \
-            if (stat < min)                                                    \
-                min = stat;                                                    \
-            if (stat > max)                                                    \
-                max = stat;                                                    \
-        }                                                                      \
-        *min_d = min;                                                          \
-        *max_d = max;                                                          \
-    }                                                                          \
-    static void cs_bootstrap_##_name(const double *data, size_t count,         \
-                                     double *tmp, struct cs_est *est) {        \
-        est->point = _stat_fn(data, count);                                    \
-        cs_do_bootstrap_##_name(data, count, tmp, &est->lower, &est->upper);   \
-    }                                                                          \
-    static __attribute__((used)) void cs_estimate_##_name(                     \
-        const double *data, size_t count, struct cs_est *est) {                \
-        assert(count);                                                         \
-        double *tmp = malloc(count * sizeof(*tmp));                            \
-        cs_bootstrap_##_name(data, count, tmp, est);                           \
-        free(tmp);                                                             \
-    }
-
-cs_bootstrap(mean, cs_stat_mean)
-cs_bootstrap(st_dev, cs_stat_st_dev)
-
-#undef cs_bootstrap
 
 static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
                        double sigma_g_2) {
@@ -1742,14 +1751,11 @@ static int cs_compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static void cs_estimate_distr(const double *data, size_t count,
+static void cs_estimate_distr(const double *data, size_t count, double *tmp,
                               struct cs_distr *distr) {
-    assert(count);
-    double *tmp = malloc(count * sizeof(*tmp));
     distr->data = data;
     distr->count = count;
-    cs_bootstrap_mean(data, count, tmp, &distr->mean);
-    cs_bootstrap_st_dev(data, count, tmp, &distr->st_dev);
+    cs_bootstrap_mean_st_dev(data, count, tmp, &distr->mean, &distr->st_dev);
     memcpy(tmp, data, count * sizeof(*tmp));
     qsort(tmp, count, sizeof(*tmp), cs_compare_doubles);
     distr->q1 = tmp[count / 4];
@@ -1760,7 +1766,6 @@ static void cs_estimate_distr(const double *data, size_t count,
     distr->p99 = tmp[count * 99 / 100];
     distr->min = tmp[0];
     distr->max = tmp[count - 1];
-    free(tmp);
     cs_classify_outliers(distr);
 }
 
@@ -1836,8 +1841,7 @@ static void cs_mls(const double *x, const double *y, size_t count,
 {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
-        if (y[i] < min_y)
-            min_y = y[i];
+        min_y = fmin(y[i], min_y);
 
     enum cs_big_o best_fit = CS_O_1;
     double best_fit_coef, best_fit_rms;
@@ -1872,10 +1876,12 @@ static void cs_analyze_benchmark(struct cs_bench_analysis *analysis) {
     const struct cs_bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count);
-    cs_estimate_mean(bench->systimes, count, &analysis->systime_est);
-    cs_estimate_mean(bench->usertimes, count, &analysis->usertime_est);
+    double *tmp = malloc(count * sizeof(*tmp));
+    cs_bootstrap_mean(bench->systimes, count, tmp, &analysis->systime_est);
+    cs_bootstrap_mean(bench->usertimes, count, tmp, &analysis->usertime_est);
     for (size_t i = 0; i < bench->meas_count; ++i)
-        cs_estimate_distr(bench->meas[i], count, analysis->meas + i);
+        cs_estimate_distr(bench->meas[i], count, tmp, analysis->meas + i);
+    free(tmp);
 }
 
 static void cs_compare_benches(struct cs_bench_results *results) {
@@ -2462,10 +2468,8 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
     for (size_t i = 0; i < bench_count; ++i) {
         for (size_t j = 0; j < benches[i].run_count; ++j) {
             double v = benches[i].meas[meas_idx][j];
-            if (v > max)
-                max = v;
-            if (v < min)
-                min = v;
+            max = fmax(v, max);
+            min = fmin(v, min);
         }
     }
 
@@ -2509,10 +2513,8 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i) {
             double v = analyses[grp_idx].data[i].mean;
-            if (v > max)
-                max = v;
-            if (v < min)
-                min = v;
+            max = fmax(v, max);
+            min = fmin(v, min);
         }
     }
 
@@ -3287,7 +3289,10 @@ static int cs_run_bench(struct cs_bench_analysis *analysis) {
     return 0;
 }
 
-static int cs_run_benchw(void *data) { return cs_run_bench(data); }
+static int cs_run_benchw(void *data) {
+    g_rng_state = time(NULL);
+    return cs_run_bench(data);
+}
 
 static void *cs_parfor_worker(void *raw) {
     struct cs_parfor_data *data = raw;
@@ -3313,7 +3318,6 @@ static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
         thread_count = count;
 
     assert(thread_count > 1);
-    pthread_t *threads = calloc(thread_count, sizeof(*threads));
     struct cs_parfor_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
     size_t width = count / thread_count;
@@ -3324,17 +3328,17 @@ static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
         thread_data[i].stride = stride;
         thread_data[i].low = cursor;
         size_t advance = width;
-        if (i < remainder) 
+        if (i < remainder)
             ++advance;
         thread_data[i].high = cursor + advance;
         cursor += advance;
     }
     for (size_t i = 0; i < thread_count; ++i) {
-        int ret = pthread_create(threads + i, NULL, cs_parfor_worker,
+        int ret = pthread_create(&thread_data[i].id, NULL, cs_parfor_worker,
                                  thread_data + i);
         if (ret != 0) {
             for (size_t j = 0; j < i; ++j)
-                pthread_join(threads[j], NULL);
+                pthread_join(thread_data[j].id, NULL);
             fprintf(stderr, "error: failed to spawn thread\n");
             goto err;
         }
@@ -3343,14 +3347,13 @@ static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
     ret = 0;
     for (size_t i = 0; i < thread_count; ++i) {
         void *thread_retval;
-        pthread_join(threads[i], &thread_retval);
+        pthread_join(thread_data[i].id, &thread_retval);
         if (thread_retval == (void *)-1)
             ret = -1;
     }
 
 err:
     free(thread_data);
-    free(threads);
     return ret;
 }
 
