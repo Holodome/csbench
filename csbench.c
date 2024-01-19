@@ -1631,8 +1631,10 @@ static void cs_bootstrap_mean(const double *src, size_t count, double *tmp,
         sum = 0;
         for (size_t i = 0; i < count; ++i)
             sum += tmp[i];
-        min = fmin(sum, min);
-        max = fmax(sum, max);
+        if (sum < min)
+            min = sum;
+        if (sum > max)
+            max = sum;
     }
     est->lower = min / (double)count;
     est->upper = max / (double)count;
@@ -1641,18 +1643,17 @@ static void cs_bootstrap_mean(const double *src, size_t count, double *tmp,
 static void cs_bootstrap_mean_st_dev(const double *src, size_t count,
                                      double *tmp, struct cs_est *meane,
                                      struct cs_est *st_deve) {
-    double rec_count = 1.0 / (double)count;
     double sum = 0;
     for (size_t i = 0; i < count; ++i)
         sum += src[i];
-    double mean = sum * rec_count;
+    double mean = sum / count;
     meane->point = mean;
     double rss = 0;
     for (size_t i = 0; i < count; ++i) {
         double a = src[i] - mean;
         rss += a * a;
     }
-    st_deve->point = sqrt(rss * rec_count);
+    st_deve->point = sqrt(rss / count);
     double min_mean = INFINITY;
     double max_mean = -INFINITY;
     double min_rss = INFINITY;
@@ -1662,21 +1663,25 @@ static void cs_bootstrap_mean_st_dev(const double *src, size_t count,
         sum = 0;
         for (size_t i = 0; i < count; ++i)
             sum += tmp[i];
-        mean = sum * rec_count;
-        min_mean = fmin(min_mean, mean);
-        max_mean = fmax(max_mean, mean);
+        mean = sum / count;
+        if (mean < min_mean)
+            min_mean = mean;
+        if (mean < max_mean)
+            max_mean = mean;
         rss = 0.0;
         for (size_t i = 0; i < count; ++i) {
             double a = tmp[i] - mean;
             rss += a * a;
         }
-        min_rss = fmin(min_rss, rss);
-        max_rss = fmax(max_rss, rss);
+        if (rss < min_rss)
+            min_rss = rss;
+        if (rss > max_rss)
+            max_rss = rss;
     }
     meane->lower = min_mean;
     meane->upper = max_mean;
-    st_deve->lower = sqrt(min_rss * rec_count);
-    st_deve->upper = sqrt(max_rss * rec_count);
+    st_deve->lower = sqrt(min_rss / count);
+    st_deve->upper = sqrt(max_rss / count);
 }
 
 static double cs_c_max(double x, double u_a, double a, double sigma_b_2,
@@ -1841,7 +1846,8 @@ static void cs_mls(const double *x, const double *y, size_t count,
 {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
-        min_y = fmin(y[i], min_y);
+        if (y[i] < min_y)
+            min_y = y[i];
 
     enum cs_big_o best_fit = CS_O_1;
     double best_fit_coef, best_fit_rms;
@@ -2468,8 +2474,10 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
     for (size_t i = 0; i < bench_count; ++i) {
         for (size_t j = 0; j < benches[i].run_count; ++j) {
             double v = benches[i].meas[meas_idx][j];
-            max = fmax(v, max);
-            min = fmin(v, min);
+            if (v > max)
+                max = v;
+            if (v < min)
+                min = v;
         }
     }
 
@@ -2513,8 +2521,10 @@ static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i) {
             double v = analyses[grp_idx].data[i].mean;
-            max = fmax(v, max);
-            min = fmin(v, min);
+            if (v > max)
+                max = v;
+            if (v < min)
+                min = v;
         }
     }
 
@@ -3029,7 +3039,6 @@ static int cs_make_plots_readme(const struct cs_bench_results *results,
                     meas_idx);
         }
     }
-
     fclose(f);
     return 0;
 }
@@ -3343,7 +3352,6 @@ static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
             goto err;
         }
     }
-
     ret = 0;
     for (size_t i = 0; i < thread_count; ++i) {
         void *thread_retval;
@@ -3351,7 +3359,6 @@ static int cs_parallel_for(int (*body)(void *), void *arr, size_t count,
         if (thread_retval == (void *)-1)
             ret = -1;
     }
-
 err:
     free(thread_data);
     return ret;
