@@ -219,7 +219,8 @@ struct cs_cmd_in_group_data {
 struct cs_ols_regress {
     enum cs_big_o complexity;
     // function is of the form f(x) = a * F(x) + b where F(x) is determined
-    // by complexity.
+    // by complexity, a is result of OLS, and b is minimal time (seems to make
+    // models more consistent in cases where latency is high).
     double a;
     double b;
     double rms;
@@ -514,7 +515,6 @@ static char **cs_range_to_param_list(double low, double high, double step) {
         snprintf(buf, sizeof(buf), "%g", cursor);
         cs_sb_push(result, strdup(buf));
     }
-
     return result;
 }
 
@@ -1666,7 +1666,7 @@ static void cs_bootstrap_mean_st_dev(const double *src, size_t count,
         mean = sum / count;
         if (mean < min_mean)
             min_mean = mean;
-        if (mean < max_mean)
+        if (mean > max_mean)
             max_mean = mean;
         rss = 0.0;
         for (size_t i = 0; i < count; ++i) {
@@ -1806,8 +1806,8 @@ static double cs_ols_approx(const struct cs_ols_regress *regress, double n) {
     return regress->a * f + regress->b;
 }
 
-#define cs_mls(_name, _fitting)                                                \
-    static double cs_mls_##_name(const double *x, const double *y,             \
+#define cs_ols(_name, _fitting)                                                \
+    static double cs_ols_##_name(const double *x, const double *y,             \
                                  size_t count, double adjust_y,                \
                                  double *rmsp) {                               \
         (void)x;                                                               \
@@ -1832,18 +1832,15 @@ static double cs_ols_approx(const struct cs_ols_regress *regress, double n) {
         return coef;                                                           \
     }
 
-cs_mls(1, cs_fitting_curve_1)
-cs_mls(n, cs_fitting_curve_n)
-cs_mls(n_sq, cs_fitting_curve_n_sq)
-cs_mls(n_cube, cs_fitting_curve_n_cube)
-cs_mls(logn, cs_fitting_curve_logn)
-cs_mls(nlogn, cs_fitting_curve_nlogn)
+cs_ols(1, cs_fitting_curve_1) cs_ols(n, cs_fitting_curve_n)
+    cs_ols(n_sq, cs_fitting_curve_n_sq) cs_ols(n_cube, cs_fitting_curve_n_cube)
+        cs_ols(logn, cs_fitting_curve_logn) cs_ols(nlogn,
+                                                   cs_fitting_curve_nlogn)
 
-#undef cs_mls
+#undef cs_ols
 
-static void cs_mls(const double *x, const double *y, size_t count,
-                   struct cs_ols_regress *result)
-{
+            static void cs_ols(const double *x, const double *y, size_t count,
+                               struct cs_ols_regress *result) {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
         if (y[i] < min_y)
@@ -1851,7 +1848,7 @@ static void cs_mls(const double *x, const double *y, size_t count,
 
     enum cs_big_o best_fit = CS_O_1;
     double best_fit_coef, best_fit_rms;
-    best_fit_coef = cs_mls_1(x, y, count, min_y, &best_fit_rms);
+    best_fit_coef = cs_ols_1(x, y, count, min_y, &best_fit_rms);
 
 #define cs_check(_name, _e)                                                    \
     do {                                                                       \
@@ -1864,11 +1861,11 @@ static void cs_mls(const double *x, const double *y, size_t count,
         }                                                                      \
     } while (0)
 
-    cs_check(cs_mls_n, CS_O_N);
-    cs_check(cs_mls_n_sq, CS_O_N_SQ);
-    cs_check(cs_mls_n_cube, CS_O_N_CUBE);
-    cs_check(cs_mls_logn, CS_O_LOGN);
-    cs_check(cs_mls_nlogn, CS_O_NLOGN);
+    cs_check(cs_ols_n, CS_O_N);
+    cs_check(cs_ols_n_sq, CS_O_N_SQ);
+    cs_check(cs_ols_n_cube, CS_O_N_CUBE);
+    cs_check(cs_ols_logn, CS_O_LOGN);
+    cs_check(cs_ols_nlogn, CS_O_NLOGN);
 
 #undef cs_check
 
@@ -1975,7 +1972,7 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
                     x[i] = analysis->data[i].value_double;
                     y[i] = analysis->data[i].mean;
                 }
-                cs_mls(x, y, cmd_count, &analysis->regress);
+                cs_ols(x, y, cmd_count, &analysis->regress);
                 free(x);
                 free(y);
             }
@@ -2467,9 +2464,9 @@ static void cs_prettify_plot(const struct cs_units *units, double min,
     }
 }
 
-static void cs_make_violin_plot(const struct cs_bench *benches,
-                                size_t bench_count, size_t meas_idx,
-                                const char *output_filename, FILE *f) {
+static void cs_violin_plot(const struct cs_bench *benches, size_t bench_count,
+                           size_t meas_idx, const char *output_filename,
+                           FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < bench_count; ++i) {
         for (size_t j = 0; j < benches[i].run_count; ++j) {
@@ -2514,9 +2511,50 @@ static void cs_make_violin_plot(const struct cs_bench *benches,
             meas->name, prettify.units_str, output_filename);
 }
 
-static void cs_make_group_plot(const struct cs_cmd_group_analysis *analyses,
-                               size_t count, const char *output_filename,
-                               FILE *f) {
+static void cs_bar_plot(const struct cs_bench_analysis *analyses, size_t count,
+                        size_t meas_idx, const char *output_filename, FILE *f) {
+    double max = -INFINITY, min = INFINITY;
+    for (size_t i = 0; i < count; ++i) {
+        double v = analyses[i].meas[meas_idx].mean.point;
+        if (v > max)
+            max = v;
+        if (v < min)
+            min = v;
+    }
+
+    struct cs_prettify_plot prettify = {0};
+    cs_prettify_plot(&analyses[0].bench->cmd->meas[meas_idx].units, min, max,
+                     &prettify);
+    fprintf(f, "data = [");
+    for (size_t i = 0; i < count; ++i) {
+        const struct cs_bench_analysis *analysis = analyses + i;
+        fprintf(f, "%g, ",
+                analysis->meas[meas_idx].mean.point * prettify.multiplier);
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "names = [");
+    for (size_t i = 0; i < count; ++i) {
+        const struct cs_bench_analysis *analysis = analyses + i;
+        fprintf(f, "'%s', ", analysis->bench->cmd->str);
+    }
+    fprintf(f, "]\n"
+               "import matplotlib as mpl\n"
+               "mpl.use('svg')\n"
+               "import matplotlib.pyplot as plt\n");
+    if (prettify.logscale)
+        fprintf(f, "plt.xscale('log')\n");
+    fprintf(f,
+            "plt.barh(range(len(data)), data)\n"
+            "plt.yticks(range(len(data)), labels=names)\n"
+            "plt.xlabel('mean %s [%s]')\n"
+            "plt.ioff()\n"
+            "plt.savefig('%s', bbox_inches='tight')\n",
+            analyses->bench->cmd->meas[meas_idx].name, prettify.units_str,
+            output_filename);
+}
+
+static void cs_group_plot(const struct cs_cmd_group_analysis *analyses,
+                          size_t count, const char *output_filename, FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i) {
@@ -2795,6 +2833,21 @@ static void cs_make_kde_plot_ext(const struct cs_kde_plot *plot, FILE *f) {
 
 static void cs_free_kde_plot(struct cs_kde_plot *plot) { free(plot->data); }
 
+#define cs_kde_plot(_distr, _title, _meas, _output_filename, _f)               \
+    do {                                                                       \
+        struct cs_kde_plot plot = {0};                                         \
+        cs_init_kde_plot(_distr, _title, _meas, _output_filename, &plot);      \
+        cs_make_kde_plot(&plot, _f);                                           \
+        cs_free_kde_plot(&plot);                                               \
+    } while (0)
+#define cs_kde_plot_ext(_distr, _title, _meas, _output_filename, _f)           \
+    do {                                                                       \
+        struct cs_kde_plot plot = {0};                                         \
+        cs_init_kde_plot_ext(_distr, _title, _meas, _output_filename, &plot);  \
+        cs_make_kde_plot_ext(&plot, _f);                                       \
+        cs_free_kde_plot(&plot);                                               \
+    } while (0)
+
 static int cs_dump_plot_src(const struct cs_bench_results *results,
                             const char *analyze_dir) {
     size_t bench_count = results->bench_count;
@@ -2817,7 +2870,18 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             }
             snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
                      meas_idx);
-            cs_make_violin_plot(benches, bench_count, meas_idx, buf, f);
+            cs_violin_plot(benches, bench_count, meas_idx, buf, f);
+            fclose(f);
+        }
+        {
+            f = cs_open_file_fmt("w", "%s/bar_%zu.py", analyze_dir, meas_idx);
+            if (f == NULL) {
+                fprintf(stderr, "error: failed to create file %s/bar_%zu.py\n",
+                        analyze_dir, meas_idx);
+                return -1;
+            }
+            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", analyze_dir, meas_idx);
+            cs_bar_plot(analyses, bench_count, meas_idx, buf, f);
             fclose(f);
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
@@ -2833,7 +2897,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
                      grp_idx, meas_idx);
-            cs_make_group_plot(analysis, 1, buf, f);
+            cs_group_plot(analysis, 1, buf, f);
             fclose(f);
         }
         if (results->group_count > 1) {
@@ -2848,7 +2912,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", analyze_dir,
                      meas_idx);
-            cs_make_group_plot(analyses, results->group_count, buf, f);
+            cs_group_plot(analyses, results->group_count, buf, f);
             fclose(f);
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
@@ -2865,11 +2929,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", analyze_dir,
                          bench_idx, meas_idx);
-                struct cs_kde_plot plot = {0};
-                cs_init_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf,
-                                 &plot);
-                cs_make_kde_plot(&plot, f);
-                cs_free_kde_plot(&plot);
+                cs_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf, f);
                 fclose(f);
             }
             {
@@ -2884,11 +2944,8 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
                          analyze_dir, bench_idx, meas_idx);
-                struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas,
-                                     buf, &plot);
-                cs_make_kde_plot_ext(&plot, f);
-                cs_free_kde_plot(&plot);
+                cs_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas, buf,
+                                f);
                 fclose(f);
             }
         }
@@ -2918,7 +2975,17 @@ static int cs_make_plots(const struct cs_bench_results *results,
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            cs_make_violin_plot(benches, bench_count, meas_idx, buf, f);
+            cs_violin_plot(benches, bench_count, meas_idx, buf, f);
+            fclose(f);
+            cs_sb_push(processes, pid);
+        }
+        {
+            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", analyze_dir, meas_idx);
+            if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto out;
+            }
+            cs_bar_plot(analyses, bench_count, meas_idx, buf, f);
             fclose(f);
             cs_sb_push(processes, pid);
         }
@@ -2931,7 +2998,7 @@ static int cs_make_plots(const struct cs_bench_results *results,
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            cs_make_group_plot(analysis, 1, buf, f);
+            cs_group_plot(analysis, 1, buf, f);
             fclose(f);
             cs_sb_push(processes, pid);
         }
@@ -2944,7 +3011,7 @@ static int cs_make_plots(const struct cs_bench_results *results,
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
-            cs_make_group_plot(analyses, results->group_count, buf, f);
+            cs_group_plot(analyses, results->group_count, buf, f);
             fclose(f);
             cs_sb_push(processes, pid);
         }
@@ -2958,12 +3025,8 @@ static int cs_make_plots(const struct cs_bench_results *results,
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
-                struct cs_kde_plot plot = {0};
-                cs_init_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf,
-                                 &plot);
-                cs_make_kde_plot(&plot, f);
+                cs_kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf, f);
                 fclose(f);
-                cs_free_kde_plot(&plot);
                 cs_sb_push(processes, pid);
             }
             {
@@ -2973,12 +3036,9 @@ static int cs_make_plots(const struct cs_bench_results *results,
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
-                struct cs_kde_plot plot = {0};
-                cs_init_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas,
-                                     buf, &plot);
-                cs_make_kde_plot_ext(&plot, f);
+                cs_kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas, buf,
+                                f);
                 fclose(f);
-                cs_free_kde_plot(&plot);
                 cs_sb_push(processes, pid);
             }
         }
@@ -3166,15 +3226,17 @@ static void cs_html_compare(const struct cs_bench_results *results, FILE *f) {
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
         if (meas_idx == 0 && g_no_wall)
             continue;
-        size_t best_idx = results->fastest_meas[meas_idx];
-        const struct cs_bench_analysis *best = results->analyses + best_idx;
         const struct cs_meas *meas = results->meas + meas_idx;
         fprintf(f,
                 "<div><h3>%s comparison</h3>"
                 "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"violin_%zu.svg\"></div>"
-                "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
-                meas->name, meas_idx, best->bench->cmd->str);
+                "<img src=\"bar_%zu.svg\"></div>",
+                meas->name, meas_idx);
+#if 0 
+        size_t best_idx = results->fastest_meas[meas_idx];
+        const struct cs_bench_analysis *best = results->analyses + best_idx;
+        fprintf(f, "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
+                best->bench->cmd->str);
         for (size_t j = 0; j < results->bench_count; ++j) {
             const struct cs_bench_analysis *analysis = results->analyses + j;
             if (analysis == best)
@@ -3187,8 +3249,10 @@ static void cs_html_compare(const struct cs_bench_results *results, FILE *f) {
                          best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
             fprintf(f, "<li>%.3f ± %.3f times faster than '%s'</li>", ref,
                     ref_st_dev, analysis->bench->cmd->str);
-        }
-        fprintf(f, "</ul></div></div></div>");
+    }
+        fprintf(f, "</ul>");
+#endif
+        fprintf(f, "</div></div></div>");
     }
     fprintf(f, "</div>");
 }
