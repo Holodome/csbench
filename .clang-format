@@ -7,5 +7,5 @@ AllowShortFunctionsOnASingleLine: All
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
 StatementMacros: 
-  - 'cs_mls'
+  - 'cs_ols'
   - 'cs_bootstrap'

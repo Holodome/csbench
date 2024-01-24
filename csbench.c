@@ -85,10 +85,20 @@ struct cs_units {
     const char *str;
 };
 
+enum cs_meas_kind {
+    CS_MEAS_CUSTOM,
+    CS_MEAS_WALL,
+    CS_MEAS_RUSAGE_UTIME,
+    CS_MEAS_RUSAGE_STIME,
+};
+
 struct cs_meas {
     const char *name;
     const char *cmd;
     struct cs_units units;
+    enum cs_meas_kind kind;
+    int is_secondary;
+    size_t primary_idx;
 };
 
 struct cs_bench_param {
@@ -187,8 +197,6 @@ struct cs_bench {
     const char *prepare;
     const struct cs_cmd *cmd;
     size_t run_count;
-    double *systimes;
-    double *usertimes;
     int *exit_codes;
     size_t meas_count;
     double **meas;
@@ -196,8 +204,6 @@ struct cs_bench {
 
 struct cs_bench_analysis {
     const struct cs_bench *bench;
-    struct cs_est systime_est;
-    struct cs_est usertime_est;
     struct cs_distr *meas;
 };
 
@@ -310,7 +316,6 @@ static __thread uint32_t g_rng_state;
 static int g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
-static int g_no_wall = 0;
 static int g_plot_src = 0;
 static int g_nresamp = 100000;
 static struct cs_bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
@@ -571,12 +576,27 @@ static char **cs_parse_scan_list(const char *scan_list) {
     return param_list;
 }
 
+static void cs_parse_units_str(const char *str, struct cs_units *units) {
+    if (strcmp(str, "s") == 0) {
+        units->kind = CS_MU_S;
+    } else if (strcmp(str, "ms") == 0) {
+        units->kind = CS_MU_MS;
+    } else if (strcmp(str, "us") == 0) {
+        units->kind = CS_MU_US;
+    } else if (strcmp(str, "ns") == 0) {
+        units->kind = CS_MU_NS;
+    } else {
+        units->kind = CS_MU_CUSTOM;
+        units->str = str;
+    }
+}
+
 static void cs_parse_cli_args(int argc, char **argv,
                               struct cs_cli_settings *settings) {
     settings->shell = "/bin/sh";
     settings->analyze_dir = ".csbench";
-    cs_sb_push(settings->meas,
-               ((struct cs_meas){"wall clock time", NULL, {CS_MU_S, NULL}}));
+    int no_wall = 0;
+    struct cs_meas *meas_list = NULL;
 
     int cursor = 1;
     while (cursor < argc) {
@@ -742,7 +762,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             struct cs_meas meas = {0};
             meas.name = name;
             meas.cmd = "cat";
-            cs_sb_push(settings->meas, meas);
+            cs_sb_push(meas_list, meas);
         } else if (strcmp(opt, "--custom-t") == 0) {
             if (cursor + 1 >= argc) {
                 fprintf(stderr, "error: --custom-t requires 2 arguments\n");
@@ -753,7 +773,7 @@ static void cs_parse_cli_args(int argc, char **argv,
             struct cs_meas meas = {0};
             meas.name = name;
             meas.cmd = cmd;
-            cs_sb_push(settings->meas, meas);
+            cs_sb_push(meas_list, meas);
         } else if (strcmp(opt, "--custom-x") == 0) {
             if (cursor + 2 >= argc) {
                 fprintf(stderr, "error: --custom-x requires 3 arguments\n");
@@ -765,19 +785,8 @@ static void cs_parse_cli_args(int argc, char **argv,
             struct cs_meas meas = {0};
             meas.name = name;
             meas.cmd = cmd;
-            if (strcmp(units, "s") == 0) {
-                meas.units.kind = CS_MU_S;
-            } else if (strcmp(units, "ms") == 0) {
-                meas.units.kind = CS_MU_MS;
-            } else if (strcmp(units, "us") == 0) {
-                meas.units.kind = CS_MU_US;
-            } else if (strcmp(units, "ns") == 0) {
-                meas.units.kind = CS_MU_NS;
-            } else {
-                meas.units.kind = CS_MU_CUSTOM;
-                meas.units.str = units;
-            }
-            cs_sb_push(settings->meas, meas);
+            cs_parse_units_str(units, &meas.units);
+            cs_sb_push(meas_list, meas);
         } else if (strcmp(opt, "--scan") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --scan requires 1 argument\n");
@@ -853,7 +862,7 @@ static void cs_parse_cli_args(int argc, char **argv,
         } else if (strcmp(opt, "--plot-src") == 0) {
             g_plot_src = 1;
         } else if (strcmp(opt, "--no-wall") == 0) {
-            g_no_wall = 1;
+            no_wall = 1;
         } else if (strcmp(opt, "--allow-nonzero") == 0) {
             g_allow_nonzero = 1;
         } else {
@@ -864,6 +873,24 @@ static void cs_parse_cli_args(int argc, char **argv,
             cs_sb_push(settings->cmds, opt);
         }
     }
+
+    if (!no_wall) {
+        cs_sb_push(
+            settings->meas,
+            ((struct cs_meas){
+                "wall clock time", NULL, {CS_MU_S, NULL}, CS_MEAS_WALL, 0, 0}));
+        cs_sb_push(
+            settings->meas,
+            ((struct cs_meas){
+                "systime", NULL, {CS_MU_S, NULL}, CS_MEAS_RUSAGE_STIME, 1, 0}));
+        cs_sb_push(
+            settings->meas,
+            ((struct cs_meas){
+                "usrtime", NULL, {CS_MU_S, NULL}, CS_MEAS_RUSAGE_UTIME, 1, 0}));
+    }
+    for (size_t i = 0; i < cs_sb_len(meas_list); ++i)
+        cs_sb_push(settings->meas, meas_list[i]);
+    cs_sb_free(meas_list);
 }
 
 static void cs_free_cli_settings(struct cs_cli_settings *settings) {
@@ -1089,7 +1116,6 @@ out:
 
 static int cs_extract_exec_and_argv(const char *cmd_str, char **exec,
                                     char ***argv) {
-    int rc = 0;
     char **words = cs_split_shell_words(cmd_str);
     if (words == NULL) {
         fprintf(stderr, "error: invalid command syntax\n");
@@ -1105,8 +1131,7 @@ static int cs_extract_exec_and_argv(const char *cmd_str, char **exec,
     for (size_t i = 0; i < cs_sb_len(words); ++i)
         cs_sb_free(words[i]);
     cs_sb_free(words);
-
-    return rc;
+    return 0;
 }
 
 static int cs_init_cmd_exec(const char *shell, const char *cmd_str,
@@ -1168,6 +1193,10 @@ static int cs_init_settings(const struct cs_cli_settings *cli,
     size_t cmd_count = cs_sb_len(cli->cmds);
     if (cmd_count == 0) {
         fprintf(stderr, "error: no commands specified\n");
+        return -1;
+    }
+    if (cs_sb_len(cli->meas) == 0) {
+        fprintf(stderr, "error: no measurements specified\n");
         return -1;
     }
 
@@ -1424,13 +1453,12 @@ static int cs_parse_custom_output(int fd, double *valuep) {
         fprintf(stderr, "error: custom measurement output is too large\n");
         return -1;
     }
-    buf[nread] = '\0';
-
     if (nread == 0) {
         fprintf(stderr, "error: custom measurement output is empty\n");
         return -1;
     }
 
+    buf[nread] = '\0';
     char *end = NULL;
     double value = strtod(buf, &end);
     if (end == buf) {
@@ -1442,10 +1470,8 @@ static int cs_parse_custom_output(int fd, double *valuep) {
     return 0;
 }
 
-static int cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
-    if (bench->meas_count <= 1)
-        return 0;
-
+static int cs_do_custom_measurement(struct cs_bench *bench, size_t meas_idx,
+                                    int stdout_fd) {
     int rc = -1;
     char path[] = "/tmp/csbench_tmp_XXXXXX";
     int custom_output_fd = mkstemp(path);
@@ -1454,33 +1480,29 @@ static int cs_do_custom_measurements(struct cs_bench *bench, int stdout_fd) {
         goto out;
     }
 
-    size_t meas_count = bench->meas_count;
-    for (size_t i = 1; i < meas_count; ++i) {
-        struct cs_meas *custom = bench->cmd->meas + i;
-        if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
-            lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
-            perror("lseek");
-            goto out;
-        }
-
-        if (cs_execute_custom(custom, stdout_fd, custom_output_fd) == -1)
-            goto out;
-
-        if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
-            perror("lseek");
-            goto out;
-        }
-
-        double value;
-        if (cs_parse_custom_output(custom_output_fd, &value) == -1) {
-            fprintf(stderr,
-                    "note: when trying to execute '%s' on command '%s'\n",
-                    custom->name, bench->cmd->str);
-            goto out;
-        }
-
-        cs_sb_push(bench->meas[i], value);
+    struct cs_meas *custom = bench->cmd->meas + meas_idx;
+    if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
+        lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+        perror("lseek");
+        goto out;
     }
+
+    if (cs_execute_custom(custom, stdout_fd, custom_output_fd) == -1)
+        goto out;
+
+    if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+        perror("lseek");
+        goto out;
+    }
+
+    double value;
+    if (cs_parse_custom_output(custom_output_fd, &value) == -1) {
+        fprintf(stderr, "note: when trying to execute '%s' on command '%s'\n",
+                custom->name, bench->cmd->str);
+        goto out;
+    }
+
+    cs_sb_push(bench->meas[meas_idx], value);
     rc = 0;
 out:
     if (custom_output_fd != -1) {
@@ -1494,22 +1516,16 @@ static int cs_exec_and_measure(struct cs_bench *bench) {
     int ret = -1;
     int stdout_fd = -1;
     char path[] = "/tmp/csbench_out_XXXXXX";
-    if (bench->meas_count > 1) {
-        stdout_fd = mkstemp(path);
-        if (stdout_fd == -1) {
-            perror("mkstemp");
-            goto out;
-        }
+    stdout_fd = mkstemp(path);
+    if (stdout_fd == -1) {
+        perror("mkstemp");
+        goto out;
     }
 
     struct rusage rusage = {0};
     volatile double wall_clock_start = cs_get_time();
     volatile int rc = cs_exec_cmd(bench->cmd, stdout_fd, &rusage);
     volatile double wall_clock_end = cs_get_time();
-    double systime =
-        rusage.ru_stime.tv_sec + (double)rusage.ru_stime.tv_usec / 1e6;
-    double usertime =
-        rusage.ru_utime.tv_sec + (double)rusage.ru_utime.tv_usec / 1e6;
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");
@@ -1525,12 +1541,29 @@ static int cs_exec_and_measure(struct cs_bench *bench) {
 
     ++bench->run_count;
     cs_sb_push(bench->exit_codes, rc);
-    cs_sb_push(bench->systimes, systime);
-    cs_sb_push(bench->usertimes, usertime);
-    cs_sb_push(bench->meas[0], wall_clock_end - wall_clock_start);
-
-    if (cs_do_custom_measurements(bench, stdout_fd) == -1)
-        goto out;
+    for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+        const struct cs_meas *meas = bench->cmd->meas + meas_idx;
+        switch (meas->kind) {
+        case CS_MEAS_WALL:
+            cs_sb_push(bench->meas[meas_idx],
+                       wall_clock_end - wall_clock_start);
+            break;
+        case CS_MEAS_RUSAGE_STIME:
+            cs_sb_push(bench->meas[meas_idx],
+                       rusage.ru_stime.tv_sec +
+                           (double)rusage.ru_stime.tv_usec / 1e6);
+            break;
+        case CS_MEAS_RUSAGE_UTIME:
+            cs_sb_push(bench->meas[meas_idx],
+                       rusage.ru_utime.tv_sec +
+                           (double)rusage.ru_utime.tv_usec / 1e6);
+            break;
+        case CS_MEAS_CUSTOM:
+            if (cs_do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
+                goto out;
+            break;
+        }
+    }
 
     ret = 0;
 out:
@@ -1616,28 +1649,6 @@ static void cs_resample(const double *src, size_t count, double *dst) {
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[xorshift32(&entropy) % count];
     g_rng_state = entropy;
-}
-
-static void cs_bootstrap_mean(const double *src, size_t count, double *tmp,
-                              struct cs_est *est) {
-    double sum = 0;
-    for (size_t i = 0; i < count; ++i)
-        sum += src[i];
-    est->point = sum / (double)count;
-    double min = INFINITY;
-    double max = -INFINITY;
-    for (int sample = 0; sample < g_nresamp; ++sample) {
-        cs_resample(src, count, tmp);
-        sum = 0;
-        for (size_t i = 0; i < count; ++i)
-            sum += tmp[i];
-        if (sum < min)
-            min = sum;
-        if (sum > max)
-            max = sum;
-    }
-    est->lower = min / (double)count;
-    est->upper = max / (double)count;
 }
 
 static void cs_bootstrap_mean_st_dev(const double *src, size_t count,
@@ -1832,15 +1843,18 @@ static double cs_ols_approx(const struct cs_ols_regress *regress, double n) {
         return coef;                                                           \
     }
 
-cs_ols(1, cs_fitting_curve_1) cs_ols(n, cs_fitting_curve_n)
-    cs_ols(n_sq, cs_fitting_curve_n_sq) cs_ols(n_cube, cs_fitting_curve_n_cube)
-        cs_ols(logn, cs_fitting_curve_logn) cs_ols(nlogn,
-                                                   cs_fitting_curve_nlogn)
+cs_ols(1, cs_fitting_curve_1)
+cs_ols(n, cs_fitting_curve_n)
+cs_ols(n_sq, cs_fitting_curve_n_sq)
+cs_ols(n_cube, cs_fitting_curve_n_cube)
+cs_ols(logn, cs_fitting_curve_logn)
+cs_ols(nlogn, cs_fitting_curve_nlogn)
 
 #undef cs_ols
 
-            static void cs_ols(const double *x, const double *y, size_t count,
-                               struct cs_ols_regress *result) {
+static void cs_ols(const double *x, const double *y, size_t count,
+                   struct cs_ols_regress *result)
+{
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
         if (y[i] < min_y)
@@ -1880,10 +1894,10 @@ static void cs_analyze_benchmark(struct cs_bench_analysis *analysis) {
     size_t count = bench->run_count;
     assert(count);
     double *tmp = malloc(count * sizeof(*tmp));
-    cs_bootstrap_mean(bench->systimes, count, tmp, &analysis->systime_est);
-    cs_bootstrap_mean(bench->usertimes, count, tmp, &analysis->usertime_est);
-    for (size_t i = 0; i < bench->meas_count; ++i)
+    for (size_t i = 0; i < bench->meas_count; ++i) {
+        assert(cs_sb_len(bench->meas[i]) == count);
         cs_estimate_distr(bench->meas[i], count, tmp, analysis->meas + i);
+    }
     free(tmp);
 }
 
@@ -1898,6 +1912,8 @@ static void cs_compare_benches(struct cs_bench_results *results) {
         best[i] = results->analyses[0].meas[i].mean.point;
     results->fastest_meas = calloc(meas_count, sizeof(*results->fastest_meas));
     for (size_t i = 0; i < meas_count; ++i) {
+        if (results->meas[i].is_secondary)
+            continue;
         for (size_t j = 1; j < bench_count; ++j) {
             const struct cs_bench_analysis *analysis = results->analyses + j;
             double mean = analysis->meas[i].mean.point;
@@ -1922,6 +1938,8 @@ static void cs_analyze_cmd_groups(const struct cs_settings *settings,
 
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
         const struct cs_meas *meas = results->meas + meas_idx;
+        if (meas->is_secondary)
+            continue;
         for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
             const struct cs_cmd_group *group = settings->cmd_groups + group_idx;
             size_t cmd_count = group->count;
@@ -2088,8 +2106,6 @@ static void cs_print_outliers(const struct cs_outliers *outliers,
            cs_outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
-#define cs_print_time_estimate(_name, _est)                                    \
-    cs_print_estimate(_name, _est, &(struct cs_units){0})
 static void cs_print_estimate(const char *name, const struct cs_est *est,
                               const struct cs_units *units) {
     char buf1[256], buf2[256], buf3[256];
@@ -2131,7 +2147,7 @@ static const char *cs_units_str(const struct cs_units *units) {
     case CS_MU_MS:
         return "ms";
     case CS_MU_US:
-        return "us";
+        return "μs";
     case CS_MU_NS:
         return "ns";
     case CS_MU_CUSTOM:
@@ -2140,7 +2156,6 @@ static const char *cs_units_str(const struct cs_units *units) {
     return NULL;
 }
 
-#define cs_print_time_distr(_dist) cs_print_distr(_dist, &(struct cs_units){0})
 static void cs_print_distr(const struct cs_distr *dist,
                            const struct cs_units *units) {
     char buf1[256], buf2[256];
@@ -2187,18 +2202,19 @@ static void cs_print_benchmark_info(const struct cs_bench_analysis *analysis) {
     const struct cs_cmd *cmd = bench->cmd;
     printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
-    if (!g_no_wall) {
-        cs_print_exit_code_info(bench);
-        cs_print_time_distr(&analysis->meas[0]);
-        cs_print_time_estimate("systime", &analysis->systime_est);
-        cs_print_time_estimate("usrtime", &analysis->usertime_est);
-        cs_print_outliers(&analysis->meas[0].outliers, run_count);
-    }
-    for (size_t i = 1; i < bench->meas_count; ++i) {
+    cs_print_exit_code_info(bench);
+    for (size_t i = 0; i < bench->meas_count; ++i) {
         const struct cs_meas *info = cmd->meas + i;
+        if (info->is_secondary)
+            continue;
+
         const struct cs_distr *distr = analysis->meas + i;
-        printf("custom measurement %s\n", info->name);
         cs_print_distr(distr, &info->units);
+        for (size_t j = 0; j < bench->meas_count; ++j) {
+            if (cmd->meas[j].is_secondary && cmd->meas[j].primary_idx == i)
+                cs_print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
+                                  &cmd->meas->units);
+        }
         cs_print_outliers(&distr->outliers, run_count);
     }
 }
@@ -2209,7 +2225,7 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results) {
 
     size_t meas_count = results->meas_count;
     for (size_t i = 0; i < meas_count; ++i) {
-        if (g_no_wall && i == 0)
+        if (results->meas[i].is_secondary)
             continue;
         size_t best_idx = results->fastest_meas[i];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
@@ -2235,7 +2251,7 @@ static void cs_print_cmd_comparison(const struct cs_bench_results *results) {
 static void
 cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
     for (size_t i = 0; i < results->meas_count; ++i) {
-        if (i == 0 && g_no_wall)
+        if (results->meas[i].is_secondary)
             continue;
         for (size_t j = 0; j < results->group_count; ++j) {
             const struct cs_cmd_group_analysis *analysis =
@@ -2263,6 +2279,11 @@ cs_print_cmd_group_analysis(const struct cs_bench_results *results) {
 }
 
 static int cs_json_escape(char *buf, size_t buf_size, const char *src) {
+    if (src == NULL) {
+        assert(buf_size);
+        *buf = '\0';
+        return 0;
+    }
     char *end = buf + buf_size;
     while (*src) {
         if (buf >= end)
@@ -2315,24 +2336,12 @@ static int cs_export_json(const struct cs_bench_results *results,
         fprintf(f, "\"command\": \"%s\", ", buf);
         size_t run_count = bench->run_count;
         fprintf(f, "\"run_count\": %zu, ", bench->run_count);
-        fprintf(f, "\"wallclock\": [");
-        for (size_t j = 0; j < run_count; ++j)
-            fprintf(f, "%f%s", bench->meas[0][j],
-                    j != run_count - 1 ? ", " : "");
-        fprintf(f, "], \"sys\": [");
-        for (size_t j = 0; j < run_count; ++j)
-            fprintf(f, "%f%s", bench->systimes[j],
-                    j != run_count - 1 ? ", " : "");
-        fprintf(f, "], \"user\": [");
-        for (size_t j = 0; j < run_count; ++j)
-            fprintf(f, "%f%s", bench->usertimes[j],
-                    j != run_count - 1 ? ", " : "");
-        fprintf(f, "], \"exit_codes\": [");
+        fprintf(f, "\"exit_codes\": [");
         for (size_t j = 0; j < run_count; ++j)
             fprintf(f, "%d%s", bench->exit_codes[j],
                     j != run_count - 1 ? ", " : "");
-        fprintf(f, "], \"custom_meas\": [");
-        for (size_t j = 1; j < bench->meas_count; ++j) {
+        fprintf(f, "], \"meas\": [");
+        for (size_t j = 0; j < bench->meas_count; ++j) {
             const struct cs_meas *info = bench->cmd->meas + j;
             cs_json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
@@ -2406,6 +2415,7 @@ static int cs_launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     *inp = f;
     return 0;
 }
+
 static int cs_python_has_matplotlib(void) {
     FILE *f;
     pid_t pid;
@@ -2856,10 +2866,10 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
     char buf[4096];
     FILE *f;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && g_no_wall)
+        if (results->meas[meas_idx].is_secondary)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
-        {
+        if (bench_count > 1) {
             f = cs_open_file_fmt("w", "%s/violin_%zu.py", analyze_dir,
                                  meas_idx);
             if (f == NULL) {
@@ -2873,7 +2883,7 @@ static int cs_dump_plot_src(const struct cs_bench_results *results,
             cs_violin_plot(benches, bench_count, meas_idx, buf, f);
             fclose(f);
         }
-        {
+        if (bench_count > 1) {
             f = cs_open_file_fmt("w", "%s/bar_%zu.py", analyze_dir, meas_idx);
             if (f == NULL) {
                 fprintf(stderr, "error: failed to create file %s/bar_%zu.py\n",
@@ -2965,10 +2975,10 @@ static int cs_make_plots(const struct cs_bench_results *results,
     FILE *f;
     pid_t pid;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && g_no_wall)
+        if (results->meas[meas_idx].is_secondary)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
-        {
+        if (bench_count > 1) {
             snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
                      meas_idx);
             if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
@@ -2979,7 +2989,7 @@ static int cs_make_plots(const struct cs_bench_results *results,
             fclose(f);
             cs_sb_push(processes, pid);
         }
-        {
+        if (bench_count > 1) {
             snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", analyze_dir, meas_idx);
             if (cs_launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
@@ -3066,7 +3076,7 @@ static int cs_make_plots_readme(const struct cs_bench_results *results,
     }
     fprintf(f, "# csbench analyze map\n");
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && g_no_wall)
+        if (results->meas[meas_idx].is_secondary)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
         fprintf(f, "## measurement %s\n", meas->name);
@@ -3178,8 +3188,8 @@ static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
                "</tr></thead><tbody>");
     cs_html_time_estimate("mean", &distr->mean, f);
     cs_html_time_estimate("st dev", &distr->st_dev, f);
-    cs_html_time_estimate("systime", &analysis->systime_est, f);
-    cs_html_time_estimate("usrtime", &analysis->usertime_est, f);
+    cs_html_time_estimate("systime", &analysis->meas[1].mean, f);
+    cs_html_time_estimate("usrtime", &analysis->meas[1].mean, f);
     fprintf(f, "</tbody></table>");
     cs_html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, "</div></div></div>");
@@ -3224,7 +3234,7 @@ static void cs_html_compare(const struct cs_bench_results *results, FILE *f) {
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
-        if (meas_idx == 0 && g_no_wall)
+        if (results->meas[meas_idx].is_secondary)
             continue;
         const struct cs_meas *meas = results->meas + meas_idx;
         fprintf(f,
@@ -3291,7 +3301,7 @@ static void cs_html_paramter_analysis(const struct cs_bench_results *results,
         return;
     fprintf(f, "<div><h2>parameter analysis</h2>");
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (meas_idx == 0 && g_no_wall)
+        if (results->meas[meas_idx].is_secondary)
             continue;
         if (results->group_count > 1)
             fprintf(f,
@@ -3340,11 +3350,11 @@ static void cs_html_report(const struct cs_bench_results *results, FILE *f) {
         const struct cs_bench_analysis *analysis =
             results->analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
-        if (!g_no_wall)
-            cs_html_wall_distr(analysis, bench_idx, f);
-        for (size_t meas_idx = 1; meas_idx < bench->meas_count; ++meas_idx) {
+        for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
             const struct cs_distr *distr = analysis->meas + meas_idx;
             const struct cs_meas *info = bench->cmd->meas + meas_idx;
+            if (info->is_secondary)
+                continue;
             cs_html_distr(bench, distr, info, bench_idx, meas_idx, f);
         }
         fprintf(f, "</div>");
@@ -3537,8 +3547,6 @@ static void cs_free_bench_results(struct cs_bench_results *results) {
     if (results->benches) {
         for (size_t i = 0; i < results->bench_count; ++i) {
             struct cs_bench *bench = results->benches + i;
-            cs_sb_free(bench->systimes);
-            cs_sb_free(bench->usertimes);
             cs_sb_free(bench->exit_codes);
             for (size_t i = 0; i < bench->meas_count; ++i)
                 cs_sb_free(bench->meas[i]);
