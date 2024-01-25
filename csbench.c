@@ -116,7 +116,7 @@ struct cli_settings {
     const char *prepare;
     struct input_policy input;
     enum output_kind output;
-    const char *analyze_dir;
+    const char *out_dir;
     enum analyze_mode analyze_mode;
     struct bench_param *params;
 };
@@ -150,7 +150,7 @@ struct settings {
     const char *prepare_cmd;
     struct export_policy export;
     enum analyze_mode analyze_mode;
-    const char *analyze_dir;
+    const char *out_dir;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -421,7 +421,7 @@ static void print_help_and_exit(int rc) {
 "          to execute all benchmarks sequentially\n"
 "  --export-json <f>\n"
 "          Export benchmark results without analysis as json.\n"
-"  --analyze-dir <d>\n"
+"  -o, --out-dir <d>\n"
 "          Specify directory where plots, html report and other analysis\n"
 "          results will be placed. Default is '.csbench' in current directory.\n"
     );
@@ -592,7 +592,7 @@ static void parse_units_str(const char *str, struct units *units) {
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
-    settings->analyze_dir = ".csbench";
+    settings->out_dir = ".csbench";
     int no_wall = 0;
     struct meas *meas_list = NULL;
 
@@ -845,13 +845,13 @@ static void parse_cli_args(int argc, char **argv,
             const char *export_filename = argv[cursor++];
             settings->export.kind = EXPORT_JSON;
             settings->export.filename = export_filename;
-        } else if (strcmp(opt, "--analyze-dir") == 0) {
+        } else if (strcmp(opt, "--out-dir") == 0 || strcmp(opt, "-o") == 0) {
             if (cursor >= argc) {
-                fprintf(stderr, "error: --analyze-dir requires 1 argument\n");
+                fprintf(stderr, "error: --out-dir requires 1 argument\n");
                 exit(EXIT_FAILURE);
             }
             const char *dir = argv[cursor++];
-            settings->analyze_dir = dir;
+            settings->out_dir = dir;
         } else if (strcmp(opt, "--html") == 0) {
             settings->analyze_mode = ANALYZE_HTML;
         } else if (strcmp(opt, "--plot") == 0) {
@@ -1170,7 +1170,7 @@ static int init_settings(const struct cli_settings *cli,
     settings->export = cli->export;
     settings->prepare_cmd = cli->prepare;
     settings->analyze_mode = cli->analyze_mode;
-    settings->analyze_dir = cli->analyze_dir;
+    settings->out_dir = cli->out_dir;
     settings->meas = cli->meas;
 
     // try to catch invalid file as early as possible,
@@ -2838,7 +2838,7 @@ static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
     } while (0)
 
 static int dump_plot_src(const struct bench_results *results,
-                         const char *analyze_dir) {
+                         const char *out_dir) {
     size_t bench_count = results->bench_count;
     const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
@@ -2849,57 +2849,55 @@ static int dump_plot_src(const struct bench_results *results,
             continue;
         const struct meas *meas = results->meas + meas_idx;
         if (bench_count > 1) {
-            f = open_file_fmt("w", "%s/violin_%zu.py", analyze_dir, meas_idx);
+            f = open_file_fmt("w", "%s/violin_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
                         "error: failed to create file %s/violin_%zu.py\n",
-                        analyze_dir, meas_idx);
+                        out_dir, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
-                     meas_idx);
+            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
             violin_plot(benches, bench_count, meas_idx, buf, f);
             fclose(f);
         }
         if (bench_count > 1) {
-            f = open_file_fmt("w", "%s/bar_%zu.py", analyze_dir, meas_idx);
+            f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
                 fprintf(stderr, "error: failed to create file %s/bar_%zu.py\n",
-                        analyze_dir, meas_idx);
+                        out_dir, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", analyze_dir, meas_idx);
+            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
             bar_plot(analyses, bench_count, meas_idx, buf, f);
             fclose(f);
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
-            f = open_file_fmt("w", "%s/group_%zu_%zu.py", analyze_dir, grp_idx,
+            f = open_file_fmt("w", "%s/group_%zu_%zu.py", out_dir, grp_idx,
                               meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
                         "error: failed to create file %s/group_%zu_%zu.py\n",
-                        analyze_dir, grp_idx, meas_idx);
+                        out_dir, grp_idx, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
-                     grp_idx, meas_idx);
+            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
+                     meas_idx);
             group_plot(analysis, 1, buf, f);
             fclose(f);
         }
         if (results->group_count > 1) {
             const struct cmd_group_analysis *analyses =
                 results->group_analyses[meas_idx];
-            f = open_file_fmt("w", "%s/group_%zu.py", analyze_dir, meas_idx);
+            f = open_file_fmt("w", "%s/group_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
                         "error: failed to create file %s/group_%zu.py\n",
-                        analyze_dir, meas_idx);
+                        out_dir, meas_idx);
                 return -1;
             }
-            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", analyze_dir,
-                     meas_idx);
+            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             group_plot(analyses, results->group_count, buf, f);
             fclose(f);
         }
@@ -2907,31 +2905,31 @@ static int dump_plot_src(const struct bench_results *results,
             const struct bench_analysis *analysis = analyses + bench_idx;
             const char *cmd_str = analysis->bench->cmd->str;
             {
-                f = open_file_fmt("w", "%s/kde_%zu_%zu.py", analyze_dir,
-                                  bench_idx, meas_idx);
+                f = open_file_fmt("w", "%s/kde_%zu_%zu.py", out_dir, bench_idx,
+                                  meas_idx);
                 if (f == NULL) {
                     fprintf(stderr,
                             "error: failed to create file %s/kde_%zu_%zu.py\n",
-                            analyze_dir, bench_idx, meas_idx);
+                            out_dir, bench_idx, meas_idx);
                     return -1;
                 }
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", analyze_dir,
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
                 kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf, f);
                 fclose(f);
             }
             {
-                f = open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", analyze_dir,
+                f = open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", out_dir,
                                   bench_idx, meas_idx);
                 if (f == NULL) {
                     fprintf(stderr,
                             "error: failed to create file "
                             "%s/kde_ext_%zu_%zu.py\n",
-                            analyze_dir, bench_idx, meas_idx);
+                            out_dir, bench_idx, meas_idx);
                     return -1;
                 }
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
-                         analyze_dir, bench_idx, meas_idx);
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
+                         bench_idx, meas_idx);
                 kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas, buf, f);
                 fclose(f);
             }
@@ -2942,7 +2940,7 @@ static int dump_plot_src(const struct bench_results *results,
 }
 
 static int make_plots(const struct bench_results *results,
-                      const char *analyze_dir) {
+                      const char *out_dir) {
     size_t bench_count = results->bench_count;
     const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
@@ -2956,8 +2954,7 @@ static int make_plots(const struct bench_results *results,
             continue;
         const struct meas *meas = results->meas + meas_idx;
         if (bench_count > 1) {
-            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", analyze_dir,
-                     meas_idx);
+            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
             if (launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
@@ -2967,7 +2964,7 @@ static int make_plots(const struct bench_results *results,
             sb_push(processes, pid);
         }
         if (bench_count > 1) {
-            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", analyze_dir, meas_idx);
+            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
             if (launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
@@ -2979,8 +2976,8 @@ static int make_plots(const struct bench_results *results,
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
-            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", analyze_dir,
-                     grp_idx, meas_idx);
+            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
+                     meas_idx);
             if (launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
@@ -2992,8 +2989,7 @@ static int make_plots(const struct bench_results *results,
         if (results->group_count > 1) {
             const struct cmd_group_analysis *analyses =
                 results->group_analyses[meas_idx];
-            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", analyze_dir,
-                     meas_idx);
+            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             if (launch_python_stdin_pipe(&f, &pid) == -1) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
@@ -3006,7 +3002,7 @@ static int make_plots(const struct bench_results *results,
             const struct bench_analysis *analysis = analyses + bench_idx;
             const char *cmd_str = analysis->bench->cmd->str;
             {
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", analyze_dir,
+                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
                 if (launch_python_stdin_pipe(&f, &pid) == -1) {
                     fprintf(stderr, "error: failed to launch python\n");
@@ -3017,8 +3013,8 @@ static int make_plots(const struct bench_results *results,
                 sb_push(processes, pid);
             }
             {
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg",
-                         analyze_dir, bench_idx, meas_idx);
+                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
+                         bench_idx, meas_idx);
                 if (launch_python_stdin_pipe(&f, &pid) == -1) {
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
@@ -3043,11 +3039,10 @@ out:
 }
 
 static int make_plots_readme(const struct bench_results *results,
-                             const char *analyze_dir) {
-    FILE *f = open_file_fmt("w", "%s/readme.md", analyze_dir);
+                             const char *out_dir) {
+    FILE *f = open_file_fmt("w", "%s/readme.md", out_dir);
     if (f == NULL) {
-        fprintf(stderr, "error: failed to create file %s/readme.md\n",
-                analyze_dir);
+        fprintf(stderr, "error: failed to create file %s/readme.md\n", out_dir);
         return -1;
     }
     fprintf(f, "# csbench analyze map\n");
@@ -3434,11 +3429,11 @@ static int handle_export(const struct settings *settings,
 }
 
 static int make_html_report(const struct bench_results *results,
-                            const char *analyze_dir) {
-    FILE *f = open_file_fmt("w", "%s/index.html", analyze_dir);
+                            const char *out_dir) {
+    FILE *f = open_file_fmt("w", "%s/index.html", out_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/index.html\n",
-                analyze_dir);
+                out_dir);
         return -1;
     }
     html_report(results, f);
@@ -3447,11 +3442,11 @@ static int make_html_report(const struct bench_results *results,
 }
 
 static int handle_analyze(const struct bench_results *results,
-                          enum analyze_mode mode, const char *analyze_dir) {
+                          enum analyze_mode mode, const char *out_dir) {
     if (mode == DONT_ANALYZE)
         return 0;
 
-    if (mkdir(analyze_dir, 0766) == -1) {
+    if (mkdir(out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
             perror("mkdir");
@@ -3470,17 +3465,17 @@ static int handle_analyze(const struct bench_results *results,
             return -1;
         }
 
-        if (g_plot_src && dump_plot_src(results, analyze_dir) == -1)
+        if (g_plot_src && dump_plot_src(results, out_dir) == -1)
             return -1;
 
-        if (make_plots(results, analyze_dir) == -1)
+        if (make_plots(results, out_dir) == -1)
             return -1;
 
-        if (make_plots_readme(results, analyze_dir) == -1)
+        if (make_plots_readme(results, out_dir) == -1)
             return -1;
     }
 
-    if (mode == ANALYZE_HTML && make_html_report(results, analyze_dir) == -1)
+    if (mode == ANALYZE_HTML && make_html_report(results, out_dir) == -1)
         return -1;
 
     return 0;
@@ -3527,8 +3522,8 @@ static int run(const struct settings *settings) {
     print_analysis(&results);
     if (handle_export(settings, &results) == -1)
         goto out;
-    if (handle_analyze(&results, settings->analyze_mode,
-                       settings->analyze_dir) == -1)
+    if (handle_analyze(&results, settings->analyze_mode, settings->out_dir) ==
+        -1)
         goto out;
     ret = 0;
 out:
