@@ -1,5 +1,6 @@
-#if !defined(__APPLE__)
+#ifdef __linux__
 #define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 #endif
 
 #include <assert.h>
@@ -98,7 +99,11 @@ enum meas_kind {
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
     MEAS_RUSAGE_STIME,
-    MEAS_RUSAGE_MAXRSS
+    MEAS_RUSAGE_MAXRSS,
+    MEAS_RUSAGE_MINFLT,
+    MEAS_RUSAGE_MAJFLT,
+    MEAS_RUSAGE_NVCSW,
+    MEAS_RUSAGE_NIVCSW
 };
 
 struct meas {
@@ -898,6 +903,21 @@ static void parse_cli_args(int argc, char **argv,
         sb_push(settings->meas,
                 ((struct meas){
                     "maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0}));
+        sb_push(
+            settings->meas,
+            ((struct meas){
+                "minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, 1, 0}));
+        sb_push(
+            settings->meas,
+            ((struct meas){
+                "majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, 1, 0}));
+        sb_push(settings->meas,
+                ((struct meas){
+                    "nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0}));
+        sb_push(
+            settings->meas,
+            ((struct meas){
+                "nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, 1, 0}));
     }
     for (size_t i = 0; i < sb_len(meas_list); ++i)
         sb_push(settings->meas, meas_list[i]);
@@ -1106,6 +1126,10 @@ static char **split_shell_words(const char *cmd) {
         case STATE_COMMENT:
             switch (c) {
             case '\0':
+                if (current_word) {
+                    sb_push(current_word, '\0');
+                    sb_push(words, current_word);
+                }
                 goto out;
             case '\n':
                 state = STATE_DELIMETER;
@@ -1117,6 +1141,8 @@ static char **split_shell_words(const char *cmd) {
         }
     }
 error:
+    if (current_word)
+        sb_free(current_word);
     for (size_t i = 0; i < sb_len(words); ++i)
         sb_free(words[i]);
     sb_free(words);
@@ -1222,6 +1248,7 @@ static int init_settings(const struct cli_settings *cli,
                 continue;
 
             size_t its_in_group = sb_len(param->values);
+            assert(its_in_group != 0);
             found_param = 1;
             struct cmd_group group = {0};
             group.count = its_in_group;
@@ -1569,8 +1596,19 @@ static int exec_and_measure(struct bench *bench) {
                         (double)rusage.ru_utime.tv_usec / 1e6);
             break;
         case MEAS_RUSAGE_MAXRSS:
-            /* printf("maxrss %zu\n", rusage.ru_maxrss); */
             sb_push(bench->meas[meas_idx], rusage.ru_maxrss);
+            break;
+        case MEAS_RUSAGE_MINFLT:
+            sb_push(bench->meas[meas_idx], rusage.ru_minflt);
+            break;
+        case MEAS_RUSAGE_MAJFLT:
+            sb_push(bench->meas[meas_idx], rusage.ru_majflt);
+            break;
+        case MEAS_RUSAGE_NVCSW:
+            sb_push(bench->meas[meas_idx], rusage.ru_nvcsw);
+            break;
+        case MEAS_RUSAGE_NIVCSW:
+            sb_push(bench->meas[meas_idx], rusage.ru_nivcsw);
             break;
         case MEAS_CUSTOM:
             if (do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
@@ -1805,7 +1843,7 @@ static void estimate_distr(const double *data, size_t count, double *tmp,
 #define fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
 static double ols_approx(const struct ols_regress *regress, double n) {
-    double f;
+    double f = 1.0;
     switch (regress->complexity) {
     case O_1:
         f = fitting_curve_1(n);
@@ -1899,7 +1937,7 @@ ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
 static void analyze_benchmark(struct bench_analysis *analysis) {
     const struct bench *bench = analysis->bench;
     size_t count = bench->run_count;
-    assert(count);
+    assert(count != 0);
     double *tmp = malloc(count * sizeof(*tmp));
     for (size_t i = 0; i < bench->meas_count; ++i) {
         assert(sb_len(bench->meas[i]) == count);
@@ -1914,6 +1952,7 @@ static void compare_benches(struct bench_results *results) {
 
     size_t bench_count = results->bench_count;
     size_t meas_count = results->meas_count;
+    assert(meas_count != 0);
     double *best = calloc(meas_count, sizeof(*best));
     for (size_t i = 0; i < meas_count; ++i)
         best[i] = results->analyses[0].meas[i].mean.point;
@@ -1937,6 +1976,8 @@ static void analyze_cmd_groups(const struct settings *settings,
                                struct bench_results *results) {
     size_t group_count = results->group_count = sb_len(settings->cmd_groups);
     results->group_count = group_count;
+    assert(results->meas_count != 0);
+    assert(results->group_count != 0);
     results->group_analyses =
         calloc(results->meas_count, sizeof(*results->group_analyses));
     for (size_t i = 0; i < results->meas_count; ++i)
@@ -1950,6 +1991,7 @@ static void analyze_cmd_groups(const struct settings *settings,
         for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
             const struct cmd_group *group = settings->cmd_groups + group_idx;
             size_t cmd_count = group->count;
+            assert(cmd_count != 0);
             struct cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + group_idx;
             analysis->meas = meas;
@@ -2076,7 +2118,7 @@ static int format_memory(char *dst, size_t sz, double t) {
     } else if (t >= (1lu << 10)) {
         units = "KB";
         t /= (1lu << 10);
-    } 
+    }
 
     if (t >= 1e9)
         count += snprintf(dst, sz, "%.4g %s", t, units);
@@ -2123,7 +2165,7 @@ static void format_meas(char *buf, size_t buf_size, double value,
         snprintf(buf, buf_size, "%.5g %s", value, units->str);
         break;
     case MU_NONE:
-        snprintf(buf, buf_size, "%.5g", value);
+        snprintf(buf, buf_size, "%.3g", value);
         break;
     }
 }
@@ -3440,6 +3482,7 @@ err:
 static int run_benches(const struct settings *settings,
                        struct bench_results *results) {
     results->bench_count = sb_len(settings->cmds);
+    assert(results->bench_count != 0);
     results->benches = calloc(results->bench_count, sizeof(*results->benches));
     results->analyses =
         calloc(results->bench_count, sizeof(*results->analyses));
@@ -3450,6 +3493,7 @@ static int run_benches(const struct settings *settings,
         bench->prepare = settings->prepare_cmd;
         bench->cmd = settings->cmds + bench_idx;
         bench->meas_count = sb_len(bench->cmd->meas);
+        assert(bench->meas_count != 0);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
         struct bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
@@ -3556,6 +3600,7 @@ static void free_bench_results(struct bench_results *results) {
             free(analysis->meas);
         }
     }
+    assert(results->meas_count == 0 || results->group_analyses != NULL);
     for (size_t i = 0; i < results->meas_count; ++i) {
         for (size_t j = 0; j < results->group_count; ++j) {
             struct cmd_group_analysis *analysis =
