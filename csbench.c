@@ -73,10 +73,17 @@ struct bench_stop_policy {
 };
 
 enum units_kind {
+    // Time units
     MU_S,
     MU_MS,
     MU_US,
     MU_NS,
+    // Memory units
+    MU_B,
+    MU_KB,
+    MU_MB,
+    MU_GB,
+
     MU_CUSTOM,
     MU_NONE
 };
@@ -408,8 +415,9 @@ static void print_help_and_exit(int rc) {
 "          Add custom measurement with <name>. Pipes each commands stdout to\n"
 "          <cmd> and tries to parse real value from its output and interprets\n"
 "          it in <units>. <units> can be one of the time units 's', 'ms','us',\n"
-"          'ns', in which case results will pretty printed. If <units> is\n"
-"          'none', no units are printed. Alternatively <units> can be any\n"
+"          'ns', or memory units 'b', 'kb', 'mb', 'gb', in which case results\n"
+"          will pretty printed. If <units> is 'none', no units are printed.\n"
+"          Alternatively <units> can be any\n"
 "          string.\n"
 "  --scan <i>/<n>/<m>[/<s>]\n"
 "          Add parameter with name <i> running in range from <n> to <m> with\n"
@@ -585,6 +593,14 @@ static void parse_units_str(const char *str, struct units *units) {
         units->kind = MU_US;
     } else if (strcmp(str, "ns") == 0) {
         units->kind = MU_NS;
+    } else if (strcmp(str, "b") == 0) {
+        units->kind = MU_B;
+    } else if (strcmp(str, "kb") == 0) {
+        units->kind = MU_KB;
+    } else if (strcmp(str, "mb") == 0) {
+        units->kind = MU_MB;
+    } else if (strcmp(str, "gb") == 0) {
+        units->kind = MU_GB;
     } else if (strcmp(str, "none") == 0) {
         units->kind = MU_NONE;
     } else {
@@ -2039,6 +2055,43 @@ static int format_time(char *dst, size_t sz, double t) {
     return count;
 }
 
+static int format_memory(char *dst, size_t sz, double t) {
+    int count = 0;
+    // how memory can be negative? anyway..
+    if (t < 0) {
+        t = -t;
+        count = snprintf(dst, sz, "-");
+        dst += count;
+        sz -= count;
+    }
+
+    const char *units = "s ";
+    if (t >= 1) {
+    } else if (t >= (1lu << 10)) {
+        units = "kb";
+        t *= 1e3;
+    } else if (t >= (1lu << 20)) {
+        units = "mb";
+        t *= 1e6;
+    } else if (t >= (1lu << 30)) {
+        units = "gb";
+        t *= 1e9;
+    }
+
+    if (t >= 1e9)
+        count += snprintf(dst, sz, "%.4g %s", t, units);
+    else if (t >= 1e3)
+        count += snprintf(dst, sz, "%.0f %s", t, units);
+    else if (t >= 1e2)
+        count += snprintf(dst, sz, "%.1f %s", t, units);
+    else if (t >= 1e1)
+        count += snprintf(dst, sz, "%.2f %s", t, units);
+    else
+        count += snprintf(dst, sz, "%.3f %s", t, units);
+
+    return count;
+}
+
 static void format_meas(char *buf, size_t buf_size, double value,
                         const struct units *units) {
     switch (units->kind) {
@@ -2053,6 +2106,18 @@ static void format_meas(char *buf, size_t buf_size, double value,
         break;
     case MU_NS:
         format_time(buf, buf_size, value * 0.000000001);
+        break;
+    case MU_B:
+        format_memory(buf, buf_size, value);
+        break;
+    case MU_KB:
+        format_memory(buf, buf_size, value * (1lu << 10));
+        break;
+    case MU_MB:
+        format_memory(buf, buf_size, value * (1lu << 20));
+        break;
+    case MU_GB:
+        format_memory(buf, buf_size, value * (1lu << 30));
         break;
     case MU_CUSTOM:
         snprintf(buf, buf_size, "%.5g %s", value, units->str);
@@ -2101,35 +2166,9 @@ static void print_outliers(const struct outliers *outliers, size_t run_count) {
 static void print_estimate(const char *name, const struct est *est,
                            const struct units *units) {
     char buf1[256], buf2[256], buf3[256];
-    switch (units->kind) {
-    case MU_S:
-        format_time(buf1, sizeof(buf1), est->lower);
-        format_time(buf2, sizeof(buf2), est->point);
-        format_time(buf3, sizeof(buf3), est->upper);
-        break;
-    case MU_MS:
-        format_time(buf1, sizeof(buf1), est->lower * 0.001);
-        format_time(buf2, sizeof(buf2), est->point * 0.001);
-        format_time(buf3, sizeof(buf3), est->upper * 0.001);
-        break;
-    case MU_US:
-        format_time(buf1, sizeof(buf1), est->lower * 0.000001);
-        format_time(buf2, sizeof(buf2), est->point * 0.000001);
-        format_time(buf3, sizeof(buf3), est->upper * 0.000001);
-        break;
-    case MU_NS:
-        format_time(buf1, sizeof(buf1), est->lower * 0.000000001);
-        format_time(buf2, sizeof(buf2), est->point * 0.000000001);
-        format_time(buf3, sizeof(buf3), est->upper * 0.000000001);
-        break;
-    case MU_CUSTOM:
-    case MU_NONE:
-        snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
-        snprintf(buf2, sizeof(buf1), "%.5g", est->point);
-        snprintf(buf3, sizeof(buf1), "%.5g", est->upper);
-        break;
-    }
-
+    format_meas(buf1, sizeof(buf1), est->lower, units);
+    format_meas(buf2, sizeof(buf2), est->point, units);
+    format_meas(buf2, sizeof(buf3), est->upper, units);
     printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
@@ -2143,6 +2182,14 @@ static const char *units_str(const struct units *units) {
         return "μs";
     case MU_NS:
         return "ns";
+    case MU_B:
+        return "B";
+    case MU_KB:
+        return "KB";
+    case MU_MB:
+        return "MB";
+    case MU_GB:
+        return "GB";
     case MU_CUSTOM:
         return units->str;
     case MU_NONE:
