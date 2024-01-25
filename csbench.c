@@ -3160,45 +3160,13 @@ static void cs_html_outliers(const struct cs_outliers *outliers,
             cs_outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
-static void cs_html_wall_distr(const struct cs_bench_analysis *analysis,
-                               size_t bench_idx, FILE *f) {
+static void cs_html_distr(const struct cs_bench_analysis *analysis,
+                          size_t bench_idx, size_t meas_idx, FILE *f) {
+    const struct cs_distr *distr = analysis->meas + meas_idx;
     const struct cs_bench *bench = analysis->bench;
-    const struct cs_distr *distr = &analysis->meas[0];
-    fprintf(f,
-            "<div class=\"row\">"
-            "<div class=\"col\"><h3>time kde plot</h3>"
-            "<a href=\"kde_ext_%zu_0.svg\"><img "
-            "src=\"kde_%zu_0.svg\"></a></div>",
-            bench_idx, bench_idx);
-    fprintf(f,
-            "<div class=\"col\"><h3>statistics</h3>"
-            "<div class=\"stats\">"
-            "<p>%zu runs</p>",
-            bench->run_count);
-    char buf[256];
-    cs_format_time(buf, sizeof(buf), distr->min);
-    fprintf(f, "<p>min %s</p>", buf);
-    cs_format_time(buf, sizeof(buf), distr->max);
-    fprintf(f, "<p>max %s</p>", buf);
-    fprintf(f, "<table><thead><tr>"
-               "<th></th>"
-               "<th class=\"est-bound\">lower bound</th>"
-               "<th class=\"est-bound\">estimate</th>"
-               "<th class=\"est-bound\">upper bound</th>"
-               "</tr></thead><tbody>");
-    cs_html_time_estimate("mean", &distr->mean, f);
-    cs_html_time_estimate("st dev", &distr->st_dev, f);
-    cs_html_time_estimate("systime", &analysis->meas[1].mean, f);
-    cs_html_time_estimate("usrtime", &analysis->meas[1].mean, f);
-    fprintf(f, "</tbody></table>");
-    cs_html_outliers(&distr->outliers, bench->run_count, f);
-    fprintf(f, "</div></div></div>");
-}
-
-static void cs_html_distr(const struct cs_bench *bench,
-                          const struct cs_distr *distr,
-                          const struct cs_meas *info, size_t bench_idx,
-                          size_t meas_idx, FILE *f) {
+    const struct cs_meas *info = bench->cmd->meas + meas_idx;
+    const struct cs_cmd *cmd = bench->cmd;
+    assert(!info->is_secondary);
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>%s kde plot</h3>"
@@ -3223,6 +3191,11 @@ static void cs_html_distr(const struct cs_bench *bench,
                "</tr></thead><tbody>");
     cs_html_estimate("mean", &distr->mean, &info->units, f);
     cs_html_estimate("st dev", &distr->st_dev, &info->units, f);
+    for (size_t j = 0; j < bench->meas_count; ++j) {
+        if (cmd->meas[j].is_secondary && cmd->meas[j].primary_idx == meas_idx)
+            cs_html_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
+                             &cmd->meas->units, f);
+    }
     fprintf(f, "</tbody></table>");
     cs_html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, "</div></div></div>");
@@ -3242,7 +3215,7 @@ static void cs_html_compare(const struct cs_bench_results *results, FILE *f) {
                 "<div class=\"row\"><div class=\"col\">"
                 "<img src=\"bar_%zu.svg\"></div>",
                 meas->name, meas_idx);
-#if 0 
+#if 0 // TODO: Make this a table
         size_t best_idx = results->fastest_meas[meas_idx];
         const struct cs_bench_analysis *best = results->analyses + best_idx;
         fprintf(f, "<div class=\"col stats\"><p>fastest command '%s'</p><ul>",
@@ -3351,11 +3324,10 @@ static void cs_html_report(const struct cs_bench_results *results, FILE *f) {
             results->analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", bench->cmd->str);
         for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
-            const struct cs_distr *distr = analysis->meas + meas_idx;
             const struct cs_meas *info = bench->cmd->meas + meas_idx;
             if (info->is_secondary)
                 continue;
-            cs_html_distr(bench, distr, info, bench_idx, meas_idx, f);
+            cs_html_distr(analysis, bench_idx, meas_idx, f);
         }
         fprintf(f, "</div>");
     }
