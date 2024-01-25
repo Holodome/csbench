@@ -98,6 +98,7 @@ enum meas_kind {
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
     MEAS_RUSAGE_STIME,
+    MEAS_RUSAGE_MAXRSS
 };
 
 struct meas {
@@ -894,6 +895,9 @@ static void parse_cli_args(int argc, char **argv,
         sb_push(settings->meas,
                 ((struct meas){
                     "usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, 1, 0}));
+        sb_push(settings->meas,
+                ((struct meas){
+                    "maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0}));
     }
     for (size_t i = 0; i < sb_len(meas_list); ++i)
         sb_push(settings->meas, meas_list[i]);
@@ -1564,6 +1568,10 @@ static int exec_and_measure(struct bench *bench) {
                     rusage.ru_utime.tv_sec +
                         (double)rusage.ru_utime.tv_usec / 1e6);
             break;
+        case MEAS_RUSAGE_MAXRSS:
+            /* printf("maxrss %zu\n", rusage.ru_maxrss); */
+            sb_push(bench->meas[meas_idx], rusage.ru_maxrss);
+            break;
         case MEAS_CUSTOM:
             if (do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
                 goto out;
@@ -2058,18 +2066,17 @@ static int format_memory(char *dst, size_t sz, double t) {
         sz -= count;
     }
 
-    const char *units = "s ";
-    if (t >= 1) {
-    } else if (t >= (1lu << 10)) {
-        units = "kb";
-        t *= 1e3;
+    const char *units = "B ";
+    if (t >= (1lu << 30)) {
+        units = "GB";
+        t /= (1lu << 30);
     } else if (t >= (1lu << 20)) {
-        units = "mb";
-        t *= 1e6;
-    } else if (t >= (1lu << 30)) {
-        units = "gb";
-        t *= 1e9;
-    }
+        units = "MB";
+        t /= (1lu << 20);
+    } else if (t >= (1lu << 10)) {
+        units = "KB";
+        t /= (1lu << 10);
+    } 
 
     if (t >= 1e9)
         count += snprintf(dst, sz, "%.4g %s", t, units);
@@ -2161,7 +2168,7 @@ static void print_estimate(const char *name, const struct est *est,
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
     format_meas(buf2, sizeof(buf2), est->point, units);
-    format_meas(buf2, sizeof(buf3), est->upper, units);
+    format_meas(buf3, sizeof(buf3), est->upper, units);
     printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
 }
 
@@ -2247,7 +2254,7 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
         for (size_t j = 0; j < bench->meas_count; ++j) {
             if (cmd->meas[j].is_secondary && cmd->meas[j].primary_idx == i)
                 print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
-                               &cmd->meas->units);
+                               &cmd->meas[j].units);
         }
         print_outliers(&distr->outliers, run_count);
     }
