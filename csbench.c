@@ -77,7 +77,8 @@ enum units_kind {
     MU_MS,
     MU_US,
     MU_NS,
-    MU_CUSTOM
+    MU_CUSTOM,
+    MU_NONE
 };
 
 struct units {
@@ -407,8 +408,9 @@ static void print_help_and_exit(int rc) {
 "          Add custom measurement with <name>. Pipes each commands stdout to\n"
 "          <cmd> and tries to parse real value from its output and interprets\n"
 "          it in <units>. <units> can be one of the time units 's', 'ms','us',\n"
-"          'ns', in which case results will pretty printed. Alternatively\n"
-"          <units> can be any string.\n"
+"          'ns', in which case results will pretty printed. If <units> is\n"
+"          'none', no units are printed. Alternatively <units> can be any\n"
+"          string.\n"
 "  --scan <i>/<n>/<m>[/<s>]\n"
 "          Add parameter with name <i> running in range from <n> to <m> with\n"
 "          step <s>. <s> is optional, default is 1. Can be used from commandin\n"
@@ -583,6 +585,8 @@ static void parse_units_str(const char *str, struct units *units) {
         units->kind = MU_US;
     } else if (strcmp(str, "ns") == 0) {
         units->kind = MU_NS;
+    } else if (strcmp(str, "none") == 0) {
+        units->kind = MU_NONE;
     } else {
         units->kind = MU_CUSTOM;
         units->str = str;
@@ -2053,6 +2057,9 @@ static void format_meas(char *buf, size_t buf_size, double value,
     case MU_CUSTOM:
         snprintf(buf, buf_size, "%.5g %s", value, units->str);
         break;
+    case MU_NONE:
+        snprintf(buf, buf_size, "%.5g", value);
+        break;
     }
 }
 
@@ -2116,6 +2123,7 @@ static void print_estimate(const char *name, const struct est *est,
         format_time(buf3, sizeof(buf3), est->upper * 0.000000001);
         break;
     case MU_CUSTOM:
+    case MU_NONE:
         snprintf(buf1, sizeof(buf1), "%.5g", est->lower);
         snprintf(buf2, sizeof(buf1), "%.5g", est->point);
         snprintf(buf3, sizeof(buf1), "%.5g", est->upper);
@@ -2137,6 +2145,8 @@ static const char *units_str(const struct units *units) {
         return "ns";
     case MU_CUSTOM:
         return units->str;
+    case MU_NONE:
+        return "";
     }
     return NULL;
 }
@@ -2426,8 +2436,8 @@ static int units_is_time(const struct units *units) {
     case MU_NS:
     case MU_US:
         return 1;
-    case MU_CUSTOM:
-        return 0;
+    default:
+        break;
     }
     return 0;
 }
