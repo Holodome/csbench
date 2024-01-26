@@ -132,3 +132,10 @@ linear coef 1.12172e-07 rms 0.014
 * [criterion](https://hackage.haskell.org/package/criterion) - Haskell benchmarking library
 * [Google Benchmark](https://github.com/google/benchmark) - C++ benchmarking library
 * [bench](https://github.com/Gabriella439/bench) - criterion-based shell command timing tool
+
+## License 
+
+`csbench` is dual-licensed under the terms of the MIT License and the Apache License 2.0.
+This file may not be copied, modified, or distributed except according to those terms.
+
+See the [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) files for details.
