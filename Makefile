@@ -8,8 +8,8 @@ endif
 
 all: csbench
 
-csbench: csbench.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+csbench: csbench.c csbench_perf.c
+	$(CC) $(CFLAGS) -o $@ csbench.c $(LDFLAGS)
 
 install: csbench
 	install csbench /usr/local/bin

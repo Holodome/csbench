@@ -125,14 +125,6 @@ mean time is most likely linearithmic (O(N*log(N))) in terms of parameter
 linear coef 1.12172e-07 rms 0.014
 ```
 
-## Inspiration
-
-* [hyperfine](https://github.com/sharkdp/hyperfine) - another shell command timing tool
-* [criterion.rs](https://github.com/bheisler/criterion.rs) - Rust benchmarking library
-* [criterion](https://hackage.haskell.org/package/criterion) - Haskell benchmarking library
-* [Google Benchmark](https://github.com/google/benchmark) - C++ benchmarking library
-* [bench](https://github.com/Gabriella439/bench) - criterion-based shell command timing tool
-
 ## License 
 
 `csbench` is dual-licensed under the terms of the MIT License and the Apache License 2.0.

@@ -1,4 +1,3 @@
-// 
 // csbench
 // command-line benchmarking tool
 // Ilya Vinogradov 2024
@@ -51,7 +50,6 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-//
 #ifdef __linux__
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
@@ -396,6 +394,8 @@ struct prettify_plot {
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
+
+#include "csbench_perf.c"
 
 static __thread uint32_t g_rng_state;
 // These are applicaton settings made global. Only put small settings with
