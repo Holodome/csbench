@@ -1,3 +1,57 @@
+// 
+// csbench
+// command-line benchmarking tool
+// Ilya Vinogradov 2024
+// https://github.com/Holodome/csbench
+// 
+// csbench is dual-licensed under the terms of the MIT License and the Apache License 2.0.
+// This file may not be copied, modified, or distributed except according to those terms.
+//
+// MIT License Notice
+//
+//    MIT License
+//    
+//    Copyright (c) 2024 Ilya Vinogradov
+//    
+//    Permission is hereby granted, free of charge, to any
+//    person obtaining a copy of this software and associated
+//    documentation files (the "Software"), to deal in the
+//    Software without restriction, including without
+//    limitation the rights to use, copy, modify, merge,
+//    publish, distribute, sublicense, and/or sell copies of
+//    the Software, and to permit persons to whom the Software
+//    is furnished to do so, subject to the following
+//    conditions:
+//    
+//    The above copyright notice and this permission notice
+//    shall be included in all copies or substantial portions
+//    of the Software.
+//    
+//    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+//    ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+//    TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+//    PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+//    SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+//    CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+//    OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+//    IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+//    DEALINGS IN THE SOFTWARE.
+//
+// Apache License (Version 2.0) Notice
+//
+//    Copyright 2024 Ilya Vinogradov
+//    Licensed under the Apache License, Version 2.0 (the "License");
+//    you may not use this file except in compliance with the License.
+//    You may obtain a copy of the License at
+//    
+//    http://www.apache.org/licenses/LICENSE-2.0
+//    
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS,
+//    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//    See the License for the specific language governing permissions and
+//    limitations under the License.
+//
 #ifdef __linux__
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
@@ -113,6 +167,25 @@ struct meas {
     int is_secondary;
     size_t primary_idx;
 };
+
+// Some default measurements. Altough these definitions should be used only one
+// time, they are put here to make them clearer to see.
+#define MEAS_WALL_DEF                                                          \
+    ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, 0, 0})
+#define MEAS_RUSAGE_UTIME_DEF                                                  \
+    ((struct meas){"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, 1, 0})
+#define MEAS_RUSAGE_STIME_DEF                                                  \
+    ((struct meas){"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, 1, 0})
+#define MEAS_RUSAGE_MAXRSS_DEF                                                 \
+    ((struct meas){"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0})
+#define MEAS_RUSAGE_MINFLT_DEF                                                 \
+    ((struct meas){"minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, 1, 0})
+#define MEAS_RUSAGE_MAJFLT_DEF                                                 \
+    ((struct meas){"majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, 1, 0})
+#define MEAS_RUSAGE_NVCSW_DEF                                                  \
+    ((struct meas){"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0})
+#define MEAS_RUSAGE_NIVCSW_DEF                                                 \
+    ((struct meas){"nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, 1, 0})
 
 struct bench_param {
     char *name;
@@ -937,9 +1010,7 @@ static void parse_cli_args(int argc, char **argv,
     }
 
     if (!no_wall) {
-        sb_push(settings->meas,
-                ((struct meas){
-                    "wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, 0, 0}));
+        sb_push(settings->meas, MEAS_WALL_DEF);
         int already_has_stime = 0, already_has_utime = 0;
         for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
             if (rusage_opts[i] == MEAS_RUSAGE_STIME)
@@ -956,52 +1027,25 @@ static void parse_cli_args(int argc, char **argv,
         enum meas_kind kind = rusage_opts[i];
         switch (kind) {
         case MEAS_RUSAGE_STIME:
-            sb_push(
-                settings->meas,
-                ((struct meas){
-                    "systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, 1, 0}));
+            sb_push(settings->meas, MEAS_RUSAGE_STIME_DEF);
             break;
         case MEAS_RUSAGE_UTIME:
-            sb_push(
-                settings->meas,
-                ((struct meas){
-                    "usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, 1, 0}));
+            sb_push(settings->meas, MEAS_RUSAGE_UTIME_DEF);
             break;
         case MEAS_RUSAGE_MAXRSS:
-            sb_push(
-                settings->meas,
-                ((struct meas){
-                    "maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0}));
+            sb_push(settings->meas, MEAS_RUSAGE_MAXRSS_DEF);
             break;
         case MEAS_RUSAGE_MINFLT:
-            sb_push(settings->meas, ((struct meas){"minflt",
-                                                   NULL,
-                                                   {MU_NONE, NULL},
-                                                   MEAS_RUSAGE_MINFLT,
-                                                   1,
-                                                   0}));
+            sb_push(settings->meas, MEAS_RUSAGE_MINFLT_DEF);
             break;
         case MEAS_RUSAGE_MAJFLT:
-            sb_push(settings->meas, ((struct meas){"majflt",
-                                                   NULL,
-                                                   {MU_NONE, NULL},
-                                                   MEAS_RUSAGE_MAJFLT,
-                                                   1,
-                                                   0}));
+            sb_push(settings->meas, MEAS_RUSAGE_MAJFLT_DEF);
             break;
         case MEAS_RUSAGE_NVCSW:
-            sb_push(
-                settings->meas,
-                ((struct meas){
-                    "nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0}));
+            sb_push(settings->meas, MEAS_RUSAGE_NVCSW_DEF);
             break;
         case MEAS_RUSAGE_NIVCSW:
-            sb_push(settings->meas, ((struct meas){"nivcsw",
-                                                   NULL,
-                                                   {MU_NONE, NULL},
-                                                   MEAS_RUSAGE_NIVCSW,
-                                                   1,
-                                                   0}));
+            sb_push(settings->meas, MEAS_RUSAGE_NIVCSW_DEF);
             break;
         default:
             assert(0);
