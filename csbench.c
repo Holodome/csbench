@@ -34,7 +34,6 @@ struct sb_header {
 
 enum input_kind {
     INPUT_POLICY_NULL,
-    // load input from file (supplied later)
     INPUT_POLICY_FILE
 };
 
@@ -317,6 +316,9 @@ struct prettify_plot {
 
 #define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
+#define sb_pushfront(_a, _v)                                                   \
+    (sb_maybegrow(_a, 1),                                                      \
+     memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++), (_a)[0] = (_v))
 #define sb_last(_a) ((_a)[sb_size(_a) - 1])
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
@@ -456,6 +458,12 @@ static void print_help_and_exit(int rc) {
         "  --allow-nonzero\n"
         "          Accept commands with non-zero exit code. Default behaviour "
         "is to abort benchmarking.\n"
+        "  --rusage <opt>[,...]\n"
+        "          List of 'struct rusage' fields to include to analysis. "
+        "Default (if --no-wall is not specified) are cpu time (ru_stime and "
+        "ru_utime). Possible values are 'stime', 'utime', 'maxrss', 'minflt', "
+        "'majflt', 'nvcsw', 'nivcsw'. See your system's 'man 2 getrusage' "
+        "for additional information.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -530,8 +538,8 @@ static char **range_to_param_list(double low, double high, double step) {
     return result;
 }
 
-static int parse_scan_list_settings(const char *settings, char **namep,
-                                    char **scan_listp) {
+static int parse_comma_separated_settings(const char *settings, char **namep,
+                                          char **scan_listp) {
     char *name = NULL;
     char *scan_list = NULL;
 
@@ -560,7 +568,7 @@ err_free_name:
     return 0;
 }
 
-static char **parse_scan_list(const char *scan_list) {
+static char **parse_comma_separated(const char *scan_list) {
     char **param_list = NULL;
     const char *cursor = scan_list;
     const char *end = scan_list + strlen(scan_list);
@@ -608,12 +616,43 @@ static void parse_units_str(const char *str, struct units *units) {
     }
 }
 
+static void parse_rusage_opts(const char *opts, enum meas_kind **rusage_opts) {
+    char **list = parse_comma_separated(opts);
+    for (size_t i = 0; i < sb_len(list); ++i) {
+        const char *opt = list[i];
+        enum meas_kind kind;
+        if (strcmp(opt, "stime") == 0) {
+            kind = MEAS_RUSAGE_STIME;
+        } else if (strcmp(opt, "utime") == 0) {
+            kind = MEAS_RUSAGE_UTIME;
+        } else if (strcmp(opt, "maxrss") == 0) {
+            kind = MEAS_RUSAGE_MAXRSS;
+        } else if (strcmp(opt, "minflt") == 0) {
+            kind = MEAS_RUSAGE_MINFLT;
+        } else if (strcmp(opt, "majflt") == 0) {
+            kind = MEAS_RUSAGE_MAJFLT;
+        } else if (strcmp(opt, "nvcsw") == 0) {
+            kind = MEAS_RUSAGE_NVCSW;
+        } else if (strcmp(opt, "nivcsw") == 0) {
+            kind = MEAS_RUSAGE_NIVCSW;
+        } else {
+            fprintf(stderr, "error: invalid rusage field name: '%s'\n", opt);
+            exit(EXIT_FAILURE);
+        }
+        sb_push(*rusage_opts, kind);
+    }
+    for (size_t i = 0; i < sb_len(list); ++i)
+        free(list[i]);
+    sb_free(list);
+}
+
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
     settings->out_dir = ".csbench";
     int no_wall = 0;
     struct meas *meas_list = NULL;
+    enum meas_kind *rusage_opts = NULL;
 
     int cursor = 1;
     while (cursor < argc) {
@@ -829,11 +868,12 @@ static void parse_cli_args(int argc, char **argv,
             }
             const char *scan_settings = argv[cursor++];
             char *name, *scan_list;
-            if (!parse_scan_list_settings(scan_settings, &name, &scan_list)) {
+            if (!parse_comma_separated_settings(scan_settings, &name,
+                                                &scan_list)) {
                 fprintf(stderr, "error: invalid --scanl argument\n");
                 exit(EXIT_FAILURE);
             }
-            char **param_list = parse_scan_list(scan_list);
+            char **param_list = parse_comma_separated(scan_list);
             free(scan_list);
             struct bench_param param = {0};
             param.name = name;
@@ -881,6 +921,12 @@ static void parse_cli_args(int argc, char **argv,
             no_wall = 1;
         } else if (strcmp(opt, "--allow-nonzero") == 0) {
             g_allow_nonzero = 1;
+        } else if (strcmp(opt, "--rusage") == 0) {
+            if (cursor >= argc) {
+                fprintf(stderr, "error: --rusage requires 1 argument\n");
+                exit(EXIT_FAILURE);
+            }
+            parse_rusage_opts(argv[cursor++], &rusage_opts);
         } else {
             if (*opt == '-') {
                 fprintf(stderr, "error: unknown option %s\n", opt);
@@ -894,31 +940,75 @@ static void parse_cli_args(int argc, char **argv,
         sb_push(settings->meas,
                 ((struct meas){
                     "wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, 0, 0}));
-        sb_push(settings->meas,
+        int already_has_stime = 0, already_has_utime = 0;
+        for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
+            if (rusage_opts[i] == MEAS_RUSAGE_STIME)
+                already_has_stime = 1;
+            else if (rusage_opts[i] == MEAS_RUSAGE_UTIME)
+                already_has_utime = 1;
+        }
+        if (!already_has_utime)
+            sb_pushfront(rusage_opts, MEAS_RUSAGE_UTIME);
+        if (!already_has_stime)
+            sb_pushfront(rusage_opts, MEAS_RUSAGE_STIME);
+    }
+    for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
+        enum meas_kind kind = rusage_opts[i];
+        switch (kind) {
+        case MEAS_RUSAGE_STIME:
+            sb_push(
+                settings->meas,
                 ((struct meas){
                     "systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, 1, 0}));
-        sb_push(settings->meas,
+            break;
+        case MEAS_RUSAGE_UTIME:
+            sb_push(
+                settings->meas,
                 ((struct meas){
                     "usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, 1, 0}));
-        sb_push(settings->meas,
+            break;
+        case MEAS_RUSAGE_MAXRSS:
+            sb_push(
+                settings->meas,
                 ((struct meas){
                     "maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0}));
-        sb_push(
-            settings->meas,
-            ((struct meas){
-                "minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, 1, 0}));
-        sb_push(
-            settings->meas,
-            ((struct meas){
-                "majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, 1, 0}));
-        sb_push(settings->meas,
+            break;
+        case MEAS_RUSAGE_MINFLT:
+            sb_push(settings->meas, ((struct meas){"minflt",
+                                                   NULL,
+                                                   {MU_NONE, NULL},
+                                                   MEAS_RUSAGE_MINFLT,
+                                                   1,
+                                                   0}));
+            break;
+        case MEAS_RUSAGE_MAJFLT:
+            sb_push(settings->meas, ((struct meas){"majflt",
+                                                   NULL,
+                                                   {MU_NONE, NULL},
+                                                   MEAS_RUSAGE_MAJFLT,
+                                                   1,
+                                                   0}));
+            break;
+        case MEAS_RUSAGE_NVCSW:
+            sb_push(
+                settings->meas,
                 ((struct meas){
                     "nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0}));
-        sb_push(
-            settings->meas,
-            ((struct meas){
-                "nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, 1, 0}));
+            break;
+        case MEAS_RUSAGE_NIVCSW:
+            sb_push(settings->meas, ((struct meas){"nivcsw",
+                                                   NULL,
+                                                   {MU_NONE, NULL},
+                                                   MEAS_RUSAGE_NIVCSW,
+                                                   1,
+                                                   0}));
+            break;
+        default:
+            assert(0);
+        }
     }
+
+    sb_free(rusage_opts);
     for (size_t i = 0; i < sb_len(meas_list); ++i)
         sb_push(settings->meas, meas_list[i]);
     sb_free(meas_list);
@@ -1974,10 +2064,13 @@ static void compare_benches(struct bench_results *results) {
 
 static void analyze_cmd_groups(const struct settings *settings,
                                struct bench_results *results) {
-    size_t group_count = results->group_count = sb_len(settings->cmd_groups);
+    size_t group_count = sb_len(settings->cmd_groups);
+    if (group_count == 0)
+        return;
+
     results->group_count = group_count;
     assert(results->meas_count != 0);
-    assert(results->group_count != 0);
+    assert(group_count != 0);
     results->group_analyses =
         calloc(results->meas_count, sizeof(*results->group_analyses));
     for (size_t i = 0; i < results->meas_count; ++i)
@@ -3600,14 +3693,15 @@ static void free_bench_results(struct bench_results *results) {
             free(analysis->meas);
         }
     }
-    assert(results->meas_count == 0 || results->group_analyses != NULL);
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        for (size_t j = 0; j < results->group_count; ++j) {
-            struct cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
-            free(analysis->data);
+    if (results->group_analyses) {
+        for (size_t i = 0; i < results->meas_count; ++i) {
+            for (size_t j = 0; j < results->group_count; ++j) {
+                struct cmd_group_analysis *analysis =
+                    results->group_analyses[i] + j;
+                free(analysis->data);
+            }
+            free(results->group_analyses[i]);
         }
-        free(results->group_analyses[i]);
     }
     free(results->benches);
     free(results->analyses);
