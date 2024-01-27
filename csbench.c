@@ -1456,7 +1456,7 @@ static void apply_input_policy(const struct input_policy *policy) {
     }
     case INPUT_POLICY_FILE: {
         close(STDIN_FILENO);
-        // TODO: Cache file descriptor 
+        // TODO: Cache file descriptor
         int fd = open(policy->file, O_RDONLY);
         if (fd == -1)
             _exit(-1);
@@ -1704,7 +1704,8 @@ static int exec_and_measure(struct bench *bench) {
     volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage, &pmc);
     volatile double wall_clock_end = get_time();
 
-    printf("cycles %llu instructions %llu\n", pmc.cycles, pmc.instructions);
+    printf("cycles %llu instructions %llu branches %llu branch-misses %llu\n",
+           pmc.cycles, pmc.instructions, pmc.branches, pmc.missed_branches);
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");

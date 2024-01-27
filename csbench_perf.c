@@ -798,50 +798,35 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     size_t buf_capacity = nbufs * 2;
     struct kd_buf *buf_hdr = malloc(sizeof(struct kd_buf) * buf_capacity);
     struct kd_buf *buf_cur = buf_hdr;
-    struct kd_buf *buf_end = buf_hdr + buf_capacity;
 
+    // signal process to start executing
     write(sync_pipe, "", 1);
     close(sync_pipe);
-    for (;;) {
-        // wait for more buffer
-        usleep(2 * sample_period * 1000000);
 
-        // expand local buffer for next read
-        if (buf_end - buf_cur < nbufs) {
-            size_t new_capacity = buf_capacity * 2;
-            struct kd_buf *new_buf =
-                realloc(buf_hdr, sizeof(struct kd_buf) * new_capacity);
-            buf_capacity = new_capacity;
-            buf_cur = new_buf + (buf_cur - buf_hdr);
-            buf_end = new_buf + (buf_end - buf_hdr);
-            buf_hdr = new_buf;
-        }
-
-        // read trace buffer from kernel
+    siginfo_t info = {0};
+    if (waitid(P_PID, pid, &info, WEXITED | WNOWAIT) == -1) {
+        perror("waitid");
+        return -1;
+    } else if (info.si_pid != 0) {
+        // ok
+    } else {
+        // ???
+    }
+    {
         size_t count = 0;
         kdebug_trace_read(buf_cur, sizeof(struct kd_buf) * nbufs, &count);
         for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end;
-             buf++) {
+             ++buf) {
             uint32_t debugid = buf->debugid;
             uint32_t cls = KDBG_EXTRACT_CLASS(debugid);
             uint32_t subcls = KDBG_EXTRACT_SUBCLASS(debugid);
             uint32_t code = KDBG_EXTRACT_CODE(debugid);
-
-            // keep only thread PMC data
+            // this should always be true because of the settings we did above.
             if (cls != DBG_PERF || subcls != PERF_KPC ||
                 code != PERF_KPC_DATA_THREAD)
                 continue;
             memmove(buf_cur, buf, sizeof(struct kd_buf));
             ++buf_cur;
-        }
-
-        // check if child has finished
-        siginfo_t info = {0};
-        if (waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT) == -1) {
-            perror("waitid");
-            break;
-        } else if (info.si_pid != 0) {
-            break;
         }
     }
 
@@ -885,7 +870,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         counters[ci++] = buf->arg3;
         counters[ci++] = buf->arg4;
         if (ci < counter_count) {
-            // counter count larger than 4
+            // counter count larker than 4
             // values are split into multiple buffer entities
             for (struct kd_buf *buf2 = buf + 1; buf2 < buf_cur; buf2++) {
                 uint32_t tid2 = buf2->arg5;
