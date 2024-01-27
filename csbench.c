@@ -412,7 +412,8 @@ struct prettify_plot {
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
 
-#include "csbench_perf.c"
+#define CSBENCH_PERF_IMPL
+#include "csbench_perf.h"
 
 static __thread uint32_t g_rng_state;
 static int g_allow_nonzero = 0;

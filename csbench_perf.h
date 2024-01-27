@@ -77,14 +77,15 @@ struct perf_cnt {
 int init_perf(void);
 void deinit_perf(void);
 
+// collect performance counters for process specified by 'pid'.
+// That process is considered blocked when this function is called,
+// to wake up process this function writes 1 byte of data to 'sync_pipe' and
+// closes it. This function runs and collects performance counters until process
+// has finished, collects and consolidates results. Process can still be waited
+// after this function.
 int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
 
 #endif
-
-//
-#define CSBENCH_PERF_IMPL
-//
-
 #ifdef CSBENCH_PERF_IMPL
 #ifdef __linux__
 #error not supported
