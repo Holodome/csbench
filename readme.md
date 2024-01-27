@@ -152,6 +152,5 @@ usrtime 5.190 ms 6.550 ms 7.795 ms
 ## License 
 
 `csbench` is dual-licensed under the terms of the MIT License and the Apache License 2.0.
-This file may not be copied, modified, or distributed except according to those terms.
 
 See the [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) files for details.
