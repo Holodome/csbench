@@ -158,7 +158,11 @@ enum meas_kind {
     MEAS_RUSAGE_MINFLT,
     MEAS_RUSAGE_MAJFLT,
     MEAS_RUSAGE_NVCSW,
-    MEAS_RUSAGE_NIVCSW
+    MEAS_RUSAGE_NIVCSW,
+    MEAS_PERF_CYCLES,
+    MEAS_PERF_INS,
+    MEAS_PERF_BRANCH,
+    MEAS_PERF_BRANCHM
 };
 
 struct meas {
@@ -188,6 +192,14 @@ struct meas {
     ((struct meas){"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0})
 #define MEAS_RUSAGE_NIVCSW_DEF                                                 \
     ((struct meas){"nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, 1, 0})
+#define MEAS_PERF_CYCLES_DEF                                                   \
+    ((struct meas){"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, 1, 0})
+#define MEAS_PERF_INS_DEF                                                      \
+    ((struct meas){"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, 1, 0})
+#define MEAS_PERF_BRANCH_DEF                                                   \
+    ((struct meas){"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, 1, 0})
+#define MEAS_PERF_BRANCHM_DEF                                                  \
+    ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, 1, 0})
 
 struct bench_param {
     char *name;
@@ -409,6 +421,7 @@ static int g_threads = 1;
 static int g_plot_src = 0;
 static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
+static int g_use_perf = 0;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 
 static void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -535,12 +548,14 @@ static void print_help_and_exit(int rc) {
         "  --allow-nonzero\n"
         "          Accept commands with non-zero exit code. Default behaviour "
         "is to abort benchmarking.\n"
-        "  --rusage <opt>[,...]\n"
-        "          List of 'struct rusage' fields to include to analysis. "
-        "Default (if --no-wall is not specified) are cpu time (ru_stime and "
-        "ru_utime). Possible values are 'stime', 'utime', 'maxrss', 'minflt', "
-        "'majflt', 'nvcsw', 'nivcsw'. See your system's 'man 2 getrusage' "
-        "for additional information.\n"
+        "  --meas <opt>[,...]\n"
+        "          List of 'struct rusage' fields or performance counters "
+        "(PMC) to "
+        "include to analysis. Default (if --no-wall is not specified) are cpu "
+        "time (ru_stime and ru_utime). Possible rusage values are 'stime', "
+        "'utime', 'maxrss', 'minflt', 'majflt', 'nvcsw', 'nivcsw'. See your "
+        "system's 'man 2 getrusage' for additional information. Possible PMC "
+        "values are 'cycles', 'instructions', 'branches', 'branch-misses'.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -693,7 +708,7 @@ static void parse_units_str(const char *str, struct units *units) {
     }
 }
 
-static void parse_rusage_opts(const char *opts, enum meas_kind **rusage_opts) {
+static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
     char **list = parse_comma_separated(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
@@ -712,6 +727,14 @@ static void parse_rusage_opts(const char *opts, enum meas_kind **rusage_opts) {
             kind = MEAS_RUSAGE_NVCSW;
         } else if (strcmp(opt, "nivcsw") == 0) {
             kind = MEAS_RUSAGE_NIVCSW;
+        } else if (strcmp(opt, "cycles") == 0) {
+            kind = MEAS_PERF_CYCLES;
+        } else if (strcmp(opt, "instructions") == 0) {
+            kind = MEAS_PERF_INS;
+        } else if (strcmp(opt, "branches") == 0) {
+            kind = MEAS_PERF_BRANCH;
+        } else if (strcmp(opt, "branch-misses") == 0) {
+            kind = MEAS_PERF_BRANCHM;
         } else {
             fprintf(stderr, "error: invalid rusage field name: '%s'\n", opt);
             exit(EXIT_FAILURE);
@@ -998,12 +1021,12 @@ static void parse_cli_args(int argc, char **argv,
             no_wall = 1;
         } else if (strcmp(opt, "--allow-nonzero") == 0) {
             g_allow_nonzero = 1;
-        } else if (strcmp(opt, "--rusage") == 0) {
+        } else if (strcmp(opt, "--meas") == 0) {
             if (cursor >= argc) {
-                fprintf(stderr, "error: --rusage requires 1 argument\n");
+                fprintf(stderr, "error: --meas requires 1 argument\n");
                 exit(EXIT_FAILURE);
             }
-            parse_rusage_opts(argv[cursor++], &rusage_opts);
+            parse_meas_list(argv[cursor++], &rusage_opts);
         } else {
             if (*opt == '-') {
                 fprintf(stderr, "error: unknown option %s\n", opt);
@@ -1050,6 +1073,22 @@ static void parse_cli_args(int argc, char **argv,
             break;
         case MEAS_RUSAGE_NIVCSW:
             sb_push(settings->meas, MEAS_RUSAGE_NIVCSW_DEF);
+            break;
+        case MEAS_PERF_CYCLES:
+            sb_push(settings->meas, MEAS_PERF_CYCLES_DEF);
+            g_use_perf = 1;
+            break;
+        case MEAS_PERF_INS:
+            sb_push(settings->meas, MEAS_PERF_INS_DEF);
+            g_use_perf = 1;
+            break;
+        case MEAS_PERF_BRANCH:
+            sb_push(settings->meas, MEAS_PERF_BRANCH_DEF);
+            g_use_perf = 1;
+            break;
+        case MEAS_PERF_BRANCHM:
+            sb_push(settings->meas, MEAS_PERF_BRANCHM_DEF);
+            g_use_perf = 1;
             break;
         default:
             assert(0);
@@ -1344,7 +1383,7 @@ static void free_settings(struct settings *settings) {
     }
     sb_free(settings->cmds);
     sb_free(settings->cmd_groups);
-    if (settings->input_fd != -1) 
+    if (settings->input_fd != -1)
         close(settings->input_fd);
 }
 
@@ -1713,13 +1752,13 @@ static int exec_and_measure(struct bench *bench) {
     }
 
     struct rusage rusage = {0};
-    struct perf_cnt pmc = {0};
+    struct perf_cnt pmc_ = {0};
+    struct perf_cnt *pmc = NULL;
+    if (g_use_perf)
+        pmc = &pmc_;
     volatile double wall_clock_start = get_time();
-    volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage, &pmc);
+    volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage, pmc);
     volatile double wall_clock_end = get_time();
-
-    printf("cycles %llu instructions %llu branches %llu branch-misses %llu\n",
-           pmc.cycles, pmc.instructions, pmc.branches, pmc.missed_branches);
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");
@@ -1765,6 +1804,18 @@ static int exec_and_measure(struct bench *bench) {
             break;
         case MEAS_RUSAGE_NIVCSW:
             sb_push(bench->meas[meas_idx], rusage.ru_nivcsw);
+            break;
+        case MEAS_PERF_CYCLES:
+            sb_push(bench->meas[meas_idx], pmc->cycles);
+            break;
+        case MEAS_PERF_INS:
+            sb_push(bench->meas[meas_idx], pmc->instructions);
+            break;
+        case MEAS_PERF_BRANCH:
+            sb_push(bench->meas[meas_idx], pmc->branches);
+            break;
+        case MEAS_PERF_BRANCHM:
+            sb_push(bench->meas[meas_idx], pmc->missed_branches);
             break;
         case MEAS_CUSTOM:
             if (do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
@@ -2048,14 +2099,18 @@ static double ols_approx(const struct ols_regress *regress, double n) {
         return coef;                                                           \
     }
 
-ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
-    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn)
-        ols(nlogn, fitting_curve_nlogn)
+ols(1, fitting_curve_1)
+ols(n, fitting_curve_n)
+ols(n_sq, fitting_curve_n_sq)
+ols(n_cube, fitting_curve_n_cube)
+ols(logn, fitting_curve_logn)
+ols(nlogn, fitting_curve_nlogn)
 
 #undef ols
 
-            static void ols(const double *x, const double *y, size_t count,
-                            struct ols_regress *result) {
+static void ols(const double *x, const double *y, size_t count,
+                struct ols_regress *result)
+{
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
         if (y[i] < min_y)
@@ -3802,7 +3857,7 @@ int main(int argc, char **argv) {
     if (init_settings(&cli, &settings) == -1)
         goto err_free_cli;
 
-    if (init_perf() == -1)
+    if (g_use_perf && init_perf() == -1)
         goto err_free_settings;
 
     g_rng_state = time(NULL);
@@ -3819,7 +3874,8 @@ int main(int argc, char **argv) {
 err_close_dev_null:
     close(g_dev_null_fd);
 err_deinit_perf:
-    deinit_perf();
+    if (g_use_perf)
+        deinit_perf();
 err_free_settings:
     free_settings(&settings);
 err_free_cli:
