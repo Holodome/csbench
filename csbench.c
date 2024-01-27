@@ -2500,11 +2500,13 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
     printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
+    int has_primary = 0;
     for (size_t i = 0; i < bench->meas_count; ++i) {
         const struct meas *info = cmd->meas + i;
         if (info->is_secondary)
             continue;
 
+        has_primary = 1;
         const struct distr *distr = analysis->meas + i;
         print_distr(distr, &info->units);
         for (size_t j = 0; j < bench->meas_count; ++j) {
@@ -2513,6 +2515,12 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
                                &cmd->meas[j].units);
         }
         print_outliers(&distr->outliers, run_count);
+    }
+    if (!has_primary) {
+        for (size_t i = 0; i < bench->meas_count; ++i) {
+            const struct meas *info = cmd->meas + i;
+            print_estimate(info->name, &analysis->meas[i].mean, &info->units);
+        }
     }
 }
 

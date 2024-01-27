@@ -130,38 +130,23 @@ mean time is most likely linearithmic (O(N*log(N))) in terms of parameter
 linear coef 1.12172e-07 rms 0.014
 ```
 
-In the following example access to performance counters and `struct rusage` (`ru_maxrss` field) is shown.
+In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.
 ```
-$ ./csbench ls exa --meas maxrss,cycles,instructions,branches,branch-misses --shell none
+$ ./csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell none
 command 'ls'
 15 runs
-min 332.7 ms max 338.5 ms
-   mean 333.4 ms 335.0 ms 337.1 ms
- st dev 363.0 μs 1.790 ms 2.620 ms
-systime 2.878 ms 3.468 ms 4.027 ms
-usrtime 843.1 μs 1.065 ms 1.318 ms
- maxrss 1.344 MB 1.353 MB 1.409 MB
- cycles 2.27e+06  3.2e+06  4.6e+06
-    ins 5.73e+06 7.16e+06 8.16e+06
-      b 1.21e+06  1.5e+06 1.71e+06
-     bm  8.8e+03 1.43e+04 2.15e+04
-outlying measurements have a slight (6.2%) effect on estimated standard deviation
+ cycles 2.05e+06 2.97e+06 4.71e+06
+    ins 5.45e+06 6.92e+06 8.29e+06
+systime 2.678 ms 3.104 ms 3.920 ms
+usrtime 776.8 μs 951.0 μs 1.296 ms
+ maxrss 1.344 MB 1.361 MB 1.424 MB
 command 'exa'
 15 runs
-min 335.6 ms max 347.6 ms
-   mean 337.7 ms 340.9 ms 344.5 ms
- st dev 702.0 μs 2.848 ms 5.025 ms
-systime 3.314 ms 4.057 ms 4.736 ms
-usrtime 5.175 ms 6.460 ms 7.553 ms
+ cycles 1.02e+07 1.15e+07  1.4e+07
+    ins 3.56e+07 3.67e+07 3.81e+07
+systime 3.506 ms 4.356 ms 5.354 ms
+usrtime 5.190 ms 6.550 ms 7.795 ms
  maxrss 3.562 MB 3.562 MB 3.562 MB
- cycles 1.02e+07 1.12e+07 1.26e+07
-    ins 3.57e+07 3.71e+07 3.86e+07
-      b 8.36e+06 8.66e+06 9.03e+06
-     bm 7.08e+04 7.47e+04 7.96e+04
-outlying measurements have a slight (6.2%) effect on estimated standard deviation
-measurement wall clock time
-fastest command 'ls'
-1.017 ± 0.010 times faster than 'exa'
 ```
 
 ## License 
