@@ -1,11 +1,14 @@
 // csbench performance counters. See csbench.c for main application code.
+// Ilya Vinogradov 2024
+// https://github.com/Holodome/csbench
 //
-// NOTE THAT THIS FILE IS INCLUDED IN csbench.c DIRECTLY AND SHOULD NOT BE
-// COMPILED AS SEPARATE COMPILATION UNIT.
-// This file contains definitions for ARM
-// MacOS and linux performance counters. Linux performance countes are
-// documented at https://perf.wiki.kernel.org/index.php/Main_Page. MacOS
-// performance countes were originally reverse-engineered by ibireme
+// This is header-only library which makes cross-platform interface to
+// performance counters.
+//
+// This file contains definitions for ARM MacOS and linux performance counters.
+// Linux performance countes are documented at
+// https://perf.wiki.kernel.org/index.php/Main_Page. MacOS performance countes
+// were originally reverse-engineered by ibireme
 // https://gist.github.com/ibireme/173517c208c7dc333ba962c1f0d67d12 and
 // popularized by Daniel Lemire
 // https://lemire.me/blog/2023/03/21/counting-cycles-and-instructions-on-arm-based-apple-systems/.
@@ -58,15 +61,43 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
+#ifndef CSBENCH_PERF_H
+#define CSBENCH_PERF_H
 
+#include <stdint.h>
+#include <sys/types.h>
+
+struct perf_cnt {
+    uint64_t cycles;
+    uint64_t branches;
+    uint64_t missed_branches;
+    uint64_t instructions;
+};
+
+int init_perf(void);
+void deinit_perf(void);
+
+int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
+
+#endif
+
+//
+#define CSBENCH_PERF_IMPL
+//
+
+#ifdef CSBENCH_PERF_IMPL
 #ifdef __linux__
 #error not supported
 #elif defined(__APPLE__)
 #ifdef __aarch64__
 
 #include <dlfcn.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/kdebug.h>
 #include <sys/sysctl.h>
+#include <unistd.h>
 
 #define KPC_CLASS_FIXED (0)
 #define KPC_CLASS_CONFIGURABLE (1)
@@ -144,7 +175,7 @@ static uint64_t (*kperf_ns_to_ticks)(uint64_t ns);
 static uint64_t (*kperf_ticks_to_ns)(uint64_t ticks);
 static uint64_t (*kperf_tick_frequency)(void);
 
-static int kperf_lightweight_pet_get(uint32_t *enabled) {
+__attribute__((used)) static int kperf_lightweight_pet_get(uint32_t *enabled) {
     if (!enabled)
         return -1;
     size_t size = 4;
@@ -160,7 +191,7 @@ static int kperf_lightweight_pet_set(uint32_t enabled) {
 #define KPEP_ARCH_ARM 2
 #define KPEP_ARCH_ARM64 3
 
-typedef struct kpep_event {
+struct kpep_event {
     const char *name;
     const char *description;
     const char *errata;
@@ -171,16 +202,16 @@ typedef struct kpep_event {
     uint8_t umask;
     uint8_t reserved;
     uint8_t is_fixed;
-} kpep_event;
+};
 
-typedef struct kpep_db {
+struct kpep_db {
     const char *name;
     const char *cpu_id;
     const char *marketing_name;
     void *plist_data;
     void *event_map;
-    kpep_event *event_arr;
-    kpep_event **fixed_event_arr;
+    struct kpep_event *event_arr;
+    struct kpep_event **fixed_event_arr;
     void *alias_map;
     size_t reserved_1;
     size_t reserved_2;
@@ -194,11 +225,11 @@ typedef struct kpep_db {
     uint32_t fixed_counter_bits;
     uint32_t config_counter_bits;
     uint32_t power_counter_bits;
-} kpep_db;
+};
 
-typedef struct kpep_config {
-    kpep_db *db;
-    kpep_event **ev_arr;
+struct kpep_config {
+    struct kpep_db *db;
+    struct kpep_event **ev_arr;
     size_t *ev_map;
     size_t *ev_idx;
     uint32_t *flags;
@@ -209,9 +240,9 @@ typedef struct kpep_config {
     uint32_t config_counter;
     uint32_t power_counter;
     uint32_t reserved;
-} kpep_config;
+};
 
-typedef enum {
+enum kpep_config_error_code {
     KPEP_CONFIG_ERROR_NONE = 0,
     KPEP_CONFIG_ERROR_INVALID_ARGUMENT = 1,
     KPEP_CONFIG_ERROR_OUT_OF_MEMORY = 2,
@@ -229,7 +260,7 @@ typedef enum {
     KPEP_CONFIG_ERROR_EVENT_UNAVAILABLE = 14,
     KPEP_CONFIG_ERROR_ERRNO = 15,
     KPEP_CONFIG_ERROR_MAX
-} kpep_config_error_code;
+};
 
 static const char *kpep_config_error_names[KPEP_CONFIG_ERROR_MAX] = {
     "none",
@@ -256,45 +287,53 @@ static const char *kpep_config_error_desc(int code) {
     return "unknown error";
 }
 
-static int (*kpep_config_create)(kpep_db *db, kpep_config **cfg_ptr);
-static void (*kpep_config_free)(kpep_config *cfg);
-static int (*kpep_config_add_event)(kpep_config *cfg, kpep_event **ev_ptr,
-                                    uint32_t flag, uint32_t *err);
-static int (*kpep_config_remove_event)(kpep_config *cfg, size_t idx);
-static int (*kpep_config_force_counters)(kpep_config *cfg);
-static int (*kpep_config_events_count)(kpep_config *cfg, size_t *count_ptr);
-static int (*kpep_config_events)(kpep_config *cfg, kpep_event **buf,
-                                 size_t buf_size);
-static int (*kpep_config_kpc)(kpep_config *cfg, kpc_config_t *buf,
+static int (*kpep_config_create)(struct kpep_db *db,
+                                 struct kpep_config **cfg_ptr);
+static void (*kpep_config_free)(struct kpep_config *cfg);
+static int (*kpep_config_add_event)(struct kpep_config *cfg,
+                                    struct kpep_event **ev_ptr, uint32_t flag,
+                                    uint32_t *err);
+static int (*kpep_config_remove_event)(struct kpep_config *cfg, size_t idx);
+static int (*kpep_config_force_counters)(struct kpep_config *cfg);
+static int (*kpep_config_events_count)(struct kpep_config *cfg,
+                                       size_t *count_ptr);
+static int (*kpep_config_events)(struct kpep_config *cfg,
+                                 struct kpep_event **buf, size_t buf_size);
+static int (*kpep_config_kpc)(struct kpep_config *cfg, kpc_config_t *buf,
                               size_t buf_size);
-static int (*kpep_config_kpc_count)(kpep_config *cfg, size_t *count_ptr);
-static int (*kpep_config_kpc_classes)(kpep_config *cfg, uint32_t *classes_ptr);
-static int (*kpep_config_kpc_map)(kpep_config *cfg, size_t *buf,
+static int (*kpep_config_kpc_count)(struct kpep_config *cfg, size_t *count_ptr);
+static int (*kpep_config_kpc_classes)(struct kpep_config *cfg,
+                                      uint32_t *classes_ptr);
+static int (*kpep_config_kpc_map)(struct kpep_config *cfg, size_t *buf,
                                   size_t buf_size);
-static int (*kpep_db_create)(const char *name, kpep_db **db_ptr);
-static void (*kpep_db_free)(kpep_db *db);
-static int (*kpep_db_name)(kpep_db *db, const char **name);
-static int (*kpep_db_aliases_count)(kpep_db *db, size_t *count);
-static int (*kpep_db_aliases)(kpep_db *db, const char **buf, size_t buf_size);
-static int (*kpep_db_counters_count)(kpep_db *db, uint8_t classes,
+static int (*kpep_db_create)(const char *name, struct kpep_db **db_ptr);
+static void (*kpep_db_free)(struct kpep_db *db);
+static int (*kpep_db_name)(struct kpep_db *db, const char **name);
+static int (*kpep_db_aliases_count)(struct kpep_db *db, size_t *count);
+static int (*kpep_db_aliases)(struct kpep_db *db, const char **buf,
+                              size_t buf_size);
+static int (*kpep_db_counters_count)(struct kpep_db *db, uint8_t classes,
                                      size_t *count);
-static int (*kpep_db_events_count)(kpep_db *db, size_t *count);
-static int (*kpep_db_events)(kpep_db *db, kpep_event **buf, size_t buf_size);
-static int (*kpep_db_event)(kpep_db *db, const char *name, kpep_event **ev_ptr);
-static int (*kpep_event_name)(kpep_event *ev, const char **name_ptr);
-static int (*kpep_event_alias)(kpep_event *ev, const char **alias_ptr);
-static int (*kpep_event_description)(kpep_event *ev, const char **str_ptr);
+static int (*kpep_db_events_count)(struct kpep_db *db, size_t *count);
+static int (*kpep_db_events)(struct kpep_db *db, struct kpep_event **buf,
+                             size_t buf_size);
+static int (*kpep_db_event)(struct kpep_db *db, const char *name,
+                            struct kpep_event **ev_ptr);
+static int (*kpep_event_name)(struct kpep_event *ev, const char **name_ptr);
+static int (*kpep_event_alias)(struct kpep_event *ev, const char **alias_ptr);
+static int (*kpep_event_description)(struct kpep_event *ev,
+                                     const char **str_ptr);
 
-typedef struct {
+struct perf_lib_symbol {
     const char *name;
     void **impl;
-} perf_lib_symbol;
+};
 
 #define perf_lib_nelems(x) (sizeof(x) / sizeof((x)[0]))
 #define perf_lib_symbol_def(name)                                              \
     { #name, (void **)&name }
 
-static const perf_lib_symbol perf_lib_symbols_kperf[] = {
+static const struct perf_lib_symbol perf_lib_symbols_kperf[] = {
     perf_lib_symbol_def(kpc_pmu_version),
     perf_lib_symbol_def(kpc_cpu_string),
     perf_lib_symbol_def(kpc_set_counting),
@@ -331,7 +370,7 @@ static const perf_lib_symbol perf_lib_symbols_kperf[] = {
     perf_lib_symbol_def(kperf_tick_frequency),
 };
 
-static const perf_lib_symbol perf_lib_symbols_kperfdata[] = {
+static const struct perf_lib_symbol perf_lib_symbols_kperfdata[] = {
     perf_lib_symbol_def(kpep_config_create),
     perf_lib_symbol_def(kpep_config_free),
     perf_lib_symbol_def(kpep_config_add_event),
@@ -373,11 +412,11 @@ static void perf_lib_deinit(void) {
     perf_lib_handle_kperf = NULL;
     perf_lib_handle_kperfdata = NULL;
     for (size_t i = 0; i < perf_lib_nelems(perf_lib_symbols_kperf); i++) {
-        const perf_lib_symbol *symbol = &perf_lib_symbols_kperf[i];
+        const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperf[i];
         *symbol->impl = NULL;
     }
     for (size_t i = 0; i < perf_lib_nelems(perf_lib_symbols_kperfdata); i++) {
-        const perf_lib_symbol *symbol = &perf_lib_symbols_kperfdata[i];
+        const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperfdata[i];
         *symbol->impl = NULL;
     }
 }
@@ -399,7 +438,7 @@ static int perf_lib_init(void) {
 
     // load symbol address from dynamic library
     for (size_t i = 0; i < perf_lib_nelems(perf_lib_symbols_kperf); i++) {
-        const perf_lib_symbol *symbol = &perf_lib_symbols_kperf[i];
+        const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperf[i];
         *symbol->impl = dlsym(perf_lib_handle_kperf, symbol->name);
         if (!*symbol->impl) {
             fprintf(stderr, "error: failed to load kperf function: %s.",
@@ -408,7 +447,7 @@ static int perf_lib_init(void) {
         }
     }
     for (size_t i = 0; i < perf_lib_nelems(perf_lib_symbols_kperfdata); i++) {
-        const perf_lib_symbol *symbol = &perf_lib_symbols_kperfdata[i];
+        const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperfdata[i];
         *symbol->impl = dlsym(perf_lib_handle_kperfdata, symbol->name);
         if (!*symbol->impl) {
             fprintf(stderr, "error: failed to load kperfdata function: %s.",
@@ -429,7 +468,7 @@ typedef uint64_t kd_buf_argtype;
 typedef uintptr_t kd_buf_argtype;
 #endif
 
-typedef struct {
+struct kd_buf {
     uint64_t timestamp;
     kd_buf_argtype arg1;
     kd_buf_argtype arg2;
@@ -442,7 +481,7 @@ typedef struct {
     uint32_t cpuid;
     kd_buf_argtype unused;
 #endif
-} kd_buf;
+};
 
 #define KDBG_CLASSTYPE 0x10000
 #define KDBG_SUBCLSTYPE 0x20000
@@ -452,21 +491,21 @@ typedef struct {
 
 #define KDBG_VALCHECK 0x00200000U
 
-typedef struct {
+struct kd_regtype {
     unsigned int type;
     unsigned int value1;
     unsigned int value2;
     unsigned int value3;
     unsigned int value4;
-} kd_regtype;
+};
 
-typedef struct {
+struct kbufinfo_t {
     int nkdbufs;
     int nolog;
     unsigned int flags;
     int nkdthreads;
     int bufid;
-} kbufinfo_t;
+};
 
 static int kdebug_reset(void) {
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDREMOVE};
@@ -478,9 +517,9 @@ static int kdebug_reinit(void) {
     return sysctl(mib, 3, NULL, NULL, NULL, 0);
 }
 
-static int kdebug_setreg(kd_regtype *kdr) {
+static int kdebug_setreg(struct kd_regtype *kdr) {
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDSETREG};
-    size_t size = sizeof(kd_regtype);
+    size_t size = sizeof(struct kd_regtype);
     return sysctl(mib, 3, kdr, &size, NULL, 0);
 }
 
@@ -494,11 +533,11 @@ static int kdebug_trace_enable(int enable) {
     return sysctl(mib, 4, NULL, 0, NULL, 0);
 }
 
-static int kdebug_get_bufinfo(kbufinfo_t *info) {
+__attribute__((used)) static int kdebug_get_bufinfo(struct kbufinfo_t *info) {
     if (!info)
         return -1;
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDGETBUF};
-    size_t needed = sizeof(kbufinfo_t);
+    size_t needed = sizeof(struct kbufinfo_t);
     return sysctl(mib, 3, info, &needed, NULL, 0);
 }
 
@@ -516,7 +555,7 @@ static int kdebug_trace_read(void *buf, size_t len, size_t *count) {
     return 0;
 }
 
-static int kdebug_wait(size_t timeout_ms, int *suc) {
+__attribute__((used)) static int kdebug_wait(size_t timeout_ms, int *suc) {
     if (timeout_ms == 0)
         return -1;
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDBUFWAIT};
@@ -528,12 +567,12 @@ static int kdebug_wait(size_t timeout_ms, int *suc) {
 }
 
 #define EVENT_NAME_MAX 8
-typedef struct {
+struct event_alias {
     const char *alias;
     const char *names[EVENT_NAME_MAX];
-} event_alias;
+};
 
-static const event_alias profile_events[] = {
+static const struct event_alias profile_events[] = {
     {"cycles",
      {
          "FIXED_CYCLES",
@@ -556,20 +595,382 @@ static const event_alias profile_events[] = {
      }},
 };
 
-static kpep_event *get_event(kpep_db *db, const event_alias *alias) {
+static struct kpep_event *get_event(struct kpep_db *db,
+                                    const struct event_alias *alias) {
     for (size_t j = 0; j < EVENT_NAME_MAX; j++) {
         const char *name = alias->names[j];
         if (!name)
             break;
-        kpep_event *ev = NULL;
-        if (kpep_db_event(db, name, &ev) == 0) {
+        struct kpep_event *ev = NULL;
+        if (kpep_db_event(db, name, &ev) == 0)
             return ev;
-        }
     }
     return NULL;
 }
 
+#define PERF_KPC (6)
+#define PERF_KPC_DATA_THREAD (8)
+
+int init_perf(void) {
+    if (perf_lib_init() == -1)
+        return -1;
+
+    return 0;
+}
+
+void deinit_perf(void) { perf_lib_deinit(); }
+
+int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
+    int ret;
+    // check permission
+    int force_ctrs = 0;
+    if (kpc_force_all_ctrs_get(&force_ctrs)) {
+        printf("Permission denied, xnu/kpc requires root privileges.\n");
+        return -1;
+    }
+
+    struct kpep_db *db = NULL;
+    if ((ret = kpep_db_create(NULL, &db))) {
+        printf("Error: cannot load pmc database: %d.\n", ret);
+        return -1;
+    }
+
+    // create config
+    struct kpep_config *cfg = NULL;
+    if ((ret = kpep_config_create(db, &cfg))) {
+        printf("Failed to create kpep config: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+    if ((ret = kpep_config_force_counters(cfg))) {
+        printf("Failed to force counters: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+
+    // get events
+    size_t ev_count = sizeof(profile_events) / sizeof(profile_events[0]);
+    struct kpep_event
+        *ev_arr[sizeof(profile_events) / sizeof(profile_events[0])] = {0};
+    for (size_t i = 0; i < ev_count; i++) {
+        const struct event_alias *alias = profile_events + i;
+        ev_arr[i] = get_event(db, alias);
+        if (!ev_arr[i]) {
+            printf("Cannot find event: %s.\n", alias->alias);
+            return -1;
+        }
+    }
+
+    // add event to config
+    for (size_t i = 0; i < ev_count; i++) {
+        struct kpep_event *ev = ev_arr[i];
+        if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL))) {
+            printf("Failed to add event: %d (%s).\n", ret,
+                   kpep_config_error_desc(ret));
+            return -1;
+        }
+    }
+
+    // prepare buffer and config
+    uint32_t classes = 0;
+    size_t reg_count = 0;
+    kpc_config_t regs[KPC_MAX_COUNTERS] = {0};
+    size_t counter_map[KPC_MAX_COUNTERS] = {0};
+    if ((ret = kpep_config_kpc_classes(cfg, &classes))) {
+        printf("Failed get kpc classes: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+    if ((ret = kpep_config_kpc_count(cfg, &reg_count))) {
+        printf("Failed get kpc count: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+    if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map)))) {
+        printf("Failed get kpc map: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+    if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs)))) {
+        printf("Failed get kpc registers: %d (%s).\n", ret,
+               kpep_config_error_desc(ret));
+        return -1;
+    }
+
+    // set config to kernel
+    if ((ret = kpc_force_all_ctrs_set(1))) {
+        printf("Failed force all ctrs: %d.\n", ret);
+        return -1;
+    }
+    if ((classes & KPC_CLASS_CONFIGURABLE_MASK) && reg_count) {
+        if ((ret = kpc_set_config(classes, regs))) {
+            printf("Failed set kpc config: %d.\n", ret);
+            return -1;
+        }
+    }
+
+    uint32_t counter_count = kpc_get_counter_count(classes);
+    if (counter_count == 0) {
+        printf("Failed no counter\n");
+        return -1;
+    }
+
+    // start counting
+    if ((ret = kpc_set_counting(classes))) {
+        printf("Failed set counting: %d.\n", ret);
+        return -1;
+    }
+    if ((ret = kpc_set_thread_counting(classes))) {
+        printf("Failed set thread counting: %d.\n", ret);
+        return -1;
+    }
+
+    // action id and timer id
+    uint32_t actionid = 1;
+    uint32_t timerid = 1;
+
+    // alloc action and timer ids
+    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX))) {
+        printf("Failed set action count: %d.\n", ret);
+    }
+    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX))) {
+        printf("Failed set timer count: %d.\n", ret);
+    }
+
+    // set what to sample: PMC per thread
+    if ((ret = kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD))) {
+        printf("Failed set sampler type: %d.\n", ret);
+    }
+    // set filter process
+    if ((ret = kperf_action_filter_set_by_pid(actionid, pid))) {
+        printf("Failed set filter pid: %d.\n", ret);
+    }
+
+    // setup PET (Profile Every Thread), start sampler
+    double sample_period = 0.001;
+    uint64_t tick = kperf_ns_to_ticks(sample_period * 1000000000ul);
+    if ((ret = kperf_timer_period_set(actionid, tick))) {
+        printf("Failed set timer period: %d.\n", ret);
+    }
+    if ((ret = kperf_timer_action_set(actionid, timerid))) {
+        printf("Failed set timer action: %d.\n", ret);
+    }
+    if ((ret = kperf_timer_pet_set(timerid))) {
+        printf("Failed set timer PET: %d.\n", ret);
+    }
+    if ((ret = kperf_lightweight_pet_set(1))) {
+        printf("Failed set lightweight PET: %d.\n", ret);
+    }
+    if ((ret = kperf_sample_set(1))) {
+        printf("Failed start sample: %d.\n", ret);
+    }
+
+    // reset kdebug/ktrace
+    if ((ret = kdebug_reset())) {
+        printf("Failed reset kdebug: %d.\n", ret);
+    }
+
+    int nbufs = 1000000;
+    if ((ret = kdebug_trace_setbuf(nbufs))) {
+        printf("Failed setbuf: %d.\n", ret);
+    }
+    if ((ret = kdebug_reinit())) {
+        printf("Failed init kdebug buffer: %d.\n", ret);
+    }
+
+    // set trace filter: only log PERF_KPC_DATA_THREAD
+    struct kd_regtype kdr = {0};
+    kdr.type = KDBG_VALCHECK;
+    kdr.value1 = KDBG_EVENTID(DBG_PERF, PERF_KPC, PERF_KPC_DATA_THREAD);
+    if ((ret = kdebug_setreg(&kdr))) {
+        printf("Failed set kdebug filter: %d.\n", ret);
+    }
+    // start trace
+    if ((ret = kdebug_trace_enable(1))) {
+        printf("Failed enable kdebug trace: %d.\n", ret);
+    }
+
+    // sample and get buffers
+    size_t buf_capacity = nbufs * 2;
+    struct kd_buf *buf_hdr = malloc(sizeof(struct kd_buf) * buf_capacity);
+    struct kd_buf *buf_cur = buf_hdr;
+    struct kd_buf *buf_end = buf_hdr + buf_capacity;
+
+    write(sync_pipe, "", 1);
+    close(sync_pipe);
+    for (;;) {
+        // wait for more buffer
+        usleep(2 * sample_period * 1000000);
+
+        // expand local buffer for next read
+        if (buf_end - buf_cur < nbufs) {
+            size_t new_capacity = buf_capacity * 2;
+            struct kd_buf *new_buf =
+                realloc(buf_hdr, sizeof(struct kd_buf) * new_capacity);
+            buf_capacity = new_capacity;
+            buf_cur = new_buf + (buf_cur - buf_hdr);
+            buf_end = new_buf + (buf_end - buf_hdr);
+            buf_hdr = new_buf;
+        }
+
+        // read trace buffer from kernel
+        size_t count = 0;
+        kdebug_trace_read(buf_cur, sizeof(struct kd_buf) * nbufs, &count);
+        for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end;
+             buf++) {
+            uint32_t debugid = buf->debugid;
+            uint32_t cls = KDBG_EXTRACT_CLASS(debugid);
+            uint32_t subcls = KDBG_EXTRACT_SUBCLASS(debugid);
+            uint32_t code = KDBG_EXTRACT_CODE(debugid);
+
+            // keep only thread PMC data
+            if (cls != DBG_PERF || subcls != PERF_KPC ||
+                code != PERF_KPC_DATA_THREAD)
+                continue;
+            memmove(buf_cur, buf, sizeof(struct kd_buf));
+            ++buf_cur;
+        }
+
+        // check if child has finished
+        siginfo_t info = {0};
+        if (waitid(P_PID, pid, &info, WEXITED | WNOHANG | WNOWAIT) == -1) {
+            perror("waitid");
+            break;
+        } else if (info.si_pid != 0) {
+            break;
+        }
+    }
+
+    // stop tracing
+    kdebug_trace_enable(0);
+    kdebug_reset();
+    kperf_sample_set(0);
+    kperf_lightweight_pet_set(0);
+
+    // stop counting
+    kpc_set_counting(0);
+    kpc_set_thread_counting(0);
+    kpc_force_all_ctrs_set(0);
+
+    // aggregate thread PMC data
+    if (buf_cur - buf_hdr == 0) {
+        printf("No thread PMC data collected.\n");
+        return 1;
+    }
+
+    struct kpc_thread_data {
+        uint32_t tid;
+        uint64_t timestamp_0;
+        uint64_t timestamp_1;
+        uint64_t counters_0[KPC_MAX_COUNTERS];
+        uint64_t counters_1[KPC_MAX_COUNTERS];
+    };
+
+    size_t thread_capacity = 16;
+    size_t thread_count = 0;
+    struct kpc_thread_data *thread_data =
+        malloc(thread_capacity * sizeof(struct kpc_thread_data));
+    for (struct kd_buf *buf = buf_hdr; buf < buf_cur; buf++) {
+        uint32_t func = buf->debugid & KDBG_FUNC_MASK;
+        if (func != DBG_FUNC_START)
+            continue;
+        uint32_t tid = buf->arg5;
+        if (!tid)
+            continue;
+
+        // read one counter log
+        size_t ci = 0;
+        uint64_t counters[KPC_MAX_COUNTERS];
+        counters[ci++] = buf->arg1;
+        counters[ci++] = buf->arg2;
+        counters[ci++] = buf->arg3;
+        counters[ci++] = buf->arg4;
+        if (ci < counter_count) {
+            // counter count larger than 4
+            // values are split into multiple buffer entities
+            for (struct kd_buf *buf2 = buf + 1; buf2 < buf_cur; buf2++) {
+                uint32_t tid2 = buf2->arg5;
+                if (tid2 != tid)
+                    break;
+                uint32_t func2 = buf2->debugid & KDBG_FUNC_MASK;
+                if (func2 == DBG_FUNC_START)
+                    break;
+                if (ci < counter_count)
+                    counters[ci++] = buf2->arg1;
+                if (ci < counter_count)
+                    counters[ci++] = buf2->arg2;
+                if (ci < counter_count)
+                    counters[ci++] = buf2->arg3;
+                if (ci < counter_count)
+                    counters[ci++] = buf2->arg4;
+                if (ci == counter_count)
+                    break;
+            }
+        }
+        if (ci != counter_count)
+            continue; // not enough counters, maybe truncated
+
+        // add to thread data
+        struct kpc_thread_data *data = NULL;
+        for (size_t i = 0; i < thread_count; i++) {
+            if (thread_data[i].tid == tid) {
+                data = thread_data + i;
+                break;
+            }
+        }
+        if (!data) {
+            if (thread_capacity == thread_count) {
+                thread_capacity *= 2;
+                struct kpc_thread_data *new_data =
+                    realloc(thread_data,
+                            thread_capacity * sizeof(struct kpc_thread_data));
+                thread_data = new_data;
+            }
+            data = thread_data + thread_count;
+            thread_count++;
+            memset(data, 0, sizeof(struct kpc_thread_data));
+            data->tid = tid;
+        }
+        if (data->timestamp_0 == 0) {
+            data->timestamp_0 = buf->timestamp;
+            memcpy(data->counters_0, counters,
+                   counter_count * sizeof(uint64_t));
+        } else {
+            data->timestamp_1 = buf->timestamp;
+            memcpy(data->counters_1, counters,
+                   counter_count * sizeof(uint64_t));
+        }
+    }
+
+    uint64_t counters_sum[KPC_MAX_COUNTERS] = {0};
+    for (size_t i = 0; i < thread_count; i++) {
+        const struct kpc_thread_data *data = thread_data + i;
+        if (!data->timestamp_0 || !data->timestamp_1)
+            continue;
+
+        for (size_t c = 0; c < counter_count; c++)
+            counters_sum[c] += data->counters_1[c] - data->counters_0[c];
+    }
+
+    for (size_t i = 0; i < ev_count; i++) {
+        const struct event_alias *alias = profile_events + i;
+        uint64_t val = counters_sum[counter_map[i]];
+        if (strcmp(alias->alias, "cycles") == 0) {
+            cnt->cycles = val;
+        } else if (strcmp(alias->alias, "instructions") == 0) {
+            cnt->instructions = val;
+        } else if (strcmp(alias->alias, "branches") == 0) {
+            cnt->branches = val;
+        } else if (strcmp(alias->alias, "branch-misses") == 0) {
+            cnt->missed_branches = val;
+        }
+    }
+
+    return 0;
+}
+
 #else
 #error Unsupported Apple architecture
+#endif
 #endif
 #endif

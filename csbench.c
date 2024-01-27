@@ -2,16 +2,17 @@
 // command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
-// 
-// csbench is dual-licensed under the terms of the MIT License and the Apache License 2.0.
-// This file may not be copied, modified, or distributed except according to those terms.
+//
+// csbench is dual-licensed under the terms of the MIT License and the Apache
+// License 2.0. This file may not be copied, modified, or distributed except
+// according to those terms.
 //
 // MIT License Notice
 //
 //    MIT License
-//    
+//
 //    Copyright (c) 2024 Ilya Vinogradov
-//    
+//
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
 //    documentation files (the "Software"), to deal in the
@@ -21,11 +22,11 @@
 //    the Software, and to permit persons to whom the Software
 //    is furnished to do so, subject to the following
 //    conditions:
-//    
+//
 //    The above copyright notice and this permission notice
 //    shall be included in all copies or substantial portions
 //    of the Software.
-//    
+//
 //    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
 //    ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
 //    TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
@@ -42,9 +43,9 @@
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
-//    
+//
 //    http://www.apache.org/licenses/LICENSE-2.0
-//    
+//
 //    Unless required by applicable law or agreed to in writing, software
 //    distributed under the License is distributed on an "AS IS" BASIS,
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -1489,35 +1490,52 @@ static void apply_output_policy(enum output_kind policy) {
     }
 }
 
-static int exec_cmd(const struct cmd *cmd, int stdout_fd,
-                    struct rusage *rusage) {
-    int rc = -1;
+static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
+                    struct perf_cnt *pmc) {
+    int pmc_sync_pipe[2] = {-1, -1};
+    if (pmc != NULL) {
+        if (pipe(pmc_sync_pipe) == -1) {
+            perror("pipe");
+            return -1;
+        }
+    }
+
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        goto out;
+        return -1;
     }
 
     if (pid == 0) {
+        if (pmc != NULL) {
+            close(pmc_sync_pipe[1]);
+            char c;
+            read(pmc_sync_pipe[0], &c, 1);
+            close(pmc_sync_pipe[0]);
+        }
         apply_input_policy(&cmd->input);
         // special handling when stdout needs to be piped
         if (stdout_fd != -1) {
             close(STDERR_FILENO);
-            int fd = open("/dev/null", O_WRONLY);
-            if (fd == -1)
+            int null_fd = open("/dev/null", O_WRONLY);
+            if (null_fd == -1)
                 _exit(-1);
-            if (dup2(fd, STDERR_FILENO) == -1)
+            if (dup2(null_fd, STDERR_FILENO) == -1)
                 _exit(-1);
-            if (stdout_fd == -1)
-                stdout_fd = fd;
             if (dup2(stdout_fd, STDOUT_FILENO) == -1)
                 _exit(-1);
-            close(fd);
+            close(null_fd);
         } else {
             apply_output_policy(cmd->output);
         }
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);
+    } else {
+        if (pmc != NULL) {
+            close(pmc_sync_pipe[0]);
+            if (perf_cnt_collect(pid, pmc_sync_pipe[1], pmc) == -1)
+                return -1;
+        }
     }
 
     int status = 0;
@@ -1525,16 +1543,16 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd,
     if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
             perror("wait4");
-        goto out;
+        return -1;
     }
 
     // shell-like exit codes
+    int rc = -1;
     if (WIFEXITED(status))
         rc = WEXITSTATUS(status);
     else if (WIFSIGNALED(status))
         rc = 128 + WTERMSIG(status);
 
-out:
     return rc;
 }
 
@@ -1695,9 +1713,12 @@ static int exec_and_measure(struct bench *bench) {
     }
 
     struct rusage rusage = {0};
+    struct perf_cnt pmc = {0};
     volatile double wall_clock_start = get_time();
-    volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage);
+    volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage, &pmc);
     volatile double wall_clock_end = get_time();
+
+    printf("cycles %llu instructions %llu\n", pmc.cycles, pmc.instructions);
 
     if (rc == -1) {
         fprintf(stderr, "error: failed to execute command\n");
@@ -1768,7 +1789,7 @@ static int warmup(const struct cmd *cmd) {
     double start_time = get_time();
     double end_time;
     do {
-        if (exec_cmd(cmd, -1, NULL) == -1) {
+        if (exec_cmd(cmd, -1, NULL, NULL) == -1) {
             fprintf(stderr, "error: failed to execute warmup command\n");
             return -1;
         }
@@ -3781,6 +3802,8 @@ int main(int argc, char **argv) {
         goto free_cli;
 
     g_rng_state = time(NULL);
+    if (init_perf() == -1)
+        goto free_settings;
     if (run(&settings) == -1)
         goto free_settings;
 
@@ -3788,6 +3811,7 @@ int main(int argc, char **argv) {
 free_settings:
     free_settings(&settings);
 free_cli:
+    deinit_perf();
     free_cli_settings(&cli);
     return rc;
 }
