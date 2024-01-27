@@ -1,3 +1,4 @@
+#define CSBENCH_PERF_IMPL
 // csbench performance counters. See csbench.c for main application code.
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
@@ -81,8 +82,8 @@ void deinit_perf(void);
 // That process is considered blocked when this function is called,
 // to wake up process this function writes 1 byte of data to 'sync_pipe' and
 // closes it. This function runs and collects performance counters until process
-// has finished, collects and consolidates results. Process can still be waited
-// after this function.
+// has finished, and consolidates results. Process can still be waited
+// after this function has finished executing.
 int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
 
 #endif
@@ -91,6 +92,13 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
 #error not supported
 #elif defined(__APPLE__)
 #ifdef __aarch64__
+
+#ifndef CSBENCH_PERF_UB_ERR
+// Can be set to perror(_msg) for debugging
+#define CSBENCH_PERF_UB_ERR(_msg)                                              \
+    do {                                                                       \
+    } while (0)
+#endif
 
 #include <dlfcn.h>
 #include <errno.h>
@@ -626,7 +634,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     int ret;
     // check permission
     int force_ctrs = 0;
-    if (kpc_force_all_ctrs_get(&force_ctrs)) {
+    if (kpc_force_all_ctrs_get(&force_ctrs) != 0) {
         fprintf(stderr,
                 "error: permission denied, xnu/kpc requires root privileges\n");
         return -1;
@@ -643,12 +651,12 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     if ((ret = kpep_config_create(db, &cfg)) != 0) {
         fprintf(stderr, "error: failed to create kpep config: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_db;
     }
     if ((ret = kpep_config_force_counters(cfg)) != 0) {
         fprintf(stderr, "error: failed to force counters: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_config;
     }
 
     // get events
@@ -660,7 +668,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         ev_arr[i] = get_event(db, alias);
         if (!ev_arr[i]) {
             fprintf(stderr, "error: failed to find event: %s\n", alias->alias);
-            return -1;
+            goto err_free_config;
         }
     }
 
@@ -670,7 +678,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL)) != 0) {
             fprintf(stderr, "error: failed to add event: %d (%s)\n", ret,
                     kpep_config_error_desc(ret));
-            return -1;
+            goto err_free_config;
         }
     }
 
@@ -682,123 +690,114 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     if ((ret = kpep_config_kpc_classes(cfg, &classes)) != 0) {
         fprintf(stderr, "error: failed to get kpc classes: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_config;
     }
     if ((ret = kpep_config_kpc_count(cfg, &reg_count)) != 0) {
         fprintf(stderr, "error: failed to get kpc count: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_config;
     }
     if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map))) !=
         0) {
         fprintf(stderr, "error: failed to get kpc map: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_config;
     }
     if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs))) != 0) {
         fprintf(stderr, "error: failed to get kpc registers: %d (%s)\n", ret,
                 kpep_config_error_desc(ret));
-        return -1;
+        goto err_free_config;
     }
 
     // set config to kernel
     if ((ret = kpc_force_all_ctrs_set(1)) != 0) {
         perror("kpc_force_all_ctrs_set(1)");
-        return -1;
+        goto err_free_config;
     }
     if ((classes & KPC_CLASS_CONFIGURABLE_MASK) && reg_count) {
         if ((ret = kpc_set_config(classes, regs))) {
             perror("kpc_set_config");
-            return -1;
+            goto err_disable_ctrs;
         }
     }
 
     uint32_t counter_count = kpc_get_counter_count(classes);
     if (counter_count == 0) {
         fprintf(stderr, "error: no counters found\n");
-        return -1;
+        goto err_disable_ctrs;
     }
 
     // start counting
     if ((ret = kpc_set_counting(classes)) != 0) {
         perror("kpc_set_counting");
-        return -1;
+        goto err_disable_ctrs;
     }
     if ((ret = kpc_set_thread_counting(classes)) != 0) {
         perror("kpc_set_thread_counting");
-        return -1;
+        goto err_disable_counting;
     }
 
-    // action id and timer id
-    uint32_t actionid = 1;
-    uint32_t timerid = 1;
+    // note: this code fragment heavily relies on undocumented by Apple
+    // behaviour. Importantly, these calls are not cleaned up by the kernel
+    // after process exits, which may cause some of the kpref_* calls here to
+    // fail (indicated by error value). However, since we fix action id and
+    // timer id, and if other software touching kperf is not run, nothing should
+    // break. Again, this is the consequence of using undocumented code.
+    // Actually, we can make this right, if we set a signal handler to catch
+    // SIGINT and somehow notify benchmark running code to end instead of
+    // killing application, or do cleanup globally. But all these variants
+    // affect control flow too much - and practially not worth it for silly
+    // developer-only application.
 
     // alloc action and timer ids
-    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX)) != 0) {
-        perror("kperf_action_count_set");
-    }
-    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX)) != 0) {
-        perror("kperf_timer_count_set");
-    }
+    uint32_t actionid = 1;
+    uint32_t timerid = 1;
+    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_action_count_set");
+    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_timer_count_set");
 
     // set what to sample: PMC per thread
     if ((ret = kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD)) !=
-        0) {
-        perror("kperf_action_samplers_set");
-    }
+        0)
+        CSBENCH_PERF_UB_ERR("kperf_action_samplers_set");
     // set filter process
-    if ((ret = kperf_action_filter_set_by_pid(actionid, pid)) != 0) {
-        perror("kperf_action_filter_set_by_pid");
-    }
+    if ((ret = kperf_action_filter_set_by_pid(actionid, pid)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_action_filter_set_by_pid");
 
     // setup PET (Profile Every Thread), start sampler
     double sample_period = 0.001;
     uint64_t tick = kperf_ns_to_ticks(sample_period * 1000000000ul);
-    if ((ret = kperf_timer_period_set(actionid, tick)) != 0) {
-        perror("kperf_timer_period_set");
-    }
-    if ((ret = kperf_timer_action_set(actionid, timerid)) != 0) {
-        perror("kperf_timer_action_set");
-    }
-    if ((ret = kperf_timer_pet_set(timerid)) != 0) {
-        perror("kperf_timer_pet_set");
-    }
-    if ((ret = kperf_lightweight_pet_set(1)) != 0) {
-        perror("kperf_lightweight_pet_set");
-    }
-    if ((ret = kperf_sample_set(1))) {
-        perror("kperf_sample_set(1)");
-    }
+    if ((ret = kperf_timer_period_set(actionid, tick)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_timer_period_set");
+    if ((ret = kperf_timer_action_set(actionid, timerid)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_timer_action_set");
+    if ((ret = kperf_timer_pet_set(timerid)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_timer_pet_set");
+    if ((ret = kperf_lightweight_pet_set(1)) != 0)
+        CSBENCH_PERF_UB_ERR("kperf_lightweight_pet_set");
+    if ((ret = kperf_sample_set(1)))
+        CSBENCH_PERF_UB_ERR("kperf_sample_set(1)");
 
     // reset kdebug/ktrace
-    if ((ret = kdebug_reset()) != 0) {
-        perror("kdebug_reset");
-    }
+    if ((ret = kdebug_reset()) != 0)
+        CSBENCH_PERF_UB_ERR("kdebug_reset");
 
     int nbufs = 1000000;
-    if ((ret = kdebug_trace_setbuf(nbufs)) != 0) {
-        perror("kdebug_trace_setbuf");
-    }
-    if ((ret = kdebug_reinit()) != 0) {
-        perror("kdebug_reinit");
-    }
+    if ((ret = kdebug_trace_setbuf(nbufs)) != 0)
+        CSBENCH_PERF_UB_ERR("kdebug_trace_setbuf");
+    if ((ret = kdebug_reinit()) != 0)
+        CSBENCH_PERF_UB_ERR("kdebug_reinit");
 
     // set trace filter: only log PERF_KPC_DATA_THREAD
     struct kd_regtype kdr = {0};
     kdr.type = KDBG_VALCHECK;
     kdr.value1 = KDBG_EVENTID(DBG_PERF, PERF_KPC, PERF_KPC_DATA_THREAD);
-    if ((ret = kdebug_setreg(&kdr)) != 0) {
-        perror("kdebug_setreg");
-    }
+    if ((ret = kdebug_setreg(&kdr)) != 0)
+        CSBENCH_PERF_UB_ERR("kdebug_setreg");
     // start trace
-    if ((ret = kdebug_trace_enable(1)) != 0) {
-        perror("kdebug_trace_enable");
-    }
-
-    // sample and get buffers
-    size_t buf_capacity = nbufs * 2;
-    struct kd_buf *buf_hdr = malloc(sizeof(struct kd_buf) * buf_capacity);
-    struct kd_buf *buf_cur = buf_hdr;
+    if ((ret = kdebug_trace_enable(1)) != 0)
+        CSBENCH_PERF_UB_ERR("kdebug_trace_enable");
 
     // signal process to start executing
     write(sync_pipe, "", 1);
@@ -807,28 +806,26 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     siginfo_t info = {0};
     if (waitid(P_PID, pid, &info, WEXITED | WNOWAIT) == -1) {
         perror("waitid");
-        return -1;
-    } else if (info.si_pid != 0) {
-        // ok
-    } else {
-        // ???
-    }
-    {
-        size_t count = 0;
-        kdebug_trace_read(buf_cur, sizeof(struct kd_buf) * nbufs, &count);
-        for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end;
-             ++buf) {
-            uint32_t debugid = buf->debugid;
-            uint32_t cls = KDBG_EXTRACT_CLASS(debugid);
-            uint32_t subcls = KDBG_EXTRACT_SUBCLASS(debugid);
-            uint32_t code = KDBG_EXTRACT_CODE(debugid);
-            // this should always be true because of the settings we did above.
-            if (cls != DBG_PERF || subcls != PERF_KPC ||
-                code != PERF_KPC_DATA_THREAD)
-                continue;
-            memmove(buf_cur, buf, sizeof(struct kd_buf));
-            ++buf_cur;
-        }
+        goto err_stop_trace;
+    } 
+
+    size_t buf_capacity = nbufs * 2;
+    struct kd_buf *buf_hdr = malloc(sizeof(struct kd_buf) * buf_capacity);
+    struct kd_buf *buf_cur = buf_hdr;
+    size_t count = 0;
+    kdebug_trace_read(buf_cur, sizeof(struct kd_buf) * nbufs, &count);
+    for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end;
+         ++buf) {
+        uint32_t debugid = buf->debugid;
+        uint32_t cls = KDBG_EXTRACT_CLASS(debugid);
+        uint32_t subcls = KDBG_EXTRACT_SUBCLASS(debugid);
+        uint32_t code = KDBG_EXTRACT_CODE(debugid);
+        // this should always be true because of the settings we did above.
+        if (cls != DBG_PERF || subcls != PERF_KPC ||
+            code != PERF_KPC_DATA_THREAD)
+            continue;
+        memmove(buf_cur, buf, sizeof(struct kd_buf));
+        ++buf_cur;
     }
 
     // stop tracing
@@ -838,15 +835,9 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     kperf_lightweight_pet_set(0);
 
     // stop counting
-    kpc_set_counting(0);
     kpc_set_thread_counting(0);
+    kpc_set_counting(0);
     kpc_force_all_ctrs_set(0);
-
-    // aggregate thread PMC data
-    if (buf_cur - buf_hdr == 0) {
-        fprintf(stderr, "error: no thread PMC data collected\n");
-        return 1;
-    }
 
     struct {
         uint64_t timestamp_0;
@@ -903,6 +894,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
             memcpy(data.counters_1, counters, counter_count * sizeof(uint64_t));
         }
     }
+    free(buf_hdr);
 
     for (size_t i = 0; i < ev_count; i++) {
         const struct event_alias *alias = profile_events + i;
@@ -920,6 +912,23 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     }
 
     return 0;
+err_stop_trace:
+    kdebug_trace_enable(0);
+    kdebug_reset();
+    kperf_sample_set(0);
+    kperf_lightweight_pet_set(0);
+    kpc_set_thread_counting(0);
+err_disable_counting:
+    kpc_set_counting(0);
+err_disable_ctrs:
+    kpc_force_all_ctrs_set(0);
+err_free_config:
+    kpep_config_free(cfg);
+err_free_db:
+    kpep_db_free(db);
+    if (ret != 0)
+        ret = -1;
+    return -1;
 }
 
 #else
