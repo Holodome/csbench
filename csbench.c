@@ -399,13 +399,12 @@ struct prettify_plot {
 #include "csbench_perf.c"
 
 static __thread uint32_t g_rng_state;
-// These are applicaton settings made global. Only put small settings with
-// trivial types that don't require allocation/deallocation.
 static int g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
 static int g_plot_src = 0;
 static int g_nresamp = 100000;
+static int g_dev_null_fd = -1;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 
 static void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -1451,12 +1450,8 @@ static void apply_input_policy(const struct input_policy *policy) {
     switch (policy->kind) {
     case INPUT_POLICY_NULL: {
         close(STDIN_FILENO);
-        int fd = open("/dev/null", O_RDONLY);
-        if (fd == -1)
+        if (dup2(g_dev_null_fd, STDIN_FILENO) == -1)
             _exit(-1);
-        if (dup2(fd, STDIN_FILENO) == -1)
-            _exit(-1);
-        close(fd);
         break;
     }
     case INPUT_POLICY_FILE: {
@@ -1477,12 +1472,9 @@ static void apply_output_policy(enum output_kind policy) {
     case OUTPUT_POLICY_NULL: {
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        int fd = open("/dev/null", O_WRONLY);
-        if (fd == -1)
+        if (dup2(g_dev_null_fd, STDOUT_FILENO) == -1 ||
+            dup2(g_dev_null_fd, STDERR_FILENO) == -1)
             _exit(-1);
-        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
-            _exit(-1);
-        close(fd);
         break;
     }
     case OUTPUT_POLICY_INHERIT:
@@ -1507,26 +1499,22 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     }
 
     if (pid == 0) {
+        apply_input_policy(&cmd->input);
+        // special handling when stdout needs to be piped
+        if (stdout_fd != -1) {
+            close(STDERR_FILENO);
+            if (dup2(g_dev_null_fd, STDERR_FILENO) == -1)
+                _exit(-1);
+            if (dup2(stdout_fd, STDOUT_FILENO) == -1)
+                _exit(-1);
+        } else {
+            apply_output_policy(cmd->output);
+        }
         if (pmc != NULL) {
             close(pmc_sync_pipe[1]);
             char c;
             read(pmc_sync_pipe[0], &c, 1);
             close(pmc_sync_pipe[0]);
-        }
-        apply_input_policy(&cmd->input);
-        // special handling when stdout needs to be piped
-        if (stdout_fd != -1) {
-            close(STDERR_FILENO);
-            int null_fd = open("/dev/null", O_WRONLY);
-            if (null_fd == -1)
-                _exit(-1);
-            if (dup2(null_fd, STDERR_FILENO) == -1)
-                _exit(-1);
-            if (dup2(stdout_fd, STDOUT_FILENO) == -1)
-                _exit(-1);
-            close(null_fd);
-        } else {
-            apply_output_policy(cmd->output);
         }
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);
@@ -1586,13 +1574,10 @@ static int execute_prepare(const char *cmd) {
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        int fd = open("/dev/null", O_WRONLY);
-        if (fd == -1)
+        if (dup2(g_dev_null_fd, STDOUT_FILENO) == -1 ||
+            dup2(g_dev_null_fd, STDERR_FILENO) == -1 ||
+            dup2(g_dev_null_fd, STDIN_FILENO) == -1)
             _exit(-1);
-        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1 ||
-            dup2(fd, STDIN_FILENO) == -1)
-            _exit(-1);
-        close(fd);
         if (execv(exec, argv) == -1)
             _exit(-1);
     }
@@ -3799,18 +3784,29 @@ int main(int argc, char **argv) {
 
     struct settings settings = {0};
     if (init_settings(&cli, &settings) == -1)
-        goto free_cli;
+        goto err_free_cli;
+
+    if (init_perf() == -1)
+        goto err_free_settings;
 
     g_rng_state = time(NULL);
-    if (init_perf() == -1)
-        goto free_settings;
+    g_dev_null_fd = open("/dev/null", O_RDWR);
+    if (g_dev_null_fd == -1) {
+        fprintf(stderr, "error: failed to open /dev/null\n");
+        goto err_deinit_perf;
+    }
+
     if (run(&settings) == -1)
-        goto free_settings;
+        goto err_close_dev_null;
 
     rc = EXIT_SUCCESS;
-free_settings:
+err_close_dev_null:
+    close(g_dev_null_fd);
+err_deinit_perf:
+    deinit_perf();
+err_free_settings:
     free_settings(&settings);
-free_cli:
+err_free_cli:
     deinit_perf();
     free_cli_settings(&cli);
     return rc;
