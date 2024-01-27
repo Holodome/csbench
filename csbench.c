@@ -94,6 +94,9 @@ enum input_kind {
 struct input_policy {
     enum input_kind kind;
     const char *file;
+    // after some of the initialization is done, if kind is INPUT_POLICY_FILE,
+    // this contains file descriptor of that file.
+    int fd;
 };
 
 enum output_kind {
@@ -236,6 +239,7 @@ struct settings {
     struct export_policy export;
     enum analyze_mode analyze_mode;
     const char *out_dir;
+    int input_fd;
 };
 
 // Boostrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -1340,6 +1344,8 @@ static void free_settings(struct settings *settings) {
     }
     sb_free(settings->cmds);
     sb_free(settings->cmd_groups);
+    if (settings->input_fd != -1) 
+        close(settings->input_fd);
 }
 
 static int init_settings(const struct cli_settings *cli,
@@ -1349,6 +1355,7 @@ static int init_settings(const struct cli_settings *cli,
     settings->analyze_mode = cli->analyze_mode;
     settings->out_dir = cli->out_dir;
     settings->meas = cli->meas;
+    settings->input_fd = -1;
 
     // try to catch invalid file as early as possible,
     // because later error handling can become troublesome (after fork()).
@@ -1369,6 +1376,18 @@ static int init_settings(const struct cli_settings *cli,
     if (sb_len(cli->meas) == 0) {
         fprintf(stderr, "error: no measurements specified\n");
         return -1;
+    }
+
+    struct input_policy input_policy = cli->input;
+    if (input_policy.kind == INPUT_POLICY_FILE) {
+        settings->input_fd = input_policy.fd =
+            open(input_policy.file, O_RDONLY);
+        if (input_policy.fd == -1) {
+            fprintf(stderr,
+                    "error: failed to open file '%s' (specified for input)\n",
+                    input_policy.file);
+            return -1;
+        }
     }
 
     for (size_t i = 0; i < cmd_count; ++i) {
@@ -1398,7 +1417,7 @@ static int init_settings(const struct cli_settings *cli,
                 }
 
                 struct cmd cmd = {0};
-                cmd.input = cli->input;
+                cmd.input = input_policy;
                 cmd.output = cli->output;
                 cmd.meas = settings->meas;
                 if (init_cmd_exec(cli->shell, buf, &cmd) == -1) {
@@ -1418,7 +1437,7 @@ static int init_settings(const struct cli_settings *cli,
 
         if (!found_param) {
             struct cmd cmd = {0};
-            cmd.input = cli->input;
+            cmd.input = input_policy;
             cmd.output = cli->output;
             cmd.meas = settings->meas;
             if (init_cmd_exec(cli->shell, cmd_str, &cmd) == -1)
@@ -1456,13 +1475,8 @@ static void apply_input_policy(const struct input_policy *policy) {
     }
     case INPUT_POLICY_FILE: {
         close(STDIN_FILENO);
-        // TODO: Cache file descriptor
-        int fd = open(policy->file, O_RDONLY);
-        if (fd == -1)
+        if (dup2(policy->fd, STDIN_FILENO) == -1)
             _exit(-1);
-        if (dup2(fd, STDIN_FILENO) == -1)
-            _exit(-1);
-        close(fd);
         break;
     }
     }
