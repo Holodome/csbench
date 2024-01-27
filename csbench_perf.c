@@ -862,18 +862,13 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         return 1;
     }
 
-    struct kpc_thread_data {
-        uint32_t tid;
+    struct {
         uint64_t timestamp_0;
         uint64_t timestamp_1;
         uint64_t counters_0[KPC_MAX_COUNTERS];
         uint64_t counters_1[KPC_MAX_COUNTERS];
-    };
+    } data = {0};
 
-    size_t thread_capacity = 16;
-    size_t thread_count = 0;
-    struct kpc_thread_data *thread_data =
-        malloc(thread_capacity * sizeof(struct kpc_thread_data));
     for (struct kd_buf *buf = buf_hdr; buf < buf_cur; buf++) {
         uint32_t func = buf->debugid & KDBG_FUNC_MASK;
         if (func != DBG_FUNC_START)
@@ -914,51 +909,19 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         if (ci != counter_count)
             continue; // not enough counters, maybe truncated
 
-        // add to thread data
-        struct kpc_thread_data *data = NULL;
-        for (size_t i = 0; i < thread_count; i++) {
-            if (thread_data[i].tid == tid) {
-                data = thread_data + i;
-                break;
-            }
-        }
-        if (!data) {
-            if (thread_capacity == thread_count) {
-                thread_capacity *= 2;
-                struct kpc_thread_data *new_data =
-                    realloc(thread_data,
-                            thread_capacity * sizeof(struct kpc_thread_data));
-                thread_data = new_data;
-            }
-            data = thread_data + thread_count;
-            thread_count++;
-            memset(data, 0, sizeof(struct kpc_thread_data));
-            data->tid = tid;
-        }
-        if (data->timestamp_0 == 0) {
-            data->timestamp_0 = buf->timestamp;
-            memcpy(data->counters_0, counters,
-                   counter_count * sizeof(uint64_t));
+        if (data.timestamp_0 == 0) {
+            data.timestamp_0 = buf->timestamp;
+            memcpy(data.counters_0, counters, counter_count * sizeof(uint64_t));
         } else {
-            data->timestamp_1 = buf->timestamp;
-            memcpy(data->counters_1, counters,
-                   counter_count * sizeof(uint64_t));
+            data.timestamp_1 = buf->timestamp;
+            memcpy(data.counters_1, counters, counter_count * sizeof(uint64_t));
         }
-    }
-
-    uint64_t counters_sum[KPC_MAX_COUNTERS] = {0};
-    for (size_t i = 0; i < thread_count; i++) {
-        const struct kpc_thread_data *data = thread_data + i;
-        if (!data->timestamp_0 || !data->timestamp_1)
-            continue;
-
-        for (size_t c = 0; c < counter_count; c++)
-            counters_sum[c] += data->counters_1[c] - data->counters_0[c];
     }
 
     for (size_t i = 0; i < ev_count; i++) {
         const struct event_alias *alias = profile_events + i;
-        uint64_t val = counters_sum[counter_map[i]];
+        uint64_t val =
+            data.counters_1[counter_map[i]] - data.counters_0[counter_map[i]];
         if (strcmp(alias->alias, "cycles") == 0) {
             cnt->cycles = val;
         } else if (strcmp(alias->alias, "instructions") == 0) {
