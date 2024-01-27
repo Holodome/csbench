@@ -1456,6 +1456,7 @@ static void apply_input_policy(const struct input_policy *policy) {
     }
     case INPUT_POLICY_FILE: {
         close(STDIN_FILENO);
+        // TODO: Cache file descriptor 
         int fd = open(policy->file, O_RDONLY);
         if (fd == -1)
             _exit(-1);

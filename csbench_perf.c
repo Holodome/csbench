@@ -92,6 +92,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
 #ifdef __aarch64__
 
 #include <dlfcn.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -625,26 +626,27 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     // check permission
     int force_ctrs = 0;
     if (kpc_force_all_ctrs_get(&force_ctrs)) {
-        printf("Permission denied, xnu/kpc requires root privileges.\n");
+        fprintf(stderr,
+                "error: permission denied, xnu/kpc requires root privileges\n");
         return -1;
     }
 
     struct kpep_db *db = NULL;
-    if ((ret = kpep_db_create(NULL, &db))) {
-        printf("Error: cannot load pmc database: %d.\n", ret);
+    if ((ret = kpep_db_create(NULL, &db)) != 0) {
+        perror("kpep_db_create");
         return -1;
     }
 
     // create config
     struct kpep_config *cfg = NULL;
-    if ((ret = kpep_config_create(db, &cfg))) {
-        printf("Failed to create kpep config: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_create(db, &cfg)) != 0) {
+        fprintf(stderr, "error: failed to create kpep config: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
-    if ((ret = kpep_config_force_counters(cfg))) {
-        printf("Failed to force counters: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_force_counters(cfg)) != 0) {
+        fprintf(stderr, "error: failed to force counters: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
 
@@ -656,7 +658,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
         const struct event_alias *alias = profile_events + i;
         ev_arr[i] = get_event(db, alias);
         if (!ev_arr[i]) {
-            printf("Cannot find event: %s.\n", alias->alias);
+            fprintf(stderr, "error: failed to find event: %s\n", alias->alias);
             return -1;
         }
     }
@@ -664,9 +666,9 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     // add event to config
     for (size_t i = 0; i < ev_count; i++) {
         struct kpep_event *ev = ev_arr[i];
-        if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL))) {
-            printf("Failed to add event: %d (%s).\n", ret,
-                   kpep_config_error_desc(ret));
+        if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL)) != 0) {
+            fprintf(stderr, "error: failed to add event: %d (%s)\n", ret,
+                    kpep_config_error_desc(ret));
             return -1;
         }
     }
@@ -676,52 +678,53 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     size_t reg_count = 0;
     kpc_config_t regs[KPC_MAX_COUNTERS] = {0};
     size_t counter_map[KPC_MAX_COUNTERS] = {0};
-    if ((ret = kpep_config_kpc_classes(cfg, &classes))) {
-        printf("Failed get kpc classes: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_kpc_classes(cfg, &classes)) != 0) {
+        fprintf(stderr, "error: failed to get kpc classes: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
-    if ((ret = kpep_config_kpc_count(cfg, &reg_count))) {
-        printf("Failed get kpc count: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_kpc_count(cfg, &reg_count)) != 0) {
+        fprintf(stderr, "error: failed to get kpc count: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
-    if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map)))) {
-        printf("Failed get kpc map: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map))) !=
+        0) {
+        fprintf(stderr, "error: failed to get kpc map: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
-    if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs)))) {
-        printf("Failed get kpc registers: %d (%s).\n", ret,
-               kpep_config_error_desc(ret));
+    if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs))) != 0) {
+        fprintf(stderr, "error: failed to get kpc registers: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return -1;
     }
 
     // set config to kernel
-    if ((ret = kpc_force_all_ctrs_set(1))) {
-        printf("Failed force all ctrs: %d.\n", ret);
+    if ((ret = kpc_force_all_ctrs_set(1)) != 0) {
+        perror("kpc_force_all_ctrs_set(1)");
         return -1;
     }
     if ((classes & KPC_CLASS_CONFIGURABLE_MASK) && reg_count) {
         if ((ret = kpc_set_config(classes, regs))) {
-            printf("Failed set kpc config: %d.\n", ret);
+            perror("kpc_set_config");
             return -1;
         }
     }
 
     uint32_t counter_count = kpc_get_counter_count(classes);
     if (counter_count == 0) {
-        printf("Failed no counter\n");
+        fprintf(stderr, "error: no counters found\n");
         return -1;
     }
 
     // start counting
-    if ((ret = kpc_set_counting(classes))) {
-        printf("Failed set counting: %d.\n", ret);
+    if ((ret = kpc_set_counting(classes)) != 0) {
+        perror("kpc_set_counting");
         return -1;
     }
-    if ((ret = kpc_set_thread_counting(classes))) {
-        printf("Failed set thread counting: %d.\n", ret);
+    if ((ret = kpc_set_thread_counting(classes)) != 0) {
+        perror("kpc_set_thread_counting");
         return -1;
     }
 
@@ -730,64 +733,65 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     uint32_t timerid = 1;
 
     // alloc action and timer ids
-    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX))) {
-        printf("Failed set action count: %d.\n", ret);
+    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX)) != 0) {
+        perror("kperf_action_count_set");
     }
-    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX))) {
-        printf("Failed set timer count: %d.\n", ret);
+    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX)) != 0) {
+        perror("kperf_timer_count_set");
     }
 
     // set what to sample: PMC per thread
-    if ((ret = kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD))) {
-        printf("Failed set sampler type: %d.\n", ret);
+    if ((ret = kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD)) !=
+        0) {
+        perror("kperf_action_samplers_set");
     }
     // set filter process
-    if ((ret = kperf_action_filter_set_by_pid(actionid, pid))) {
-        printf("Failed set filter pid: %d.\n", ret);
+    if ((ret = kperf_action_filter_set_by_pid(actionid, pid)) != 0) {
+        perror("kperf_action_filter_set_by_pid");
     }
 
     // setup PET (Profile Every Thread), start sampler
     double sample_period = 0.001;
     uint64_t tick = kperf_ns_to_ticks(sample_period * 1000000000ul);
-    if ((ret = kperf_timer_period_set(actionid, tick))) {
-        printf("Failed set timer period: %d.\n", ret);
+    if ((ret = kperf_timer_period_set(actionid, tick)) != 0) {
+        perror("kperf_timer_period_set");
     }
-    if ((ret = kperf_timer_action_set(actionid, timerid))) {
-        printf("Failed set timer action: %d.\n", ret);
+    if ((ret = kperf_timer_action_set(actionid, timerid)) != 0) {
+        perror("kperf_timer_action_set");
     }
-    if ((ret = kperf_timer_pet_set(timerid))) {
-        printf("Failed set timer PET: %d.\n", ret);
+    if ((ret = kperf_timer_pet_set(timerid)) != 0) {
+        perror("kperf_timer_pet_set");
     }
-    if ((ret = kperf_lightweight_pet_set(1))) {
-        printf("Failed set lightweight PET: %d.\n", ret);
+    if ((ret = kperf_lightweight_pet_set(1)) != 0) {
+        perror("kperf_lightweight_pet_set");
     }
     if ((ret = kperf_sample_set(1))) {
-        printf("Failed start sample: %d.\n", ret);
+        perror("kperf_sample_set(1)");
     }
 
     // reset kdebug/ktrace
-    if ((ret = kdebug_reset())) {
-        printf("Failed reset kdebug: %d.\n", ret);
+    if ((ret = kdebug_reset()) != 0) {
+        perror("kdebug_reset");
     }
 
     int nbufs = 1000000;
-    if ((ret = kdebug_trace_setbuf(nbufs))) {
-        printf("Failed setbuf: %d.\n", ret);
+    if ((ret = kdebug_trace_setbuf(nbufs)) != 0) {
+        perror("kdebug_trace_setbuf");
     }
-    if ((ret = kdebug_reinit())) {
-        printf("Failed init kdebug buffer: %d.\n", ret);
+    if ((ret = kdebug_reinit()) != 0) {
+        perror("kdebug_reinit");
     }
 
     // set trace filter: only log PERF_KPC_DATA_THREAD
     struct kd_regtype kdr = {0};
     kdr.type = KDBG_VALCHECK;
     kdr.value1 = KDBG_EVENTID(DBG_PERF, PERF_KPC, PERF_KPC_DATA_THREAD);
-    if ((ret = kdebug_setreg(&kdr))) {
-        printf("Failed set kdebug filter: %d.\n", ret);
+    if ((ret = kdebug_setreg(&kdr)) != 0) {
+        perror("kdebug_setreg");
     }
     // start trace
-    if ((ret = kdebug_trace_enable(1))) {
-        printf("Failed enable kdebug trace: %d.\n", ret);
+    if ((ret = kdebug_trace_enable(1)) != 0) {
+        perror("kdebug_trace_enable");
     }
 
     // sample and get buffers
@@ -854,7 +858,7 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
 
     // aggregate thread PMC data
     if (buf_cur - buf_hdr == 0) {
-        printf("No thread PMC data collected.\n");
+        fprintf(stderr, "error: no thread PMC data collected\n");
         return 1;
     }
 
