@@ -1563,7 +1563,8 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
             sigset_t set;
             sigemptyset(&set);
             sigaddset(&set, SIGUSR1);
-            sigwait(&set, NULL);
+            int sig;
+            sigwait(&set, &sig);
         }
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);

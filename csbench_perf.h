@@ -94,12 +94,13 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 #include <linux/hw_breakpoint.h>
 #include <linux/perf_event.h>
+#include <sys/ioctl.h>
 #include <sys/syscall.h>
-#include <unstd.h>
+#include <unistd.h>
 
-int init_perf(void) {}
+int init_perf(void) { return 0; }
 void deinit_perf(void) {}
-void pef_signal_cleanup(void) {}
+void perf_signal_cleanup(void) {}
 
 struct perf_events {
     size_t count;
@@ -183,7 +184,7 @@ static int stop_counting(struct perf_events *events) {
     size_t bytes_to_read = events->read_buf_len * sizeof(*events->read_buf);
     ssize_t nread;
     if ((nread = read(events->fds[0], events->read_buf, bytes_to_read)) !=
-        bytes_to_read) {
+        (ssize_t)bytes_to_read) {
         if (nread == -1) {
             perror("read");
             return -1;
@@ -199,7 +200,7 @@ static int stop_counting(struct perf_events *events) {
 }
 
 static uint64_t get_counter(struct perf_events *events, size_t idx) {
-    uint64_t id = events->id[0];
+    uint64_t id = events->ids[idx];
     uint64_t *cursor = events->read_buf + 1,
              *end = events->read_buf + events->read_buf_len;
     for (; cursor < end; cursor += 2) {
@@ -210,7 +211,7 @@ static uint64_t get_counter(struct perf_events *events, size_t idx) {
 }
 
 int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
-    const static int config[] = {
+    static const int config[] = {
         PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
         PERF_COUNT_HW_BRANCH_INSTRUCTIONS, PERF_COUNT_HW_BRANCH_MISSES};
 
@@ -239,7 +240,7 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     cnt->cycles = get_counter(events, 0);
     cnt->instructions = get_counter(events, 1);
     cnt->branches = get_counter(events, 2);
-    cnt->branch_misses = get_counter(events, 3);
+    cnt->missed_branches = get_counter(events, 3);
     free_counters(events);
     return 0;
 err_stop_counting:
