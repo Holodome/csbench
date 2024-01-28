@@ -3858,8 +3858,29 @@ out:
     return ret;
 }
 
+static void sigint_handler(int sig) {
+    if (g_use_perf)
+        perf_signal_cleanup();
+
+    // Use default signal handler 
+    struct sigaction action = {0};
+    action.sa_handler = SIG_DFL;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGINT, &action, NULL) == -1)
+        abort();
+    raise(sig);
+}
+
 int main(int argc, char **argv) {
     int rc = EXIT_FAILURE;
+
+    struct sigaction action = {0};
+    action.sa_handler = sigint_handler;
+    sigemptyset(&action.sa_mask);
+    if (sigaction(SIGINT, &action, NULL) == -1) {
+        perror("sigaction");
+        return rc;
+    }
 
     struct cli_settings cli = {0};
     parse_cli_args(argc, argv, &cli);

@@ -78,6 +78,8 @@ struct perf_cnt {
 int init_perf(void);
 void deinit_perf(void);
 
+void perf_signal_cleanup(void);
+
 // collect performance counters for process specified by 'pid'.
 // That process is considered blocked when this function is called,
 // to wake up process this function writes 1 byte of data to 'sync_pipe' and
@@ -948,6 +950,16 @@ err_free_db:
     if (ret != 0)
         ret = -1;
     return -1;
+}
+
+void perf_signal_cleanup(void) {
+    kdebug_trace_enable(0);
+    kdebug_reset();
+    kperf_sample_set(0);
+    kperf_lightweight_pet_set(0);
+    kpc_set_thread_counting(0);
+    kpc_set_counting(0);
+    kpc_force_all_ctrs_set(0);
 }
 
 #else
