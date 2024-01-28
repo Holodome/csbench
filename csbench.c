@@ -1697,15 +1697,24 @@ static int parse_custom_output(int fd, double *valuep) {
     return 0;
 }
 
+static int tmpfile_fd(void) {
+    char path[] = "/tmp/csbench_XXXXXX";
+    int fd = mkstemp(path);
+    if (fd == -1) {
+        perror("mkstemp");
+        return -1;
+    }
+    // This relies on Unix behaviour - file exists until it is closed.
+    unlink(path);
+    return fd;
+}
+
 static int do_custom_measurement(struct bench *bench, size_t meas_idx,
                                  int stdout_fd) {
     int rc = -1;
-    char path[] = "/tmp/csbench_tmp_XXXXXX";
-    int custom_output_fd = mkstemp(path);
-    if (custom_output_fd == -1) {
-        perror("mkstemp");
+    int custom_output_fd = tmpfile_fd();
+    if (custom_output_fd == -1)
         goto out;
-    }
 
     struct meas *custom = bench->cmd->meas + meas_idx;
     if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
@@ -1732,22 +1741,16 @@ static int do_custom_measurement(struct bench *bench, size_t meas_idx,
     sb_push(bench->meas[meas_idx], value);
     rc = 0;
 out:
-    if (custom_output_fd != -1) {
+    if (custom_output_fd != -1)
         close(custom_output_fd);
-        unlink(path);
-    }
     return rc;
 }
 
 static int exec_and_measure(struct bench *bench) {
     int ret = -1;
-    int stdout_fd = -1;
-    char path[] = "/tmp/csbench_out_XXXXXX";
-    stdout_fd = mkstemp(path);
-    if (stdout_fd == -1) {
-        perror("mkstemp");
+    int stdout_fd = tmpfile_fd();
+    if (stdout_fd == -1)
         goto out;
-    }
 
     struct rusage rusage = {0};
     struct perf_cnt pmc_ = {0};
@@ -1824,10 +1827,8 @@ static int exec_and_measure(struct bench *bench) {
 
     ret = 0;
 out:
-    if (stdout_fd != -1) {
+    if (stdout_fd != -1)
         close(stdout_fd);
-        unlink(path);
-    }
     return ret;
 }
 
