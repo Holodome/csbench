@@ -68,6 +68,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -3859,6 +3860,7 @@ out:
 
 int main(int argc, char **argv) {
     int rc = EXIT_FAILURE;
+
     struct cli_settings cli = {0};
     parse_cli_args(argc, argv, &cli);
 
