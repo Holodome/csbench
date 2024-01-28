@@ -104,7 +104,7 @@ void pef_signal_cleanup(void) {}
 struct perf_events {
     size_t count;
     int *fds;
-
+    int *ids;
     size_t read_buf_len;
     uint64_t *read_buf;
 };
@@ -114,6 +114,7 @@ static struct perf_events *open_counters(const int *config, size_t count,
     struct perf_events *events = calloc(1, sizeof(*events));
     events->count = count;
     events->fds = calloc(count, sizeof(*events->fds));
+    events->ids = calloc(count, sizeof(*events->ids));
 
     struct perf_event_attr attr = {0};
     attr.type = PERF_TYPE_HARDWARE;
@@ -122,7 +123,7 @@ static struct perf_events *open_counters(const int *config, size_t count,
     attr.exclude_kernel = 0;
     attr.exclude_hv = 1;
     attr.sample_period = 0;
-    attr.read_format = PERF_FORMAT_GROUP;
+    attr.read_format = PERF_FORMAT_ID | PERF_FORMAT_GROUP;
 
     int group = -1;
     for (size_t i = 0; i < count; ++i) {
@@ -130,18 +131,23 @@ static struct perf_events *open_counters(const int *config, size_t count,
         int fd = syscall(__NR_perf_event_open, &attr, pid, -1, group, 0);
         if (fd == -1) {
             perror("perf_event_open");
+        err_free_all_others:
             for (size_t j = 0; j < i; ++j)
                 close(events->fds[j]);
             free(events->fds);
             free(events);
             return NULL;
         }
+        if (ioctl(fd, PERF_EVENT_IOC_ID, events->ids + i) == -1) {
+            fprintf(stderr, "error: failed to open pmc\n");
+            goto err_free_all_others;
+        }
         events->fds[i] = fd;
         if (group == -1) {
             group = fd;
         }
     }
-    events->read_buf_len = 1 + count;
+    events->read_buf_len = 1 + count * 2;
     events->read_buf = calloc(events->read_buf_len, sizeof(*events->read_buf));
     return events;
 }
@@ -149,6 +155,7 @@ static struct perf_events *open_counters(const int *config, size_t count,
 static void free_counters(struct perf_events *events) {
     for (size_t i = 0; i < events->count; ++i)
         close(events->fds[i]);
+    free(events->ids);
     free(events->fds);
     free(events->read_buf);
 }
@@ -191,6 +198,17 @@ static int stop_counting(struct perf_events *events) {
     return 0;
 }
 
+static uint64_t get_counter(struct perf_events *events, size_t idx) {
+    uint64_t id = events->id[0];
+    uint64_t *cursor = events->read_buf + 1,
+             *end = events->read_buf + events->read_buf_len;
+    for (; cursor < end; cursor += 2) {
+        if (*cursor == id)
+            return cursor[1];
+    }
+    return 0;
+}
+
 int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     const static int config[] = {
         PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
@@ -218,10 +236,10 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     if (stop_counting(events) == -1)
         goto err_close_counters;
 
-    cnt->cycles = events->read_buf[1];
-    cnt->instructions = events->read_buf[2];
-    cnt->branches = events->read_buf[3];
-    cnt->branch_misses = events->read_buf[4];
+    cnt->cycles = get_counter(events, 0);
+    cnt->instructions = get_counter(events, 1);
+    cnt->branches = get_counter(events, 2);
+    cnt->branch_misses = get_counter(events, 3);
     free_counters(events);
     return 0;
 err_stop_counting:
