@@ -1540,6 +1540,7 @@ static void apply_output_policy(enum output_kind policy) {
 
 static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
                     struct perf_cnt *pmc) {
+    int ret = 0;
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -1567,9 +1568,9 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);
     } else {
-        if (pmc != NULL) {
-            if (perf_cnt_collect(pid, pmc) == -1)
-                return -1;
+        if (pmc != NULL && perf_cnt_collect(pid, pmc) == -1) {
+            fprintf(stderr, "error: failed to collect pmc\n");
+            ret = -1;
         }
     }
 
@@ -1581,14 +1582,17 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
         return -1;
     }
 
-    // shell-like exit codes
-    int rc = -1;
-    if (WIFEXITED(status))
-        rc = WEXITSTATUS(status);
-    else if (WIFSIGNALED(status))
-        rc = 128 + WTERMSIG(status);
+    if (ret != -1) {
+        // shell-like exit codes
+        if (WIFEXITED(status))
+            ret = WEXITSTATUS(status);
+        else if (WIFSIGNALED(status))
+            ret = 128 + WTERMSIG(status);
+        else
+            ret = -1;
+    }
 
-    return rc;
+    return ret;
 }
 
 static int process_finished_correctly(pid_t pid) {

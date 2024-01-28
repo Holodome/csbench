@@ -91,9 +91,147 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 #endif
 #ifdef CSBENCH_PERF_IMPL
 #ifdef __linux__
-#error not supported
+
+#include <linux/hw_breakpoint.h>
+#include <linux/perf_event.h>
+#include <sys/syscall.h>
+#include <unstd.h>
+
+int init_perf(void) {}
+void deinit_perf(void) {}
+void pef_signal_cleanup(void) {}
+
+struct perf_events {
+    size_t count;
+    int *fds;
+
+    size_t read_buf_len;
+    uint64_t *read_buf;
+};
+
+static struct perf_events *open_counters(const int *config, size_t count,
+                                         pid_t pid) {
+    struct perf_events *events = calloc(1, sizeof(*events));
+    events->count = count;
+    events->fds = calloc(count, sizeof(*events->fds));
+
+    struct perf_event_attr attr = {0};
+    attr.type = PERF_TYPE_HARDWARE;
+    attr.size = sizeof(attr);
+    attr.disabled = 1;
+    attr.exclude_kernel = 0;
+    attr.exclude_hv = 1;
+    attr.sample_period = 0;
+    attr.read_format = PERF_FORMAT_GROUP;
+
+    int group = -1;
+    for (size_t i = 0; i < count; ++i) {
+        attr.config = config[i];
+        int fd = syscall(__NR_perf_event_open, &attr, pid, -1, group, 0);
+        if (fd == -1) {
+            perror("perf_event_open");
+            for (size_t j = 0; j < i; ++j)
+                close(events->fds[j]);
+            free(events->fds);
+            free(events);
+            return NULL;
+        }
+        events->fds[i] = fd;
+        if (group == -1) {
+            group = fd;
+        }
+    }
+    events->read_buf_len = 1 + count;
+    events->read_buf = calloc(events->read_buf_len, sizeof(*events->read_buf));
+    return events;
+}
+
+static void free_counters(struct perf_events *events) {
+    for (size_t i = 0; i < events->count; ++i)
+        close(events->fds[i]);
+    free(events->fds);
+    free(events->read_buf);
+}
+
+static int start_counting(struct perf_events *events) {
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) ==
+        -1) {
+        fprintf(stderr, "error: failed to reset pmc\n");
+        return -1;
+    }
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) ==
+        -1) {
+        fprintf(stderr, "error: failed to enable pmc counting\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int stop_counting(struct perf_events *events) {
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) ==
+        -1) {
+        fprintf(stderr, "error: failed to stop pmc counting\n");
+        return -1;
+    }
+    size_t bytes_to_read = events->read_buf_len * sizeof(*events->read_buf);
+    ssize_t nread;
+    if ((nread = read(events->fds[0], events->read_buf, bytes_to_read)) !=
+        bytes_to_read) {
+        if (nread == -1) {
+            perror("read");
+            return -1;
+        }
+        fprintf(stderr, "error: failed to read pmc values\n");
+        return -1;
+    }
+    if (events->read_buf[0] != events->count) {
+        fprintf(stderr, "error: pmc count is incorrect\n");
+        return -1;
+    }
+    return 0;
+}
+
+int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
+    const static int config[] = {
+        PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
+        PERF_COUNT_HW_BRANCH_INSTRUCTIONS, PERF_COUNT_HW_BRANCH_MISSES};
+
+    struct perf_events *events =
+        open_counters(config, sizeof(config) / sizeof(*config), pid);
+    if (events == NULL)
+        return -1;
+
+    if (start_counting(events) == -1)
+        goto err_close_counters;
+
+    // signal process to start executing
+    if (kill(pid, SIGUSR1) == -1) {
+        perror("kill");
+        goto err_stop_counting;
+    }
+
+    if (waitid(P_PID, pid, NULL, WEXITED | WNOWAIT) == -1) {
+        perror("waitid");
+        goto err_stop_counting;
+    }
+
+    if (stop_counting(events) == -1)
+        goto err_close_counters;
+
+    cnt->cycles = events->read_buf[1];
+    cnt->instructions = events->read_buf[2];
+    cnt->branches = events->read_buf[3];
+    cnt->branch_misses = events->read_buf[4];
+    free_counters(events);
+    return 0;
+err_stop_counting:
+    stop_counting(events);
+err_close_counters:
+    free_counters(events);
+    return -1;
+}
+
 #elif defined(__APPLE__)
-#ifdef __aarch64__
 
 #include <dlfcn.h>
 #include <errno.h>
@@ -826,8 +964,7 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
         goto err_stop_trace;
     }
 
-    siginfo_t info = {0};
-    if (waitid(P_PID, pid, &info, WEXITED | WNOWAIT) == -1) {
+    if (waitid(P_PID, pid, NULL, WEXITED | WNOWAIT) == -1) {
         perror("waitid");
         goto err_stop_trace;
     }
@@ -964,8 +1101,5 @@ void perf_signal_cleanup(void) {
     kpc_force_all_ctrs_set(0);
 }
 
-#else
-#error Unsupported Apple architecture
-#endif
-#endif
-#endif
+#endif // __APPLE__
+#endif // CSBENCH_PERF_IMPL
