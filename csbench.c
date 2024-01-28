@@ -230,7 +230,8 @@ struct cmd {
     char **argv;
     struct input_policy input;
     enum output_kind output;
-    struct meas *meas;
+    const struct meas *meas;
+    int has_custom_meas;
 };
 
 struct cmd_group {
@@ -1350,21 +1351,20 @@ static int extract_exec_and_argv(const char *cmd_str, char **exec,
     return 0;
 }
 
-static int init_cmd_exec(const char *shell, const char *cmd_str,
-                         struct cmd *cmd) {
+static int init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
+                         char ***argv) {
     if (shell) {
-        if (extract_exec_and_argv(shell, &cmd->exec, &cmd->argv) != 0)
+        if (extract_exec_and_argv(shell, exec, argv) != 0)
             return -1;
         // pop NULL
-        (void)sb_pop(cmd->argv);
-        sb_push(cmd->argv, strdup("-c"));
-        sb_push(cmd->argv, strdup(cmd_str));
-        sb_push(cmd->argv, NULL);
+        (void)sb_pop(*argv);
+        sb_push(*argv, strdup("-c"));
+        sb_push(*argv, strdup(cmd_str));
+        sb_push(*argv, NULL);
     } else {
-        if (extract_exec_and_argv(cmd_str, &cmd->exec, &cmd->argv) != 0)
+        if (extract_exec_and_argv(cmd_str, exec, argv) != 0)
             return -1;
     }
-    cmd->str = strdup(cmd_str);
     return 0;
 }
 
@@ -1387,6 +1387,23 @@ static void free_settings(struct settings *settings) {
     sb_free(settings->cmd_groups);
     if (settings->input_fd != -1)
         close(settings->input_fd);
+}
+
+static void init_cmd(const struct input_policy *input, enum output_kind output,
+                     const struct meas *meas, char *exec, char **argv,
+                     char *cmd_str, struct cmd *cmd) {
+    cmd->input = *input;
+    cmd->output = output;
+    cmd->meas = meas;
+    cmd->exec = exec;
+    cmd->argv = argv;
+    cmd->str = cmd_str;
+    for (size_t i = 0; i < sb_len(meas); ++i) {
+        if (meas[i].kind == MEAS_CUSTOM) {
+            cmd->has_custom_meas = 1;
+            break;
+        }
+    }
 }
 
 static int init_settings(const struct cli_settings *cli,
@@ -1457,16 +1474,16 @@ static int init_settings(const struct cli_settings *cli,
                     goto err_free_settings;
                 }
 
-                struct cmd cmd = {0};
-                cmd.input = input_policy;
-                cmd.output = cli->output;
-                cmd.meas = settings->meas;
-                if (init_cmd_exec(cli->shell, buf, &cmd) == -1) {
+                char *exec = NULL, **argv = NULL;
+                if (init_cmd_exec(cli->shell, buf, &exec, &argv) == -1) {
                     free(group.cmd_idxs);
                     free(group.var_values);
                     goto err_free_settings;
                 }
 
+                struct cmd cmd = {0};
+                init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
+                         strdup(buf), &cmd);
                 group.cmd_idxs[k] = sb_len(settings->cmds);
                 group.var_values[k] = param_value;
                 sb_push(settings->cmds, cmd);
@@ -1477,13 +1494,12 @@ static int init_settings(const struct cli_settings *cli,
         }
 
         if (!found_param) {
-            struct cmd cmd = {0};
-            cmd.input = input_policy;
-            cmd.output = cli->output;
-            cmd.meas = settings->meas;
-            if (init_cmd_exec(cli->shell, cmd_str, &cmd) == -1)
+            char *exec = NULL, **argv = NULL;
+            if (init_cmd_exec(cli->shell, cmd_str, &exec, &argv) == -1)
                 goto err_free_settings;
-
+            struct cmd cmd = {0};
+            init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
+                     strdup(cmd_str), &cmd);
             sb_push(settings->cmds, cmd);
         }
     }
@@ -1640,7 +1656,7 @@ static int execute_prepare(const char *cmd) {
     return 0;
 }
 
-static int execute_custom(struct meas *custom, int in_fd, int out_fd) {
+static int execute_custom(const struct meas *custom, int in_fd, int out_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)custom->cmd;
@@ -1711,12 +1727,13 @@ static int tmpfile_fd(void) {
 
 static int do_custom_measurement(struct bench *bench, size_t meas_idx,
                                  int stdout_fd) {
+    assert(stdout_fd > 0);
     int rc = -1;
     int custom_output_fd = tmpfile_fd();
     if (custom_output_fd == -1)
         goto out;
 
-    struct meas *custom = bench->cmd->meas + meas_idx;
+    const struct meas *custom = bench->cmd->meas + meas_idx;
     if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
         lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
         perror("lseek");
@@ -1748,9 +1765,12 @@ out:
 
 static int exec_and_measure(struct bench *bench) {
     int ret = -1;
-    int stdout_fd = tmpfile_fd();
-    if (stdout_fd == -1)
-        goto out;
+    int stdout_fd = -1;
+    if (bench->cmd->has_custom_meas) {
+        stdout_fd = tmpfile_fd();
+        if (stdout_fd == -1)
+            goto out;
+    }
 
     struct rusage rusage = {0};
     struct perf_cnt pmc_ = {0};
@@ -1819,6 +1839,7 @@ static int exec_and_measure(struct bench *bench) {
             sb_push(bench->meas[meas_idx], pmc->missed_branches);
             break;
         case MEAS_CUSTOM:
+            assert(stdout_fd > 0);
             if (do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
                 goto out;
             break;
