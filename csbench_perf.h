@@ -81,12 +81,12 @@ void deinit_perf(void);
 void perf_signal_cleanup(void);
 
 // collect performance counters for process specified by 'pid'.
-// That process is considered blocked when this function is called,
-// to wake up process this function writes 1 byte of data to 'sync_pipe' and
-// closes it. This function runs and collects performance counters until process
+// That process is considered blocked on sigwait() when this function is called,
+// to wake up process this function sends it SIGUSR1.
+// This function runs and collects performance counters until process
 // has finished, and consolidates results. Process can still be waited
 // after this function has finished executing.
-int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt);
+int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 #endif
 #ifdef CSBENCH_PERF_IMPL
@@ -635,7 +635,7 @@ int init_perf(void) {
 
 void deinit_perf(void) { perf_lib_deinit(); }
 
-int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
+int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     int ret;
     // check permission
     int force_ctrs = 0;
@@ -821,8 +821,10 @@ int perf_cnt_collect(pid_t pid, int sync_pipe, struct perf_cnt *cnt) {
     }
 
     // signal process to start executing
-    write(sync_pipe, "", 1);
-    close(sync_pipe);
+    if (kill(pid, SIGUSR1) == -1) {
+        perror("kill");
+        goto err_stop_trace;
+    }
 
     siginfo_t info = {0};
     if (waitid(P_PID, pid, &info, WEXITED | WNOWAIT) == -1) {

@@ -1540,14 +1540,6 @@ static void apply_output_policy(enum output_kind policy) {
 
 static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
                     struct perf_cnt *pmc) {
-    int pmc_sync_pipe[2] = {-1, -1};
-    if (pmc != NULL) {
-        if (pipe(pmc_sync_pipe) == -1) {
-            perror("pipe");
-            return -1;
-        }
-    }
-
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -1567,17 +1559,16 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
             apply_output_policy(cmd->output);
         }
         if (pmc != NULL) {
-            close(pmc_sync_pipe[1]);
-            char c;
-            read(pmc_sync_pipe[0], &c, 1);
-            close(pmc_sync_pipe[0]);
+            sigset_t set;
+            sigemptyset(&set);
+            sigaddset(&set, SIGUSR1);
+            sigwait(&set, NULL);
         }
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);
     } else {
         if (pmc != NULL) {
-            close(pmc_sync_pipe[0]);
-            if (perf_cnt_collect(pid, pmc_sync_pipe[1], pmc) == -1)
+            if (perf_cnt_collect(pid, pmc) == -1)
                 return -1;
         }
     }
@@ -3862,7 +3853,7 @@ static void sigint_handler(int sig) {
     if (g_use_perf)
         perf_signal_cleanup();
 
-    // Use default signal handler 
+    // Use default signal handler
     struct sigaction action = {0};
     action.sa_handler = SIG_DFL;
     sigemptyset(&action.sa_mask);
