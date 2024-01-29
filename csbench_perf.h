@@ -65,6 +65,7 @@
 #ifndef CSBENCH_PERF_H
 #define CSBENCH_PERF_H
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <sys/types.h>
 
@@ -75,7 +76,7 @@ struct perf_cnt {
     uint64_t instructions;
 };
 
-int init_perf(void);
+bool init_perf(void);
 void deinit_perf(void);
 
 void perf_signal_cleanup(void);
@@ -86,7 +87,7 @@ void perf_signal_cleanup(void);
 // This function runs and collects performance counters until process
 // has finished, and consolidates results. Process can still be waited
 // after this function has finished executing.
-int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
+bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 #endif
 #ifdef CSBENCH_PERF_IMPL
@@ -98,7 +99,7 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 #include <sys/syscall.h>
 #include <unistd.h>
 
-int init_perf(void) { return 0; }
+bool init_perf(void) { return true; }
 void deinit_perf(void) {}
 void perf_signal_cleanup(void) {}
 
@@ -161,25 +162,25 @@ static void free_counters(struct perf_events *events) {
     free(events->read_buf);
 }
 
-static int start_counting(struct perf_events *events) {
+static bool start_counting(struct perf_events *events) {
     if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) ==
         -1) {
         fprintf(stderr, "error: failed to reset pmc\n");
-        return -1;
+        return false;
     }
     if (ioctl(events->fds[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) ==
         -1) {
         fprintf(stderr, "error: failed to enable pmc counting\n");
-        return -1;
+        return false;
     }
-    return 0;
+    return true;
 }
 
 static int stop_counting(struct perf_events *events) {
     if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) ==
         -1) {
         fprintf(stderr, "error: failed to stop pmc counting\n");
-        return -1;
+        return false;
     }
     size_t bytes_to_read = events->read_buf_len * sizeof(*events->read_buf);
     ssize_t nread;
@@ -187,16 +188,16 @@ static int stop_counting(struct perf_events *events) {
         (ssize_t)bytes_to_read) {
         if (nread == -1) {
             perror("read");
-            return -1;
+            return false;
         }
         fprintf(stderr, "error: failed to read pmc values\n");
-        return -1;
+        return false;
     }
     if (events->read_buf[0] != events->count) {
         fprintf(stderr, "error: pmc count is incorrect\n");
-        return -1;
+        return false;
     }
-    return 0;
+    return true;
 }
 
 static uint64_t get_counter(struct perf_events *events, size_t idx) {
@@ -210,7 +211,7 @@ static uint64_t get_counter(struct perf_events *events, size_t idx) {
     return 0;
 }
 
-int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
+bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     static const int config[] = {
         PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
         PERF_COUNT_HW_BRANCH_INSTRUCTIONS, PERF_COUNT_HW_BRANCH_MISSES};
@@ -218,10 +219,10 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     struct perf_events *events =
         open_counters(config, sizeof(config) / sizeof(*config), pid);
     if (events == NULL)
-        return -1;
+        return false;
 
-    if (start_counting(events) == -1)
-        goto err_close_counters;
+    if (!start_counting(events))
+        goto err_free_counters;
 
     // signal process to start executing
     if (kill(pid, SIGUSR1) == -1) {
@@ -229,25 +230,26 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
         goto err_stop_counting;
     }
 
-    if (waitid(P_PID, pid, NULL, WEXITED | WNOWAIT) == -1) {
+    siginfo_t siginfo;
+    if (waitid(P_PID, pid, &siginfo, WEXITED | WNOWAIT) == -1) {
         perror("waitid");
         goto err_stop_counting;
     }
 
-    if (stop_counting(events) == -1)
-        goto err_close_counters;
+    if (!stop_counting(events))
+        goto err_free_counters;
 
     cnt->cycles = get_counter(events, 0);
     cnt->instructions = get_counter(events, 1);
     cnt->branches = get_counter(events, 2);
     cnt->missed_branches = get_counter(events, 3);
     free_counters(events);
-    return 0;
+    return true;
 err_stop_counting:
     stop_counting(events);
-err_close_counters:
+err_free_counters:
     free_counters(events);
-    return -1;
+    return false;
 }
 
 #elif defined(__APPLE__)
@@ -583,7 +585,7 @@ static void perf_lib_deinit(void) {
     }
 }
 
-static int perf_lib_init(void) {
+static bool perf_lib_init(void) {
     perf_lib_handle_kperf = dlopen(perf_lib_path_kperf, RTLD_LAZY);
     if (!perf_lib_handle_kperf) {
         fprintf(stderr, "error: failed to load kperf.framework, message: %s.",
@@ -618,10 +620,10 @@ static int perf_lib_init(void) {
         }
     }
 
-    return 0;
+    return true;
 err:
     perf_lib_deinit();
-    return -1;
+    return false;
 }
 
 #if defined(__arm64__)
@@ -773,9 +775,9 @@ static struct kpep_event *get_event(struct kpep_db *db,
 #define PERF_KPC (6)
 #define PERF_KPC_DATA_THREAD (8)
 
-int init_perf(void) {
-    if (perf_lib_init() == -1)
-        return -1;
+bool init_perf(void) {
+    if (!perf_lib_init())
+        return false;
 
     // Reset all counting. This should put calling process in valid state
     // irrespectible of how the sytem behaved previously.
@@ -786,26 +788,25 @@ int init_perf(void) {
     kpc_set_thread_counting(0);
     kpc_set_counting(0);
     kpc_force_all_ctrs_set(0);
-
-    return 0;
+    return true;
 }
 
 void deinit_perf(void) { perf_lib_deinit(); }
 
-int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
+bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     int ret;
     // check permission
     int force_ctrs = 0;
     if (kpc_force_all_ctrs_get(&force_ctrs) != 0) {
         fprintf(stderr,
                 "error: permission denied, xnu/kpc requires root privileges\n");
-        return -1;
+        return false;
     }
 
     struct kpep_db *db = NULL;
     if ((ret = kpep_db_create(NULL, &db)) != 0) {
         perror("kpep_db_create");
-        return -1;
+        return false;
     }
 
     // create config
@@ -983,7 +984,8 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
         goto err_stop_trace;
     }
 
-    if (waitid(P_PID, pid, NULL, WEXITED | WNOWAIT) == -1) {
+    siginfo_t siginfo;
+    if (waitid(P_PID, pid, &siginfo, WEXITED | WNOWAIT) == -1) {
         perror("waitid");
         goto err_stop_trace;
     }
@@ -1090,7 +1092,7 @@ int perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
         }
     }
 
-    return 0;
+    return true;
 err_stop_trace:
     kdebug_trace_enable(0);
     kdebug_reset();
@@ -1105,9 +1107,7 @@ err_free_config:
     kpep_config_free(cfg);
 err_free_db:
     kpep_db_free(db);
-    if (ret != 0)
-        ret = -1;
-    return -1;
+    return false;
 }
 
 void perf_signal_cleanup(void) {

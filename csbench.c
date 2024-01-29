@@ -1579,9 +1579,10 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
         if (execvp(cmd->exec, cmd->argv) == -1)
             _exit(-1);
     } else {
-        if (pmc != NULL && perf_cnt_collect(pid, pmc) == -1) {
+        if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
             fprintf(stderr, "error: failed to collect pmc\n");
             success = false;
+            kill(pid, SIGKILL);
         }
     }
 
@@ -3877,7 +3878,7 @@ int main(int argc, char **argv) {
     if (!init_settings(&cli, &settings))
         goto err_free_cli;
 
-    if (g_use_perf && init_perf() == -1)
+    if (g_use_perf && !init_perf())
         goto err_free_settings;
 
     g_rng_state = time(NULL);
