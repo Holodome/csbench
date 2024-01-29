@@ -1619,7 +1619,8 @@ static bool process_finished_correctly(pid_t pid) {
     return false;
 }
 
-static bool execute_prepare(const char *cmd) {
+static bool execute_process_in_shell(const char *cmd, int stdin_fd,
+                                     int stdout_fd, int stderr_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -1633,33 +1634,9 @@ static bool execute_prepare(const char *cmd) {
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        if (dup2(g_dev_null_fd, STDOUT_FILENO) == -1 ||
-            dup2(g_dev_null_fd, STDERR_FILENO) == -1 ||
-            dup2(g_dev_null_fd, STDIN_FILENO) == -1)
-            _exit(-1);
-        if (execv(exec, argv) == -1)
-            _exit(-1);
-    }
-    return process_finished_correctly(pid);
-}
-
-static bool execute_custom(const struct meas *custom, int in_fd, int out_fd) {
-    char *exec = "/bin/sh";
-    char *argv[] = {"sh", "-c", NULL, NULL};
-    argv[2] = (char *)custom->cmd;
-
-    pid_t pid = fork();
-    if (pid == -1) {
-        perror("fork");
-        return false;
-    }
-    if (pid == 0) {
-        close(STDIN_FILENO);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        if (dup2(in_fd, STDIN_FILENO) == -1)
-            _exit(-1);
-        if (dup2(out_fd, STDOUT_FILENO) == -1)
+        if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
+            dup2(stdout_fd, STDOUT_FILENO) == -1 ||
+            dup2(stderr_fd, STDERR_FILENO) == -1)
             _exit(-1);
         if (execv(exec, argv) == -1)
             _exit(-1);
@@ -1719,7 +1696,8 @@ static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
         goto out;
     }
 
-    if (!execute_custom(custom, stdout_fd, custom_output_fd))
+    if (!execute_process_in_shell(custom->cmd, stdout_fd, custom_output_fd,
+                                  g_dev_null_fd))
         goto out;
 
     if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -1851,7 +1829,9 @@ static bool warmup(const struct cmd *cmd) {
 static bool run_benchmark(struct bench *bench) {
     if (g_bench_stop.runs != 0) {
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
-            if (bench->prepare && !execute_prepare(bench->prepare))
+            if (bench->prepare &&
+                !execute_process_in_shell(bench->prepare, g_dev_null_fd,
+                                          g_dev_null_fd, g_dev_null_fd))
                 return false;
             if (!exec_and_measure(bench))
                 return false;
@@ -1866,7 +1846,9 @@ static bool run_benchmark(struct bench *bench) {
     size_t max_runs = g_bench_stop.max_runs;
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            if (bench->prepare && !execute_prepare(bench->prepare))
+            if (bench->prepare &&
+                !execute_process_in_shell(bench->prepare, g_dev_null_fd,
+                                          g_dev_null_fd, g_dev_null_fd))
                 return false;
             if (!exec_and_measure(bench))
                 return false;
