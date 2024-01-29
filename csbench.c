@@ -59,6 +59,7 @@
 #include <assert.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -171,36 +172,39 @@ struct meas {
     const char *cmd;
     struct units units;
     enum meas_kind kind;
-    int is_secondary;
+    bool is_secondary;
     size_t primary_idx;
 };
 
 // Some default measurements. Altough these definitions should be used only one
 // time, they are put here to make them clearer to see.
 #define MEAS_WALL_DEF                                                          \
-    ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, 0, 0})
+    ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0})
 #define MEAS_RUSAGE_UTIME_DEF                                                  \
-    ((struct meas){"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, 1, 0})
+    ((struct meas){"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, true, 0})
 #define MEAS_RUSAGE_STIME_DEF                                                  \
-    ((struct meas){"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, 1, 0})
+    ((struct meas){"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, true, 0})
 #define MEAS_RUSAGE_MAXRSS_DEF                                                 \
-    ((struct meas){"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, 1, 0})
+    ((struct meas){"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, true, 0})
 #define MEAS_RUSAGE_MINFLT_DEF                                                 \
-    ((struct meas){"minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, 1, 0})
+    ((struct meas){                                                            \
+        "minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, true, 0})
 #define MEAS_RUSAGE_MAJFLT_DEF                                                 \
-    ((struct meas){"majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, 1, 0})
+    ((struct meas){                                                            \
+        "majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, true, 0})
 #define MEAS_RUSAGE_NVCSW_DEF                                                  \
-    ((struct meas){"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, 1, 0})
+    ((struct meas){"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, true, 0})
 #define MEAS_RUSAGE_NIVCSW_DEF                                                 \
-    ((struct meas){"nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, 1, 0})
+    ((struct meas){                                                            \
+        "nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, true, 0})
 #define MEAS_PERF_CYCLES_DEF                                                   \
-    ((struct meas){"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, 1, 0})
+    ((struct meas){"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, true, 0})
 #define MEAS_PERF_INS_DEF                                                      \
-    ((struct meas){"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, 1, 0})
+    ((struct meas){"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, true, 0})
 #define MEAS_PERF_BRANCH_DEF                                                   \
-    ((struct meas){"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, 1, 0})
+    ((struct meas){"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, true, 0})
 #define MEAS_PERF_BRANCHM_DEF                                                  \
-    ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, 1, 0})
+    ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0})
 
 struct bench_param {
     char *name;
@@ -231,7 +235,7 @@ struct cmd {
     struct input_policy input;
     enum output_kind output;
     const struct meas *meas;
-    int has_custom_meas;
+    bool has_custom_meas;
 };
 
 struct cmd_group {
@@ -342,7 +346,7 @@ struct cmd_group_analysis {
     struct cmd_in_group_data *data;
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
-    int values_are_doubles;
+    bool values_are_doubles;
     struct ols_regress regress;
 };
 
@@ -375,7 +379,7 @@ struct kde_plot {
     double mean;
     double mean_y;
     const char *output_filename;
-    int is_ext;
+    bool is_ext;
 };
 
 struct parfor_data {
@@ -384,13 +388,13 @@ struct parfor_data {
     size_t stride;
     size_t low;
     size_t high;
-    int (*fn)(void *);
+    bool (*fn)(void *);
 };
 
 struct prettify_plot {
     const char *units_str;
     double multiplier;
-    int logscale;
+    bool logscale;
 };
 
 #define sb_header(_a)                                                          \
@@ -418,13 +422,13 @@ struct prettify_plot {
 #include "csbench_perf.h"
 
 static __thread uint32_t g_rng_state;
-static int g_allow_nonzero = 0;
+static bool g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
-static int g_plot_src = 0;
+static bool g_plot_src = 0;
 static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
-static int g_use_perf = 0;
+static bool g_use_perf = 0;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 
 static void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -571,15 +575,15 @@ static void print_version_and_exit(void) {
     exit(EXIT_SUCCESS);
 }
 
-static int parse_range_scan_settings(const char *settings, char **namep,
-                                     double *lowp, double *highp,
-                                     double *stepp) {
+static bool parse_range_scan_settings(const char *settings, char **namep,
+                                      double *lowp, double *highp,
+                                      double *stepp) {
     char *name = NULL;
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
     char *i_end = strchr(cursor, '/');
     if (i_end == NULL)
-        return 0;
+        return false;
 
     size_t name_len = i_end - cursor;
     name = malloc(name_len + 1);
@@ -616,10 +620,10 @@ static int parse_range_scan_settings(const char *settings, char **namep,
     *lowp = low;
     *highp = high;
     *stepp = step;
-    return 1;
+    return true;
 err_free_name:
     free(name);
-    return 0;
+    return false;
 }
 
 static char **range_to_param_list(double low, double high, double step) {
@@ -633,8 +637,8 @@ static char **range_to_param_list(double low, double high, double step) {
     return result;
 }
 
-static int parse_comma_separated_settings(const char *settings, char **namep,
-                                          char **scan_listp) {
+static bool parse_comma_separated_settings(const char *settings, char **namep,
+                                           char **scan_listp) {
     char *name = NULL;
     char *scan_list = NULL;
 
@@ -642,7 +646,7 @@ static int parse_comma_separated_settings(const char *settings, char **namep,
     const char *settings_end = settings + strlen(settings);
     char *i_end = strchr(cursor, '/');
     if (i_end == NULL)
-        return 0;
+        return false;
 
     size_t name_len = i_end - cursor;
     name = malloc(name_len + 1);
@@ -657,10 +661,10 @@ static int parse_comma_separated_settings(const char *settings, char **namep,
 
     *namep = name;
     *scan_listp = scan_list;
-    return 1;
+    return true;
 err_free_name:
     free(name);
-    return 0;
+    return false;
 }
 
 static char **parse_comma_separated(const char *scan_list) {
@@ -753,7 +757,7 @@ static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
     settings->out_dir = ".csbench";
-    int no_wall = 0;
+    bool no_wall = false;
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
 
@@ -1019,11 +1023,11 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(opt, "--plot") == 0) {
             settings->analyze_mode = ANALYZE_PLOT;
         } else if (strcmp(opt, "--plot-src") == 0) {
-            g_plot_src = 1;
+            g_plot_src = true;
         } else if (strcmp(opt, "--no-wall") == 0) {
-            no_wall = 1;
+            no_wall = true;
         } else if (strcmp(opt, "--allow-nonzero") == 0) {
-            g_allow_nonzero = 1;
+            g_allow_nonzero = true;
         } else if (strcmp(opt, "--meas") == 0) {
             if (cursor >= argc) {
                 fprintf(stderr, "error: --meas requires 1 argument\n");
@@ -1041,12 +1045,12 @@ static void parse_cli_args(int argc, char **argv,
 
     if (!no_wall) {
         sb_push(settings->meas, MEAS_WALL_DEF);
-        int already_has_stime = 0, already_has_utime = 0;
+        bool already_has_stime = false, already_has_utime = false;
         for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
             if (rusage_opts[i] == MEAS_RUSAGE_STIME)
-                already_has_stime = 1;
+                already_has_stime = true;
             else if (rusage_opts[i] == MEAS_RUSAGE_UTIME)
-                already_has_utime = 1;
+                already_has_utime = true;
         }
         if (!already_has_utime)
             sb_pushfront(rusage_opts, MEAS_RUSAGE_UTIME);
@@ -1079,19 +1083,19 @@ static void parse_cli_args(int argc, char **argv,
             break;
         case MEAS_PERF_CYCLES:
             sb_push(settings->meas, MEAS_PERF_CYCLES_DEF);
-            g_use_perf = 1;
+            g_use_perf = true;
             break;
         case MEAS_PERF_INS:
             sb_push(settings->meas, MEAS_PERF_INS_DEF);
-            g_use_perf = 1;
+            g_use_perf = true;
             break;
         case MEAS_PERF_BRANCH:
             sb_push(settings->meas, MEAS_PERF_BRANCH_DEF);
-            g_use_perf = 1;
+            g_use_perf = true;
             break;
         case MEAS_PERF_BRANCHM:
             sb_push(settings->meas, MEAS_PERF_BRANCHM_DEF);
-            g_use_perf = 1;
+            g_use_perf = true;
             break;
         default:
             assert(0);
@@ -1117,8 +1121,8 @@ static void free_cli_settings(struct cli_settings *settings) {
     sb_free(settings->params);
 }
 
-static int replace_str(char *buf, size_t buf_size, const char *src,
-                       const char *name, const char *value) {
+static bool replace_str(char *buf, size_t buf_size, const char *src,
+                        const char *name, const char *value) {
     char *buf_end = buf + buf_size;
     size_t param_name_len = strlen(name);
     char *wr_cursor = buf;
@@ -1130,19 +1134,19 @@ static int replace_str(char *buf, size_t buf_size, const char *src,
             rd_cursor += 2 + param_name_len;
             size_t len = strlen(value);
             if (wr_cursor + len >= buf_end)
-                return -1;
+                return false;
             memcpy(wr_cursor, value, len);
             wr_cursor += len;
         } else {
             if (wr_cursor >= buf_end)
-                return -1;
+                return false;
             *wr_cursor++ = *rd_cursor++;
         }
     }
     if (wr_cursor >= buf_end)
-        return -1;
+        return false;
     *wr_cursor = '\0';
-    return 0;
+    return true;
 }
 
 static char **split_shell_words(const char *cmd) {
@@ -1331,41 +1335,38 @@ out:
     return words;
 }
 
-static int extract_exec_and_argv(const char *cmd_str, char **exec,
-                                 char ***argv) {
+static bool extract_exec_and_argv(const char *cmd_str, char **exec,
+                                  char ***argv) {
     char **words = split_shell_words(cmd_str);
     if (words == NULL) {
         fprintf(stderr, "error: invalid command syntax\n");
-        return -1;
+        return false;
     }
 
     *exec = strdup(words[0]);
-    sb_push(*argv, strdup(words[0]));
-    for (size_t i = 1; i < sb_len(words); ++i)
+    for (size_t i = 0; i < sb_len(words); ++i)
         sb_push(*argv, strdup(words[i]));
-    sb_push(*argv, NULL);
 
     for (size_t i = 0; i < sb_len(words); ++i)
         sb_free(words[i]);
     sb_free(words);
-    return 0;
+    return true;
 }
 
-static int init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
-                         char ***argv) {
-    if (shell) {
-        if (extract_exec_and_argv(shell, exec, argv) != 0)
-            return -1;
-        // pop NULL
-        (void)sb_pop(*argv);
+static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
+                          char ***argv) {
+    if (shell != NULL) {
+        if (!extract_exec_and_argv(shell, exec, argv))
+            return false;
         sb_push(*argv, strdup("-c"));
         sb_push(*argv, strdup(cmd_str));
         sb_push(*argv, NULL);
     } else {
-        if (extract_exec_and_argv(cmd_str, exec, argv) != 0)
-            return -1;
+        if (!extract_exec_and_argv(cmd_str, exec, argv))
+            return false;
+        sb_push(*argv, NULL);
     }
-    return 0;
+    return true;
 }
 
 static void free_settings(struct settings *settings) {
@@ -1406,8 +1407,8 @@ static void init_cmd(const struct input_policy *input, enum output_kind output,
     }
 }
 
-static int init_settings(const struct cli_settings *cli,
-                         struct settings *settings) {
+static bool init_settings(const struct cli_settings *cli,
+                          struct settings *settings) {
     settings->export = cli->export;
     settings->prepare_cmd = cli->prepare;
     settings->analyze_mode = cli->analyze_mode;
@@ -1415,25 +1416,14 @@ static int init_settings(const struct cli_settings *cli,
     settings->meas = cli->meas;
     settings->input_fd = -1;
 
-    // try to catch invalid file as early as possible,
-    // because later error handling can become troublesome (after fork()).
-    if (cli->input.kind == INPUT_POLICY_FILE &&
-        access(cli->input.file, R_OK) == -1) {
-        fprintf(stderr,
-                "error: file specified as command input is not accessable "
-                "(%s)\n",
-                cli->input.file);
-        return -1;
-    }
-
     size_t cmd_count = sb_len(cli->cmds);
     if (cmd_count == 0) {
         fprintf(stderr, "error: no commands specified\n");
-        return -1;
+        return false;
     }
     if (sb_len(cli->meas) == 0) {
         fprintf(stderr, "error: no measurements specified\n");
-        return -1;
+        return false;
     }
 
     struct input_policy input_policy = cli->input;
@@ -1444,13 +1434,13 @@ static int init_settings(const struct cli_settings *cli,
             fprintf(stderr,
                     "error: failed to open file '%s' (specified for input)\n",
                     input_policy.file);
-            return -1;
+            return false;
         }
     }
 
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->cmds[i];
-        int found_param = 0;
+        bool found_param = 0;
         for (size_t j = 0; j < sb_len(cli->params); ++j) {
             const struct bench_param *param = cli->params + j;
             char buf[4096];
@@ -1460,22 +1450,24 @@ static int init_settings(const struct cli_settings *cli,
 
             size_t its_in_group = sb_len(param->values);
             assert(its_in_group != 0);
-            found_param = 1;
+            found_param = true;
             struct cmd_group group = {0};
             group.count = its_in_group;
             group.cmd_idxs = calloc(its_in_group, sizeof(*group.cmd_idxs));
             group.var_values = calloc(its_in_group, sizeof(*group.var_values));
             for (size_t k = 0; k < its_in_group; ++k) {
                 const char *param_value = param->values[k];
-                if (replace_str(buf, sizeof(buf), cmd_str, param->name,
-                                param_value) == -1) {
+                if (!replace_str(buf, sizeof(buf), cmd_str, param->name,
+                                 param_value)) {
                     free(group.cmd_idxs);
                     free(group.var_values);
                     goto err_free_settings;
                 }
 
                 char *exec = NULL, **argv = NULL;
-                if (init_cmd_exec(cli->shell, buf, &exec, &argv) == -1) {
+                if (!init_cmd_exec(cli->shell, buf, &exec, &argv)) {
+                    fprintf(stderr,
+                            "error: failed to initialize command '%s'\n", buf);
                     free(group.cmd_idxs);
                     free(group.var_values);
                     goto err_free_settings;
@@ -1495,19 +1487,21 @@ static int init_settings(const struct cli_settings *cli,
 
         if (!found_param) {
             char *exec = NULL, **argv = NULL;
-            if (init_cmd_exec(cli->shell, cmd_str, &exec, &argv) == -1)
+            if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
+                fprintf(stderr, "error: failed to initialize command '%s'\n",
+                        cmd_str);
                 goto err_free_settings;
+            }
             struct cmd cmd = {0};
             init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
                      strdup(cmd_str), &cmd);
             sb_push(settings->cmds, cmd);
         }
     }
-
-    return 0;
+    return true;
 err_free_settings:
     free_settings(settings);
-    return -1;
+    return false;
 }
 
 #if defined(__APPLE__)
@@ -1556,7 +1550,7 @@ static void apply_output_policy(enum output_kind policy) {
 
 static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
                     struct perf_cnt *pmc) {
-    int ret = 0;
+    bool success = true;
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
@@ -1587,7 +1581,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     } else {
         if (pmc != NULL && perf_cnt_collect(pid, pmc) == -1) {
             fprintf(stderr, "error: failed to collect pmc\n");
-            ret = -1;
+            success = false;
         }
     }
 
@@ -1596,38 +1590,35 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
             perror("wait4");
-        return -1;
+        return false;
     }
 
-    if (ret != -1) {
+    int ret = -1;
+    if (success) {
         // shell-like exit codes
         if (WIFEXITED(status))
             ret = WEXITSTATUS(status);
         else if (WIFSIGNALED(status))
             ret = 128 + WTERMSIG(status);
-        else
-            ret = -1;
     }
 
     return ret;
 }
 
-static int process_finished_correctly(pid_t pid) {
+static bool process_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
         if (wpid == -1)
             perror("waitpid");
-        return 0;
+        return false;
     }
-
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return 1;
-
-    return 0;
+        return true;
+    return false;
 }
 
-static int execute_prepare(const char *cmd) {
+static bool execute_prepare(const char *cmd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -1635,9 +1626,8 @@ static int execute_prepare(const char *cmd) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return -1;
+        return false;
     }
-
     if (pid == 0) {
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
@@ -1649,14 +1639,10 @@ static int execute_prepare(const char *cmd) {
         if (execv(exec, argv) == -1)
             _exit(-1);
     }
-
-    if (!process_finished_correctly(pid))
-        return -1;
-
-    return 0;
+    return process_finished_correctly(pid);
 }
 
-static int execute_custom(const struct meas *custom, int in_fd, int out_fd) {
+static bool execute_custom(const struct meas *custom, int in_fd, int out_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)custom->cmd;
@@ -1664,53 +1650,46 @@ static int execute_custom(const struct meas *custom, int in_fd, int out_fd) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return -1;
+        return false;
     }
-
     if (pid == 0) {
         close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
         if (dup2(in_fd, STDIN_FILENO) == -1)
             _exit(-1);
-        close(STDOUT_FILENO);
         if (dup2(out_fd, STDOUT_FILENO) == -1)
             _exit(-1);
-        close(STDERR_FILENO);
         if (execv(exec, argv) == -1)
             _exit(-1);
     }
-
-    if (!process_finished_correctly(pid))
-        return -1;
-
-    return 0;
+    return process_finished_correctly(pid);
 }
 
-static int parse_custom_output(int fd, double *valuep) {
+static bool parse_custom_output(int fd, double *valuep) {
     char buf[4096];
     ssize_t nread = read(fd, buf, sizeof(buf));
     if (nread == -1) {
         perror("read");
-        return -1;
+        return false;
     }
     if (nread == sizeof(buf)) {
         fprintf(stderr, "error: custom measurement output is too large\n");
-        return -1;
+        return false;
     }
     if (nread == 0) {
         fprintf(stderr, "error: custom measurement output is empty\n");
-        return -1;
+        return false;
     }
-
     buf[nread] = '\0';
     char *end = NULL;
     double value = strtod(buf, &end);
     if (end == buf) {
         fprintf(stderr, "error: invalid custom measurement output '%s'\n", buf);
-        return -1;
+        return false;
     }
-
     *valuep = value;
-    return 0;
+    return true;
 }
 
 static int tmpfile_fd(void) {
@@ -1725,22 +1704,21 @@ static int tmpfile_fd(void) {
     return fd;
 }
 
-static int do_custom_measurement(struct bench *bench, size_t meas_idx,
-                                 int stdout_fd) {
+static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
+                                  double *valuep) {
     assert(stdout_fd > 0);
-    int rc = -1;
+    bool success = false;
     int custom_output_fd = tmpfile_fd();
     if (custom_output_fd == -1)
-        goto out;
+        return false;
 
-    const struct meas *custom = bench->cmd->meas + meas_idx;
     if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
         lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
         perror("lseek");
         goto out;
     }
 
-    if (execute_custom(custom, stdout_fd, custom_output_fd) == -1)
+    if (!execute_custom(custom, stdout_fd, custom_output_fd))
         goto out;
 
     if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -1749,22 +1727,19 @@ static int do_custom_measurement(struct bench *bench, size_t meas_idx,
     }
 
     double value;
-    if (parse_custom_output(custom_output_fd, &value) == -1) {
-        fprintf(stderr, "note: when trying to execute '%s' on command '%s'\n",
-                custom->name, bench->cmd->str);
+    if (!parse_custom_output(custom_output_fd, &value))
         goto out;
-    }
 
-    sb_push(bench->meas[meas_idx], value);
-    rc = 0;
+    *valuep = value;
+    success = true;
 out:
-    if (custom_output_fd != -1)
-        close(custom_output_fd);
-    return rc;
+    assert(custom_output_fd != -1);
+    close(custom_output_fd);
+    return success;
 }
 
-static int exec_and_measure(struct bench *bench) {
-    int ret = -1;
+static bool exec_and_measure(struct bench *bench) {
+    bool success = false;
     int stdout_fd = -1;
     if (bench->cmd->has_custom_meas) {
         stdout_fd = tmpfile_fd();
@@ -1797,92 +1772,91 @@ static int exec_and_measure(struct bench *bench) {
     sb_push(bench->exit_codes, rc);
     for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
         const struct meas *meas = bench->cmd->meas + meas_idx;
+        double val;
         switch (meas->kind) {
         case MEAS_WALL:
-            sb_push(bench->meas[meas_idx], wall_clock_end - wall_clock_start);
+            val = wall_clock_end - wall_clock_start;
             break;
         case MEAS_RUSAGE_STIME:
-            sb_push(bench->meas[meas_idx],
-                    rusage.ru_stime.tv_sec +
-                        (double)rusage.ru_stime.tv_usec / 1e6);
+            val =
+                rusage.ru_stime.tv_sec + (double)rusage.ru_stime.tv_usec / 1e6;
             break;
         case MEAS_RUSAGE_UTIME:
-            sb_push(bench->meas[meas_idx],
-                    rusage.ru_utime.tv_sec +
-                        (double)rusage.ru_utime.tv_usec / 1e6);
+            val =
+                rusage.ru_utime.tv_sec + (double)rusage.ru_utime.tv_usec / 1e6;
             break;
         case MEAS_RUSAGE_MAXRSS:
-            sb_push(bench->meas[meas_idx], rusage.ru_maxrss);
+            val = rusage.ru_maxrss;
             break;
         case MEAS_RUSAGE_MINFLT:
-            sb_push(bench->meas[meas_idx], rusage.ru_minflt);
+            val = rusage.ru_minflt;
             break;
         case MEAS_RUSAGE_MAJFLT:
-            sb_push(bench->meas[meas_idx], rusage.ru_majflt);
+            val = rusage.ru_majflt;
             break;
         case MEAS_RUSAGE_NVCSW:
-            sb_push(bench->meas[meas_idx], rusage.ru_nvcsw);
+            val = rusage.ru_nvcsw;
             break;
         case MEAS_RUSAGE_NIVCSW:
-            sb_push(bench->meas[meas_idx], rusage.ru_nivcsw);
+            val = rusage.ru_nivcsw;
             break;
         case MEAS_PERF_CYCLES:
-            sb_push(bench->meas[meas_idx], pmc->cycles);
+            assert(pmc);
+            val = pmc->cycles;
             break;
         case MEAS_PERF_INS:
-            sb_push(bench->meas[meas_idx], pmc->instructions);
+            assert(pmc);
+            val = pmc->instructions;
             break;
         case MEAS_PERF_BRANCH:
-            sb_push(bench->meas[meas_idx], pmc->branches);
+            assert(pmc);
+            val = pmc->branches;
             break;
         case MEAS_PERF_BRANCHM:
-            sb_push(bench->meas[meas_idx], pmc->missed_branches);
+            assert(pmc);
+            val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
             assert(stdout_fd > 0);
-            if (do_custom_measurement(bench, meas_idx, stdout_fd) == -1)
+            if (!do_custom_measurement(bench->cmd->meas + meas_idx, stdout_fd,
+                                       &val))
                 goto out;
             break;
         }
+        sb_push(bench->meas[meas_idx], val);
     }
 
-    ret = 0;
+    success = true;
 out:
     if (stdout_fd != -1)
         close(stdout_fd);
-    return ret;
+    return success;
 }
 
-static int warmup(const struct cmd *cmd) {
+static bool warmup(const struct cmd *cmd) {
     double time_limit = g_warmup_time;
     if (time_limit < 0.0)
-        return 0;
-
+        return true;
     double start_time = get_time();
-    double end_time;
     do {
         if (exec_cmd(cmd, -1, NULL, NULL) == -1) {
             fprintf(stderr, "error: failed to execute warmup command\n");
-            return -1;
+            return false;
         }
-        end_time = get_time();
-    } while (end_time - start_time < time_limit);
-
-    return 0;
+    } while (get_time() - start_time < time_limit);
+    return true;
 }
 
-static int run_benchmark(struct bench *bench) {
+static bool run_benchmark(struct bench *bench) {
     if (g_bench_stop.runs != 0) {
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
-            if (bench->prepare && execute_prepare(bench->prepare) == -1)
-                return -1;
-            if (exec_and_measure(bench) == -1)
-                return -1;
+            if (bench->prepare && !execute_prepare(bench->prepare))
+                return false;
+            if (!exec_and_measure(bench))
+                return false;
         }
-
-        return 0;
+        return true;
     }
-
     double niter_accum = 1;
     size_t niter = 1;
     double start_time = get_time();
@@ -1891,12 +1865,11 @@ static int run_benchmark(struct bench *bench) {
     size_t max_runs = g_bench_stop.max_runs;
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            if (bench->prepare && execute_prepare(bench->prepare) == -1)
-                return -1;
-            if (exec_and_measure(bench) == -1)
-                return -1;
+            if (bench->prepare && !execute_prepare(bench->prepare))
+                return false;
+            if (!exec_and_measure(bench))
+                return false;
         }
-
         double end_time = get_time();
         if (((max_runs != 0 ? count >= max_runs : 0) ||
              (end_time - start_time > time_limit)) &&
@@ -1910,8 +1883,7 @@ static int run_benchmark(struct bench *bench) {
                 break;
         }
     }
-
-    return 0;
+    return true;
 }
 
 static uint32_t xorshift32(uint32_t *state) {
@@ -2232,7 +2204,7 @@ static void analyze_cmd_groups(const struct settings *settings,
             analysis->group = group;
             analysis->cmd_count = cmd_count;
             analysis->data = calloc(cmd_count, sizeof(*analysis->data));
-            int values_are_doubles = 1;
+            bool values_are_doubles = true;
             double slowest = -INFINITY, fastest = INFINITY;
             for (size_t cmd_idx = 0; cmd_idx < cmd_count; ++cmd_idx) {
                 const char *value = group->var_values[cmd_idx];
@@ -2249,7 +2221,7 @@ static void analyze_cmd_groups(const struct settings *settings,
                 char *end = NULL;
                 double value_double = strtod(value, &end);
                 if (end == value)
-                    values_are_doubles = 0;
+                    values_are_doubles = false;
                 double mean =
                     results->analyses[bench_idx].meas[meas_idx].mean.point;
                 struct cmd_in_group_data *data = analysis->data + cmd_idx;
@@ -2520,13 +2492,13 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
     printf("command\t'%s'\n", cmd->str);
     printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
-    int has_primary = 0;
+    bool has_primary = false;
     for (size_t i = 0; i < bench->meas_count; ++i) {
         const struct meas *info = cmd->meas + i;
         if (info->is_secondary)
             continue;
 
-        has_primary = 1;
+        has_primary = true;
         const struct distr *distr = analysis->meas + i;
         print_distr(distr, &info->units);
         for (size_t j = 0; j < bench->meas_count; ++j) {
@@ -2601,40 +2573,40 @@ static void print_cmd_group_analysis(const struct bench_results *results) {
     }
 }
 
-static int json_escape(char *buf, size_t buf_size, const char *src) {
+static bool json_escape(char *buf, size_t buf_size, const char *src) {
     if (src == NULL) {
         assert(buf_size);
         *buf = '\0';
-        return 0;
+        return true;
     }
     char *end = buf + buf_size;
     while (*src) {
         if (buf >= end)
-            return -1;
+            return false;
 
         int c = *src++;
         if (c == '\"') {
             *buf++ = '\\';
             if (buf >= end)
-                return -1;
+                return false;
             *buf++ = c;
         } else {
             *buf++ = c;
         }
     }
     if (buf >= end)
-        return -1;
+        return false;
     *buf = '\0';
-    return 0;
+    return true;
 }
 
-static int export_json(const struct bench_results *results,
-                       const char *filename) {
+static bool export_json(const struct bench_results *results,
+                        const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         fprintf(stderr, "error: failed to open file '%s' for export\n",
                 filename);
-        return -1;
+        return false;
     }
 
     char buf[4096];
@@ -2688,15 +2660,14 @@ static int export_json(const struct bench_results *results,
     }
     fprintf(f, "]}\n");
     fclose(f);
-
-    return 0;
+    return true;
 }
 
-static int python_found(void) {
+static bool python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return 0;
+        return false;
     }
     if (pid == 0) {
         close(STDOUT_FILENO);
@@ -2704,20 +2675,20 @@ static int python_found(void) {
         if (execlp("python3", "python3", "--version", NULL) == -1)
             _exit(-1);
     }
-
     return process_finished_correctly(pid);
 }
 
-static int launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
+static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
-        return -1;
+        perror("pipe");
+        return false;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
         perror("fork");
-        return -1;
+        return false;
     }
     if (pid == 0) {
         close(pipe_fds[1]);
@@ -2730,21 +2701,26 @@ static int launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
         if (execlp("python3", "python3", NULL) == -1)
             _exit(-1);
     }
-
     close(pipe_fds[0]);
     FILE *f = fdopen(pipe_fds[1], "w");
-
+    if (f == NULL) {
+        perror("fdopen");
+        // Not a very nice way of handling errors, but it seems correct.
+        close(pipe_fds[1]);
+        kill(pid, SIGKILL);
+        waitpid(pid, NULL, 0);
+        return false;
+    }
     *pidp = pid;
     *inp = f;
-    return 0;
+    return true;
 }
 
-static int python_has_matplotlib(void) {
+static bool python_has_matplotlib(void) {
     FILE *f;
     pid_t pid;
-    if (launch_python_stdin_pipe(&f, &pid))
-        return 0;
-
+    if (!launch_python_stdin_pipe(&f, &pid))
+        return false;
     fprintf(f, "import matplotlib.pyplot as plt\n");
     fclose(f);
     return process_finished_correctly(pid);
@@ -2760,17 +2736,17 @@ open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
-static int units_is_time(const struct units *units) {
+static bool units_is_time(const struct units *units) {
     switch (units->kind) {
     case MU_S:
     case MU_MS:
     case MU_NS:
     case MU_US:
-        return 1;
+        return true;
     default:
         break;
     }
-    return 0;
+    return false;
 }
 
 static void prettify_plot(const struct units *units, double min, double max,
@@ -2969,7 +2945,7 @@ static void group_plot(const struct cmd_group_analysis *analyses, size_t count,
 }
 
 static void construct_kde(const struct distr *distr, double *kde,
-                          size_t kde_size, int is_ext, double *lowerp,
+                          size_t kde_size, bool is_ext, double *lowerp,
                           double *stepp) {
     size_t count = distr->count;
     double st_dev = distr->st_dev.point;
@@ -3005,11 +2981,12 @@ static void construct_kde(const struct distr *distr, double *kde,
 }
 
 #define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \
-    init_kde_plot_internal(_distr, _title, _meas, 0, _output_filename, _plot)
+    init_kde_plot_internal(_distr, _title, _meas, false, _output_filename,     \
+                           _plot)
 #define init_kde_plot_ext(_distr, _title, _meas, _output_filename, _plot)      \
-    init_kde_plot_internal(_distr, _title, _meas, 1, _output_filename, _plot)
+    init_kde_plot_internal(_distr, _title, _meas, true, _output_filename, _plot)
 static void init_kde_plot_internal(const struct distr *distr, const char *title,
-                                   const struct meas *meas, int is_ext,
+                                   const struct meas *meas, bool is_ext,
                                    const char *output_filename,
                                    struct kde_plot *plot) {
     size_t kde_points = 200;
@@ -3178,8 +3155,8 @@ static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
         free_kde_plot(&plot);                                                  \
     } while (0)
 
-static int dump_plot_src(const struct bench_results *results,
-                         const char *out_dir) {
+static bool dump_plot_src(const struct bench_results *results,
+                          const char *out_dir) {
     size_t bench_count = results->bench_count;
     const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
@@ -3195,7 +3172,7 @@ static int dump_plot_src(const struct bench_results *results,
                 fprintf(stderr,
                         "error: failed to create file %s/violin_%zu.py\n",
                         out_dir, meas_idx);
-                return -1;
+                return false;
             }
             snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
             violin_plot(benches, bench_count, meas_idx, buf, f);
@@ -3206,7 +3183,7 @@ static int dump_plot_src(const struct bench_results *results,
             if (f == NULL) {
                 fprintf(stderr, "error: failed to create file %s/bar_%zu.py\n",
                         out_dir, meas_idx);
-                return -1;
+                return false;
             }
             snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
             bar_plot(analyses, bench_count, meas_idx, buf, f);
@@ -3221,7 +3198,7 @@ static int dump_plot_src(const struct bench_results *results,
                 fprintf(stderr,
                         "error: failed to create file %s/group_%zu_%zu.py\n",
                         out_dir, grp_idx, meas_idx);
-                return -1;
+                return false;
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
                      meas_idx);
@@ -3236,7 +3213,7 @@ static int dump_plot_src(const struct bench_results *results,
                 fprintf(stderr,
                         "error: failed to create file %s/group_%zu.py\n",
                         out_dir, meas_idx);
-                return -1;
+                return false;
             }
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             group_plot(analyses, results->group_count, buf, f);
@@ -3252,7 +3229,7 @@ static int dump_plot_src(const struct bench_results *results,
                     fprintf(stderr,
                             "error: failed to create file %s/kde_%zu_%zu.py\n",
                             out_dir, bench_idx, meas_idx);
-                    return -1;
+                    return false;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
@@ -3267,7 +3244,7 @@ static int dump_plot_src(const struct bench_results *results,
                             "error: failed to create file "
                             "%s/kde_ext_%zu_%zu.py\n",
                             out_dir, bench_idx, meas_idx);
-                    return -1;
+                    return false;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
@@ -3276,18 +3253,17 @@ static int dump_plot_src(const struct bench_results *results,
             }
         }
     }
-
-    return 0;
+    return true;
 }
 
-static int make_plots(const struct bench_results *results,
-                      const char *out_dir) {
+static bool make_plots(const struct bench_results *results,
+                       const char *out_dir) {
     size_t bench_count = results->bench_count;
     const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
     char buf[4096];
     pid_t *processes = NULL;
-    int ret = -1;
+    bool success = false;
     FILE *f;
     pid_t pid;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
@@ -3296,7 +3272,7 @@ static int make_plots(const struct bench_results *results,
         const struct meas *meas = results->meas + meas_idx;
         if (bench_count > 1) {
             snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
-            if (launch_python_stdin_pipe(&f, &pid) == -1) {
+            if (!launch_python_stdin_pipe(&f, &pid)) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
@@ -3306,7 +3282,7 @@ static int make_plots(const struct bench_results *results,
         }
         if (bench_count > 1) {
             snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
-            if (launch_python_stdin_pipe(&f, &pid) == -1) {
+            if (!launch_python_stdin_pipe(&f, &pid)) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
@@ -3319,7 +3295,7 @@ static int make_plots(const struct bench_results *results,
                 results->group_analyses[meas_idx] + grp_idx;
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
                      meas_idx);
-            if (launch_python_stdin_pipe(&f, &pid) == -1) {
+            if (!launch_python_stdin_pipe(&f, &pid)) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
@@ -3331,7 +3307,7 @@ static int make_plots(const struct bench_results *results,
             const struct cmd_group_analysis *analyses =
                 results->group_analyses[meas_idx];
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
-            if (launch_python_stdin_pipe(&f, &pid) == -1) {
+            if (!launch_python_stdin_pipe(&f, &pid)) {
                 fprintf(stderr, "error: failed to launch python\n");
                 goto out;
             }
@@ -3345,7 +3321,7 @@ static int make_plots(const struct bench_results *results,
             {
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
-                if (launch_python_stdin_pipe(&f, &pid) == -1) {
+                if (!launch_python_stdin_pipe(&f, &pid)) {
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
@@ -3356,7 +3332,7 @@ static int make_plots(const struct bench_results *results,
             {
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
-                if (launch_python_stdin_pipe(&f, &pid) == -1) {
+                if (!launch_python_stdin_pipe(&f, &pid)) {
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
@@ -3366,25 +3342,24 @@ static int make_plots(const struct bench_results *results,
             }
         }
     }
-
-    ret = 0;
+    success = true;
 out:
     for (size_t i = 0; i < sb_len(processes); ++i) {
         if (!process_finished_correctly(processes[i])) {
             fprintf(stderr, "error: python finished with non-zero exit code\n");
-            ret = -1;
+            success = false;
         }
     }
     sb_free(processes);
-    return ret;
+    return success;
 }
 
-static int make_plots_readme(const struct bench_results *results,
-                             const char *out_dir) {
+static bool make_plots_readme(const struct bench_results *results,
+                              const char *out_dir) {
     FILE *f = open_file_fmt("w", "%s/readme.md", out_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/readme.md\n", out_dir);
-        return -1;
+        return false;
     }
     fprintf(f, "# csbench analyze map\n");
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
@@ -3422,7 +3397,7 @@ static int make_plots_readme(const struct bench_results *results,
         }
     }
     fclose(f);
-    return 0;
+    return true;
 }
 
 #define html_time_estimate(_name, _est, _f)                                    \
@@ -3645,17 +3620,17 @@ static void html_report(const struct bench_results *results, FILE *f) {
     fprintf(f, "</body>");
 }
 
-static int run_bench(struct bench_analysis *analysis) {
+static bool run_bench(struct bench_analysis *analysis) {
     struct bench *bench = (void *)analysis->bench;
-    if (warmup(bench->cmd) == -1)
-        return -1;
-    if (run_benchmark(bench) == -1)
-        return -1;
+    if (!warmup(bench->cmd))
+        return false;
+    if (!run_benchmark(bench))
+        return false;
     analyze_benchmark(analysis);
-    return 0;
+    return true;
 }
 
-static int run_benchw(void *data) {
+static bool run_benchw(void *data) {
     g_rng_state = time(NULL);
     return run_bench(data);
 }
@@ -3663,26 +3638,25 @@ static int run_benchw(void *data) {
 static void *parfor_worker(void *raw) {
     struct parfor_data *data = raw;
     for (size_t i = data->low; i < data->high; ++i)
-        if (data->fn((char *)data->arr + data->stride * i) == -1)
+        if (!data->fn((char *)data->arr + data->stride * i))
             return (void *)-1;
     return NULL;
 }
 
-static int parallel_for(int (*body)(void *), void *arr, size_t count,
-                        size_t stride) {
+static bool parallel_for(bool (*body)(void *), void *arr, size_t count,
+                         size_t stride) {
     if (g_threads <= 1 || count == 1) {
         for (size_t i = 0; i < count; ++i) {
             void *data = (char *)arr + stride * i;
-            if (body(data) == -1)
-                return -1;
+            if (!body(data))
+                return false;
         }
-        return 0;
+        return true;
     }
-    int ret = -1;
+    bool success = false;
     size_t thread_count = g_threads;
     if (count < thread_count)
         thread_count = count;
-
     assert(thread_count > 1);
     struct parfor_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
@@ -3709,20 +3683,20 @@ static int parallel_for(int (*body)(void *), void *arr, size_t count,
             goto err;
         }
     }
-    ret = 0;
+    success = true;
     for (size_t i = 0; i < thread_count; ++i) {
         void *thread_retval;
         pthread_join(thread_data[i].id, &thread_retval);
         if (thread_retval == (void *)-1)
-            ret = -1;
+            success = false;
     }
 err:
     free(thread_data);
-    return ret;
+    return success;
 }
 
-static int run_benches(const struct settings *settings,
-                       struct bench_results *results) {
+static bool run_benches(const struct settings *settings,
+                        struct bench_results *results) {
     results->bench_count = sb_len(settings->cmds);
     assert(results->bench_count != 0);
     results->benches = calloc(results->bench_count, sizeof(*results->benches));
@@ -3741,7 +3715,6 @@ static int run_benches(const struct settings *settings,
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
     }
-
     return parallel_for(run_benchw, results->analyses, results->bench_count,
                         sizeof(*results->analyses));
 }
@@ -3760,68 +3733,66 @@ static void print_analysis(const struct bench_results *results) {
     print_cmd_group_analysis(results);
 }
 
-static int handle_export(const struct settings *settings,
-                         const struct bench_results *results) {
+static bool handle_export(const struct settings *settings,
+                          const struct bench_results *results) {
     switch (settings->export.kind) {
     case EXPORT_JSON:
         return export_json(results, settings->export.filename);
     case DONT_EXPORT:
         break;
     }
-    return 0;
+    return true;
 }
 
-static int make_html_report(const struct bench_results *results,
-                            const char *out_dir) {
+static bool make_html_report(const struct bench_results *results,
+                             const char *out_dir) {
     FILE *f = open_file_fmt("w", "%s/index.html", out_dir);
     if (f == NULL) {
         fprintf(stderr, "error: failed to create file %s/index.html\n",
                 out_dir);
-        return -1;
+        return false;
     }
     html_report(results, f);
     fclose(f);
-    return 0;
+    return true;
 }
 
-static int handle_analyze(const struct bench_results *results,
-                          enum analyze_mode mode, const char *out_dir) {
+static bool handle_analyze(const struct bench_results *results,
+                           enum analyze_mode mode, const char *out_dir) {
     if (mode == DONT_ANALYZE)
-        return 0;
+        return true;
 
     if (mkdir(out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
             perror("mkdir");
-            return -1;
+            return false;
         }
     }
 
     if (mode == ANALYZE_PLOT || mode == ANALYZE_HTML) {
         if (!python_found()) {
             fprintf(stderr, "error: failed to find python3 executable\n");
-            return -1;
+            return false;
         }
         if (!python_has_matplotlib()) {
             fprintf(stderr,
                     "error: python does not have matplotlib installed\n");
-            return -1;
+            return false;
         }
 
-        if (g_plot_src && dump_plot_src(results, out_dir) == -1)
-            return -1;
-
-        if (make_plots(results, out_dir) == -1)
-            return -1;
-
-        if (make_plots_readme(results, out_dir) == -1)
-            return -1;
+        if (g_plot_src && !dump_plot_src(results, out_dir))
+            return false;
+        if (!make_plots(results, out_dir))
+            return false;
+        if (!make_plots_readme(results, out_dir))
+            return false;
     }
 
-    if (mode == ANALYZE_HTML && make_html_report(results, out_dir) == -1)
-        return -1;
+    if (mode == ANALYZE_HTML && !make_html_report(results, out_dir))
+        return false;
 
-    return 0;
+    return true;
 }
 
 static void free_bench_results(struct bench_results *results) {
@@ -3858,22 +3829,21 @@ static void free_bench_results(struct bench_results *results) {
     free(results->fastest_meas);
 }
 
-static int run(const struct settings *settings) {
-    int ret = -1;
+static bool run(const struct settings *settings) {
+    bool success = false;
     struct bench_results results = {0};
-    if (run_benches(settings, &results) == -1)
+    if (!run_benches(settings, &results))
         goto out;
     analyze_benches(settings, &results);
     print_analysis(&results);
-    if (handle_export(settings, &results) == -1)
+    if (!handle_export(settings, &results))
         goto out;
-    if (handle_analyze(&results, settings->analyze_mode, settings->out_dir) ==
-        -1)
+    if (!handle_analyze(&results, settings->analyze_mode, settings->out_dir))
         goto out;
-    ret = 0;
+    success = true;
 out:
     free_bench_results(&results);
-    return ret;
+    return success;
 }
 
 static void sigint_handler(int sig) {
@@ -3904,7 +3874,7 @@ int main(int argc, char **argv) {
     parse_cli_args(argc, argv, &cli);
 
     struct settings settings = {0};
-    if (init_settings(&cli, &settings) == -1)
+    if (!init_settings(&cli, &settings))
         goto err_free_cli;
 
     if (g_use_perf && init_perf() == -1)
@@ -3917,7 +3887,7 @@ int main(int argc, char **argv) {
         goto err_deinit_perf;
     }
 
-    if (run(&settings) == -1)
+    if (!run(&settings))
         goto err_close_dev_null;
 
     rc = EXIT_SUCCESS;
