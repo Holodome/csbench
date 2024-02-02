@@ -2,8 +2,6 @@
 
 `csbench` is cross-platform batteries included benchmarking tool.
 
-> Please note this project is still early in development, and usability may be an issue. Right now the best way to see what features work as intended is to look at examples.
-
 ## Introduction
 
 Benchmarking is too hard and time-consuming to be employed commonly during development. 
@@ -30,7 +28,7 @@ But still work from the developer is being done akin to more complex task.
 It does not has any dependencies besides operating system for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.
 
 Performance counters are supported on following platforms:
-* Any Linux distribution with `perf` available
+* Linux distribution with `perf` available
 * M1, M2 MacOS (can also work on x86 Mac's, not tested)
 
 ## Examples
@@ -131,8 +129,9 @@ linear coef 1.12172e-07 rms 0.014
 ```
 
 In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.
+This is similar to `perf stat -r`.
 ```
-$ ./csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell none
+$ csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell none
 command 'ls'
 15 runs
  cycles 2.05e+06 2.97e+06 4.71e+06

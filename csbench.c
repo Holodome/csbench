@@ -742,7 +742,7 @@ static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
         } else if (strcmp(opt, "branch-misses") == 0) {
             kind = MEAS_PERF_BRANCHM;
         } else {
-            fprintf(stderr, "error: invalid rusage field name: '%s'\n", opt);
+            fprintf(stderr, "error: invalid measurement name: '%s'\n", opt);
             exit(EXIT_FAILURE);
         }
         sb_push(*rusage_opts, kind);

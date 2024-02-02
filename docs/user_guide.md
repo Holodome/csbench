@@ -190,7 +190,9 @@ They differ in units of measurement and how they extract values from stdout.
 |units  |seconds | seconds  | custom   |
 |extract|cat     | custom   | custom   |
 
-Note that if one of `ns`, `us`, `ms`, `s` are used as custom unit, csbench interprets them and pretty prints the same way it does for wall clock time.
+If units is one of `ns`, `us`, `ms`, `s`, measured values are pretty printed as time.
+If units is one of `b`, `kb`, `mb`, `gb`, measured values are pretty printed as memory.
+If units is `none`, no units are assumed.
 
 ### Debugging 
 
@@ -205,10 +207,27 @@ Its argument is a command that expands in shell invocation. Command is executed 
 
 If user specifies custom measurement, chances that they prefer these results over wall clock time analysis.
 However, wall clock time information is still included. 
-Option `--no-wall` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report.
-Timing values are still collected however.
+Option `--no-wall` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report. 
 
 ### Parallel benchmarking
 
-The default behaviour of `csbench` is to benchmark all commands sequentially.
+The default behavior of `csbench` is to benchmark all commands sequentially.
 It is possible to run benchmarks in parallel. Number of threads can be specified using `--jobs` option. Note that in some cases it may be undesirable to execute commands in parallel, for example in cases they are performing a lot of IO.
+
+### Accessing resource usage and PMU
+
+`csbench` can be used to access `struct rusage` fields and certain PMU counters.
+`--meas` option can be supplied with comma-separated list of measurement names, which 
+tell csbench to use this value in analysis. Possible measurement names:
+* `stime` - `ru_stime` of `struct rusage`, CPU system time
+* `utime` - `ru_utime` of `struct rusage`, CPU user time
+* `maxrss` - `ru_maxrss` of `struct rusage`, maximum RSS (resident set size) of process or its children
+* `minflt` - `ru_minflt` of `struct rusage`, number of minor page faults
+* `majflt` - `ru_majflt` of `struct rusage`, number of major page faults
+* `nvcsw` - `ru_nvcsw` of `struct rusage`, number of voluntary context switches
+* `nivcsw` - `ru_nivcsw` of `struct rusage`, number of non-voluntary context switches
+* `cycles` - PMU cycles count
+* `instructions` - PMU instructions count
+* `branches` - PMU taken branch count
+* `branch-misses` - PMU missed branch count
+
