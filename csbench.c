@@ -80,6 +80,8 @@
 #include <mach/mach.h>
 #endif
 
+#include "csbench_perf.h"
+
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
 struct sb_header {
@@ -417,9 +419,6 @@ struct prettify_plot {
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
-
-#define CSBENCH_PERF_IMPL
-#include "csbench_perf.h"
 
 static __thread uint32_t g_rng_state;
 static bool g_allow_nonzero = 0;
