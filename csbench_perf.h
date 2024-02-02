@@ -1,4 +1,3 @@
-#define CSBENCH_PERF_IMPL
 // csbench performance counters. See csbench.c for main application code.
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
@@ -805,7 +804,8 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
 
     struct kpep_db *db = NULL;
     if ((ret = kpep_db_create(NULL, &db)) != 0) {
-        perror("kpep_db_create");
+        fprintf(stderr, "error: failed to create kpep database: %d (%s)\n", ret,
+                kpep_config_error_desc(ret));
         return false;
     }
 
@@ -873,12 +873,12 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     }
 
     // set config to kernel
-    if ((ret = kpc_force_all_ctrs_set(1)) != 0) {
+    if (kpc_force_all_ctrs_set(1) != 0) {
         perror("kpc_force_all_ctrs_set(1)");
         goto err_free_config;
     }
     if ((classes & KPC_CLASS_CONFIGURABLE_MASK) && reg_count) {
-        if ((ret = kpc_set_config(classes, regs))) {
+        if (kpc_set_config(classes, regs) != 0) {
             perror("kpc_set_config");
             goto err_disable_ctrs;
         }
@@ -891,11 +891,11 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     }
 
     // start counting
-    if ((ret = kpc_set_counting(classes)) != 0) {
+    if (kpc_set_counting(classes) != 0) {
         perror("kpc_set_counting");
         goto err_disable_ctrs;
     }
-    if ((ret = kpc_set_thread_counting(classes)) != 0) {
+    if (kpc_set_thread_counting(classes) != 0) {
         perror("kpc_set_thread_counting");
         goto err_disable_counting;
     }
@@ -903,23 +903,22 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     // alloc action and timer ids
     uint32_t actionid = 1;
     uint32_t timerid = 1;
-    if ((ret = kperf_action_count_set(KPERF_ACTION_MAX)) != 0) {
+    if (kperf_action_count_set(KPERF_ACTION_MAX) != 0) {
         perror("kperf_action_count_set");
         goto err_stop_trace;
     }
-    if ((ret = kperf_timer_count_set(KPERF_TIMER_MAX)) != 0) {
+    if (kperf_timer_count_set(KPERF_TIMER_MAX) != 0) {
         perror("kperf_timer_count_set");
         goto err_stop_trace;
     }
 
     // set what to sample: PMC per thread
-    if ((ret = kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD)) !=
-        0) {
+    if (kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD) != 0) {
         perror("kperf_action_samplers_set");
         goto err_stop_trace;
     }
     // set filter process
-    if ((ret = kperf_action_filter_set_by_pid(actionid, pid)) != 0) {
+    if (kperf_action_filter_set_by_pid(actionid, pid) != 0) {
         perror("kperf_action_filter_set_by_pid");
         goto err_stop_trace;
     }
@@ -927,39 +926,39 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     // setup PET (Profile Every Thread), start sampler
     double sample_period = 0.001;
     uint64_t tick = kperf_ns_to_ticks(sample_period * 1000000000ul);
-    if ((ret = kperf_timer_period_set(actionid, tick)) != 0) {
+    if (kperf_timer_period_set(actionid, tick) != 0) {
         perror("kperf_timer_period_set");
         goto err_stop_trace;
     }
-    if ((ret = kperf_timer_action_set(actionid, timerid)) != 0) {
+    if (kperf_timer_action_set(actionid, timerid) != 0) {
         perror("kperf_timer_action_set");
         goto err_stop_trace;
     }
-    if ((ret = kperf_timer_pet_set(timerid)) != 0) {
+    if (kperf_timer_pet_set(timerid) != 0) {
         perror("kperf_timer_pet_set");
         goto err_stop_trace;
     }
-    if ((ret = kperf_lightweight_pet_set(1)) != 0) {
+    if (kperf_lightweight_pet_set(1) != 0) {
         perror("kperf_lightweight_pet_set");
         goto err_stop_trace;
     }
-    if ((ret = kperf_sample_set(1))) {
+    if (kperf_sample_set(1) != 0) {
         perror("kperf_sample_set(1)");
         goto err_stop_trace;
     }
 
     // reset kdebug/ktrace
-    if ((ret = kdebug_reset()) != 0) {
+    if (kdebug_reset() != 0) {
         perror("kdebug_reset");
         goto err_stop_trace;
     }
 
     int nbufs = 1000000;
-    if ((ret = kdebug_trace_setbuf(nbufs)) != 0) {
+    if (kdebug_trace_setbuf(nbufs) != 0) {
         perror("kdebug_trace_setbuf");
         goto err_stop_trace;
     }
-    if ((ret = kdebug_reinit()) != 0) {
+    if (kdebug_reinit() != 0) {
         perror("kdebug_reinit");
         goto err_stop_trace;
     }
@@ -968,12 +967,12 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     struct kd_regtype kdr = {0};
     kdr.type = KDBG_VALCHECK;
     kdr.value1 = KDBG_EVENTID(DBG_PERF, PERF_KPC, PERF_KPC_DATA_THREAD);
-    if ((ret = kdebug_setreg(&kdr)) != 0) {
+    if (kdebug_setreg(&kdr) != 0) {
         perror("kdebug_setreg");
         goto err_stop_trace;
     }
     // start trace
-    if ((ret = kdebug_trace_enable(1)) != 0) {
+    if (kdebug_trace_enable(1) != 0) {
         perror("kdebug_trace_enable");
         goto err_stop_trace;
     }
