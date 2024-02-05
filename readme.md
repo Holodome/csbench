@@ -21,16 +21,6 @@ But still work from the developer is being done akin to more complex task.
 * Parameterized benchmarking 
 * Easy access to `struct rusage` fields or performance counters (cross-platform minimal 'perf stat' or /usr/bin/time analog)
 
-## Features
-
-`csbench` is distributed as a single C file. 
-
-It does not has any dependencies besides operating system for basic operation. `python3` binary with `matplotlib` installed is required for producing plots.
-
-Performance counters are supported on following platforms:
-* Linux distribution with `perf` available
-* M1, M2 MacOS (can also work on x86 Mac's, not tested)
-
 ## Examples
 
 Also see [user guide](docs/user_guide.md).
