@@ -46,7 +46,7 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-#include "csbench_perf.h"
+#include "csbench.h"
 
 #ifdef __linux__
 
@@ -56,6 +56,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdio.h>
 
 bool init_perf(void) { return true; }
 void deinit_perf(void) {}
