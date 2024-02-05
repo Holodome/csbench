@@ -2391,7 +2391,6 @@ bool units_is_time(const struct units *units) {
 static bool dump_plot_src(const struct bench_results *results,
                           const char *out_dir) {
     size_t bench_count = results->bench_count;
-    const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
     char buf[4096];
     FILE *f;
@@ -2399,18 +2398,6 @@ static bool dump_plot_src(const struct bench_results *results,
         if (results->meas[meas_idx].is_secondary)
             continue;
         const struct meas *meas = results->meas + meas_idx;
-        if (bench_count > 1) {
-            f = open_file_fmt("w", "%s/violin_%zu.py", out_dir, meas_idx);
-            if (f == NULL) {
-                fprintf(stderr,
-                        "error: failed to create file %s/violin_%zu.py\n",
-                        out_dir, meas_idx);
-                return false;
-            }
-            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
-            violin_plot(benches, bench_count, meas_idx, buf, f);
-            fclose(f);
-        }
         if (bench_count > 1) {
             f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
@@ -2492,7 +2479,6 @@ static bool dump_plot_src(const struct bench_results *results,
 static bool make_plots(const struct bench_results *results,
                        const char *out_dir) {
     size_t bench_count = results->bench_count;
-    const struct bench *benches = results->benches;
     const struct bench_analysis *analyses = results->analyses;
     char buf[4096];
     pid_t *processes = NULL;
@@ -2503,16 +2489,6 @@ static bool make_plots(const struct bench_results *results,
         if (results->meas[meas_idx].is_secondary)
             continue;
         const struct meas *meas = results->meas + meas_idx;
-        if (bench_count > 1) {
-            snprintf(buf, sizeof(buf), "%s/violin_%zu.svg", out_dir, meas_idx);
-            if (!launch_python_stdin_pipe(&f, &pid)) {
-                fprintf(stderr, "error: failed to launch python\n");
-                goto out;
-            }
-            violin_plot(benches, bench_count, meas_idx, buf, f);
-            fclose(f);
-            sb_push(processes, pid);
-        }
         if (bench_count > 1) {
             snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
@@ -2600,7 +2576,6 @@ static bool make_plots_readme(const struct bench_results *results,
             continue;
         const struct meas *meas = results->meas + meas_idx;
         fprintf(f, "## measurement %s\n", meas->name);
-        fprintf(f, "* [violin plot](violin_%zu.svg)\n", meas_idx);
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cmd_group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;

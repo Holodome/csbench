@@ -34,51 +34,6 @@ static void prettify_plot(const struct units *units, double min, double max,
     }
 }
 
-void violin_plot(const struct bench *benches, size_t bench_count,
-                 size_t meas_idx, const char *output_filename, FILE *f) {
-    double max = -INFINITY, min = INFINITY;
-    for (size_t i = 0; i < bench_count; ++i) {
-        for (size_t j = 0; j < benches[i].run_count; ++j) {
-            double v = benches[i].meas[meas_idx][j];
-            if (v > max)
-                max = v;
-            if (v < min)
-                min = v;
-        }
-    }
-
-    struct prettify_plot prettify = {0};
-    prettify_plot(&benches[0].cmd->meas[meas_idx].units, min, max, &prettify);
-
-    const struct meas *meas = benches[0].cmd->meas + meas_idx;
-    fprintf(f, "data = [");
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct bench *bench = benches + i;
-        fprintf(f, "[");
-        for (size_t j = 0; j < bench->run_count; ++j)
-            fprintf(f, "%g, ", bench->meas[meas_idx][j] * prettify.multiplier);
-        fprintf(f, "], ");
-    }
-    fprintf(f, "]\n");
-    fprintf(f, "names = [");
-    for (size_t i = 0; i < bench_count; ++i) {
-        const struct bench *bench = benches + i;
-        fprintf(f, "'%s', ", bench->cmd->str);
-    }
-    fprintf(f,
-            "]\n"
-            "import matplotlib as mpl\n"
-            "mpl.use('svg')\n"
-            "import matplotlib.pyplot as plt\n"
-            "plt.ioff()\n"
-            "plt.xlabel('command')\n"
-            "plt.ylabel('%s [%s]')\n"
-            "plt.violinplot(data)\n"
-            "plt.xticks(list(range(1, len(names) + 1)), names)\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
-            meas->name, prettify.units_str, output_filename);
-}
-
 void bar_plot(const struct bench_analysis *analyses, size_t count,
               size_t meas_idx, const char *output_filename, FILE *f) {
     double max = -INFINITY, min = INFINITY;

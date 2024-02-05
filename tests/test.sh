@@ -37,11 +37,10 @@ $b ls --plot > /dev/null || die
 
 distclean
 $b ls pwd --plot > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 6 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/violin_0.svg" ] || die
+[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] || die
 
 #
 # case 3 - check that plots are generated for custom measurement
@@ -60,12 +59,11 @@ $b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die
 
 distclean 
 $b 'echo {n}' --plot --scanl n/1,2 > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
 [ -f "$dist_dir/group_0_0.svg" ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/violin_0.svg" ] && [ -f "$dist_dir/readme.md" ] && \
-[ -f "$dist_dir/bar_0.svg" ] || die
+[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] || die
 
 #
 # case 5 - check that html report is generated in all basic cases
@@ -90,12 +88,12 @@ $b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 27 ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 25 ] || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
 kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
 kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
-group_0_0.svg group_0_3.svg violin_0.svg violin_3.svg bar_0.svg bar_3.svg 
+group_0_0.svg group_0_3.svg bar_0.svg bar_3.svg 
 readme.md"
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
@@ -109,8 +107,8 @@ distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
-group_0_0.svg violin_0.svg bar_0.svg readme.md"
-[ $(ls "$dist_dir" | wc -l) -eq 14 ] || die
+group_0_0.svg bar_0.svg readme.md"
+[ $(ls "$dist_dir" | wc -l) -eq 13 ] || die
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
 done
@@ -121,12 +119,12 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --plot-src > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 53 ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 49 ] || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
 kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
 kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
-group_0_0.svg group_0_3.svg violin_0.svg violin_3.svg bar_0.svg bar_3.svg"
+group_0_0.svg group_0_3.svg bar_0.svg bar_3.svg"
 for file in $files ; do
     f=$(echo "$dist_dir/$file" | sed "s/svg/py/")
     [ -f "$f" ] || die
