@@ -8,7 +8,7 @@ endif
 
 all: csbench
 
-csbench: csbench.c csbench_perf.c 
+csbench: csbench.c csbench_perf.c csbench_plot.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 install: csbench

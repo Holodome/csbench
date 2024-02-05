@@ -54,9 +54,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
+#include <stdio.h>
 #include <sys/types.h>
 
 // This is implementation of type-safe generic vector in C based on
@@ -370,12 +371,6 @@ struct parfor_data {
     bool (*fn)(void *);
 };
 
-struct prettify_plot {
-    const char *units_str;
-    double multiplier;
-    bool logscale;
-};
-
 struct perf_cnt {
     uint64_t cycles;
     uint64_t branches;
@@ -405,13 +400,18 @@ struct perf_cnt {
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
 
 //
-// csbench.c 
-// 
+// csbench.c
+//
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
-// 
-// csbench_perf.h
+bool units_is_time(const struct units *units);
+const char *units_str(const struct units *units);
+
+double ols_approx(const struct ols_regress *regress, double n);
+
+//
+// csbench_perf.c
 //
 
 bool init_perf(void);
@@ -424,5 +424,41 @@ void perf_signal_cleanup(void);
 // has finished, and consolidates results. Process can still be waited
 // after this function has finished executing.
 bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
+
+//
+// csbench_plot.c
+//
+
+void violin_plot(const struct bench *benches, size_t bench_count,
+                 size_t meas_idx, const char *output_filename, FILE *f);
+void bar_plot(const struct bench_analysis *analyses, size_t count,
+              size_t meas_idx, const char *output_filename, FILE *f);
+void group_plot(const struct cmd_group_analysis *analyses, size_t count,
+                const char *output_filename, FILE *f);
+#define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \
+    init_kde_plot_internal(_distr, _title, _meas, false, _output_filename,     \
+                           _plot)
+#define init_kde_plot_ext(_distr, _title, _meas, _output_filename, _plot)      \
+    init_kde_plot_internal(_distr, _title, _meas, true, _output_filename, _plot)
+void init_kde_plot_internal(const struct distr *distr, const char *title,
+                            const struct meas *meas, bool is_ext,
+                            const char *output_filename, struct kde_plot *plot);
+void make_kde_plot(const struct kde_plot *plot, FILE *f);
+void make_kde_plot_ext(const struct kde_plot *plot, FILE *f);
+void free_kde_plot(struct kde_plot *plot);
+#define kde_plot(_distr, _title, _meas, _output_filename, _f)                  \
+    do {                                                                       \
+        struct kde_plot plot = {0};                                            \
+        init_kde_plot(_distr, _title, _meas, _output_filename, &plot);         \
+        make_kde_plot(&plot, _f);                                              \
+        free_kde_plot(&plot);                                                  \
+    } while (0)
+#define kde_plot_ext(_distr, _title, _meas, _output_filename, _f)              \
+    do {                                                                       \
+        struct kde_plot plot = {0};                                            \
+        init_kde_plot_ext(_distr, _title, _meas, _output_filename, &plot);     \
+        make_kde_plot_ext(&plot, _f);                                          \
+        free_kde_plot(&plot);                                                  \
+    } while (0)
 
 #endif
