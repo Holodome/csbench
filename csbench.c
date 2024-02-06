@@ -1174,31 +1174,28 @@ static double get_time(void) {
 
 static void apply_input_policy(const struct input_policy *policy) {
     switch (policy->kind) {
-    case INPUT_POLICY_NULL: {
+    case INPUT_POLICY_NULL:
         close(STDIN_FILENO);
         if (dup2(g_dev_null_fd, STDIN_FILENO) == -1)
             _exit(-1);
         break;
-    }
-    case INPUT_POLICY_FILE: {
+    case INPUT_POLICY_FILE:
         close(STDIN_FILENO);
         if (dup2(policy->fd, STDIN_FILENO) == -1)
             _exit(-1);
         break;
     }
-    }
 }
 
 static void apply_output_policy(enum output_kind policy) {
     switch (policy) {
-    case OUTPUT_POLICY_NULL: {
+    case OUTPUT_POLICY_NULL:
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
         if (dup2(g_dev_null_fd, STDOUT_FILENO) == -1 ||
             dup2(g_dev_null_fd, STDERR_FILENO) == -1)
             _exit(-1);
         break;
-    }
     case OUTPUT_POLICY_INHERIT:
         break;
     }
