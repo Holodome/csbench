@@ -431,6 +431,8 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 void bar_plot(const struct bench_analysis *analyses, size_t count,
               size_t meas_idx, const char *output_filename, FILE *f);
+void group_bar_plot(const struct cmd_group_analysis *analyses, size_t count,
+                    const char *output_filename, FILE *f);
 void group_plot(const struct cmd_group_analysis *analyses, size_t count,
                 const char *output_filename, FILE *f);
 #define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \

@@ -19,7 +19,7 @@ But still work from the developer is being done akin to more complex task.
 * Perform timing of arbitrary shell command, statistical analysis and graphical presentation of results
 * Perform benchmarking of arbitrary shell command, where parameter analyzed is acquired from command output 
 * Parameterized benchmarking 
-* Easy access to `struct rusage` fields or performance counters (cross-platform minimal 'perf stat' or /usr/bin/time analog)
+* Easy access to `struct rusage` fields or performance counters (cross-platform minimal `perf stat` or `/usr/bin/time` analog)
 
 ## Examples
 

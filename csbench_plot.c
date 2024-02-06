@@ -1,8 +1,8 @@
 #include "csbench.h"
 
+#include <assert.h>
 #include <math.h>
 #include <stdlib.h>
-#include <assert.h>
 
 struct prettify_plot {
     const char *units_str;
@@ -17,15 +17,30 @@ static void prettify_plot(const struct units *units, double min, double max,
 
     plot->multiplier = 1;
     if (units_is_time(units)) {
+        switch (units->kind) {
+        case MU_S:
+            break;
+        case MU_MS:
+            plot->multiplier = 1e-3;
+            break;
+        case MU_US:
+            plot->multiplier = 1e-6;
+            break;
+        case MU_NS:
+            plot->multiplier = 1e-9;
+            break;
+        default:
+            assert(0);
+        }
         if (max < 1e-6) {
             plot->units_str = "ns";
-            plot->multiplier = 1e9;
+            plot->multiplier *= 1e9;
         } else if (max < 1e-3) {
             plot->units_str = "us";
-            plot->multiplier = 1e6;
+            plot->multiplier *= 1e6;
         } else if (max < 1.0) {
             plot->units_str = "ms";
-            plot->multiplier = 1e3;
+            plot->multiplier *= 1e3;
         } else {
             plot->units_str = "s";
         }
@@ -72,7 +87,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             "plt.xlabel('mean %s [%s]')\n"
             "plt.ioff()\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analyses->bench->cmd->meas[meas_idx].name, prettify.units_str,
+            analyses[0].bench->cmd->meas[meas_idx].name, prettify.units_str,
             output_filename);
 }
 
@@ -351,3 +366,50 @@ void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
 
 void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
 
+void group_bar_plot(const struct cmd_group_analysis *analyses, size_t count,
+                    const char *output_filename, FILE *f) {
+    double max = -INFINITY, min = INFINITY;
+    for (size_t i = 0; i < count; ++i) {
+        for (size_t j = 0; j < analyses[i].group->count; ++j) {
+            double v = analyses[i].data[j].mean;
+            if (v > max)
+                max = v;
+            if (v < min)
+                min = v;
+        }
+    }
+
+    struct prettify_plot prettify = {0};
+    prettify_plot(&analyses[0].meas->units, min, max, &prettify);
+
+    fprintf(f, "param_val = [");
+    for (size_t i = 0; i < analyses[0].group->count; ++i)
+        fprintf(f, "'%s', ", analyses[0].group->var_values[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "times = {");
+    for (size_t i = 0; i < count; ++i) {
+        fprintf(f, "  '%s': [", analyses[i].group->template);
+        for (size_t j = 0; j < analyses[i].group->count; ++j)
+            fprintf(f, "%g, ", analyses[i].data[j].mean * prettify.multiplier);
+        fprintf(f, "],\n");
+    }
+    fprintf(f, "}\n");
+    fprintf(f, "import matplotlib.pyplot as plt\n"
+               "import numpy as np\n"
+               "x = np.arange(len(param_val))\n"
+               "width = 1.0 / (len(times) + 1)\n"
+               "multiplier = 0\n"
+               "fig, ax = plt.subplots(layout='constrained')\n"
+               "for at, meas in times.items():\n"
+               "  offset = width * multiplier\n"
+               "  rects = ax.bar(x + offset, meas, width, label=at)\n"
+               "  multiplier += 1\n");
+    if (prettify.logscale)
+        fprintf(f, "ax.set_yscale('log')\n");
+    fprintf(f,
+            "ax.set_ylabel('%s [%s]')\n"
+            "ax.set_xticks(x + width, param_val)\n"
+            "ax.legend(loc='upper left')\n"
+            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+            analyses[0].meas->name, prettify.units_str, output_filename);
+}

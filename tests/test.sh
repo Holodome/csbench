@@ -173,5 +173,6 @@ $b ls --plot --shell none > /dev/null || die
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --plot-src --no-wall > /dev/null || die
-[ -f "$dist_dir/group_0.svg" ] || die
+$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 25 ] && \
+[ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die

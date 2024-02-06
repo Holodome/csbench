@@ -2399,15 +2399,32 @@ static bool dump_plot_src(const struct bench_results *results,
             continue;
         const struct meas *meas = results->meas + meas_idx;
         if (bench_count > 1) {
-            f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
-            if (f == NULL) {
-                fprintf(stderr, "error: failed to create file %s/bar_%zu.py\n",
-                        out_dir, meas_idx);
-                return false;
+            if (results->group_count <= 1) {
+                f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
+                if (f == NULL) {
+                    fprintf(stderr,
+                            "error: failed to create file %s/bar_%zu.py\n",
+                            out_dir, meas_idx);
+                    return false;
+                }
+                snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
+                bar_plot(analyses, bench_count, meas_idx, buf, f);
+                fclose(f);
+            } else {
+                f = open_file_fmt("w", "%s/group_bar_%zu.py", out_dir,
+                                  meas_idx);
+                if (f == NULL) {
+                    fprintf(stderr,
+                            "error: failed to create file %s/bar_%zu.py\n",
+                            out_dir, meas_idx);
+                    return false;
+                }
+                snprintf(buf, sizeof(buf), "%s/group_bar_%zu.svg", out_dir,
+                         meas_idx);
+                group_bar_plot(results->group_analyses[meas_idx],
+                               results->group_count, buf, f);
+                fclose(f);
             }
-            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
-            bar_plot(analyses, bench_count, meas_idx, buf, f);
-            fclose(f);
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cmd_group_analysis *analysis =
@@ -2490,14 +2507,27 @@ static bool make_plots(const struct bench_results *results,
             continue;
         const struct meas *meas = results->meas + meas_idx;
         if (bench_count > 1) {
-            snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
-            if (!launch_python_stdin_pipe(&f, &pid)) {
-                fprintf(stderr, "error: failed to launch python\n");
-                goto out;
+            if (results->group_count <= 1) {
+                snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
+                if (!launch_python_stdin_pipe(&f, &pid)) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto out;
+                }
+                bar_plot(analyses, bench_count, meas_idx, buf, f);
+                fclose(f);
+                sb_push(processes, pid);
+            } else {
+                snprintf(buf, sizeof(buf), "%s/group_bar_%zu.svg", out_dir,
+                         meas_idx);
+                if (!launch_python_stdin_pipe(&f, &pid)) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto out;
+                }
+                group_bar_plot(results->group_analyses[meas_idx],
+                               results->group_count, buf, f);
+                fclose(f);
+                sb_push(processes, pid);
             }
-            bar_plot(analyses, bench_count, meas_idx, buf, f);
-            fclose(f);
-            sb_push(processes, pid);
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct cmd_group_analysis *analysis =
@@ -2699,6 +2729,8 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
 static void html_compare(const struct bench_results *results, FILE *f) {
     if (results->bench_count == 1)
         return;
+    if (results->group_count != 1)
+        return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
@@ -2775,10 +2807,11 @@ static void html_paramter_analysis(const struct bench_results *results,
             fprintf(f,
                     "<div><h3>summary for %s</h3>"
                     "<div class=\"row\"><div class=\"col\">"
-                    "<img src=\"group_%zu.svg\">"
-                    "<div class=\"col\"></div>"
-                    "</div></div></div>",
-                    results->meas[meas_idx].name, meas_idx);
+                    "<img src=\"group_%zu.svg\"></div>"
+                    "<div class=\"col\">"
+                    "<img src=\"group_bar_%zu.svg\">"
+                    "</div></div></div></div>",
+                    results->meas[meas_idx].name, meas_idx, meas_idx);
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
                     results->group_analyses[0][grp_idx].group->template,
