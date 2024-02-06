@@ -144,7 +144,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             output_filename);
 }
 
-void group_plot(const struct cmd_group_analysis *analyses, size_t count,
+void group_plot(const struct group_analysis *analyses, size_t count,
                 const char *output_filename, FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
@@ -196,7 +196,7 @@ void group_plot(const struct cmd_group_analysis *analyses, size_t count,
     fprintf(f, "]\n");
     fprintf(f, "regry = [");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        const struct cmd_group_analysis *analysis = analyses + grp_idx;
+        const struct group_analysis *analysis = analyses + grp_idx;
         fprintf(f, "[");
         for (size_t i = 0; i < nregr; ++i) {
             double regr =
@@ -419,7 +419,7 @@ void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
 
 void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
 
-void group_bar_plot(const struct cmd_group_analysis *analyses, size_t count,
+void group_bar_plot(const struct group_analysis *analyses, size_t count,
                     const char *output_filename, FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {

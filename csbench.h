@@ -312,6 +312,7 @@ struct cmd_in_group_data {
     const char *value;
     double value_double;
     double mean;
+    double st_dev;
 };
 
 struct ols_regress {
@@ -324,7 +325,7 @@ struct ols_regress {
     double rms;
 };
 
-struct cmd_group_analysis {
+struct group_analysis {
     const struct meas *meas;
     const struct cmd_group *group;
     size_t cmd_count;
@@ -343,7 +344,7 @@ struct bench_results {
     size_t *fastest_meas;
     const struct meas *meas;
     size_t group_count;
-    struct cmd_group_analysis **group_analyses;
+    struct group_analysis **group_analyses;
 };
 
 struct cpu_time {
@@ -438,9 +439,9 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 void bar_plot(const struct bench_analysis *analyses, size_t count,
               size_t meas_idx, const char *output_filename, FILE *f);
-void group_bar_plot(const struct cmd_group_analysis *analyses, size_t count,
+void group_bar_plot(const struct group_analysis *analyses, size_t count,
                     const char *output_filename, FILE *f);
-void group_plot(const struct cmd_group_analysis *analyses, size_t count,
+void group_plot(const struct group_analysis *analyses, size_t count,
                 const char *output_filename, FILE *f);
 #define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \
     init_kde_plot_internal(_distr, _title, _meas, false, _output_filename,     \

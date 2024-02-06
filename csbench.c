@@ -1830,12 +1830,12 @@ static void analyze_cmd_groups(const struct settings *settings,
         const struct meas *meas = results->meas + meas_idx;
         if (meas->is_secondary)
             continue;
-        for (size_t group_idx = 0; group_idx < group_count; ++group_idx) {
-            const struct cmd_group *group = settings->cmd_groups + group_idx;
+        for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
+            const struct cmd_group *group = settings->cmd_groups + grp_idx;
             size_t cmd_count = group->count;
             assert(cmd_count != 0);
-            struct cmd_group_analysis *analysis =
-                results->group_analyses[meas_idx] + group_idx;
+            struct group_analysis *analysis =
+                results->group_analyses[meas_idx] + grp_idx;
             analysis->meas = meas;
             analysis->group = group;
             analysis->cmd_count = cmd_count;
@@ -1862,6 +1862,8 @@ static void analyze_cmd_groups(const struct settings *settings,
                     results->analyses[bench_idx].meas[meas_idx].mean.point;
                 struct cmd_in_group_data *data = analysis->data + cmd_idx;
                 data->mean = mean;
+                data->st_dev =
+                    results->analyses[bench_idx].meas[meas_idx].st_dev.point;
                 data->value = value;
                 data->value_double = value_double;
                 if (mean > slowest) {
@@ -2016,35 +2018,32 @@ static const char *outliers_variance_str(double fraction) {
     if (fraction < 0.01)
         return "no";
     else if (fraction < 0.1)
-        return "a slight";
+        return "slight";
     else if (fraction < 0.5)
-        return "a moderate";
-    return "a severe";
+        return "moderate";
+    return "severe";
 }
 
 static void print_outliers(const struct outliers *outliers, size_t run_count) {
     int outlier_count = outliers->low_mild + outliers->high_mild +
                         outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
-        printf("found %d outliers across %zu measurements (%.2f%%)\n",
-               outlier_count, run_count,
-               (double)outlier_count / run_count * 100.0);
+        printf("%d outliers (%.2f%%) %s (%.1f%%) effect on st dev\n",
+               outlier_count, (double)outlier_count / run_count * 100.0,
+               outliers_variance_str(outliers->var), outliers->var * 100.0);
         if (outliers->low_severe)
-            printf("%d (%.2f%%) low severe\n", outliers->low_severe,
+            printf("  %d (%.2f%%) low severe\n", outliers->low_severe,
                    (double)outliers->low_severe / run_count * 100.0);
         if (outliers->low_mild)
-            printf("%d (%.2f%%) low mild\n", outliers->low_mild,
+            printf("  %d (%.2f%%) low mild\n", outliers->low_mild,
                    (double)outliers->low_mild / run_count * 100.0);
         if (outliers->high_mild)
-            printf("%d (%.2f%%) high mild\n", outliers->high_mild,
+            printf("  %d (%.2f%%) high mild\n", outliers->high_mild,
                    (double)outliers->high_mild / run_count * 100.0);
         if (outliers->high_severe)
-            printf("%d (%.2f%%) high severe\n", outliers->high_severe,
+            printf("  %d (%.2f%%) high severe\n", outliers->high_severe,
                    (double)outliers->high_severe / run_count * 100.0);
     }
-    printf("outlying measurements have %s (%.1f%%) effect on estimated "
-           "standard deviation\n",
-           outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
 static void print_estimate(const char *name, const struct est *est,
@@ -2127,19 +2126,23 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
     size_t run_count = bench->run_count;
     const struct cmd *cmd = bench->cmd;
     printf("command\t'%s'\n", cmd->str);
-    printf("%zu runs\n", bench->run_count);
+    // Print runs count only if it not explicitly specified, otherwise it is
+    // printed in 'print_analysis'
+    if (g_bench_stop.runs == 0)
+        printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
     bool has_primary = false;
-    for (size_t i = 0; i < bench->meas_count; ++i) {
-        const struct meas *info = cmd->meas + i;
+    for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+        const struct meas *info = cmd->meas + meas_idx;
         if (info->is_secondary)
             continue;
 
         has_primary = true;
-        const struct distr *distr = analysis->meas + i;
+        const struct distr *distr = analysis->meas + meas_idx;
         print_distr(distr, &info->units);
         for (size_t j = 0; j < bench->meas_count; ++j) {
-            if (cmd->meas[j].is_secondary && cmd->meas[j].primary_idx == i)
+            if (cmd->meas[j].is_secondary &&
+                cmd->meas[j].primary_idx == meas_idx)
                 print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
                                &cmd->meas[j].units);
         }
@@ -2158,36 +2161,89 @@ static void print_cmd_comparison(const struct bench_results *results) {
         return;
 
     size_t meas_count = results->meas_count;
-    for (size_t i = 0; i < meas_count; ++i) {
-        if (results->meas[i].is_secondary)
-            continue;
-        size_t best_idx = results->fastest_meas[i];
-        const struct bench_analysis *best = results->analyses + best_idx;
-        const struct meas *meas = results->meas + i;
-        printf("measurement %s\n", meas->name);
-        printf("fastest command '%s'\n", best->bench->cmd->str);
-        for (size_t j = 0; j < results->bench_count; ++j) {
-            const struct bench_analysis *analysis = results->analyses + j;
-            if (analysis == best)
+    if (results->group_count <= 1) {
+        for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
+                continue;
+            size_t best_idx = results->fastest_meas[meas_idx];
+            const struct bench_analysis *best = results->analyses + best_idx;
+            const struct meas *meas = results->meas + meas_idx;
+            printf("measurement %s\n", meas->name);
+            printf("fastest command '%s'\n", best->bench->cmd->str);
+            for (size_t j = 0; j < results->bench_count; ++j) {
+                const struct bench_analysis *analysis = results->analyses + j;
+                if (analysis == best)
+                    continue;
+
+                double ref, ref_st_dev;
+                ref_speed(analysis->meas[meas_idx].mean.point,
+                          analysis->meas[meas_idx].st_dev.point,
+                          best->meas[meas_idx].mean.point,
+                          best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
+                printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
+                       analysis->bench->cmd->str);
+            }
+        }
+    } else {
+        for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
                 continue;
 
-            double ref, ref_st_dev;
-            ref_speed(analysis->meas[i].mean.point,
-                      analysis->meas[i].st_dev.point, best->meas[i].mean.point,
-                      best->meas[i].st_dev.point, &ref, &ref_st_dev);
-            printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
-                   analysis->bench->cmd->str);
+            const struct meas *meas = results->meas + meas_idx;
+            const struct group_analysis *analyses =
+                results->group_analyses[meas_idx];
+            printf("measurement %s\n", meas->name);
+            for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx)
+                printf("%c = '%s'\n", (int)('A' + grp_idx),
+                       analyses[grp_idx].group->template);
+
+            const char *val_name = analyses[0].group->var_name;
+            size_t val_count = analyses[0].group->count;
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+                const char *value = analyses[0].group->var_values[val_idx];
+                size_t fastest_idx = 0;
+                double fastest_mean = analyses[0].data[val_idx].mean,
+                       fastest_st_dev = analyses[0].data[val_idx].st_dev;
+                for (size_t grp_idx = 1; grp_idx < results->group_count;
+                     ++grp_idx) {
+                    if (analyses[grp_idx].data[val_idx].mean < fastest_mean) {
+                        fastest_mean = analyses[grp_idx].data[val_idx].mean;
+                        fastest_st_dev = analyses[grp_idx].data[val_idx].st_dev;
+                        fastest_idx = grp_idx;
+                    }
+                }
+
+                printf("%s=%s: %c is ", val_name, value,
+                       (int)('A' + fastest_idx));
+                const char *ident = "";
+                if (results->group_count > 2) {
+                    printf("\n");
+                    ident = "  ";
+                }
+                for (size_t grp_idx = 0; grp_idx < results->group_count;
+                     ++grp_idx) {
+                    if (grp_idx == fastest_idx)
+                        continue;
+
+                    double ref, ref_st_dev;
+                    ref_speed(analyses[grp_idx].data[val_idx].mean,
+                              analyses[grp_idx].data[val_idx].st_dev,
+                              fastest_mean, fastest_st_dev, &ref, &ref_st_dev);
+                    printf("%s%.3f ± %.3f times faster than %c\n", ident, ref,
+                           ref_st_dev, (int)('A' + grp_idx));
+                }
+            }
         }
     }
 }
 
-static void print_cmd_group_analysis(const struct bench_results *results) {
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        if (results->meas[i].is_secondary)
+static void print_group_analysis(const struct bench_results *results) {
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (results->meas[meas_idx].is_secondary)
             continue;
-        for (size_t j = 0; j < results->group_count; ++j) {
-            const struct cmd_group_analysis *analysis =
-                results->group_analyses[i] + j;
+        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
+            const struct group_analysis *analysis =
+                results->group_analyses[meas_idx] + grp_idx;
             const struct cmd_group *group = analysis->group;
 
             printf("command group '%s' with parameter %s\n", group->template,
@@ -2423,7 +2479,7 @@ static bool dump_plot_src(const struct bench_results *results,
             }
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct cmd_group_analysis *analysis =
+            const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
             f = open_file_fmt("w", "%s/group_%zu_%zu.py", out_dir, grp_idx,
                               meas_idx);
@@ -2439,7 +2495,7 @@ static bool dump_plot_src(const struct bench_results *results,
             fclose(f);
         }
         if (results->group_count > 1) {
-            const struct cmd_group_analysis *analyses =
+            const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
             f = open_file_fmt("w", "%s/group_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
@@ -2526,7 +2582,7 @@ static bool make_plots(const struct bench_results *results,
             }
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct cmd_group_analysis *analysis =
+            const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
                      meas_idx);
@@ -2539,7 +2595,7 @@ static bool make_plots(const struct bench_results *results,
             sb_push(processes, pid);
         }
         if (results->group_count > 1) {
-            const struct cmd_group_analysis *analyses =
+            const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
@@ -2603,7 +2659,7 @@ static bool make_plots_readme(const struct bench_results *results,
         const struct meas *meas = results->meas + meas_idx;
         fprintf(f, "## measurement %s\n", meas->name);
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct cmd_group_analysis *analysis =
+            const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
             fprintf(f,
                     "* [command group '%s' regression "
@@ -2761,7 +2817,7 @@ static void html_compare(const struct bench_results *results, FILE *f) {
     fprintf(f, "</div>");
 }
 
-static void html_cmd_group(const struct cmd_group_analysis *analysis,
+static void html_cmd_group(const struct group_analysis *analysis,
                            const struct meas *meas, size_t meas_idx,
                            size_t grp_idx, FILE *f) {
     const struct cmd_group *group = analysis->group;
@@ -2811,7 +2867,7 @@ static void html_paramter_analysis(const struct bench_results *results,
                     results->group_analyses[0][grp_idx].group->template,
                     results->group_analyses[0][grp_idx].group->var_name);
             const struct meas *meas = results->meas + meas_idx;
-            const struct cmd_group_analysis *analysis =
+            const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
             html_cmd_group(analysis, meas, meas_idx, grp_idx, f);
         }
@@ -2961,11 +3017,13 @@ static void analyze_benches(const struct settings *settings,
 }
 
 static void print_analysis(const struct bench_results *results) {
+    if (g_bench_stop.runs != 0)
+        printf("%d runs\n", g_bench_stop.runs);
     for (size_t i = 0; i < results->bench_count; ++i)
         print_benchmark_info(results->analyses + i);
 
     print_cmd_comparison(results);
-    print_cmd_group_analysis(results);
+    print_group_analysis(results);
 }
 
 static bool handle_export(const struct settings *settings,
@@ -3051,7 +3109,7 @@ static void free_bench_results(struct bench_results *results) {
     if (results->group_analyses) {
         for (size_t i = 0; i < results->meas_count; ++i) {
             for (size_t j = 0; j < results->group_count; ++j) {
-                struct cmd_group_analysis *analysis =
+                struct group_analysis *analysis =
                     results->group_analyses[i] + j;
                 free(analysis->data);
             }
