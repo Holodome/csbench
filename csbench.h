@@ -155,7 +155,7 @@ struct meas {
     size_t primary_idx;
 };
 
-// Some default measurements. Altough these definitions should be used only one
+// Some default measurements. Although these definitions should be used only one
 // time, they are put here to make them clearer to see.
 #define MEAS_WALL_DEF                                                          \
     ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0})
@@ -224,7 +224,7 @@ struct cmd_group {
     const char **var_values;
 };
 
-// Information gethered from user input (settings), parsed
+// Information gathered from user input (settings), parsed
 // and prepared for benchmarking. Some fields are copied from
 // cli settings as is to reduce data dependencies.
 struct settings {
@@ -237,7 +237,7 @@ struct settings {
     int input_fd;
 };
 
-// Boostrap estimate of certain statistic. Contains lower and upper bounds, as
+// Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
 // well as point estimate. Point estimate is commonly obtained from statistic
 // calculation over original data, while lower and upper bounds are obtained
 // using bootstrapping.
@@ -360,8 +360,8 @@ struct kde_plot {
     bool is_ext;
 };
 
-// Worker threan in parallel for group. It iterates 'arr' from 'low' to 'high'
-// uninclusive, calling 'fn' for each memory block.
+// Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
+// noninclusive, calling 'fn' for each memory block.
 struct parfor_data {
     pthread_t id;
     void *arr;
