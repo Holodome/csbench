@@ -2086,7 +2086,8 @@ static void print_distr(const struct distr *dist, const struct units *units) {
     char buf1[256], buf2[256];
     format_meas(buf1, sizeof(buf1), dist->min, units);
     format_meas(buf2, sizeof(buf2), dist->max, units);
-    printf("min %s max %s\n", buf1, buf2);
+    printf("min/max %s          %s\n", buf1, buf2);
+
     print_estimate("mean", &dist->mean, units);
     print_estimate("st dev", &dist->st_dev, units);
 }
@@ -2202,8 +2203,6 @@ static void print_cmd_group_analysis(const struct bench_results *results) {
             if (analysis->values_are_doubles) {
                 printf("mean time is most likely %s in terms of parameter\n",
                        big_o_str(analysis->regress.complexity));
-                printf("linear coef %g rms %.3f\n", analysis->regress.a,
-                       analysis->regress.rms);
             }
         }
     }
@@ -2635,8 +2634,6 @@ static bool make_plots_readme(const struct bench_results *results,
     return true;
 }
 
-#define html_time_estimate(_name, _est, _f)                                    \
-    html_estimate(_name, _est, &(struct units){0}, f)
 static void html_estimate(const char *name, const struct est *est,
                           const struct units *units, FILE *f) {
     char buf1[256], buf2[256], buf3[256];

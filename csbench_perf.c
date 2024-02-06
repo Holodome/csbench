@@ -1,3 +1,8 @@
+// csbench
+// command-line benchmarking tool
+// Ilya Vinogradov 2024
+// https://github.com/Holodome/csbench
+//
 // csbench is dual-licensed under the terms of the MIT License and the Apache
 // License 2.0. This file may not be copied, modified, or distributed except
 // according to those terms.

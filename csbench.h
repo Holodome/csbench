@@ -1,3 +1,8 @@
+// csbench
+// command-line benchmarking tool
+// Ilya Vinogradov 2024
+// https://github.com/Holodome/csbench
+//
 // csbench is dual-licensed under the terms of the MIT License and the Apache
 // License 2.0. This file may not be copied, modified, or distributed except
 // according to those terms.
@@ -346,8 +351,8 @@ struct cpu_time {
     double system_time;
 };
 
-// data needed to construct kde plot. data here is kde points computed from
-// original data
+// data needed to construct kde plot. Points here are computed from original
+// timings.
 struct kde_plot {
     const struct distr *distr;
     const char *title;
@@ -362,6 +367,8 @@ struct kde_plot {
     bool is_ext;
 };
 
+// Worker threan in parallel for group. It iterates 'arr' from 'low' to 'high'
+// uninclusive, calling 'fn' for each memory block.
 struct parfor_data {
     pthread_t id;
     void *arr;
