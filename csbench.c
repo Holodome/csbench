@@ -2043,6 +2043,9 @@ static void print_outliers(const struct outliers *outliers, size_t run_count) {
         if (outliers->high_severe)
             printf("  %d (%.2f%%) high severe\n", outliers->high_severe,
                    (double)outliers->high_severe / run_count * 100.0);
+    } else {
+        printf("outliers have %s (%.1f%%) effect on st dev\n",
+               outliers_variance_str(outliers->var), outliers->var * 100.0);
     }
 }
 

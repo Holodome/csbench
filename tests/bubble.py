@@ -16,6 +16,7 @@ def gen_arr(n):
 n = int(input())
 arr = gen_arr(n)
 start = timer()
-bubblesort(arr)
+for _ in range(10):
+    bubblesort(arr)
 end = timer()
 print(end - start)

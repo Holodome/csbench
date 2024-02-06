@@ -138,7 +138,6 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             "plt.barh(range(len(data)), data)\n"
             "plt.yticks(range(len(data)), labels=names)\n"
             "plt.xlabel('mean %s [%s]')\n"
-            "plt.ioff()\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
             analyses[0].bench->cmd->meas[meas_idx].name, prettify.units_str,
             output_filename);
@@ -208,8 +207,7 @@ void group_plot(const struct group_analysis *analyses, size_t count,
     fprintf(f, "]\n");
     fprintf(f, "import matplotlib as mpl\n"
                "mpl.use('svg')\n"
-               "import matplotlib.pyplot as plt\n"
-               "plt.ioff()\n");
+               "import matplotlib.pyplot as plt\n");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f,
                 "plt.plot(regrx, regry[%zu], color='red', alpha=0.3)\n"
@@ -314,7 +312,6 @@ void make_kde_plot(const struct kde_plot *plot, FILE *f) {
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%g, [0], [%g])\n"
@@ -383,7 +380,6 @@ void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.ioff()\n"
             "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
@@ -447,7 +443,9 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
         fprintf(f, "],\n");
     }
     fprintf(f, "}\n");
-    fprintf(f, "import matplotlib.pyplot as plt\n"
+    fprintf(f, "import matplotlib as mpl\n"
+               "mpl.use('svg')\n"
+               "import matplotlib.pyplot as plt\n"
                "import numpy as np\n"
                "x = np.arange(len(param_val))\n"
                "width = 1.0 / (len(times) + 1)\n"

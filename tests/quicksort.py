@@ -18,6 +18,7 @@ def gen_arr(n):
 n = int(input())
 arr = gen_arr(n)
 start = timer()
-quicksort(arr)
+for _ in range(10):
+    quicksort(arr)
 end = timer()
 print(end - start)
