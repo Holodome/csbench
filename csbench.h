@@ -102,12 +102,6 @@ struct export_policy {
     const char *filename;
 };
 
-enum analyze_mode {
-    DONT_ANALYZE,
-    ANALYZE_PLOT,
-    ANALYZE_HTML
-};
-
 struct bench_stop_policy {
     double time_limit;
     int runs;
@@ -207,7 +201,6 @@ struct cli_settings {
     struct input_policy input;
     enum output_kind output;
     const char *out_dir;
-    enum analyze_mode analyze_mode;
     struct bench_param *params;
 };
 
@@ -240,7 +233,6 @@ struct settings {
     struct meas *meas;
     const char *prepare_cmd;
     struct export_policy export;
-    enum analyze_mode analyze_mode;
     const char *out_dir;
     int input_fd;
 };

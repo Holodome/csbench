@@ -81,6 +81,9 @@ static __thread uint32_t g_rng_state;
 static bool g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
+static bool g_plot = false;
+// implies g_plot = true
+static bool g_html = false;
 static bool g_plot_src = 0;
 static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
@@ -675,9 +678,9 @@ static void parse_cli_args(int argc, char **argv,
             const char *dir = argv[cursor++];
             settings->out_dir = dir;
         } else if (strcmp(opt, "--html") == 0) {
-            settings->analyze_mode = ANALYZE_HTML;
+            g_plot = g_html = true;
         } else if (strcmp(opt, "--plot") == 0) {
-            settings->analyze_mode = ANALYZE_PLOT;
+            g_plot = true;
         } else if (strcmp(opt, "--plot-src") == 0) {
             g_plot_src = true;
         } else if (strcmp(opt, "--no-wall") == 0) {
@@ -1067,7 +1070,6 @@ static bool init_settings(const struct cli_settings *cli,
                           struct settings *settings) {
     settings->export = cli->export;
     settings->prepare_cmd = cli->prepare;
-    settings->analyze_mode = cli->analyze_mode;
     settings->out_dir = cli->out_dir;
     settings->meas = cli->meas;
     settings->input_fd = -1;
@@ -3029,7 +3031,7 @@ static void print_analysis(const struct bench_results *results) {
     print_group_analysis(results);
 }
 
-static bool handle_export(const struct settings *settings,
+static bool do_export(const struct settings *settings,
                           const struct bench_results *results) {
     switch (settings->export.kind) {
     case EXPORT_JSON:
@@ -3053,9 +3055,9 @@ static bool make_html_report(const struct bench_results *results,
     return true;
 }
 
-static bool handle_analyze(const struct bench_results *results,
-                           enum analyze_mode mode, const char *out_dir) {
-    if (mode == DONT_ANALYZE)
+static bool do_visualize(const struct bench_results *results,
+                           const char *out_dir) {
+    if (!g_plot && !g_html)
         return true;
 
     if (mkdir(out_dir, 0766) == -1) {
@@ -3066,7 +3068,7 @@ static bool handle_analyze(const struct bench_results *results,
         }
     }
 
-    if (mode == ANALYZE_PLOT || mode == ANALYZE_HTML) {
+    if (g_plot) {
         if (!python_found()) {
             fprintf(stderr, "error: failed to find python3 executable\n");
             return false;
@@ -3085,7 +3087,7 @@ static bool handle_analyze(const struct bench_results *results,
             return false;
     }
 
-    if (mode == ANALYZE_HTML && !make_html_report(results, out_dir))
+    if (g_html && !make_html_report(results, out_dir))
         return false;
 
     return true;
@@ -3132,9 +3134,9 @@ static bool run(const struct settings *settings) {
         goto out;
     analyze_benches(settings, &results);
     print_analysis(&results);
-    if (!handle_export(settings, &results))
+    if (!do_export(settings, &results))
         goto out;
-    if (!handle_analyze(&results, settings->analyze_mode, settings->out_dir))
+    if (!do_visualize(&results, settings->out_dir))
         goto out;
     success = true;
 out:
