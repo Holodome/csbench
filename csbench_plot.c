@@ -496,3 +496,55 @@ void kde_plot_ext(const struct distr *distr, const struct meas *meas,
     make_kde_plot_ext(&plot, f);
     free_kde_plot(&plot);
 }
+
+static void make_kde_cmp_plot(const struct kde_plot *a,
+                              const struct kde_plot *b, FILE *f) {
+    double min = fmin(a->lower, b->lower);
+    double max = fmax(a->lower + a->step * (a->count - 1),
+                      b->lower + b->step * (b->count - 1));
+    struct prettify_plot prettify = {0};
+    prettify_plot(&a->meas->units, min, max, &prettify);
+
+    fprintf(f, "ay = [");
+    for (size_t i = 0; i < a->count; ++i)
+        fprintf(f, "%g, ", a->data[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "ax = [");
+    for (size_t i = 0; i < a->count; ++i)
+        fprintf(f, "%g, ", (a->lower + a->step * i) * prettify.multiplier);
+    fprintf(f, "]\n");
+    fprintf(f, "by = [");
+    for (size_t i = 0; i < b->count; ++i)
+        fprintf(f, "%g, ", b->data[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "bx = [");
+    for (size_t i = 0; i < b->count; ++i)
+        fprintf(f, "%g, ", (b->lower + b->step * i) * prettify.multiplier);
+    fprintf(f, "]\n");
+    fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.fill_between(ax, ay, interpolate=True, alpha=0.25)\n"
+            "plt.fill_between(bx, by, interpolate=True, alpha=0.25, color='r')\n"
+            "plt.vlines(%g, [0], [%g])\n"
+            "plt.vlines(%g, [0], [%g], color='r')\n"
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('%s [%s]')\n"
+            "plt.ylabel('probability density')\n"
+            "plt.savefig('%s', bbox_inches='tight')\n",
+            a->mean * prettify.multiplier, a->mean_y,
+            b->mean * prettify.multiplier, b->mean_y, a->meas->name,
+            prettify.units_str, a->output_filename);
+}
+
+void kde_cmp_plot(const struct distr *a, const struct distr *b,
+                  const struct meas *meas, const char *output_filename,
+                  FILE *f) {
+    struct kde_plot a_plot = {0}, b_plot = {0};
+    init_kde_plot(a, meas, output_filename, &a_plot);
+    init_kde_plot(b, meas, output_filename, &b_plot);
+    make_kde_cmp_plot(&a_plot, &b_plot, f);
+    free_kde_plot(&a_plot);
+    free_kde_plot(&b_plot);
+}

@@ -2636,6 +2636,17 @@ static bool make_plots(const struct bench_results *results,
                 sb_push(processes, pid);
             }
         }
+        if (results->bench_count == 2) {
+            snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
+            if (!launch_python_stdin_pipe(&f, &pid)) {
+                fprintf(stderr, "error: failed to launch python\n");
+                goto out;
+            }
+            kde_cmp_plot(analyses[0].meas + meas_idx,
+                         analyses[1].meas + meas_idx, meas, buf, f);
+            fclose(f);
+            sb_push(processes, pid);
+        }
     }
     success = true;
 out:
