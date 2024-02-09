@@ -2794,8 +2794,6 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
 static void html_compare(const struct bench_results *results, FILE *f) {
     if (results->bench_count == 1)
         return;
-    if (results->group_count != 1)
-        return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
     size_t meas_count = results->meas_count;
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
@@ -2807,6 +2805,11 @@ static void html_compare(const struct bench_results *results, FILE *f) {
                 "<div class=\"row\"><div class=\"col\">"
                 "<img src=\"bar_%zu.svg\"></div>",
                 meas->name, meas_idx);
+        if (results->bench_count == 2)
+            fprintf(f,
+                    "<div class=\"col\">"
+                    "<img src=\"kde_cmp_%zu.svg\"></div>",
+                    meas_idx);
 #if 0 // TODO: Make this a table
         size_t best_idx = results->fastest_meas[meas_idx];
         const struct bench_analysis *best = results->analyses + best_idx;
