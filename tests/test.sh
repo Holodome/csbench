@@ -165,7 +165,7 @@ cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["val"].[]' > /dev/null || die
 #
 
 distclean
-$b ls --plot --shell none > /dev/null || die 
+$b ls --plot --shell=none > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] || die

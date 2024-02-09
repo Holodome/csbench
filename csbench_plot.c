@@ -93,7 +93,7 @@ struct prettify_plot {
 
 static void prettify_plot(const struct units *units, double min, double max,
                           struct prettify_plot *plot) {
-    if (log10(max) - log10(min) > 3.0)
+    if (log10(max / min) > 3.0)
         plot->logscale = 1;
 
     plot->multiplier = 1;

@@ -28,7 +28,7 @@ Also see [user guide](docs/user_guide.md).
 `csbench` can be used to compare execution time of multiple commands.
 Also see [generated html report](https://holodome.github.io/csbench/cmp).
 ```
-$ csbench ls exa --shell none --html
+$ csbench ls exa --shell=none --html
 command 'ls'
 3475 runs
 min 2.691 ms
@@ -121,7 +121,7 @@ linear coef 1.12172e-07 rms 0.014
 In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.
 This is similar to `perf stat -r`.
 ```
-$ csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell none
+$ csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell=none
 command 'ls'
 15 runs
  cycles 2.05e+06 2.97e+06 4.71e+06

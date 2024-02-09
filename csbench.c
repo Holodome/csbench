@@ -413,6 +413,30 @@ static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
     sb_free(list);
 }
 
+static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
+    if (strcmp(argv[*cursor], opt) == 0) {
+        ++(*cursor);
+        if (argv[*cursor] == NULL) {
+            fprintf(stderr, "error: %s requires 1 argument\n", opt);
+            exit(EXIT_FAILURE);
+        }
+
+        *arg = argv[*cursor];
+        ++(*cursor);
+        return true;
+    }
+
+    size_t opt_len = strlen(opt);
+    if (strncmp(opt, argv[*cursor], opt_len) == 0) {
+        int c = argv[*cursor][opt_len];
+        if (c == '=') {
+            *arg = argv[(*cursor)++] + opt_len + 1;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
@@ -421,22 +445,19 @@ static void parse_cli_args(int argc, char **argv,
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
 
+    char *str;
     int cursor = 1;
     while (cursor < argc) {
-        const char *opt = argv[cursor++];
-        if (strcmp(opt, "--help") == 0 || strcmp(opt, "-h") == 0) {
+        if (strcmp(argv[cursor], "--help") == 0 ||
+            strcmp(argv[cursor], "-h") == 0) {
             print_help_and_exit(EXIT_SUCCESS);
-        } else if (strcmp(opt, "--version") == 0) {
+        } else if (strcmp(argv[cursor], "--version") == 0) {
             print_version_and_exit();
-        } else if (strcmp(opt, "--warmup") == 0 || strcmp(opt, "-W") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --warmup requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *runs_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--warmup", &str) ||
+                   opt_arg(argv, &cursor, "-W", &str)) {
             char *str_end;
-            double value = strtod(runs_str, &str_end);
-            if (str_end == runs_str) {
+            double value = strtod(str, &str_end);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --warmup argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -446,15 +467,11 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_warmup_time = value;
-        } else if (strcmp(opt, "--time-limit") == 0 || strcmp(opt, "-T") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --time-limit requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *runs_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--time-limit", &str) ||
+                   opt_arg(argv, &cursor, "-T", &str)) {
             char *str_end;
-            double value = strtod(runs_str, &str_end);
-            if (str_end == runs_str) {
+            double value = strtod(str, &str_end);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --time-limit argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -463,15 +480,11 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.time_limit = value;
-        } else if (strcmp(opt, "--runs") == 0 || strcmp(opt, "-R") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --runs requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *runs_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--runs", &str) ||
+                   opt_arg(argv, &cursor, "-R", &str)) {
             char *str_end;
-            long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str) {
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --runs argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -479,17 +492,11 @@ static void parse_cli_args(int argc, char **argv,
                 fprintf(stderr, "error: run count must be positive number\n");
                 exit(EXIT_FAILURE);
             }
-
             g_bench_stop.runs = value;
-        } else if (strcmp(opt, "--min-runs") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --min-runs requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *runs_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--min-runs", &str)) {
             char *str_end;
-            long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str) {
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --min-runs argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -499,15 +506,10 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.min_runs = value;
-        } else if (strcmp(opt, "--max-runs") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --max-runs requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *runs_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--max-runs", &str)) {
             char *str_end;
-            long value = strtol(runs_str, &str_end, 10);
-            if (str_end == runs_str) {
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --max-runs argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -517,22 +519,12 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.max_runs = value;
-        } else if (strcmp(opt, "--prepare") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --prepare requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *prepare_str = argv[cursor++];
-            settings->prepare = prepare_str;
-        } else if (strcmp(opt, "--nrs") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --nrs requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *resamples_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--prepare", &str)) {
+            settings->prepare = str;
+        } else if (opt_arg(argv, &cursor, "--nrs", &str)) {
             char *str_end;
-            long value = strtol(resamples_str, &str_end, 10);
-            if (str_end == resamples_str) {
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --nrs argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -542,51 +534,35 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_nresamp = value;
-        } else if (strcmp(opt, "--shell") == 0 || strcmp(opt, "-S") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --shell requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *shell = argv[cursor++];
-            if (strcmp(shell, "none") == 0)
+        } else if (opt_arg(argv, &cursor, "--shell", &str) ||
+                   opt_arg(argv, &cursor, "-S", &str)) {
+            if (strcmp(str, "none") == 0)
                 settings->shell = NULL;
             else
-                settings->shell = shell;
-        } else if (strcmp(opt, "--output") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --output requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *out = argv[cursor++];
-            if (strcmp(out, "null") == 0)
+                settings->shell = str;
+        } else if (opt_arg(argv, &cursor, "--output", &str)) {
+            if (strcmp(str, "null") == 0) {
                 settings->output = OUTPUT_POLICY_NULL;
-            else if (strcmp(out, "inherit") == 0)
+            } else if (strcmp(str, "inherit") == 0) {
                 settings->output = OUTPUT_POLICY_INHERIT;
-            else
-                print_help_and_exit(EXIT_FAILURE);
-        } else if (strcmp(opt, "--input") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --input requires 1 argument\n");
+            } else {
+                fprintf(stderr, "error: invalid --output option\n");
                 exit(EXIT_FAILURE);
             }
-            const char *input = argv[cursor++];
-            if (strcmp(input, "null") == 0) {
+        } else if (opt_arg(argv, &cursor, "--input", &str)) {
+            if (strcmp(str, "null") == 0) {
                 settings->input.kind = INPUT_POLICY_NULL;
             } else {
                 settings->input.kind = INPUT_POLICY_FILE;
-                settings->input.file = input;
+                settings->input.file = str;
             }
-        } else if (strcmp(opt, "--custom") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --custom requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *name = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas = {0};
-            meas.name = name;
+            meas.name = str;
             meas.cmd = "cat";
             sb_push(meas_list, meas);
-        } else if (strcmp(opt, "--custom-t") == 0) {
+        } else if (strcmp(argv[cursor], "--custom-t") == 0) {
+            ++cursor;
             if (cursor + 1 >= argc) {
                 fprintf(stderr, "error: --custom-t requires 2 arguments\n");
                 exit(EXIT_FAILURE);
@@ -597,7 +573,8 @@ static void parse_cli_args(int argc, char **argv,
             meas.name = name;
             meas.cmd = cmd;
             sb_push(meas_list, meas);
-        } else if (strcmp(opt, "--custom-x") == 0) {
+        } else if (strcmp(argv[cursor], "--custom-x") == 0) {
+            ++cursor;
             if (cursor + 2 >= argc) {
                 fprintf(stderr, "error: --custom-x requires 3 arguments\n");
                 exit(EXIT_FAILURE);
@@ -610,16 +587,10 @@ static void parse_cli_args(int argc, char **argv,
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
-        } else if (strcmp(opt, "--scan") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --scan requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *scan_settings = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--scan", &str)) {
             double low, high, step;
             char *name;
-            if (!parse_range_scan_settings(scan_settings, &name, &low, &high,
-                                           &step)) {
+            if (!parse_range_scan_settings(str, &name, &low, &high, &step)) {
                 fprintf(stderr, "error: invalid --scan argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -628,15 +599,9 @@ static void parse_cli_args(int argc, char **argv,
             param.name = name;
             param.values = param_list;
             sb_push(settings->params, param);
-        } else if (strcmp(opt, "--scanl") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --scanl requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *scan_settings = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
             char *name, *scan_list;
-            if (!parse_comma_separated_settings(scan_settings, &name,
-                                                &scan_list)) {
+            if (!parse_comma_separated_settings(str, &name, &scan_list)) {
                 fprintf(stderr, "error: invalid --scanl argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -646,15 +611,11 @@ static void parse_cli_args(int argc, char **argv,
             param.name = name;
             param.values = param_list;
             sb_push(settings->params, param);
-        } else if (strcmp(opt, "--jobs") == 0 || strcmp(opt, "-j") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --jobs requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *threads_str = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--jobs", &str) ||
+                   opt_arg(argv, &cursor, "-j", &str)) {
             char *str_end;
-            long value = strtol(threads_str, &str_end, 10);
-            if (str_end == threads_str) {
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
                 fprintf(stderr, "error: invalid --jobs argument\n");
                 exit(EXIT_FAILURE);
             }
@@ -663,43 +624,35 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_threads = value;
-        } else if (strcmp(opt, "--export-json") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --export-json requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *export_filename = argv[cursor++];
+        } else if (opt_arg(argv, &cursor, "--export-json", &str)) {
             settings->export.kind = EXPORT_JSON;
-            settings->export.filename = export_filename;
-        } else if (strcmp(opt, "--out-dir") == 0 || strcmp(opt, "-o") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --out-dir requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
-            const char *dir = argv[cursor++];
-            settings->out_dir = dir;
-        } else if (strcmp(opt, "--html") == 0) {
+            settings->export.filename = str;
+        } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
+                   opt_arg(argv, &cursor, "-o", &str)) {
+            settings->out_dir = str;
+        } else if (strcmp(argv[cursor], "--html") == 0) {
+            ++cursor;
             g_plot = g_html = true;
-        } else if (strcmp(opt, "--plot") == 0) {
+        } else if (strcmp(argv[cursor], "--plot") == 0) {
+            ++cursor;
             g_plot = true;
-        } else if (strcmp(opt, "--plot-src") == 0) {
+        } else if (strcmp(argv[cursor], "--plot-src") == 0) {
+            ++cursor;
             g_plot_src = true;
-        } else if (strcmp(opt, "--no-wall") == 0) {
+        } else if (strcmp(argv[cursor], "--no-wall") == 0) {
+            ++cursor;
             no_wall = true;
-        } else if (strcmp(opt, "--allow-nonzero") == 0) {
+        } else if (strcmp(argv[cursor], "--allow-nonzero") == 0) {
+            ++cursor;
             g_allow_nonzero = true;
-        } else if (strcmp(opt, "--meas") == 0) {
-            if (cursor >= argc) {
-                fprintf(stderr, "error: --meas requires 1 argument\n");
-                exit(EXIT_FAILURE);
-            }
+        } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(argv[cursor++], &rusage_opts);
         } else {
-            if (*opt == '-') {
-                fprintf(stderr, "error: unknown option %s\n", opt);
+            if (*argv[cursor] == '-') {
+                fprintf(stderr, "error: unknown option %s\n", argv[cursor]);
                 exit(EXIT_FAILURE);
             }
-            sb_push(settings->cmds, opt);
+            sb_push(settings->cmds, argv[cursor++]);
         }
     }
 
