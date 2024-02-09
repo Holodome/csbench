@@ -57,6 +57,22 @@
 #include <math.h>
 #include <stdlib.h>
 
+// data needed to construct kde plot. Points here are computed from original
+// timings.
+struct kde_plot {
+    const struct distr *distr;
+    const char *title;
+    const struct meas *meas;
+    double lower;
+    double step;
+    double *data;
+    size_t count;
+    double mean;
+    double mean_y;
+    const char *output_filename;
+    bool is_ext;
+};
+
 struct prettify_plot {
     const char *units_str;
     double multiplier;
@@ -262,10 +278,15 @@ static void construct_kde(const struct distr *distr, double *kde,
     *stepp = step;
 }
 
-void init_kde_plot_internal(const struct distr *distr, const char *title,
-                            const struct meas *meas, bool is_ext,
-                            const char *output_filename,
-                            struct kde_plot *plot) {
+#define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \
+    init_kde_plot_internal(_distr, _title, _meas, false, _output_filename,     \
+                           _plot)
+#define init_kde_plot_ext(_distr, _title, _meas, _output_filename, _plot)      \
+    init_kde_plot_internal(_distr, _title, _meas, true, _output_filename, _plot)
+static void init_kde_plot_internal(const struct distr *distr, const char *title,
+                                   const struct meas *meas, bool is_ext,
+                                   const char *output_filename,
+                                   struct kde_plot *plot) {
     size_t kde_points = 200;
     plot->is_ext = is_ext;
     plot->output_filename = output_filename;
@@ -292,7 +313,7 @@ void init_kde_plot_internal(const struct distr *distr, const char *title,
     }
 }
 
-void make_kde_plot(const struct kde_plot *plot, FILE *f) {
+static void make_kde_plot(const struct kde_plot *plot, FILE *f) {
     assert(!plot->is_ext);
     double min = plot->lower;
     double max = plot->lower + plot->step * (plot->count - 1);
@@ -323,7 +344,7 @@ void make_kde_plot(const struct kde_plot *plot, FILE *f) {
             plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
-void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
+static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
     assert(plot->is_ext);
     double min = plot->lower;
     double max = plot->lower + plot->step * (plot->count - 1);
@@ -413,7 +434,7 @@ void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
             plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
-void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
+static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
 
 void group_bar_plot(const struct group_analysis *analyses, size_t count,
                     const char *output_filename, FILE *f) {
@@ -463,4 +484,21 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
             "ax.legend(loc='upper left')\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             analyses[0].meas->name, prettify.units_str, output_filename);
+}
+
+void kde_plot(const struct distr *distr, const char *title,
+              const struct meas *meas, const char *output_filename, FILE *f) {
+    struct kde_plot plot = {0};
+    init_kde_plot(distr, title, meas, output_filename, &plot);
+    make_kde_plot(&plot, f);
+    free_kde_plot(&plot);
+}
+
+void kde_plot_ext(const struct distr *distr, const char *title,
+                  const struct meas *meas, const char *output_filename,
+                  FILE *f) {
+    struct kde_plot plot = {0};
+    init_kde_plot_ext(distr, title, meas, output_filename, &plot);
+    make_kde_plot_ext(&plot, f);
+    free_kde_plot(&plot);
 }
