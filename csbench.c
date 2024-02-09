@@ -2546,6 +2546,20 @@ static bool dump_plot_src(const struct bench_results *results,
                 fclose(f);
             }
         }
+        if (results->bench_count == 2) {
+            f = open_file_fmt("w", "%s/kde_cmp_%zu.py", out_dir, meas_idx);
+            if (f == NULL) {
+                fprintf(stderr,
+                        "error: failed to create file "
+                        "%s/kde_cmp_%zu.py\n",
+                        out_dir, meas_idx);
+                return false;
+            }
+            snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
+            kde_cmp_plot(analyses[0].meas + meas_idx,
+                         analyses[1].meas + meas_idx, meas, buf, f);
+            fclose(f);
+        }
     }
     return true;
 }

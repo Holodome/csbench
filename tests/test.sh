@@ -7,7 +7,7 @@
 
 dist_dir=/tmp/.csbench
 if [ -z "$csbench" ]; then
-    csbench=csbench 
+    csbench=./csbench 
 fi
 b="$csbench -R 2 -W 0 -o $dist_dir -j $(nproc)"
 
@@ -37,10 +37,11 @@ $b ls --plot > /dev/null || die
 
 distclean
 $b ls pwd --plot > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 6 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] || die
+[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_0.svg" ] || die
 
 #
 # case 3 - check that plots are generated for custom measurement
@@ -59,11 +60,12 @@ $b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die
 
 distclean 
 $b 'echo {n}' --plot --scanl n/1,2 > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
 [ -f "$dist_dir/group_0_0.svg" ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] || die
+[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_0.svg" ] || die
 
 #
 # case 5 - check that html report is generated in all basic cases
