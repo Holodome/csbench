@@ -416,9 +416,9 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const char *output_filename, FILE *f);
-void kde_plot(const struct distr *distr, const char *title,
+void kde_plot(const struct distr *distr, 
               const struct meas *meas, const char *output_filename, FILE *f);
-void kde_plot_ext(const struct distr *distr, const char *title,
+void kde_plot_ext(const struct distr *distr, 
                   const struct meas *meas, const char *output_filename,
                   FILE *f);
 

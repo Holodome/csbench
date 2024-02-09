@@ -197,7 +197,8 @@ static void print_help_and_exit(int rc) {
     printf(
         "  --plot\n"
         "          Generate plots. For each benchmark KDE is generated in two "
-        "variants. For each parameter (--scan and --scanl) parameter values are "
+        "variants. For each parameter (--scan and --scanl) parameter values "
+        "are "
         "plotted against mean time. Single violin plot is produced if multiple "
         "commands are specified. For each measurement (--custom and others) "
         "its own group of plots is generated. Also readme.md file is "
@@ -2515,7 +2516,6 @@ static bool dump_plot_src(const struct bench_results *results,
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
             const struct bench_analysis *analysis = analyses + bench_idx;
-            const char *cmd_str = analysis->bench->cmd->str;
             {
                 f = open_file_fmt("w", "%s/kde_%zu_%zu.py", out_dir, bench_idx,
                                   meas_idx);
@@ -2527,7 +2527,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
-                kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf, f);
+                kde_plot(analysis->meas + meas_idx, meas, buf, f);
                 fclose(f);
             }
             {
@@ -2542,7 +2542,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
-                kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas, buf, f);
+                kde_plot_ext(analysis->meas + meas_idx, meas, buf, f);
                 fclose(f);
             }
         }
@@ -2613,7 +2613,6 @@ static bool make_plots(const struct bench_results *results,
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
             const struct bench_analysis *analysis = analyses + bench_idx;
-            const char *cmd_str = analysis->bench->cmd->str;
             {
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
@@ -2621,7 +2620,7 @@ static bool make_plots(const struct bench_results *results,
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
-                kde_plot(analysis->meas + meas_idx, cmd_str, meas, buf, f);
+                kde_plot(analysis->meas + meas_idx, meas, buf, f);
                 fclose(f);
                 sb_push(processes, pid);
             }
@@ -2632,7 +2631,7 @@ static bool make_plots(const struct bench_results *results,
                     fprintf(stderr, "error: failed to launch python\n");
                     goto out;
                 }
-                kde_plot_ext(analysis->meas + meas_idx, cmd_str, meas, buf, f);
+                kde_plot_ext(analysis->meas + meas_idx, meas, buf, f);
                 fclose(f);
                 sb_push(processes, pid);
             }
@@ -3032,7 +3031,7 @@ static void print_analysis(const struct bench_results *results) {
 }
 
 static bool do_export(const struct settings *settings,
-                          const struct bench_results *results) {
+                      const struct bench_results *results) {
     switch (settings->export.kind) {
     case EXPORT_JSON:
         return export_json(results, settings->export.filename);
@@ -3056,7 +3055,7 @@ static bool make_html_report(const struct bench_results *results,
 }
 
 static bool do_visualize(const struct bench_results *results,
-                           const char *out_dir) {
+                         const char *out_dir) {
     if (!g_plot && !g_html)
         return true;
 

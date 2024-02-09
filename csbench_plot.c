@@ -61,7 +61,6 @@
 // timings.
 struct kde_plot {
     const struct distr *distr;
-    const char *title;
     const struct meas *meas;
     double lower;
     double step;
@@ -278,12 +277,11 @@ static void construct_kde(const struct distr *distr, double *kde,
     *stepp = step;
 }
 
-#define init_kde_plot(_distr, _title, _meas, _output_filename, _plot)          \
-    init_kde_plot_internal(_distr, _title, _meas, false, _output_filename,     \
-                           _plot)
-#define init_kde_plot_ext(_distr, _title, _meas, _output_filename, _plot)      \
-    init_kde_plot_internal(_distr, _title, _meas, true, _output_filename, _plot)
-static void init_kde_plot_internal(const struct distr *distr, const char *title,
+#define init_kde_plot(_distr, _meas, _output_filename, _plot)                  \
+    init_kde_plot_internal(_distr, _meas, false, _output_filename, _plot)
+#define init_kde_plot_ext(_distr, _meas, _output_filename, _plot)              \
+    init_kde_plot_internal(_distr, _meas, true, _output_filename, _plot)
+static void init_kde_plot_internal(const struct distr *distr,
                                    const struct meas *meas, bool is_ext,
                                    const char *output_filename,
                                    struct kde_plot *plot) {
@@ -291,7 +289,6 @@ static void init_kde_plot_internal(const struct distr *distr, const char *title,
     plot->is_ext = is_ext;
     plot->output_filename = output_filename;
     plot->meas = meas;
-    plot->title = title;
     plot->distr = distr;
     plot->count = kde_points;
     plot->data = malloc(sizeof(*plot->data) * plot->count);
@@ -333,15 +330,14 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f) {
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%g, [0], [%g])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            plot->title, plot->mean * prettify.multiplier, plot->mean_y,
-            plot->meas->name, prettify.units_str, plot->output_filename);
+            plot->mean * prettify.multiplier, plot->mean_y, plot->meas->name,
+            prettify.units_str, plot->output_filename);
 }
 
 static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
@@ -401,7 +397,6 @@ static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.title('%s')\n"
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
             "color='red')\n"
@@ -409,7 +404,7 @@ static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
             "color='orange')\n"
             "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2)\n"
             "plt.axvline(x=%f)\n",
-            plot->title, plot->mean * prettify.multiplier);
+            plot->mean * prettify.multiplier);
     if (plot->distr->outliers.low_mild_x > plot->lower)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.low_mild_x * prettify.multiplier);
@@ -486,19 +481,18 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
             analyses[0].meas->name, prettify.units_str, output_filename);
 }
 
-void kde_plot(const struct distr *distr, const char *title,
-              const struct meas *meas, const char *output_filename, FILE *f) {
+void kde_plot(const struct distr *distr, const struct meas *meas,
+              const char *output_filename, FILE *f) {
     struct kde_plot plot = {0};
-    init_kde_plot(distr, title, meas, output_filename, &plot);
+    init_kde_plot(distr, meas, output_filename, &plot);
     make_kde_plot(&plot, f);
     free_kde_plot(&plot);
 }
 
-void kde_plot_ext(const struct distr *distr, const char *title,
-                  const struct meas *meas, const char *output_filename,
-                  FILE *f) {
+void kde_plot_ext(const struct distr *distr, const struct meas *meas,
+                  const char *output_filename, FILE *f) {
     struct kde_plot plot = {0};
-    init_kde_plot_ext(distr, title, meas, output_filename, &plot);
+    init_kde_plot_ext(distr, meas, output_filename, &plot);
     make_kde_plot_ext(&plot, f);
     free_kde_plot(&plot);
 }
