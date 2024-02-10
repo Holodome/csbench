@@ -59,7 +59,9 @@
 #include <linux/perf_event.h>
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#include <stdlib.h>
 #include <signal.h>
 #include <stdio.h>
 
