@@ -1,4 +1,4 @@
-# csbench
+#csbench
 
 `csbench` is cross-platform batteries included benchmarking tool.
 
@@ -20,6 +20,18 @@ But still work from the developer is being done akin to more complex task.
 * Perform benchmarking of arbitrary shell command, where parameter analyzed is acquired from command output 
 * Parameterized benchmarking 
 * Easy access to `struct rusage` fields or performance counters (cross-platform minimal `perf stat` or `/usr/bin/time` analog)
+
+## Dependencies
+
+csbench does not have any dependencies for basic operation, except for POSIX-compliant operating system with some extensions (`wait4` system call).
+Python binary and `matplotlib` isntalled are required for producing plots.
+
+All versions of python starting from 3.4 are supported (lower versions can also work, not tested),
+`matplotlib` versions starting from 2.2.5 are suppored (lower versions can also work, not tested).
+
+Performance counters are suppoorted on all linux distributions with `perf_events` available, and also on M1 and M2 MacOS (x86 MacOS can also work, not tested). 
+
+> Use MacOS performance countes with caution, they are not documented by Apple 
 
 ## Examples
 

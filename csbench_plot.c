@@ -164,7 +164,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
         fprintf(f, "plt.xscale('log')\n");
     fprintf(f,
             "plt.barh(range(len(data)), data)\n"
-            "plt.yticks(range(len(data)), labels=names)\n"
+            "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
             analyses[0].bench->cmd->meas[meas_idx].name, prettify.units_str,
