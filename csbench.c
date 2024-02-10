@@ -2373,7 +2373,7 @@ static bool python_has_matplotlib(void) {
     pid_t pid;
     if (!launch_python_stdin_pipe(&f, &pid))
         return false;
-    fprintf(f, "import matplotlib.pyplot as plt\n");
+    fprintf(f, "import matplotlib\n");
     fclose(f);
     return process_finished_correctly(pid);
 }
