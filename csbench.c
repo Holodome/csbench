@@ -646,7 +646,7 @@ static void parse_cli_args(int argc, char **argv,
             ++cursor;
             g_allow_nonzero = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
-            parse_meas_list(argv[cursor++], &rusage_opts);
+            parse_meas_list(str, &rusage_opts);
         } else {
             if (*argv[cursor] == '-') {
                 fprintf(stderr, "error: unknown option %s\n", argv[cursor]);
