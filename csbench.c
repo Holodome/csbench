@@ -1360,7 +1360,7 @@ static bool exec_and_measure(struct bench *bench) {
     sb_push(bench->exit_codes, rc);
     for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
         const struct meas *meas = bench->cmd->meas + meas_idx;
-        double val;
+        double val = 0.0;
         switch (meas->kind) {
         case MEAS_WALL:
             val = wall_clock_end - wall_clock_start;
@@ -1410,6 +1410,8 @@ static bool exec_and_measure(struct bench *bench) {
                                        &val))
                 goto out;
             break;
+        default:
+            assert(0);
         }
         sb_push(bench->meas[meas_idx], val);
     }
