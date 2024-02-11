@@ -2501,7 +2501,31 @@ static bool dump_plot_src(const struct bench_results *results,
                 fclose(f);
             }
         }
-        if (results->bench_count == 2) {
+        if (results->group_count == 2) {
+            const struct group_analysis *a = results->group_analyses[meas_idx];
+            const struct group_analysis *b =
+                results->group_analyses[meas_idx] + 1;
+            assert(a->cmd_count == b->cmd_count);
+            size_t param_count = a->cmd_count;
+            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+                f = open_file_fmt("w", "%s/kde_cmpg_%zu_%zu.py", out_dir,
+                                  param_idx, meas_idx);
+                if (f == NULL) {
+                    fprintf(stderr,
+                            "error: failed to create file "
+                            "%s/kde_cmpg_%zu_%zu.py\n",
+                            out_dir, param_idx, meas_idx);
+                    return false;
+                }
+                snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
+                         param_idx, meas_idx);
+                kde_cmp_plot(
+                    analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
+                    analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
+                    meas, buf, f);
+                fclose(f);
+            }
+        } else if (results->bench_count == 2) {
             f = open_file_fmt("w", "%s/kde_cmp_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
                 fprintf(stderr,
@@ -2605,7 +2629,27 @@ static bool make_plots(const struct bench_results *results,
                 sb_push(processes, pid);
             }
         }
-        if (results->bench_count == 2) {
+        if (results->group_count == 2) {
+            const struct group_analysis *a = results->group_analyses[meas_idx];
+            const struct group_analysis *b =
+                results->group_analyses[meas_idx] + 1;
+            assert(a->cmd_count == b->cmd_count);
+            size_t param_count = a->cmd_count;
+            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+                snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
+                         param_idx, meas_idx);
+                if (!launch_python_stdin_pipe(&f, &pid)) {
+                    fprintf(stderr, "error: failed to launch python\n");
+                    goto out;
+                }
+                kde_cmp_plot(
+                    analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
+                    analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
+                    meas, buf, f);
+                fclose(f);
+                sb_push(processes, pid);
+            }
+        } else if (results->bench_count == 2) {
             snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
                 fprintf(stderr, "error: failed to launch python\n");
