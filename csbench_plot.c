@@ -499,7 +499,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f) {
         "import matplotlib.pyplot as plt\n"
         "plt.fill_between(x, ay, interpolate=True, alpha=0.25)\n"
         "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='r')\n"
-        "plt.vlines(%g, [0], [%g])\n"
+        "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
         "plt.vlines(%g, [0], [%g], color='r')\n"
         "plt.tick_params(left=False, labelleft=False)\n"
         "plt.xlabel('%s [%s]')\n"

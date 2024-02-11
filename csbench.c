@@ -1200,7 +1200,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
             perror("wait4");
-        return false;
+        return -1;
     }
 
     int ret = -1;
@@ -1351,8 +1351,8 @@ static bool exec_and_measure(struct bench *bench) {
 
     if (!g_allow_nonzero && rc != 0) {
         fprintf(stderr,
-                "error: command '%s' finished with non-zero exit code\n",
-                bench->cmd->str);
+                "error: command '%s' finished with non-zero exit code (%d)\n",
+                bench->cmd->str, rc);
         goto out;
     }
 
