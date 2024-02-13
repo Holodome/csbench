@@ -77,6 +77,8 @@
 #include <mach/mach.h>
 #endif
 
+bool g_colored_output;
+
 static __thread uint32_t g_rng_state;
 static bool g_allow_nonzero = 0;
 static double g_warmup_time = 0.1;
@@ -223,6 +225,9 @@ static void print_help_and_exit(int rc) {
         "'utime', 'maxrss', 'minflt', 'majflt', 'nvcsw', 'nivcsw'. See your "
         "system's 'man 2 getrusage' for additional information. Possible PMC "
         "values are 'cycles', 'instructions', 'branches', 'branch-misses'.\n"
+        "  --color <when>\n"
+        "          Can be one of the 'never', 'always', 'auto', similar to GNU "
+        "ls.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -647,6 +652,20 @@ static void parse_cli_args(int argc, char **argv,
             g_allow_nonzero = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
+        } else if (opt_arg(argv, &cursor, "--color", &str)) {
+            if (strcmp(str, "auto") == 0) {
+                if (isatty(STDIN_FILENO))
+                    g_colored_output = true;
+                else
+                    g_colored_output = false;
+            } else if (strcmp(str, "never") == 0) {
+                g_colored_output = false;
+            } else if (strcmp(str, "always") == 0) {
+                g_colored_output = true;
+            } else {
+                fprintf(stderr, "error: invalid --color option\n");
+                exit(EXIT_FAILURE);
+            }
         } else {
             if (*argv[cursor] == '-') {
                 fprintf(stderr, "error: unknown option %s\n", argv[cursor]);
@@ -3183,17 +3202,23 @@ static void sigint_handler(int sig) {
     raise(sig);
 }
 
-int main(int argc, char **argv) {
-    int rc = EXIT_FAILURE;
-
+static void prepare(void) {
     struct sigaction action = {0};
     action.sa_handler = sigint_handler;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) == -1) {
         perror("sigaction");
-        return rc;
+        exit(EXIT_FAILURE);
     }
 
+    // --color=auto
+    g_colored_output = isatty(STDIN_FILENO) ? true : false;
+}
+
+int main(int argc, char **argv) {
+    prepare();
+
+    int rc = EXIT_FAILURE;
     struct cli_settings cli = {0};
     parse_cli_args(argc, argv, &cli);
 

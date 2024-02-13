@@ -384,6 +384,8 @@ struct perf_cnt {
 // csbench.c
 //
 
+extern bool g_colored_output;
+
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
 bool units_is_time(const struct units *units);

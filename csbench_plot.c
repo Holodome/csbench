@@ -218,14 +218,14 @@ void group_plot(const struct group_analysis *analyses, size_t count,
 
     double regr_x_step = (highest_x - lowest_x) / nregr;
     fprintf(f, "regrx = [");
-    for (size_t i = 0; i < nregr; ++i)
+    for (size_t i = 0; i < nregr + 1; ++i)
         fprintf(f, "%g, ", lowest_x + regr_x_step * i);
     fprintf(f, "]\n");
     fprintf(f, "regry = [");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         const struct group_analysis *analysis = analyses + grp_idx;
         fprintf(f, "[");
-        for (size_t i = 0; i < nregr; ++i) {
+        for (size_t i = 0; i < nregr + 1; ++i) {
             double regr =
                 ols_approx(&analysis->regress, lowest_x + regr_x_step * i);
             fprintf(f, "%g, ", regr * prettify.multiplier);
