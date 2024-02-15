@@ -380,6 +380,21 @@ struct perf_cnt {
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
 
+#define ANSI_BOLD "1"
+#define ANSI_CYAN "36"
+#define ANSI_MAGENTA "35"
+#define ANSI_GREEN "32"
+#define ANSI_GRAY "90"
+#define ANSI_BLUE "34"
+#define ANSI_YELLOW "33"
+#define ANSI_BOLD_GREEN "32;1"
+
+#define fprintf_colored(_f, _how, ...)                                         \
+    g_colored_output ? (fprintf(_f, "\x1b[%sm", _how),                         \
+                        fprintf(_f, __VA_ARGS__), fprintf(_f, "\x1b[0m"))      \
+                     : fprintf(_f, __VA_ARGS__)
+#define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
+
 //
 // csbench.c
 //

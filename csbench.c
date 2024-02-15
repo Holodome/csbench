@@ -2027,12 +2027,18 @@ static void print_outliers(const struct outliers *outliers, size_t run_count) {
 }
 
 static void print_estimate(const char *name, const struct est *est,
-                           const struct units *units) {
+                           const struct units *units, const char *color) {
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
     format_meas(buf2, sizeof(buf2), est->point, units);
     format_meas(buf3, sizeof(buf3), est->upper, units);
-    printf("%7s %8s %8s %8s\n", name, buf1, buf2, buf3);
+
+    char dim_buf[32];
+    snprintf(dim_buf, sizeof(dim_buf), "%s;2", color);
+    printf_colored(color, "%7s", name);
+    printf_colored(dim_buf, " %8s ", buf1);
+    printf_colored(color, "%8s", buf2);
+    printf_colored(dim_buf, " %8s\n", buf3);
 }
 
 const char *units_str(const struct units *units) {
@@ -2065,10 +2071,13 @@ static void print_distr(const struct distr *dist, const struct units *units) {
     char buf1[256], buf2[256];
     format_meas(buf1, sizeof(buf1), dist->min, units);
     format_meas(buf2, sizeof(buf2), dist->max, units);
-    printf("min/max %s          %s\n", buf1, buf2);
-
-    print_estimate("mean", &dist->mean, units);
-    print_estimate("st dev", &dist->st_dev, units);
+    printf_colored(ANSI_CYAN, "min");
+    printf("/");
+    printf_colored(ANSI_MAGENTA, "max ");
+    printf_colored(ANSI_CYAN, "%s          ", buf1);
+    printf_colored(ANSI_MAGENTA, "%s\n", buf2);
+    print_estimate("mean", &dist->mean, units, ANSI_BOLD_GREEN);
+    print_estimate("st dev", &dist->st_dev, units, ANSI_GREEN);
 }
 
 static void ref_speed(double u1, double sigma1, double u2, double sigma2,
@@ -2105,11 +2114,14 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
     const struct bench *bench = analysis->bench;
     size_t run_count = bench->run_count;
     const struct cmd *cmd = bench->cmd;
-    printf("command\t'%s'\n", cmd->str);
+    printf("command ");
+    printf_colored(ANSI_BOLD, "%s\n", cmd->str);
     // Print runs count only if it not explicitly specified, otherwise it is
     // printed in 'print_analysis'
-    if (g_bench_stop.runs == 0)
-        printf("%zu runs\n", bench->run_count);
+    if (g_bench_stop.runs == 0) {
+        printf_colored("0", "%zu", bench->run_count);
+        printf(" runs\n");
+    }
     print_exit_code_info(bench);
     bool has_primary = false;
     for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
@@ -2124,14 +2136,15 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
             if (cmd->meas[j].is_secondary &&
                 cmd->meas[j].primary_idx == meas_idx)
                 print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
-                               &cmd->meas[j].units);
+                               &cmd->meas[j].units, "0");
         }
         print_outliers(&distr->outliers, run_count);
     }
     if (!has_primary) {
         for (size_t i = 0; i < bench->meas_count; ++i) {
             const struct meas *info = cmd->meas + i;
-            print_estimate(info->name, &analysis->meas[i].mean, &info->units);
+            print_estimate(info->name, &analysis->meas[i].mean, &info->units,
+                           "0");
         }
     }
 }
@@ -2141,6 +2154,11 @@ static void print_cmd_comparison(const struct bench_results *results) {
         return;
 
     size_t meas_count = results->meas_count;
+    size_t primary_meas_count = 0;
+    for (size_t i = 0; i < meas_count; ++i)
+        if (!results->meas[i].is_secondary)
+            ++primary_meas_count;
+
     if (results->group_count <= 1) {
         for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
@@ -2148,8 +2166,12 @@ static void print_cmd_comparison(const struct bench_results *results) {
             size_t best_idx = results->fastest_meas[meas_idx];
             const struct bench_analysis *best = results->analyses + best_idx;
             const struct meas *meas = results->meas + meas_idx;
-            printf("measurement %s\n", meas->name);
-            printf("fastest command '%s'\n", best->bench->cmd->str);
+            if (primary_meas_count != 1) {
+                printf("measurement ");
+                printf_colored(ANSI_YELLOW, "%s\n", meas->name);
+            }
+            printf("fastest command ");
+            printf_colored(ANSI_CYAN, "%s\n", best->bench->cmd->str);
             for (size_t j = 0; j < results->bench_count; ++j) {
                 const struct bench_analysis *analysis = results->analyses + j;
                 if (analysis == best)
@@ -2160,19 +2182,24 @@ static void print_cmd_comparison(const struct bench_results *results) {
                           analysis->meas[meas_idx].st_dev.point,
                           best->meas[meas_idx].mean.point,
                           best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
-                printf("%.3f ± %.3f times faster than '%s'\n", ref, ref_st_dev,
-                       analysis->bench->cmd->str);
+                printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
+                printf(" ± ");
+                printf_colored(ANSI_GREEN, "%.3f", ref_st_dev);
+                printf(" times faster than ");
+                printf_colored(ANSI_MAGENTA, "%s\n", analysis->bench->cmd->str);
             }
         }
     } else {
         for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-
             const struct meas *meas = results->meas + meas_idx;
             const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
-            printf("measurement %s\n", meas->name);
+            if (primary_meas_count != 1) {
+                printf("measurement ");
+                printf_colored(ANSI_YELLOW, "%s\n", meas->name);
+            }
             for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx)
                 printf("%c = '%s'\n", (int)('A' + grp_idx),
                        analyses[grp_idx].group->template);
@@ -3071,7 +3098,6 @@ static void print_analysis(const struct bench_results *results) {
         printf("%d runs\n", g_bench_stop.runs);
     for (size_t i = 0; i < results->bench_count; ++i)
         print_benchmark_info(results->analyses + i);
-
     print_cmd_comparison(results);
     print_group_analysis(results);
 }

@@ -42,32 +42,31 @@ Also see [generated html report](https://holodome.github.io/csbench/cmp).
 ```
 $ csbench ls exa --shell=none --html
 command 'ls'
-3475 runs
-min 2.691 ms
-max 5.893 ms
-   mean 2.860 ms 2.867 ms 2.873 ms
- st dev 86.22 μs 128.2 μs 172.6 μs
-systime 1.438 ms 1.440 ms 1.443 ms
-usrtime 675.0 μs 676.1 μs 677.4 μs
-found 364 outliers across 3475 measurements (10.47%)
-20 (0.58%) low severe
-150 (4.32%) low mild
-79 (2.27%) high mild
-115 (3.31%) high severe
-outlying measurements have a severe (96.3%) effect on estimated standard deviation
+1681 runs
+min/max 2.632 ms          3.609 ms
+   mean 2.953 ms 2.964 ms 2.974 ms
+ st dev 86.78 μs 96.56 μs 107.0 μs
+systime 1.963 ms 1.971 ms 1.978 ms
+usrtime 416.7 μs 417.7 μs 418.8 μs
+236 outliers (14.04%) severe (87.0%) effect on st dev
+  14 (0.83%) low severe
+  190 (11.30%) low mild
+  26 (1.55%) high mild
+  6 (0.36%) high severe
 command 'exa'
-1280 runs
-min 6.131 ms
-max 11.70 ms
-   mean 7.711 ms 7.803 ms 7.910 ms
- st dev 1.124 ms 1.177 ms 1.256 ms
-systime 2.628 ms 2.673 ms 2.715 ms
-usrtime 3.082 ms 3.114 ms 3.137 ms
-found 4 outliers across 1280 measurements (0.31%)
-4 (0.31%) high mild
-outlying measurements have a severe (99.2%) effect on estimated standard deviation
-Fastest command 'ls'
-2.722 ± 0.428 times faster than 'exa'
+674 runs
+min/max 7.011 ms          14.45 ms
+   mean 7.349 ms 7.415 ms 7.527 ms
+ st dev 102.0 μs 591.7 μs 1.010 ms
+systime 2.387 ms 2.410 ms 2.449 ms
+usrtime 3.557 ms 3.583 ms 3.631 ms
+45 outliers (6.68%) severe (94.2%) effect on st dev
+  13 (1.93%) low mild
+  18 (2.67%) high mild
+  14 (2.08%) high severe
+measurement wall clock time
+fastest command 'ls'
+2.502 ± 0.216 times faster than 'exa'
 ```
 
 But just measuring execution time of commands is not very interesting. 
@@ -80,13 +79,12 @@ $ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | 
 command 'psql postgres -f 8q.sql'
 100 runs
 custom measurement exec
-min 14.38 ms max 14.78 ms
+min/max 14.38 ms          14.78 ms
    mean 14.41 ms 14.42 ms 14.45 ms
  st dev 14.21 μs 46.76 μs 94.13 μs
-found 10 outliers across 100 measurements (10.00%)
+10 outliers (10.00%) no (1.0%) effect on st dev
 4 (4.00%) high mild
 6 (6.00%) high severe
-outlying measurements have no (1.0%) effect on estimated standard deviation
 ```
 
 Parameterized benchmarking is shown in the following example.
