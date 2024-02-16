@@ -2178,6 +2178,14 @@ static void print_cmd_comparison(const struct bench_results *results) {
                 printf(" times faster than ");
                 printf_colored(ANSI_BOLD, "%s\n", analysis->bench->cmd->str);
             }
+            if (results->group_count == 1) {
+                const struct group_analysis *analysis =
+                    results->group_analyses[meas_idx] + 0;
+                if (analysis->values_are_doubles)
+                    printf("%s complexity (%g)\n",
+                           big_o_str(analysis->regress.complexity),
+                           analysis->regress.a);
+            }
         }
     } else {
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
@@ -2229,39 +2237,23 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     ref_speed(analyses[grp_idx].data[val_idx].mean,
                               analyses[grp_idx].data[val_idx].st_dev,
                               fastest_mean, fastest_st_dev, &ref, &ref_st_dev);
-                    printf("  %s", ident);
+                    printf("%s", ident);
                     printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
                     printf(" ± ");
                     printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
-                    printf("times faster than %c\n", (int)('A' + grp_idx));
+                    printf(" times faster than %c\n", (int)('A' + grp_idx));
                 }
             }
-        }
-    }
-}
-
-static void print_group_analysis(const struct bench_results *results) {
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
-            continue;
-        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct group_analysis *analysis =
-                results->group_analyses[meas_idx] + grp_idx;
-            const struct cmd_group *group = analysis->group;
-
-            printf("command group ");
-            printf_colored(ANSI_BOLD, "%s\n", group->template);
-            char buf[256];
-            format_time(buf, sizeof(buf), analysis->data[0].mean);
-            printf("lowest time %s with %s=%s\n", buf, group->var_name,
-                   analysis->fastest->value);
-            format_time(buf, sizeof(buf),
-                        analysis->data[analysis->cmd_count - 1].mean);
-            printf("highest time %s with %s=%s\n", buf, group->var_name,
-                   analysis->slowest->value);
-            if (analysis->values_are_doubles) {
-                printf("mean time is most likely %s in terms of parameter\n",
-                       big_o_str(analysis->regress.complexity));
+            for (size_t grp_idx = 0; grp_idx < results->group_count;
+                 ++grp_idx) {
+                const struct group_analysis *analysis =
+                    results->group_analyses[meas_idx] + grp_idx;
+                if (analysis->values_are_doubles) {
+                    printf_colored(ANSI_BOLD, "%s ", analysis->group->template);
+                    printf("%s complexity (%g)\n",
+                           big_o_str(analysis->regress.complexity),
+                           analysis->regress.a);
+                }
             }
         }
     }
@@ -3099,7 +3091,6 @@ static void print_analysis(const struct bench_results *results) {
     for (size_t i = 0; i < results->bench_count; ++i)
         print_benchmark_info(results->analyses + i, results);
     print_cmd_comparison(results);
-    print_group_analysis(results);
 }
 
 static bool do_export(const struct settings *settings,

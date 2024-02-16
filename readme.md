@@ -41,7 +41,8 @@ Also see [user guide](docs/user_guide.md).
 Also see [generated html report](https://holodome.github.io/csbench/cmp).
 ```
 $ csbench ls exa --shell=none --html
-command 'ls'
+measurement wall clock time
+command ls
 1681 runs
 min/max 2.632 ms          3.609 ms
    mean 2.953 ms 2.964 ms 2.974 ms
@@ -53,7 +54,7 @@ usrtime 416.7 μs 417.7 μs 418.8 μs
   190 (11.30%) low mild
   26 (1.55%) high mild
   6 (0.36%) high severe
-command 'exa'
+command exa
 674 runs
 min/max 7.011 ms          14.45 ms
    mean 7.349 ms 7.415 ms 7.527 ms
@@ -64,9 +65,8 @@ usrtime 3.557 ms 3.583 ms 3.631 ms
   13 (1.93%) low mild
   18 (2.67%) high mild
   14 (2.08%) high severe
-measurement wall clock time
-fastest command 'ls'
-2.502 ± 0.216 times faster than 'exa'
+fastest command ls
+  2.502 ± 0.216 times faster than exa
 ```
 
 But just measuring execution time of commands is not very interesting. 
@@ -76,9 +76,9 @@ Here we add custom measurement named `exec`, which uses shell command to extract
 
 ```
 $ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' -R 100 --no-wall
-command 'psql postgres -f 8q.sql'
+command psql postgres -f 8q.sql
 100 runs
-custom measurement exec
+measurement exec
 min/max 14.38 ms          14.78 ms
    mean 14.41 ms 14.42 ms 14.45 ms
  st dev 14.21 μs 46.76 μs 94.13 μs
@@ -121,25 +121,21 @@ end = timer()
 print(end - start)
 $ csbench 'echo {n} | python3 quicksort.py' --custom t --scan n/100/10000/1000 --html --no-wall
 ...
-command group 'echo {n} | python3 quicksort.py' with parameter n
-lowest time 111.5 μs with n=100
-highest time 13.33 ms with n=9100
-mean time is most likely linearithmic (O(N*log(N))) in terms of parameter
-linear coef 1.12172e-07 rms 0.014
+linearithmic (O(N*log(N))) complexity (1.12172e-07)
 ```
 
 In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.
 This is similar to `perf stat -r`.
 ```
 $ csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell=none
-command 'ls'
+command ls
 15 runs
  cycles 2.05e+06 2.97e+06 4.71e+06
     ins 5.45e+06 6.92e+06 8.29e+06
 systime 2.678 ms 3.104 ms 3.920 ms
 usrtime 776.8 μs 951.0 μs 1.296 ms
  maxrss 1.344 MB 1.361 MB 1.424 MB
-command 'exa'
+command exa
 15 runs
  cycles 1.02e+07 1.15e+07  1.4e+07
     ins 3.56e+07 3.67e+07 3.81e+07
