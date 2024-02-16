@@ -284,10 +284,12 @@ struct bench {
     int *exit_codes;
     size_t meas_count;
     double **meas;
+
+    struct progress_bar_per_worker *progress;
 };
 
 struct bench_analysis {
-    const struct bench *bench;
+    struct bench *bench;
     // array of size bench->meas_count
     struct distr *meas;
 };
@@ -346,11 +348,9 @@ struct bench_results {
 // noninclusive, calling 'fn' for each memory block.
 struct parfor_data {
     pthread_t id;
-    void *arr;
-    size_t stride;
+    struct bench_analysis *analyses;
     size_t low;
     size_t high;
-    bool (*fn)(void *);
 };
 
 struct perf_cnt {
@@ -358,6 +358,52 @@ struct perf_cnt {
     uint64_t branches;
     uint64_t missed_branches;
     uint64_t instructions;
+};
+
+// Align this strucutre as attempt to avoid false sharing and make inconsistent
+// data reads less probable
+struct progress_bar_per_worker {
+    int bar;
+    int finished;
+    int aborted;
+    union {
+        uint64_t u;
+        double d;
+    } metric;
+} __attribute__((aligned(64)));
+
+#define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
+#define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
+
+#define progress_bar_aborted(_p)                                               \
+    do {                                                                       \
+        atomic_store(&(_p)->aborted, true);                                    \
+        atomic_store(&(_p)->finished, true);                                   \
+    } while (0);
+#define progress_bar_finished(_p)                                              \
+    do {                                                                       \
+        atomic_store(&(_p)->finished, true);                                   \
+    } while (0);
+#define progress_bar_update_time(_p, _v, _t)                                   \
+    do {                                                                       \
+        atomic_store(&(_p)->bar, _v);                                          \
+        uint64_t metric;                                                       \
+        memcpy(&metric, &_t, sizeof(metric));                                  \
+        atomic_store(&(_p)->metric.u, metric);                                 \
+    } while (0)
+#define progress_bar_update_runs(_p, _v, _r)                                   \
+    do {                                                                       \
+        atomic_store(&(_p)->bar, _v);                                          \
+        atomic_store(&(_p)->metric.u, _r);                                     \
+    } while (0)
+
+struct progress_bar {
+    double start_time;
+    bool was_drawn;
+    volatile struct progress_bar_per_worker *bars;
+    size_t count;
+    struct bench_analysis *analyses;
+    size_t max_cmd_len;
 };
 
 #define sb_header(_a)                                                          \

@@ -1453,11 +1453,19 @@ static bool run_benchmark(struct bench *bench) {
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
-                                          g_dev_null_fd, g_dev_null_fd))
+                                          g_dev_null_fd, g_dev_null_fd)) {
+                progress_bar_aborted(bench->progress);
                 return false;
-            if (!exec_and_measure(bench))
+            }
+            if (!exec_and_measure(bench)) {
+                progress_bar_aborted(bench->progress);
                 return false;
+            }
+            int percent = run_idx * 100 / g_bench_stop.runs;
+            progress_bar_update_runs(bench->progress, percent, run_idx);
         }
+        progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
+        progress_bar_finished(bench->progress);
         return true;
     }
     double niter_accum = 1;
@@ -1470,14 +1478,22 @@ static bool run_benchmark(struct bench *bench) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
-                                          g_dev_null_fd, g_dev_null_fd))
+                                          g_dev_null_fd, g_dev_null_fd)) {
+                progress_bar_aborted(bench->progress);
                 return false;
-            if (!exec_and_measure(bench))
+            }
+            if (!exec_and_measure(bench)) {
+                progress_bar_aborted(bench->progress);
                 return false;
+            }
+            double current = get_time();
+            double diff = current - start_time;
+            int progress = diff / time_limit * 100;
+            progress_bar_update_time(bench->progress, progress, diff);
         }
-        double end_time = get_time();
-        if (((max_runs != 0 ? count >= max_runs : 0) ||
-             (end_time - start_time > time_limit)) &&
+        double current = get_time();
+        double diff = current - start_time;
+        if (((max_runs != 0 ? count >= max_runs : 0) || (diff > time_limit)) &&
             (min_runs != 0 ? count >= min_runs : 1))
             break;
 
@@ -1488,6 +1504,9 @@ static bool run_benchmark(struct bench *bench) {
                 break;
         }
     }
+    double passed = get_time() - start_time;
+    progress_bar_update_time(bench->progress, 100, passed);
+    progress_bar_finished(bench->progress);
     return true;
 }
 
@@ -2221,7 +2240,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     }
                 }
 
-                printf("%s=%s: %c is ", val_name, value,
+                printf("%s=%s:\t%c is ", val_name, value,
                        (int)('A' + fastest_idx));
                 const char *ident = "";
                 if (results->group_count > 2) {
@@ -2238,7 +2257,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                               analyses[grp_idx].data[val_idx].st_dev,
                               fastest_mean, fastest_st_dev, &ref, &ref_st_dev);
                     printf("%s", ident);
-                    printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
+                    printf_colored(ANSI_BOLD_GREEN, "%6.3f", ref);
                     printf(" ± ");
                     printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                     printf(" times faster than %c\n", (int)('A' + grp_idx));
@@ -2966,7 +2985,8 @@ static void html_report(const struct bench_results *results, FILE *f) {
 }
 
 static bool run_bench(struct bench_analysis *analysis) {
-    struct bench *bench = (void *)analysis->bench;
+    g_rng_state = time(NULL);
+    struct bench *bench = analysis->bench;
     if (!warmup(bench->cmd))
         return false;
     if (!run_benchmark(bench))
@@ -2975,30 +2995,121 @@ static bool run_bench(struct bench_analysis *analysis) {
     return true;
 }
 
-static bool run_benchw(void *data) {
-    g_rng_state = time(NULL);
-    return run_bench(data);
-}
-
 static void *parfor_worker(void *raw) {
     struct parfor_data *data = raw;
     for (size_t i = data->low; i < data->high; ++i)
-        if (!data->fn((char *)data->arr + data->stride * i))
+        if (!run_bench(data->analyses + i))
             return (void *)-1;
     return NULL;
 }
 
-static bool parallel_for(bool (*body)(void *), void *arr, size_t count,
-                         size_t stride) {
+static void redraw_progress_bar(struct progress_bar *bar) {
+    int length = 40;
+    if (!bar->was_drawn)
+        bar->was_drawn = true;
+    else
+        printf("\x1b[%zuA\r", bar->count);
+
+    double current_time = get_time();
+    double passed_time = current_time - bar->start_time;
+    for (size_t i = 0; i < bar->count; ++i) {
+        struct progress_bar_per_worker data = {0};
+        // explicitly load all atomics to avoid UB (tsan)
+        data.bar = atomic_load(&bar->bars[i].bar);
+        data.finished = atomic_load(&bar->bars[i].finished);
+        data.aborted = atomic_load(&bar->bars[i].aborted);
+        data.metric.u = atomic_load(&bar->bars[i].metric.u);
+        /* fprintf(stderr, "loaded %f\n", data.metric.d); */
+        printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
+                       bar->analyses[i].bench->cmd->str);
+        char buf[41] = {0};
+        int c = data.bar * length / 100;
+        if (c > length)
+            c = length;
+        for (int j = 0; j < c; ++j)
+            buf[j] = '#';
+        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
+        for (int j = 0; j < 40 - c; ++j)
+            buf[j] = '-';
+        buf[40 - c] = '\0';
+        printf_colored(ANSI_BLUE, "%s", buf);
+        if (data.aborted) {
+            printf_colored(ANSI_RED, " error");
+        } else {
+            if (g_bench_stop.runs != 0) {
+                // FIXME: when using 1 thread eta is incorrect
+                double eta = (g_bench_stop.runs - data.metric.u) * passed_time /
+                             data.metric.u;
+                char eta_buf[256];
+                format_time(eta_buf, sizeof(eta_buf), eta);
+                char total_buf[256];
+                snprintf(total_buf, sizeof(total_buf), "%zu",
+                         (size_t)g_bench_stop.runs);
+                printf(" %*zu/%s eta %s", (int)strlen(total_buf),
+                       (size_t)data.metric.u, total_buf, eta_buf);
+            } else {
+                char buf1[256], buf2[256];
+                format_time(buf1, sizeof(buf1), data.metric.d);
+                format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
+                printf(" %s/ %s", buf1, buf2);
+            }
+        }
+        printf("\n");
+    }
+}
+
+void *progress_bar_thread_worker(void *arg) {
+    struct progress_bar *bar = arg;
+    bool is_finished = false;
+    redraw_progress_bar(bar);
+    do {
+        usleep(50000);
+        redraw_progress_bar(bar);
+        is_finished = true;
+        for (size_t i = 0; i < bar->count && is_finished; ++i)
+            if (!atomic_load(&bar->bars[i].finished))
+                is_finished = false;
+    } while (!is_finished);
+    redraw_progress_bar(bar);
+    return NULL;
+}
+
+static void init_progress_bar(struct bench_analysis *analyses, size_t count,
+                              struct progress_bar *bar) {
+    bar->count = count;
+    bar->bars = calloc(count, sizeof(*bar->bars));
+    bar->analyses = analyses;
+    for (size_t i = 0; i < count; ++i) {
+        analyses[i].bench->progress = (void *)(bar->bars + i);
+
+        size_t cmd_len = strlen(analyses[i].bench->cmd->str);
+        if (cmd_len > bar->max_cmd_len)
+            bar->max_cmd_len = cmd_len;
+    }
+    bar->start_time = get_time();
+}
+
+static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
+    bool success = false;
+    struct progress_bar progress_bar = {0};
+    init_progress_bar(analyses, count, &progress_bar);
+    pthread_t progress_bar_thread;
+    if (pthread_create(&progress_bar_thread, NULL, progress_bar_thread_worker,
+                       &progress_bar) != 0) {
+        error("failed to spawn thread\n");
+        free((void *)progress_bar.bars);
+        return false;
+    }
+
     if (g_threads <= 1 || count == 1) {
         for (size_t i = 0; i < count; ++i) {
-            void *data = (char *)arr + stride * i;
-            if (!body(data))
-                return false;
+            if (!run_bench(analyses + i))
+                goto free_progress_bar;
         }
-        return true;
+        success = true;
+        goto free_progress_bar;
     }
-    bool success = false;
+
     size_t thread_count = g_threads;
     if (count < thread_count)
         thread_count = count;
@@ -3008,9 +3119,7 @@ static bool parallel_for(bool (*body)(void *), void *arr, size_t count,
     size_t width = count / thread_count;
     size_t remainder = count % thread_count;
     for (size_t i = 0, cursor = 0; i < thread_count; ++i) {
-        thread_data[i].fn = body;
-        thread_data[i].arr = arr;
-        thread_data[i].stride = stride;
+        thread_data[i].analyses = analyses;
         thread_data[i].low = cursor;
         size_t advance = width;
         if (i < remainder)
@@ -3019,9 +3128,8 @@ static bool parallel_for(bool (*body)(void *), void *arr, size_t count,
         cursor += advance;
     }
     for (size_t i = 0; i < thread_count; ++i) {
-        int ret = pthread_create(&thread_data[i].id, NULL, parfor_worker,
-                                 thread_data + i);
-        if (ret != 0) {
+        if (pthread_create(&thread_data[i].id, NULL, parfor_worker,
+                           thread_data + i) != 0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_data[j].id, NULL);
             error("failed to spawn thread\n");
@@ -3037,19 +3145,21 @@ static bool parallel_for(bool (*body)(void *), void *arr, size_t count,
     }
 err:
     free(thread_data);
+free_progress_bar:
+    pthread_join(progress_bar_thread, NULL);
+    free((void *)progress_bar.bars);
     return success;
 }
 
 static bool run_benches(const struct settings *settings,
                         struct bench_results *results) {
-    results->bench_count = sb_len(settings->cmds);
-    assert(results->bench_count != 0);
-    results->benches = calloc(results->bench_count, sizeof(*results->benches));
-    results->analyses =
-        calloc(results->bench_count, sizeof(*results->analyses));
+    size_t bench_count = results->bench_count = sb_len(settings->cmds);
+    assert(bench_count != 0);
+    results->benches = calloc(bench_count, sizeof(*results->benches));
+    results->analyses = calloc(bench_count, sizeof(*results->analyses));
     results->meas_count = sb_len(settings->meas);
     results->meas = settings->meas;
-    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         struct bench *bench = results->benches + bench_idx;
         bench->prepare = settings->prepare_cmd;
         bench->cmd = settings->cmds + bench_idx;
@@ -3060,8 +3170,7 @@ static bool run_benches(const struct settings *settings,
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
     }
-    return parallel_for(run_benchw, results->analyses, results->bench_count,
-                        sizeof(*results->analyses));
+    return parallel_run_bench(results->analyses, bench_count);
 }
 
 static void analyze_benches(const struct settings *settings,
