@@ -2103,7 +2103,8 @@ static const char *big_o_str(enum big_o complexity) {
     return NULL;
 }
 
-static void print_benchmark_info(const struct bench_analysis *analysis) {
+static void print_benchmark_info(const struct bench_analysis *analysis,
+                                 const struct bench_results *results) {
     const struct bench *bench = analysis->bench;
     size_t run_count = bench->run_count;
     const struct cmd *cmd = bench->cmd;
@@ -2111,30 +2112,31 @@ static void print_benchmark_info(const struct bench_analysis *analysis) {
     printf_colored(ANSI_BOLD, "%s\n", cmd->str);
     // Print runs count only if it not explicitly specified, otherwise it is
     // printed in 'print_analysis'
-    if (g_bench_stop.runs == 0) {
-        printf_colored("0", "%zu", bench->run_count);
-        printf(" runs\n");
-    }
+    if (g_bench_stop.runs == 0)
+        printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
-    bool has_primary = false;
-    for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
-        const struct meas *info = cmd->meas + meas_idx;
-        if (info->is_secondary)
-            continue;
+    if (results->primary_meas_count != 0) {
+        for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+            const struct meas *meas = cmd->meas + meas_idx;
+            if (meas->is_secondary)
+                continue;
 
-        has_primary = true;
-        const struct distr *distr = analysis->meas + meas_idx;
-        print_distr(distr, &info->units);
-        for (size_t j = 0; j < bench->meas_count; ++j) {
-            if (cmd->meas[j].is_secondary &&
-                cmd->meas[j].primary_idx == meas_idx)
-                print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
-                               &cmd->meas[j].units, ANSI_BOLD_BLUE,
-                               ANSI_BRIGHT_BLUE);
+            if (results->primary_meas_count != 1) {
+                printf("measurement ");
+                printf_colored(ANSI_YELLOW, "%s\n", meas->name);
+            }
+            const struct distr *distr = analysis->meas + meas_idx;
+            print_distr(distr, &meas->units);
+            for (size_t j = 0; j < bench->meas_count; ++j) {
+                if (cmd->meas[j].is_secondary &&
+                    cmd->meas[j].primary_idx == meas_idx)
+                    print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
+                                   &cmd->meas[j].units, ANSI_BOLD_BLUE,
+                                   ANSI_BRIGHT_BLUE);
+            }
+            print_outliers(&distr->outliers, run_count);
         }
-        print_outliers(&distr->outliers, run_count);
-    }
-    if (!has_primary) {
+    } else {
         for (size_t i = 0; i < bench->meas_count; ++i) {
             const struct meas *info = cmd->meas + i;
             print_estimate(info->name, &analysis->meas[i].mean, &info->units,
@@ -2147,20 +2149,14 @@ static void print_cmd_comparison(const struct bench_results *results) {
     if (results->bench_count == 1)
         return;
 
-    size_t meas_count = results->meas_count;
-    size_t primary_meas_count = 0;
-    for (size_t i = 0; i < meas_count; ++i)
-        if (!results->meas[i].is_secondary)
-            ++primary_meas_count;
-
     if (results->group_count <= 1) {
-        for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
             size_t best_idx = results->fastest_meas[meas_idx];
             const struct bench_analysis *best = results->analyses + best_idx;
             const struct meas *meas = results->meas + meas_idx;
-            if (primary_meas_count != 1) {
+            if (results->primary_meas_count != 1) {
                 printf("measurement ");
                 printf_colored(ANSI_YELLOW, "%s\n", meas->name);
             }
@@ -2176,7 +2172,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                           analysis->meas[meas_idx].st_dev.point,
                           best->meas[meas_idx].mean.point,
                           best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
-                printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
+                printf_colored(ANSI_BOLD_GREEN, "  %.3f", ref);
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                 printf(" times faster than ");
@@ -2184,19 +2180,22 @@ static void print_cmd_comparison(const struct bench_results *results) {
             }
         }
     } else {
-        for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
             const struct meas *meas = results->meas + meas_idx;
             const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
-            if (primary_meas_count != 1) {
+            if (results->primary_meas_count != 1) {
                 printf("measurement ");
                 printf_colored(ANSI_YELLOW, "%s\n", meas->name);
             }
-            for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx)
-                printf("%c = '%s'\n", (int)('A' + grp_idx),
-                       analyses[grp_idx].group->template);
+            for (size_t grp_idx = 0; grp_idx < results->group_count;
+                 ++grp_idx) {
+                printf("%c = ", (int)('A' + grp_idx));
+                printf_colored(ANSI_BOLD, "%s\n",
+                               analyses[grp_idx].group->template);
+            }
 
             const char *val_name = analyses[0].group->var_name;
             size_t val_count = analyses[0].group->count;
@@ -2230,8 +2229,11 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     ref_speed(analyses[grp_idx].data[val_idx].mean,
                               analyses[grp_idx].data[val_idx].st_dev,
                               fastest_mean, fastest_st_dev, &ref, &ref_st_dev);
-                    printf("%s%.3f ± %.3f times faster than %c\n", ident, ref,
-                           ref_st_dev, (int)('A' + grp_idx));
+                    printf("  %s", ident);
+                    printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
+                    printf("times faster than %c\n", (int)('A' + grp_idx));
                 }
             }
         }
@@ -2247,8 +2249,8 @@ static void print_group_analysis(const struct bench_results *results) {
                 results->group_analyses[meas_idx] + grp_idx;
             const struct cmd_group *group = analysis->group;
 
-            printf("command group '%s' with parameter %s\n", group->template,
-                   group->var_name);
+            printf("command group ");
+            printf_colored(ANSI_BOLD, "%s\n", group->template);
             char buf[256];
             format_time(buf, sizeof(buf), analysis->data[0].mean);
             printf("lowest time %s with %s=%s\n", buf, group->var_name,
@@ -3074,13 +3076,28 @@ static void analyze_benches(const struct settings *settings,
                             struct bench_results *results) {
     compare_benches(results);
     analyze_cmd_groups(settings, results);
+    size_t meas_count = results->meas_count;
+    size_t primary_meas_count = 0;
+    for (size_t i = 0; i < meas_count; ++i)
+        if (!results->meas[i].is_secondary)
+            ++primary_meas_count;
+    results->primary_meas_count = primary_meas_count;
 }
 
 static void print_analysis(const struct bench_results *results) {
     if (g_bench_stop.runs != 0)
         printf("%d runs\n", g_bench_stop.runs);
+    if (results->primary_meas_count == 1) {
+        const struct meas *meas = NULL;
+        for (size_t i = 0; i < results->meas_count && meas == NULL; ++i)
+            if (!results->meas[i].is_secondary)
+                meas = results->meas + i;
+        assert(meas != NULL);
+        printf("measurement ");
+        printf_colored(ANSI_YELLOW, "%s\n", meas->name);
+    }
     for (size_t i = 0; i < results->bench_count; ++i)
-        print_benchmark_info(results->analyses + i);
+        print_benchmark_info(results->analyses + i, results);
     print_cmd_comparison(results);
     print_group_analysis(results);
 }

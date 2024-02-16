@@ -337,6 +337,7 @@ struct bench_results {
     // Indexes of fastest benchmarks for each measurement
     size_t *fastest_meas;
     const struct meas *meas;
+    size_t primary_meas_count;
     size_t group_count;
     struct group_analysis **group_analyses;
 };
