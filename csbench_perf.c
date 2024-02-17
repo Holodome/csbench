@@ -98,7 +98,7 @@ static struct perf_events *open_counters(const int *config, size_t count,
         attr.config = config[i];
         int fd = syscall(__NR_perf_event_open, &attr, pid, -1, group, 0);
         if (fd == -1) {
-            perror("perf_event_open");
+            csperror("perf_event_open");
         err_free_all_others:
             for (size_t j = 0; j < i; ++j)
                 close(events->fds[j]);
@@ -153,7 +153,7 @@ static int stop_counting(struct perf_events *events) {
     if ((nread = read(events->fds[0], events->read_buf, bytes_to_read)) !=
         (ssize_t)bytes_to_read) {
         if (nread == -1) {
-            perror("read");
+            csperror("read");
             return false;
         }
         error("failed to read pmc values");
@@ -192,13 +192,13 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
 
     // signal process to start executing
     if (kill(pid, SIGUSR1) == -1) {
-        perror("kill");
+        csperror("kill");
         goto err_stop_counting;
     }
 
     siginfo_t siginfo;
     if (waitid(P_PID, pid, &siginfo, WEXITED | WNOWAIT) == -1) {
-        perror("waitid");
+        csperror("waitid");
         goto err_stop_counting;
     }
 
@@ -836,12 +836,12 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
 
     // set config to kernel
     if (kpc_force_all_ctrs_set(1) != 0) {
-        perror("kpc_force_all_ctrs_set(1)");
+        csperror("kpc_force_all_ctrs_set(1)");
         goto err_free_config;
     }
     if ((classes & KPC_CLASS_CONFIGURABLE_MASK) && reg_count) {
         if (kpc_set_config(classes, regs) != 0) {
-            perror("kpc_set_config");
+            csperror("kpc_set_config");
             goto err_disable_ctrs;
         }
     }
@@ -854,11 +854,11 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
 
     // start counting
     if (kpc_set_counting(classes) != 0) {
-        perror("kpc_set_counting");
+        csperror("kpc_set_counting");
         goto err_disable_ctrs;
     }
     if (kpc_set_thread_counting(classes) != 0) {
-        perror("kpc_set_thread_counting");
+        csperror("kpc_set_thread_counting");
         goto err_disable_counting;
     }
 
@@ -866,22 +866,22 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     uint32_t actionid = 1;
     uint32_t timerid = 1;
     if (kperf_action_count_set(KPERF_ACTION_MAX) != 0) {
-        perror("kperf_action_count_set");
+        csperror("kperf_action_count_set");
         goto err_stop_trace;
     }
     if (kperf_timer_count_set(KPERF_TIMER_MAX) != 0) {
-        perror("kperf_timer_count_set");
+        csperror("kperf_timer_count_set");
         goto err_stop_trace;
     }
 
     // set what to sample: PMC per thread
     if (kperf_action_samplers_set(actionid, KPERF_SAMPLER_PMC_THREAD) != 0) {
-        perror("kperf_action_samplers_set");
+        csperror("kperf_action_samplers_set");
         goto err_stop_trace;
     }
     // set filter process
     if (kperf_action_filter_set_by_pid(actionid, pid) != 0) {
-        perror("kperf_action_filter_set_by_pid");
+        csperror("kperf_action_filter_set_by_pid");
         goto err_stop_trace;
     }
 
@@ -889,39 +889,39 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     double sample_period = 0.001;
     uint64_t tick = kperf_ns_to_ticks(sample_period * 1000000000ul);
     if (kperf_timer_period_set(actionid, tick) != 0) {
-        perror("kperf_timer_period_set");
+        csperror("kperf_timer_period_set");
         goto err_stop_trace;
     }
     if (kperf_timer_action_set(actionid, timerid) != 0) {
-        perror("kperf_timer_action_set");
+        csperror("kperf_timer_action_set");
         goto err_stop_trace;
     }
     if (kperf_timer_pet_set(timerid) != 0) {
-        perror("kperf_timer_pet_set");
+        csperror("kperf_timer_pet_set");
         goto err_stop_trace;
     }
     if (kperf_lightweight_pet_set(1) != 0) {
-        perror("kperf_lightweight_pet_set");
+        csperror("kperf_lightweight_pet_set");
         goto err_stop_trace;
     }
     if (kperf_sample_set(1) != 0) {
-        perror("kperf_sample_set(1)");
+        csperror("kperf_sample_set(1)");
         goto err_stop_trace;
     }
 
     // reset kdebug/ktrace
     if (kdebug_reset() != 0) {
-        perror("kdebug_reset");
+        csperror("kdebug_reset");
         goto err_stop_trace;
     }
 
     int nbufs = 1000000;
     if (kdebug_trace_setbuf(nbufs) != 0) {
-        perror("kdebug_trace_setbuf");
+        csperror("kdebug_trace_setbuf");
         goto err_stop_trace;
     }
     if (kdebug_reinit() != 0) {
-        perror("kdebug_reinit");
+        csperror("kdebug_reinit");
         goto err_stop_trace;
     }
 
@@ -930,24 +930,24 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     kdr.type = KDBG_VALCHECK;
     kdr.value1 = KDBG_EVENTID(DBG_PERF, PERF_KPC, PERF_KPC_DATA_THREAD);
     if (kdebug_setreg(&kdr) != 0) {
-        perror("kdebug_setreg");
+        csperror("kdebug_setreg");
         goto err_stop_trace;
     }
     // start trace
     if (kdebug_trace_enable(1) != 0) {
-        perror("kdebug_trace_enable");
+        csperror("kdebug_trace_enable");
         goto err_stop_trace;
     }
 
     // signal process to start executing
     if (kill(pid, SIGUSR1) == -1) {
-        perror("kill");
+        csperror("kill");
         goto err_stop_trace;
     }
 
     siginfo_t siginfo;
     if (waitid(P_PID, pid, &siginfo, WEXITED | WNOWAIT) == -1) {
-        perror("waitid");
+        csperror("waitid");
         goto err_stop_trace;
     }
 

@@ -347,6 +347,7 @@ struct perf_cnt {
 
 extern bool g_colored_output;
 
+void csperror(const char *fmt);
 void error(const char *fmt, ...);
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);

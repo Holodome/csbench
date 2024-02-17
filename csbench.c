@@ -288,6 +288,14 @@ void error(const char *fmt, ...) {
     putc('\n', stdout);
 }
 
+void csperror(const char *fmt) {
+    int err = errno;
+    char buf[4096];
+    int len = snprintf(buf, sizeof(buf), "%s: ", fmt);
+    strerror_r(err, buf + len, sizeof(buf) - len);
+    error("%s", buf);
+}
+
 static void print_help_and_exit(int rc) {
     printf("A command line benchmarking tool\n"
            "\n"
@@ -1366,7 +1374,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     bool success = true;
     pid_t pid = fork();
     if (pid == -1) {
-        perror("fork");
+        csperror("fork");
         return -1;
     }
 
@@ -1402,7 +1410,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     pid_t wpid;
     if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
         if (wpid == -1)
-            perror("wait4");
+            csperror("wait4");
         return -1;
     }
 
@@ -1425,7 +1433,7 @@ static bool process_finished_correctly(pid_t pid) {
     pid_t wpid;
     if ((wpid = waitpid(pid, &status, 0)) != pid) {
         if (wpid == -1)
-            perror("waitpid");
+            csperror("waitpid");
         return false;
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
@@ -1441,7 +1449,7 @@ static bool execute_process_in_shell(const char *cmd, int stdin_fd,
 
     pid_t pid = fork();
     if (pid == -1) {
-        perror("fork");
+        csperror("fork");
         return false;
     }
     if (pid == 0) {
@@ -1462,7 +1470,7 @@ static bool parse_custom_output(int fd, double *valuep) {
     char buf[4096];
     ssize_t nread = read(fd, buf, sizeof(buf));
     if (nread == -1) {
-        perror("read");
+        csperror("read");
         return false;
     }
     if (nread == sizeof(buf)) {
@@ -1488,7 +1496,7 @@ static int tmpfile_fd(void) {
     char path[] = "/tmp/csbench_XXXXXX";
     int fd = mkstemp(path);
     if (fd == -1) {
-        perror("mkstemp");
+        csperror("mkstemp");
         return -1;
     }
     // This relies on Unix behaviour - file exists until it is closed.
@@ -1506,7 +1514,7 @@ static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
 
     if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
         lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
-        perror("lseek");
+        csperror("lseek");
         goto out;
     }
 
@@ -1515,7 +1523,7 @@ static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
         goto out;
 
     if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
-        perror("lseek");
+        csperror("lseek");
         goto out;
     }
 
@@ -2563,7 +2571,7 @@ static bool export_json(const struct bench_results *results,
 static bool python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
-        perror("fork");
+        csperror("fork");
         return false;
     }
     if (pid == 0) {
@@ -2578,13 +2586,13 @@ static bool python_found(void) {
 static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
     if (pipe(pipe_fds) == -1) {
-        perror("pipe");
+        csperror("pipe");
         return false;
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-        perror("fork");
+        csperror("fork");
         return false;
     }
     if (pid == 0) {
@@ -2601,7 +2609,7 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     close(pipe_fds[0]);
     FILE *f = fdopen(pipe_fds[1], "w");
     if (f == NULL) {
-        perror("fdopen");
+        csperror("fdopen");
         // Not a very nice way of handling errors, but it seems correct.
         close(pipe_fds[1]);
         kill(pid, SIGKILL);
@@ -3466,7 +3474,7 @@ static bool do_visualize(const struct bench_results *results,
     if (mkdir(out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
-            perror("mkdir");
+            csperror("mkdir");
             return false;
         }
     }
@@ -3564,7 +3572,7 @@ static void prepare(void) {
     action.sa_handler = sigint_handler;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) == -1) {
-        perror("sigaction");
+        csperror("sigaction");
         exit(EXIT_FAILURE);
     }
 
