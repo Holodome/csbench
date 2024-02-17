@@ -339,6 +339,7 @@ struct perf_cnt {
 
 #define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
+#define atomic_fetch_inc(_at) __atomic_fetch_add(_at, 1, __ATOMIC_SEQ_CST)
 #define atomic_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 
 //

@@ -5,6 +5,10 @@ ifdef DEBUG
 	CFLAGS += -O0 -g -fsanitize=address
 	LDFLAGS += -fsanitize=address
 endif 
+ifdef DEBUG_THREAD
+	CFLAGS += -O0 -g -fsanitize=thread
+	LDFLAGS += -fsanitize=thread
+endif
 
 all: csbench
 

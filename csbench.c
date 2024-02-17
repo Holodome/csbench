@@ -202,11 +202,12 @@ struct progress_bar {
 
 // Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
 // noninclusive, calling 'fn' for each memory block.
-struct parfor_data {
+struct bench_runner_thread_data {
     pthread_t id;
     struct bench_analysis *analyses;
     const size_t *indexes;
-    size_t count;
+    size_t *cursor;
+    size_t max;
 };
 
 struct bench_results {
@@ -3195,11 +3196,16 @@ static bool run_bench(struct bench_analysis *analysis) {
     return true;
 }
 
-static void *parfor_worker(void *raw) {
-    struct parfor_data *data = raw;
-    for (size_t i = 0; i < data->count; ++i)
-        if (!run_bench(data->analyses + data->indexes[i]))
+static void *bench_runner_worker(void *raw) {
+    struct bench_runner_thread_data *data = raw;
+    for (;;) {
+        size_t idx = atomic_fetch_inc(data->cursor);
+        if (idx >= data->max)
+            break;
+
+        if (!run_bench(data->analyses + data->indexes[idx]))
             return (void *)-1;
+    }
     return NULL;
 }
 
@@ -3259,6 +3265,9 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                     if (!data.finished)
                         dt = current_time - bar->states[i].time;
                     double eta = bar->states[i].eta - dt;
+                    // Sometimes we would get -inf here
+                    if (eta < 0.0)
+                        eta = -eta;
                     format_time(eta_buf, sizeof(eta_buf), eta);
                 }
                 char total_buf[256];
@@ -3314,6 +3323,7 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
+// Fisher–Yates shuffle algorithm implementation
 static void shuffle(size_t *arr, size_t count) {
     for (size_t i = 0; i < count - 1; ++i) {
         size_t mod = count - i;
@@ -3324,7 +3334,24 @@ static void shuffle(size_t *arr, size_t count) {
     }
 }
 
-static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
+// Execute benchmarks, possibly in parallel using worker threads.
+// When parallel execution is used, thread pool is created, threads from which
+// select a benchmark to run in random order. We shuffle the benchmarks here
+// in orderd to get asymptotically OK runtime, as incorrect order of
+// tasks in parallel execution can degrade performance (queueing theory).
+//
+// Parallel execution is controlled using 'g_threads' global
+// variable.
+//
+// This function also optionally spawns the thread printing interactive progress
+// bar. Logic conserning progress bar may be cumbersome:
+// 1. A new thread is spawned, which wakes ones in a while and checks atomic
+//  variables storing states of benchmarks
+// 2. Each of benchmarks updates its state in corresponding atomic varibales
+// 3. Output of benchmarks when progress bar is used is captured (anchored), see
+//  'error' and 'cserror' functions. This is done in order to not corrupt the
+//  output in case such message is printed.
+static bool run_benches(struct bench_analysis *analyses, size_t count) {
     bool success = false;
     struct progress_bar progress_bar = {0};
     pthread_t progress_bar_thread;
@@ -3355,22 +3382,18 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
     if (count < thread_count)
         thread_count = count;
     assert(thread_count > 1);
-    struct parfor_data *thread_data =
+    struct bench_runner_thread_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
     size_t *task_indexes = calloc(count, sizeof(*task_indexes));
     for (size_t i = 0; i < count; ++i)
         task_indexes[i] = i;
     shuffle(task_indexes, count);
-    size_t width = count / thread_count;
-    size_t remainder = count % thread_count;
-    for (size_t i = 0, cursor = 0; i < thread_count; ++i) {
+    size_t cursor = 0;
+    for (size_t i = 0; i < thread_count; ++i) {
         thread_data[i].analyses = analyses;
-        thread_data[i].indexes = task_indexes + cursor;
-        size_t advance = width;
-        if (i < remainder)
-            ++advance;
-        thread_data[i].count = advance;
-        cursor += advance;
+        thread_data[i].indexes = task_indexes;
+        thread_data[i].cursor = &cursor;
+        thread_data[i].max = count;
     }
     if (g_progress_bar)
         sb_resize(g_output_anchors, thread_count);
@@ -3380,7 +3403,8 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
         pthread_t *id = &thread_data[i].id;
         if (g_progress_bar)
             id = &g_output_anchors[i].id;
-        if (pthread_create(id, NULL, parfor_worker, thread_data + i) != 0) {
+        if (pthread_create(id, NULL, bench_runner_worker, thread_data + i) !=
+            0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_data[j].id, NULL);
             error("failed to spawn thread");
@@ -3407,8 +3431,8 @@ free_progress_bar:
     return success;
 }
 
-static bool run_benches(const struct settings *settings,
-                        struct bench_results *results) {
+static bool execute_benches(const struct settings *settings,
+                            struct bench_results *results) {
     size_t bench_count = results->bench_count = sb_len(settings->cmds);
     assert(bench_count != 0);
     results->benches = calloc(bench_count, sizeof(*results->benches));
@@ -3426,7 +3450,7 @@ static bool run_benches(const struct settings *settings,
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
     }
-    return parallel_run_bench(results->analyses, bench_count);
+    return run_benches(results->analyses, bench_count);
 }
 
 static void analyze_benches(const struct settings *settings,
@@ -3555,7 +3579,7 @@ static void free_bench_results(struct bench_results *results) {
 static bool run(const struct settings *settings) {
     bool success = false;
     struct bench_results results = {0};
-    if (!run_benches(settings, &results))
+    if (!execute_benches(settings, &results))
         goto out;
     analyze_benches(settings, &results);
     print_analysis(&results);
