@@ -205,8 +205,8 @@ struct progress_bar {
 struct parfor_data {
     pthread_t id;
     struct bench_analysis *analyses;
-    size_t low;
-    size_t high;
+    const size_t *indexes;
+    size_t count;
 };
 
 struct bench_results {
@@ -1661,8 +1661,8 @@ static bool run_benchmark(struct bench *bench) {
                 progress_bar_aborted(bench->progress);
                 return false;
             }
-            int percent = run_idx * 100 / g_bench_stop.runs;
-            progress_bar_update_runs(bench->progress, percent, run_idx);
+            int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
+            progress_bar_update_runs(bench->progress, percent, run_idx + 1);
         }
         progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
         progress_bar_finished(bench->progress);
@@ -3197,8 +3197,8 @@ static bool run_bench(struct bench_analysis *analysis) {
 
 static void *parfor_worker(void *raw) {
     struct parfor_data *data = raw;
-    for (size_t i = data->low; i < data->high; ++i)
-        if (!run_bench(data->analyses + i))
+    for (size_t i = 0; i < data->count; ++i)
+        if (!run_bench(data->analyses + data->indexes[i]))
             return (void *)-1;
     return NULL;
 }
@@ -3314,6 +3314,16 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
+static void shuffle(size_t *arr, size_t count) {
+    for (size_t i = 0; i < count - 1; ++i) {
+        size_t mod = count - i;
+        size_t j = xorshift32(&g_rng_state) % mod + i;
+        size_t tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+    }
+}
+
 static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
     bool success = false;
     struct progress_bar progress_bar = {0};
@@ -3347,15 +3357,19 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
     assert(thread_count > 1);
     struct parfor_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
+    size_t *task_indexes = calloc(count, sizeof(*task_indexes));
+    for (size_t i = 0; i < count; ++i)
+        task_indexes[i] = i;
+    shuffle(task_indexes, count);
     size_t width = count / thread_count;
     size_t remainder = count % thread_count;
     for (size_t i = 0, cursor = 0; i < thread_count; ++i) {
         thread_data[i].analyses = analyses;
-        thread_data[i].low = cursor;
+        thread_data[i].indexes = task_indexes + cursor;
         size_t advance = width;
         if (i < remainder)
             ++advance;
-        thread_data[i].high = cursor + advance;
+        thread_data[i].count = advance;
         cursor += advance;
     }
     if (g_progress_bar)
@@ -3383,6 +3397,7 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
     }
 err:
     free(thread_data);
+    free(task_indexes);
 free_progress_bar:
     if (g_progress_bar) {
         pthread_join(progress_bar_thread, NULL);
