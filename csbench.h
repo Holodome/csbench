@@ -236,7 +236,7 @@ struct bench {
     size_t meas_count;
     double **meas;
 
-    struct progress_bar_per_worker *progress;
+    struct progress_bar_bench *progress;
 };
 
 struct bench_analysis {

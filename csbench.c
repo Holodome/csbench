@@ -126,9 +126,9 @@ struct settings {
     int input_fd;
 };
 
-// Align this strucutre as attempt to avoid false sharing and make inconsistent
-// data reads less probable
-struct progress_bar_per_worker {
+// Align this structure as attempt to avoid false sharing and make inconsistent
+// data reads less probable.
+struct progress_bar_bench {
     int bar;
     int finished;
     int aborted;
@@ -143,48 +143,6 @@ struct progress_bar_per_worker {
     pthread_t id;
 } __attribute__((aligned(64)));
 
-#define progress_bar_start(_p)                                                 \
-    do {                                                                       \
-        if (g_progress_bar) {                                                  \
-            double time = get_time();                                          \
-            uint64_t u;                                                        \
-            memcpy(&u, &time, sizeof(u));                                      \
-            atomic_store(&(_p)->start_time.u, u);                              \
-        }                                                                      \
-    } while (0)
-#define progress_bar_aborted(_p)                                               \
-    do {                                                                       \
-        if (g_progress_bar) {                                                  \
-            pthread_t id = pthread_self();                                     \
-            memcpy(&(_p)->id, &id, sizeof(id));                                \
-            atomic_fence();                                                    \
-            atomic_store(&(_p)->aborted, true);                                \
-            atomic_store(&(_p)->finished, true);                               \
-        }                                                                      \
-    } while (0);
-#define progress_bar_finished(_p)                                              \
-    do {                                                                       \
-        if (g_progress_bar) {                                                  \
-            atomic_store(&(_p)->finished, true);                               \
-        }                                                                      \
-    } while (0)
-#define progress_bar_update_time(_p, _v, _t)                                   \
-    do {                                                                       \
-        if (g_progress_bar) {                                                  \
-            atomic_store(&(_p)->bar, _v);                                      \
-            uint64_t metric;                                                   \
-            memcpy(&metric, &_t, sizeof(metric));                              \
-            atomic_store(&(_p)->metric.u, metric);                             \
-        }                                                                      \
-    } while (0)
-#define progress_bar_update_runs(_p, _v, _r)                                   \
-    do {                                                                       \
-        if (g_progress_bar) {                                                  \
-            atomic_store(&(_p)->bar, _v);                                      \
-            atomic_store(&(_p)->metric.u, _r);                                 \
-        }                                                                      \
-    } while (0)
-
 struct progress_bar_state {
     size_t runs;
     double eta;
@@ -193,7 +151,7 @@ struct progress_bar_state {
 
 struct progress_bar {
     bool was_drawn;
-    struct progress_bar_per_worker *bars;
+    struct progress_bar_bench *benches;
     size_t count;
     struct bench_analysis *analyses;
     size_t max_cmd_len;
@@ -983,7 +941,7 @@ static char **split_shell_words(const char *cmd) {
     char *current_word = NULL;
 
     enum {
-        STATE_DELIMETER,
+        STATE_DELIMITER,
         STATE_BACKSLASH,
         STATE_UNQUOTED,
         STATE_UNQUOTED_BACKSLASH,
@@ -991,12 +949,12 @@ static char **split_shell_words(const char *cmd) {
         STATE_DOUBLE_QUOTED,
         STATE_DOUBLE_QUOTED_BACKSLASH,
         STATE_COMMENT
-    } state = STATE_DELIMETER;
+    } state = STATE_DELIMITER;
 
     for (;;) {
         int c = *cmd++;
         switch (state) {
-        case STATE_DELIMETER:
+        case STATE_DELIMITER:
             switch (c) {
             case '\0':
                 if (current_word != NULL) {
@@ -1016,7 +974,7 @@ static char **split_shell_words(const char *cmd) {
             case '\t':
             case ' ':
             case '\n':
-                state = STATE_DELIMETER;
+                state = STATE_DELIMITER;
                 break;
             case '#':
                 state = STATE_COMMENT;
@@ -1035,7 +993,7 @@ static char **split_shell_words(const char *cmd) {
                 sb_push(words, current_word);
                 goto out;
             case '\n':
-                state = STATE_DELIMETER;
+                state = STATE_DELIMITER;
                 break;
             default:
                 sb_push(current_word, c);
@@ -1063,7 +1021,7 @@ static char **split_shell_words(const char *cmd) {
                 sb_push(current_word, '\0');
                 sb_push(words, current_word);
                 current_word = NULL;
-                state = STATE_DELIMETER;
+                state = STATE_DELIMITER;
                 break;
             case '#':
                 state = STATE_COMMENT;
@@ -1145,7 +1103,7 @@ static char **split_shell_words(const char *cmd) {
                 }
                 goto out;
             case '\n':
-                state = STATE_DELIMETER;
+                state = STATE_DELIMITER;
                 break;
             default:
                 break;
@@ -1500,7 +1458,7 @@ static int tmpfile_fd(void) {
         csperror("mkstemp");
         return -1;
     }
-    // This relies on Unix behaviour - file exists until it is closed.
+    // This relies on Unix behavior - file exists until it is closed.
     unlink(path);
     return fd;
 }
@@ -1540,6 +1498,20 @@ out:
     return success;
 }
 
+// Execute benchmark and save output.
+//
+// This function contains some heavy logic. It handles the following:
+// 1. Execute command
+//  a. Using specified shell
+//  b. Optionally setting stdin
+//  c. Setting stdout and stderr, or saving stdout to file in case custom
+//   measurements are used
+// 2. Collect wall clock time duration of execution
+// 2. Collect struct rusage of executed process
+// 3. Optionally collect performance counters
+// 4. Optionally check that command exit code is not zero
+// 5. Execute custom measurements if specified
+// 6. Save measurements specified in benchmark settings
 static bool exec_and_measure(struct bench *bench) {
     bool success = false;
     int stdout_fd = -1;
@@ -1648,18 +1620,75 @@ static bool warmup(const struct cmd *cmd) {
     return true;
 }
 
+static void progress_bar_start(struct progress_bar_bench *bench, double time) {
+    if (!g_progress_bar)
+        return;
+    uint64_t u;
+    memcpy(&u, &time, sizeof(u));
+    atomic_store(&bench->start_time.u, u);
+}
+
+static void progress_bar_abort(struct progress_bar_bench *bench) {
+    if (!g_progress_bar)
+        return;
+    pthread_t id = pthread_self();
+    memcpy(&bench->id, &id, sizeof(id));
+    atomic_fence();
+    atomic_store(&bench->aborted, true);
+    atomic_store(&bench->finished, true);
+}
+
+static void progress_bar_finished(struct progress_bar_bench *bench) {
+    if (!g_progress_bar)
+        return;
+    atomic_store(&bench->finished, true);
+}
+
+static void progress_bar_update_time(struct progress_bar_bench *bench,
+                                     int percent, double t) {
+    if (!g_progress_bar)
+        return;
+    atomic_store(&bench->bar, percent);
+    uint64_t metric;
+    memcpy(&metric, &t, sizeof(metric));
+    atomic_store(&bench->metric.u, metric);
+}
+
+static void progress_bar_update_runs(struct progress_bar_bench *bench,
+                                     int percent, size_t runs) {
+    if (!g_progress_bar)
+        return;
+    atomic_store(&bench->bar, percent);
+    atomic_store(&bench->metric.u, runs);
+}
+
+// This function is entry point to benchmark running. Accepting description of
+// benchmark, it runs it according to 'g_bench_stop' policy, saving timing
+// results.
+//
+// There are two main ways to execute benchmark: by time and by run count.
+// In the first case benchmark is run until certain wall clock time has passed
+// since benchmark start, optionally constrained bu minimum and maximum run
+// count. In the second case we run benchmark exactly for specified number of
+// runs.
+//
+// This function also handles progress bar (see 'run_benchmark').
+// During the benchmark run, progress bar is notified about current state
+// of run using atomic variables (lock free and wait free).
+// If the progress bar is disabled nothing concerning it shall be done.
 static bool run_benchmark(struct bench *bench) {
+    // Check if we should run fixed number of times.
     if (g_bench_stop.runs != 0) {
-        progress_bar_start(bench->progress);
+        progress_bar_start(bench->progress, get_time());
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
                                           g_dev_null_fd, g_dev_null_fd)) {
-                progress_bar_aborted(bench->progress);
+                progress_bar_abort(bench->progress);
                 return false;
             }
             if (!exec_and_measure(bench)) {
-                progress_bar_aborted(bench->progress);
+                progress_bar_abort(bench->progress);
                 return false;
             }
             int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
@@ -1675,17 +1704,17 @@ static bool run_benchmark(struct bench *bench) {
     double time_limit = g_bench_stop.time_limit;
     size_t min_runs = g_bench_stop.min_runs;
     size_t max_runs = g_bench_stop.max_runs;
-    progress_bar_start(bench->progress);
+    progress_bar_start(bench->progress, start_time);
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
                                           g_dev_null_fd, g_dev_null_fd)) {
-                progress_bar_aborted(bench->progress);
+                progress_bar_abort(bench->progress);
                 return false;
             }
             if (!exec_and_measure(bench)) {
-                progress_bar_aborted(bench->progress);
+                progress_bar_abort(bench->progress);
                 return false;
             }
             double current = get_time();
@@ -3218,14 +3247,14 @@ static void redraw_progress_bar(struct progress_bar *bar) {
 
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
-        struct progress_bar_per_worker data = {0};
+        struct progress_bar_bench data = {0};
         // explicitly load all atomics to avoid UB (tsan)
         atomic_fence();
-        data.bar = atomic_load(&bar->bars[i].bar);
-        data.finished = atomic_load(&bar->bars[i].finished);
-        data.aborted = atomic_load(&bar->bars[i].aborted);
-        data.metric.u = atomic_load(&bar->bars[i].metric.u);
-        data.start_time.u = atomic_load(&bar->bars[i].start_time.u);
+        data.bar = atomic_load(&bar->benches[i].bar);
+        data.finished = atomic_load(&bar->benches[i].finished);
+        data.aborted = atomic_load(&bar->benches[i].aborted);
+        data.metric.u = atomic_load(&bar->benches[i].metric.u);
+        data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
         printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
                        bar->analyses[i].bench->cmd->str);
         char buf[41] = {0};
@@ -3240,7 +3269,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         buf[40 - c] = '\0';
         printf_colored(ANSI_BLUE, "%s", buf);
         if (data.aborted) {
-            memcpy(&data.id, &bar->bars[i].id, sizeof(data.id));
+            memcpy(&data.id, &bar->benches[i].id, sizeof(data.id));
             for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
                 if (pthread_equal(g_output_anchors[i].id, data.id)) {
                     assert(g_output_anchors[i].has_message);
@@ -3296,7 +3325,7 @@ void *progress_bar_thread_worker(void *arg) {
         redraw_progress_bar(bar);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i)
-            if (!atomic_load(&bar->bars[i].finished))
+            if (!atomic_load(&bar->benches[i].finished))
                 is_finished = false;
     } while (!is_finished);
     redraw_progress_bar(bar);
@@ -3306,12 +3335,12 @@ void *progress_bar_thread_worker(void *arg) {
 static void init_progress_bar(struct bench_analysis *analyses, size_t count,
                               struct progress_bar *bar) {
     bar->count = count;
-    bar->bars = calloc(count, sizeof(*bar->bars));
+    bar->benches = calloc(count, sizeof(*bar->benches));
     bar->states = calloc(count, sizeof(*bar->states));
     bar->analyses = analyses;
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
-        analyses[i].bench->progress = bar->bars + i;
+        analyses[i].bench->progress = bar->benches + i;
         size_t cmd_len = strlen(analyses[i].bench->cmd->str);
         if (cmd_len > bar->max_cmd_len)
             bar->max_cmd_len = cmd_len;
@@ -3319,7 +3348,7 @@ static void init_progress_bar(struct bench_analysis *analyses, size_t count,
 }
 
 static void free_progress_bar(struct progress_bar *bar) {
-    free(bar->bars);
+    free(bar->benches);
     free(bar->states);
 }
 
@@ -3360,11 +3389,13 @@ static bool run_benches(struct bench_analysis *analyses, size_t count) {
         if (pthread_create(&progress_bar_thread, NULL,
                            progress_bar_thread_worker, &progress_bar) != 0) {
             error("failed to spawn thread");
-            free(progress_bar.bars);
+            free_progress_bar(&progress_bar);
             return false;
         }
     }
 
+    // Consider the cases where there is either no point in execution benchmarks
+    // in parallel, or settings explicitly forbid this.
     if (g_threads <= 1 || count == 1) {
         if (g_progress_bar) {
             sb_resize(g_output_anchors, 1);
@@ -3384,10 +3415,14 @@ static bool run_benches(struct bench_analysis *analyses, size_t count) {
     assert(thread_count > 1);
     struct bench_runner_thread_data *thread_data =
         calloc(thread_count, sizeof(*thread_data));
+
     size_t *task_indexes = calloc(count, sizeof(*task_indexes));
     for (size_t i = 0; i < count; ++i)
         task_indexes[i] = i;
     shuffle(task_indexes, count);
+
+    // This variable is shared across threads and acts as a counter used to
+    // select the task from 'task_indexes' array.
     size_t cursor = 0;
     for (size_t i = 0; i < thread_count; ++i) {
         thread_data[i].analyses = analyses;
