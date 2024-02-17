@@ -77,6 +77,63 @@
 #include <mach/mach.h>
 #endif
 
+// Align this strucutre as attempt to avoid false sharing and make inconsistent
+// data reads less probable
+struct progress_bar_per_worker {
+    int bar;
+    int finished;
+    int aborted;
+    union {
+        uint64_t u;
+        double d;
+    } start_time;
+    union {
+        uint64_t u;
+        double d;
+    } metric;
+} __attribute__((aligned(64)));
+
+#define progress_bar_start(_p)                                                 \
+    do {                                                                       \
+        double time = get_time();                                              \
+        uint64_t u;                                                            \
+        memcpy(&u, &time, sizeof(u));                                          \
+        atomic_store(&(_p)->start_time.u, u);                                  \
+    } while (0)
+#define progress_bar_aborted(_p)                                               \
+    do {                                                                       \
+        atomic_store(&(_p)->aborted, true);                                    \
+        atomic_store(&(_p)->finished, true);                                   \
+    } while (0);
+#define progress_bar_finished(_p) atomic_store(&(_p)->finished, true);
+#define progress_bar_update_time(_p, _v, _t)                                   \
+    do {                                                                       \
+        atomic_store(&(_p)->bar, _v);                                          \
+        uint64_t metric;                                                       \
+        memcpy(&metric, &_t, sizeof(metric));                                  \
+        atomic_store(&(_p)->metric.u, metric);                                 \
+    } while (0)
+#define progress_bar_update_runs(_p, _v, _r)                                   \
+    do {                                                                       \
+        atomic_store(&(_p)->bar, _v);                                          \
+        atomic_store(&(_p)->metric.u, _r);                                     \
+    } while (0)
+
+struct progress_bar_state {
+    size_t runs;
+    double eta;
+    double time;
+};
+
+struct progress_bar {
+    bool was_drawn;
+    volatile struct progress_bar_per_worker *bars;
+    size_t count;
+    struct bench_analysis *analyses;
+    size_t max_cmd_len;
+    struct progress_bar_state *states;
+};
+
 bool g_colored_output;
 
 static __thread uint32_t g_rng_state;
@@ -1450,6 +1507,7 @@ static bool warmup(const struct cmd *cmd) {
 
 static bool run_benchmark(struct bench *bench) {
     if (g_bench_stop.runs != 0) {
+        progress_bar_start(bench->progress);
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
@@ -1474,6 +1532,7 @@ static bool run_benchmark(struct bench *bench) {
     double time_limit = g_bench_stop.time_limit;
     size_t min_runs = g_bench_stop.min_runs;
     size_t max_runs = g_bench_stop.max_runs;
+    progress_bar_start(bench->progress);
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (bench->prepare &&
@@ -3011,7 +3070,6 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         printf("\x1b[%zuA\r", bar->count);
 
     double current_time = get_time();
-    double passed_time = current_time - bar->start_time;
     for (size_t i = 0; i < bar->count; ++i) {
         struct progress_bar_per_worker data = {0};
         // explicitly load all atomics to avoid UB (tsan)
@@ -3019,7 +3077,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         data.finished = atomic_load(&bar->bars[i].finished);
         data.aborted = atomic_load(&bar->bars[i].aborted);
         data.metric.u = atomic_load(&bar->bars[i].metric.u);
-        /* fprintf(stderr, "loaded %f\n", data.metric.d); */
+        data.start_time.u = atomic_load(&bar->bars[i].start_time.u);
         printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
                        bar->analyses[i].bench->cmd->str);
         char buf[41] = {0};
@@ -3037,11 +3095,22 @@ static void redraw_progress_bar(struct progress_bar *bar) {
             printf_colored(ANSI_RED, " error");
         } else {
             if (g_bench_stop.runs != 0) {
-                // FIXME: when using 1 thread eta is incorrect
-                double eta = (g_bench_stop.runs - data.metric.u) * passed_time /
-                             data.metric.u;
-                char eta_buf[256];
-                format_time(eta_buf, sizeof(eta_buf), eta);
+                char eta_buf[256] = "N/A";
+                if (data.start_time.d != 0.0) {
+                    double passed_time = current_time - data.start_time.d;
+                    double dt = 0.0;
+                    if (bar->states[i].runs != data.metric.u) {
+                        bar->states[i].eta =
+                            (g_bench_stop.runs - data.metric.u) * passed_time /
+                            data.metric.u;
+                        bar->states[i].runs = data.metric.u;
+                        bar->states[i].time = current_time;
+                    }
+                    if (!data.finished)
+                        dt = current_time - bar->states[i].time;
+                    double eta = bar->states[i].eta - dt;
+                    format_time(eta_buf, sizeof(eta_buf), eta);
+                }
                 char total_buf[256];
                 snprintf(total_buf, sizeof(total_buf), "%zu",
                          (size_t)g_bench_stop.runs);
@@ -3078,15 +3147,15 @@ static void init_progress_bar(struct bench_analysis *analyses, size_t count,
                               struct progress_bar *bar) {
     bar->count = count;
     bar->bars = calloc(count, sizeof(*bar->bars));
+    bar->states = calloc(count, sizeof(*bar->states));
     bar->analyses = analyses;
     for (size_t i = 0; i < count; ++i) {
+        bar->states[i].runs = -1;
         analyses[i].bench->progress = (void *)(bar->bars + i);
-
         size_t cmd_len = strlen(analyses[i].bench->cmd->str);
         if (cmd_len > bar->max_cmd_len)
             bar->max_cmd_len = cmd_len;
     }
-    bar->start_time = get_time();
 }
 
 static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
