@@ -299,6 +299,11 @@ struct perf_cnt {
 #define sb_maybegrow(_a, _n) (sb_needgrow(_a, _n) ? sb_grow(_a, _n) : 0)
 #define sb_grow(_a, _b)                                                        \
     (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
+#define sb_reserve(_a, _n)                                                     \
+    ((_a) != NULL                                                              \
+         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n)-sb_capacity(_a)) : 0)  \
+         : sb_grow((_a), (_n)))
+#define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 
 #define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
@@ -331,16 +336,18 @@ struct perf_cnt {
                         fprintf(_f, __VA_ARGS__), fprintf(_f, "\x1b[0m"))      \
                      : fprintf(_f, __VA_ARGS__)
 #define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
-#define error(...) (printf_colored(ANSI_RED, "error: "), printf(__VA_ARGS__))
 
 #define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
+#define atomic_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 
 //
 // csbench.c
 //
 
 extern bool g_colored_output;
+
+void error(const char *fmt, ...);
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 

@@ -107,7 +107,7 @@ static struct perf_events *open_counters(const int *config, size_t count,
             return NULL;
         }
         if (ioctl(fd, PERF_EVENT_IOC_ID, events->ids + i) == -1) {
-            error("failed to open pmc\n");
+            error("failed to open pmc");
             goto err_free_all_others;
         }
         events->fds[i] = fd;
@@ -131,12 +131,12 @@ static void free_counters(struct perf_events *events) {
 static bool start_counting(struct perf_events *events) {
     if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) ==
         -1) {
-        error("failed to reset pmc\n");
+        error("failed to reset pmc");
         return false;
     }
     if (ioctl(events->fds[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) ==
         -1) {
-        error("failed to enable pmc counting\n");
+        error("failed to enable pmc counting");
         return false;
     }
     return true;
@@ -145,7 +145,7 @@ static bool start_counting(struct perf_events *events) {
 static int stop_counting(struct perf_events *events) {
     if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) ==
         -1) {
-        error("failed to stop pmc counting\n");
+        error("failed to stop pmc counting");
         return false;
     }
     size_t bytes_to_read = events->read_buf_len * sizeof(*events->read_buf);
@@ -156,11 +156,11 @@ static int stop_counting(struct perf_events *events) {
             perror("read");
             return false;
         }
-        error("failed to read pmc values\n");
+        error("failed to read pmc values");
         return false;
     }
     if (events->read_buf[0] != events->count) {
-        error("pmc count is incorrect\n");
+        error("pmc count is incorrect");
         return false;
     }
     return true;
@@ -555,12 +555,12 @@ static void perf_lib_deinit(void) {
 static bool perf_lib_init(void) {
     perf_lib_handle_kperf = dlopen(perf_lib_path_kperf, RTLD_LAZY);
     if (!perf_lib_handle_kperf) {
-        error("failed to load kperf.framework, message: %s.", dlerror());
+        error("failed to load kperf.framework: %s.", dlerror());
         goto err;
     }
     perf_lib_handle_kperfdata = dlopen(perf_lib_path_kperfdata, RTLD_LAZY);
     if (!perf_lib_handle_kperfdata) {
-        error("failed to load kperfdata.framework, message: %s.", dlerror());
+        error("failed to load kperfdata.framework: %s", dlerror());
         goto err;
     }
 
@@ -569,7 +569,7 @@ static bool perf_lib_init(void) {
         const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperf[i];
         *symbol->impl = dlsym(perf_lib_handle_kperf, symbol->name);
         if (!*symbol->impl) {
-            error("failed to load kperf function: %s.", symbol->name);
+            error("failed to load kperf function %s", symbol->name);
             goto err;
         }
     }
@@ -577,7 +577,7 @@ static bool perf_lib_init(void) {
         const struct perf_lib_symbol *symbol = &perf_lib_symbols_kperfdata[i];
         *symbol->impl = dlsym(perf_lib_handle_kperfdata, symbol->name);
         if (!*symbol->impl) {
-            error("failed to load kperfdata function: %s.", symbol->name);
+            error("failed to load kperfdata function %s", symbol->name);
             goto err;
         }
     }
@@ -760,13 +760,13 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     // check permission
     int force_ctrs = 0;
     if (kpc_force_all_ctrs_get(&force_ctrs) != 0) {
-        error("permission denied, xnu/kpc requires root privileges\n");
+        error("permission denied, xnu/kpc requires root privileges");
         return false;
     }
 
     struct kpep_db *db = NULL;
     if ((ret = kpep_db_create(NULL, &db)) != 0) {
-        error("failed to create kpep database: %d (%s)\n", ret,
+        error("failed to create kpep database: %d (%s)", ret,
               kpep_config_error_desc(ret));
         return false;
     }
@@ -774,12 +774,12 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     // create config
     struct kpep_config *cfg = NULL;
     if ((ret = kpep_config_create(db, &cfg)) != 0) {
-        error("failed to create kpep config: %d (%s)\n", ret,
+        error("failed to create kpep config: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_db;
     }
     if ((ret = kpep_config_force_counters(cfg)) != 0) {
-        error("failed to force counters: %d (%s)\n", ret,
+        error("failed to force counters: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_config;
     }
@@ -792,7 +792,7 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
         const struct event_alias *alias = profile_events + i;
         ev_arr[i] = get_event(db, alias);
         if (!ev_arr[i]) {
-            error("failed to find event: %s\n", alias->alias);
+            error("failed to find event: %s", alias->alias);
             goto err_free_config;
         }
     }
@@ -801,7 +801,7 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     for (size_t i = 0; i < ev_count; i++) {
         struct kpep_event *ev = ev_arr[i];
         if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL)) != 0) {
-            error("failed to add event: %d (%s)\n", ret,
+            error("failed to add event: %d (%s)", ret,
                   kpep_config_error_desc(ret));
             goto err_free_config;
         }
@@ -813,23 +813,23 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
     kpc_config_t regs[KPC_MAX_COUNTERS] = {0};
     size_t counter_map[KPC_MAX_COUNTERS] = {0};
     if ((ret = kpep_config_kpc_classes(cfg, &classes)) != 0) {
-        error("failed to get kpc classes: %d (%s)\n", ret,
+        error("failed to get kpc classes: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_config;
     }
     if ((ret = kpep_config_kpc_count(cfg, &reg_count)) != 0) {
-        error("failed to get kpc count: %d (%s)\n", ret,
+        error("failed to get kpc count: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_config;
     }
     if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map))) !=
         0) {
-        error("failed to get kpc map: %d (%s)\n", ret,
+        error("failed to get kpc map: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_config;
     }
     if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs))) != 0) {
-        error("failed to get kpc registers: %d (%s)\n", ret,
+        error("failed to get kpc registers: %d (%s)", ret,
               kpep_config_error_desc(ret));
         goto err_free_config;
     }

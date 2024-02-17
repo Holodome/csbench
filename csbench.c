@@ -140,6 +140,7 @@ struct progress_bar_per_worker {
         uint64_t u;
         double d;
     } metric;
+    pthread_t id;
 } __attribute__((aligned(64)));
 
 #define progress_bar_start(_p)                                                 \
@@ -154,6 +155,9 @@ struct progress_bar_per_worker {
 #define progress_bar_aborted(_p)                                               \
     do {                                                                       \
         if (g_progress_bar) {                                                  \
+            pthread_t id = pthread_self();                                     \
+            memcpy(&(_p)->id, &id, sizeof(id));                                \
+            atomic_fence();                                                    \
             atomic_store(&(_p)->aborted, true);                                \
             atomic_store(&(_p)->finished, true);                               \
         }                                                                      \
@@ -218,6 +222,12 @@ struct bench_results {
     struct group_analysis **group_analyses;
 };
 
+struct output_anchor {
+    pthread_t id;
+    char buffer[4096];
+    bool has_message;
+};
+
 bool g_colored_output;
 
 static __thread uint32_t g_rng_state;
@@ -233,6 +243,7 @@ static int g_dev_null_fd = -1;
 static bool g_use_perf = false;
 static bool g_progress_bar = false;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
+static struct output_anchor *g_output_anchors;
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -253,6 +264,28 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     header = result;
     header->capacity = new_capacity;
     return header + 1;
+}
+
+void error(const char *fmt, ...) {
+    pthread_t tid = pthread_self();
+    for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
+        if (pthread_equal(tid, g_output_anchors[i].id)) {
+            va_list args;
+            va_start(args, fmt);
+            vsnprintf(g_output_anchors[i].buffer,
+                      sizeof(g_output_anchors[i].buffer), fmt, args);
+            atomic_fence();
+            atomic_store(&g_output_anchors[i].has_message, true);
+            va_end(args);
+            return;
+        }
+    }
+    va_list args;
+    va_start(args, fmt);
+    printf_colored(ANSI_RED, "error: ");
+    vprintf(fmt, args);
+    va_end(args);
+    putc('\n', stdout);
 }
 
 static void print_help_and_exit(int rc) {
@@ -553,7 +586,7 @@ static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
         } else if (strcmp(opt, "branch-misses") == 0) {
             kind = MEAS_PERF_BRANCHM;
         } else {
-            error("invalid measurement name: '%s'\n", opt);
+            error("invalid measurement name: '%s'", opt);
             exit(EXIT_FAILURE);
         }
         sb_push(*rusage_opts, kind);
@@ -567,7 +600,7 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
     if (strcmp(argv[*cursor], opt) == 0) {
         ++(*cursor);
         if (argv[*cursor] == NULL) {
-            error("%s requires 1 argument\n", opt);
+            error("%s requires 1 argument", opt);
             exit(EXIT_FAILURE);
         }
 
@@ -608,11 +641,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             double value = strtod(str, &str_end);
             if (str_end == str) {
-                error("invalid --warmup argument\n");
+                error("invalid --warmup argument");
                 exit(EXIT_FAILURE);
             }
             if (value < 0.0) {
-                error("time limit must be positive number or zero\n");
+                error("time limit must be positive number or zero");
                 exit(EXIT_FAILURE);
             }
             g_warmup_time = value;
@@ -621,11 +654,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             double value = strtod(str, &str_end);
             if (str_end == str) {
-                error("invalid --time-limit argument\n");
+                error("invalid --time-limit argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0.0) {
-                error("time limit must be positive number\n");
+                error("time limit must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.time_limit = value;
@@ -634,11 +667,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             long value = strtol(str, &str_end, 10);
             if (str_end == str) {
-                error("invalid --runs argument\n");
+                error("invalid --runs argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0) {
-                error("run count must be positive number\n");
+                error("run count must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.runs = value;
@@ -646,11 +679,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             long value = strtol(str, &str_end, 10);
             if (str_end == str) {
-                error("invalid --min-runs argument\n");
+                error("invalid --min-runs argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0) {
-                error("resamples count must be positive number\n");
+                error("resamples count must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.min_runs = value;
@@ -658,11 +691,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             long value = strtol(str, &str_end, 10);
             if (str_end == str) {
-                error("invalid --max-runs argument\n");
+                error("invalid --max-runs argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0) {
-                error("resamples count must be positive number\n");
+                error("resamples count must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.max_runs = value;
@@ -672,11 +705,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             long value = strtol(str, &str_end, 10);
             if (str_end == str) {
-                error("invalid --nrs argument\n");
+                error("invalid --nrs argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0) {
-                error("resamples count must be positive number\n");
+                error("resamples count must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_nresamp = value;
@@ -692,7 +725,7 @@ static void parse_cli_args(int argc, char **argv,
             } else if (strcmp(str, "inherit") == 0) {
                 settings->output = OUTPUT_POLICY_INHERIT;
             } else {
-                error("invalid --output option\n");
+                error("invalid --output option");
                 exit(EXIT_FAILURE);
             }
         } else if (opt_arg(argv, &cursor, "--input", &str)) {
@@ -710,7 +743,7 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--custom-t requires 2 arguments\n");
+                error("--custom-t requires 2 arguments");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -722,7 +755,7 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
             ++cursor;
             if (cursor + 2 >= argc) {
-                error("--custom-x requires 3 arguments\n");
+                error("--custom-x requires 3 arguments");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -737,7 +770,7 @@ static void parse_cli_args(int argc, char **argv,
             double low, high, step;
             char *name;
             if (!parse_range_scan_settings(str, &name, &low, &high, &step)) {
-                error("invalid --scan argument\n");
+                error("invalid --scan argument");
                 exit(EXIT_FAILURE);
             }
             char **param_list = range_to_param_list(low, high, step);
@@ -748,7 +781,7 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
             char *name, *scan_list;
             if (!parse_comma_separated_settings(str, &name, &scan_list)) {
-                error("invalid --scanl argument\n");
+                error("invalid --scanl argument");
                 exit(EXIT_FAILURE);
             }
             char **param_list = parse_comma_separated(scan_list);
@@ -762,11 +795,11 @@ static void parse_cli_args(int argc, char **argv,
             char *str_end;
             long value = strtol(str, &str_end, 10);
             if (str_end == str) {
-                error("invalid --jobs argument\n");
+                error("invalid --jobs argument");
                 exit(EXIT_FAILURE);
             }
             if (value <= 0) {
-                error("jobs count must be positive number\n");
+                error("jobs count must be positive number");
                 exit(EXIT_FAILURE);
             }
             g_threads = value;
@@ -804,7 +837,7 @@ static void parse_cli_args(int argc, char **argv,
             } else if (strcmp(str, "always") == 0) {
                 g_colored_output = true;
             } else {
-                error("invalid --color option\n");
+                error("invalid --color option");
                 exit(EXIT_FAILURE);
             }
         } else if (opt_arg(argv, &cursor, "--progress-bar", &str)) {
@@ -818,12 +851,12 @@ static void parse_cli_args(int argc, char **argv,
             } else if (strcmp(str, "always") == 0) {
                 g_progress_bar = true;
             } else {
-                error("invalid --progress_bar option\n");
+                error("invalid --progress_bar option");
                 exit(EXIT_FAILURE);
             }
         } else {
             if (*argv[cursor] == '-') {
-                error("unknown option %s\n", argv[cursor]);
+                error("unknown option %s", argv[cursor]);
                 exit(EXIT_FAILURE);
             }
             sb_push(settings->cmds, argv[cursor++]);
@@ -1126,7 +1159,7 @@ static bool extract_exec_and_argv(const char *cmd_str, char **exec,
                                   char ***argv) {
     char **words = split_shell_words(cmd_str);
     if (words == NULL) {
-        error("invalid command syntax\n");
+        error("invalid command syntax");
         return false;
     }
 
@@ -1204,11 +1237,11 @@ static bool init_settings(const struct cli_settings *cli,
 
     size_t cmd_count = sb_len(cli->cmds);
     if (cmd_count == 0) {
-        error("no commands specified\n");
+        error("no commands specified");
         return false;
     }
     if (sb_len(cli->meas) == 0) {
-        error("no measurements specified\n");
+        error("no measurements specified");
         return false;
     }
 
@@ -1217,7 +1250,7 @@ static bool init_settings(const struct cli_settings *cli,
         settings->input_fd = input_policy.fd =
             open(input_policy.file, O_RDONLY);
         if (input_policy.fd == -1) {
-            error("failed to open file '%s' (specified for input)\n",
+            error("failed to open file '%s' (specified for input)",
                   input_policy.file);
             return false;
         }
@@ -1251,7 +1284,7 @@ static bool init_settings(const struct cli_settings *cli,
 
                 char *exec = NULL, **argv = NULL;
                 if (!init_cmd_exec(cli->shell, buf, &exec, &argv)) {
-                    error("failed to initialize command '%s'\n", buf);
+                    error("failed to initialize command '%s'", buf);
                     free(group.cmd_idxs);
                     free(group.var_values);
                     goto err_free_settings;
@@ -1272,7 +1305,7 @@ static bool init_settings(const struct cli_settings *cli,
         if (!found_param) {
             char *exec = NULL, **argv = NULL;
             if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
-                error("failed to initialize command '%s'\n", cmd_str);
+                error("failed to initialize command '%s'", cmd_str);
                 goto err_free_settings;
             }
             struct cmd cmd = {0};
@@ -1360,7 +1393,6 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
             _exit(-1);
     } else {
         if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
-            error("failed to collect pmc\n");
             success = false;
             kill(pid, SIGKILL);
         }
@@ -1382,6 +1414,8 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
         else if (WIFSIGNALED(status))
             ret = 128 + WTERMSIG(status);
     }
+    if (ret == -1 && success)
+        error("process finished with unexpected status");
 
     return ret;
 }
@@ -1432,18 +1466,18 @@ static bool parse_custom_output(int fd, double *valuep) {
         return false;
     }
     if (nread == sizeof(buf)) {
-        error("custom measurement output is too large\n");
+        error("custom measurement output is too large");
         return false;
     }
     if (nread == 0) {
-        error("custom measurement output is empty\n");
+        error("custom measurement output is empty");
         return false;
     }
     buf[nread] = '\0';
     char *end = NULL;
     double value = strtod(buf, &end);
     if (end == buf) {
-        error("invalid custom measurement output '%s'\n", buf);
+        error("invalid custom measurement output '%s'", buf);
         return false;
     }
     *valuep = value;
@@ -1515,13 +1549,11 @@ static bool exec_and_measure(struct bench *bench) {
     volatile int rc = exec_cmd(bench->cmd, stdout_fd, &rusage, pmc);
     volatile double wall_clock_end = get_time();
 
-    if (rc == -1) {
-        error("failed to execute command\n");
+    if (rc == -1)
         goto out;
-    }
 
     if (!g_allow_nonzero && rc != 0) {
-        error("command '%s' finished with non-zero exit code (%d)\n",
+        error("command '%s' finished with non-zero exit code (%d)",
               bench->cmd->str, rc);
         goto out;
     }
@@ -1600,7 +1632,7 @@ static bool warmup(const struct cmd *cmd) {
     double start_time = get_time();
     do {
         if (exec_cmd(cmd, -1, NULL, NULL) == -1) {
-            error("failed to execute warmup command\n");
+            error("failed to execute warmup command");
             return false;
         }
     } while (get_time() - start_time < time_limit);
@@ -2470,7 +2502,7 @@ static bool export_json(const struct bench_results *results,
                         const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
-        error("failed to open file '%s' for export\n", filename);
+        error("failed to open file '%s' for export", filename);
         return false;
     }
 
@@ -2628,7 +2660,7 @@ static bool dump_plot_src(const struct bench_results *results,
             if (results->group_count <= 1) {
                 f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
                 if (f == NULL) {
-                    error("failed to create file %s/bar_%zu.py\n", out_dir,
+                    error("failed to create file %s/bar_%zu.py", out_dir,
                           meas_idx);
                     return false;
                 }
@@ -2639,7 +2671,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 f = open_file_fmt("w", "%s/group_bar_%zu.py", out_dir,
                                   meas_idx);
                 if (f == NULL) {
-                    error("failed to create file %s/bar_%zu.py\n", out_dir,
+                    error("failed to create file %s/bar_%zu.py", out_dir,
                           meas_idx);
                     return false;
                 }
@@ -2656,7 +2688,7 @@ static bool dump_plot_src(const struct bench_results *results,
             f = open_file_fmt("w", "%s/group_%zu_%zu.py", out_dir, grp_idx,
                               meas_idx);
             if (f == NULL) {
-                error("failed to create file %s/group_%zu_%zu.py\n", out_dir,
+                error("failed to create file %s/group_%zu_%zu.py", out_dir,
                       grp_idx, meas_idx);
                 return false;
             }
@@ -2670,7 +2702,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 results->group_analyses[meas_idx];
             f = open_file_fmt("w", "%s/group_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
-                error("failed to create file %s/group_%zu.py\n", out_dir,
+                error("failed to create file %s/group_%zu.py", out_dir,
                       meas_idx);
                 return false;
             }
@@ -2684,7 +2716,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 f = open_file_fmt("w", "%s/kde_%zu_%zu.py", out_dir, bench_idx,
                                   meas_idx);
                 if (f == NULL) {
-                    error("failed to create file %s/kde_%zu_%zu.py\n", out_dir,
+                    error("failed to create file %s/kde_%zu_%zu.py", out_dir,
                           bench_idx, meas_idx);
                     return false;
                 }
@@ -2697,7 +2729,7 @@ static bool dump_plot_src(const struct bench_results *results,
                 f = open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", out_dir,
                                   bench_idx, meas_idx);
                 if (f == NULL) {
-                    error("failed to create file %s/kde_ext_%zu_%zu.py\n",
+                    error("failed to create file %s/kde_ext_%zu_%zu.py",
                           out_dir, bench_idx, meas_idx);
                     return false;
                 }
@@ -2717,9 +2749,8 @@ static bool dump_plot_src(const struct bench_results *results,
                 f = open_file_fmt("w", "%s/kde_cmpg_%zu_%zu.py", out_dir,
                                   param_idx, meas_idx);
                 if (f == NULL) {
-                    error(
-                        "error: failed to create file %s/kde_cmpg_%zu_%zu.py\n",
-                        out_dir, param_idx, meas_idx);
+                    error("failed to create file %s/kde_cmpg_%zu_%zu.py",
+                          out_dir, param_idx, meas_idx);
                     return false;
                 }
                 snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
@@ -2733,7 +2764,7 @@ static bool dump_plot_src(const struct bench_results *results,
         } else if (results->bench_count == 2) {
             f = open_file_fmt("w", "%s/kde_cmp_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
-                error("failed to create file %s/kde_cmp_%zu.py\n", out_dir,
+                error("failed to create file %s/kde_cmp_%zu.py", out_dir,
                       meas_idx);
                 return false;
             }
@@ -2763,7 +2794,7 @@ static bool make_plots(const struct bench_results *results,
             if (results->group_count <= 1) {
                 snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
                 if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python\n");
+                    error("failed to launch python");
                     goto out;
                 }
                 bar_plot(analyses, bench_count, meas_idx, buf, f);
@@ -2773,7 +2804,7 @@ static bool make_plots(const struct bench_results *results,
                 snprintf(buf, sizeof(buf), "%s/group_bar_%zu.svg", out_dir,
                          meas_idx);
                 if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python\n");
+                    error("failed to launch python");
                     goto out;
                 }
                 group_bar_plot(results->group_analyses[meas_idx],
@@ -2788,7 +2819,7 @@ static bool make_plots(const struct bench_results *results,
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
                      meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python\n");
+                error("failed to launch python");
                 goto out;
             }
             group_plot(analysis, 1, buf, f);
@@ -2800,7 +2831,7 @@ static bool make_plots(const struct bench_results *results,
                 results->group_analyses[meas_idx];
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python\n");
+                error("failed to launch python");
                 goto out;
             }
             group_plot(analyses, results->group_count, buf, f);
@@ -2813,7 +2844,7 @@ static bool make_plots(const struct bench_results *results,
                 snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
                 if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python\n");
+                    error("failed to launch python");
                     goto out;
                 }
                 kde_plot(analysis->meas + meas_idx, meas, buf, f);
@@ -2824,7 +2855,7 @@ static bool make_plots(const struct bench_results *results,
                 snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
                          bench_idx, meas_idx);
                 if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python\n");
+                    error("failed to launch python");
                     goto out;
                 }
                 kde_plot_ext(analysis->meas + meas_idx, meas, buf, f);
@@ -2842,7 +2873,7 @@ static bool make_plots(const struct bench_results *results,
                 snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
                          param_idx, meas_idx);
                 if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python\n");
+                    error("failed to launch python");
                     goto out;
                 }
                 kde_cmp_plot(
@@ -2855,7 +2886,7 @@ static bool make_plots(const struct bench_results *results,
         } else if (results->bench_count == 2) {
             snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python\n");
+                error("failed to launch python");
                 goto out;
             }
             kde_cmp_plot(analyses[0].meas + meas_idx,
@@ -2868,7 +2899,7 @@ static bool make_plots(const struct bench_results *results,
 out:
     for (size_t i = 0; i < sb_len(processes); ++i) {
         if (!process_finished_correctly(processes[i])) {
-            error("python finished with non-zero exit code\n");
+            error("python finished with non-zero exit code");
             success = false;
         }
     }
@@ -2880,7 +2911,7 @@ static bool make_plots_readme(const struct bench_results *results,
                               const char *out_dir) {
     FILE *f = open_file_fmt("w", "%s/readme.md", out_dir);
     if (f == NULL) {
-        error("failed to create file %s/readme.md\n", out_dir);
+        error("failed to create file %s/readme.md", out_dir);
         return false;
     }
     fprintf(f, "# csbench analyze map\n");
@@ -3175,6 +3206,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
     for (size_t i = 0; i < bar->count; ++i) {
         struct progress_bar_per_worker data = {0};
         // explicitly load all atomics to avoid UB (tsan)
+        atomic_fence();
         data.bar = atomic_load(&bar->bars[i].bar);
         data.finished = atomic_load(&bar->bars[i].finished);
         data.aborted = atomic_load(&bar->bars[i].aborted);
@@ -3194,7 +3226,15 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         buf[40 - c] = '\0';
         printf_colored(ANSI_BLUE, "%s", buf);
         if (data.aborted) {
-            printf_colored(ANSI_RED, " error");
+            memcpy(&data.id, &bar->bars[i].id, sizeof(data.id));
+            for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
+                if (pthread_equal(g_output_anchors[i].id, data.id)) {
+                    assert(g_output_anchors[i].has_message);
+                    printf_colored(ANSI_RED, " error: ");
+                    printf("%s", g_output_anchors[i].buffer);
+                    break;
+                }
+            }
         } else {
             if (g_bench_stop.runs != 0) {
                 char eta_buf[256] = "N/A";
@@ -3274,13 +3314,17 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
         init_progress_bar(analyses, count, &progress_bar);
         if (pthread_create(&progress_bar_thread, NULL,
                            progress_bar_thread_worker, &progress_bar) != 0) {
-            error("failed to spawn thread\n");
+            error("failed to spawn thread");
             free(progress_bar.bars);
             return false;
         }
     }
 
     if (g_threads <= 1 || count == 1) {
+        if (g_progress_bar) {
+            sb_resize(g_output_anchors, 1);
+            g_output_anchors[0].id = pthread_self();
+        }
         for (size_t i = 0; i < count; ++i) {
             if (!run_bench(analyses + i))
                 goto free_progress_bar;
@@ -3306,14 +3350,21 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
         thread_data[i].high = cursor + advance;
         cursor += advance;
     }
+    if (g_progress_bar)
+        sb_resize(g_output_anchors, thread_count);
     for (size_t i = 0; i < thread_count; ++i) {
-        if (pthread_create(&thread_data[i].id, NULL, parfor_worker,
-                           thread_data + i) != 0) {
+        // HACK: save thread id to output anchors first. If we do not do it here
+        // we would need additional synchronization
+        pthread_t *id = &thread_data[i].id;
+        if (g_progress_bar)
+            id = &g_output_anchors[i].id;
+        if (pthread_create(id, NULL, parfor_worker, thread_data + i) != 0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_data[j].id, NULL);
-            error("failed to spawn thread\n");
+            error("failed to spawn thread");
             goto err;
         }
+        thread_data[i].id = *id;
     }
     success = true;
     for (size_t i = 0; i < thread_count; ++i) {
@@ -3329,6 +3380,7 @@ free_progress_bar:
         pthread_join(progress_bar_thread, NULL);
         free_progress_bar(&progress_bar);
     }
+    sb_free(g_output_anchors);
     return success;
 }
 
@@ -3398,7 +3450,7 @@ static bool make_html_report(const struct bench_results *results,
                              const char *out_dir) {
     FILE *f = open_file_fmt("w", "%s/index.html", out_dir);
     if (f == NULL) {
-        error("failed to create file %s/index.html\n", out_dir);
+        error("failed to create file %s/index.html", out_dir);
         return false;
     }
     html_report(results, f);
@@ -3421,11 +3473,11 @@ static bool do_visualize(const struct bench_results *results,
 
     if (g_plot) {
         if (!python_found()) {
-            error("failed to find python3 executable\n");
+            error("failed to find python3 executable");
             return false;
         }
         if (!python_has_matplotlib()) {
-            error("python does not have matplotlib installed\n");
+            error("python does not have matplotlib installed");
             return false;
         }
 
@@ -3539,7 +3591,7 @@ int main(int argc, char **argv) {
     g_rng_state = time(NULL);
     g_dev_null_fd = open("/dev/null", O_RDWR);
     if (g_dev_null_fd == -1) {
-        error("failed to open /dev/null\n");
+        error("failed to open /dev/null");
         goto err_deinit_perf;
     }
 
