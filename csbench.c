@@ -77,6 +77,55 @@
 #include <mach/mach.h>
 #endif
 
+enum export_kind {
+    DONT_EXPORT,
+    EXPORT_JSON
+};
+
+struct export_policy {
+    enum export_kind kind;
+    const char *filename;
+};
+
+struct bench_stop_policy {
+    double time_limit;
+    int runs;
+    int min_runs;
+    int max_runs;
+};
+
+struct bench_param {
+    char *name;
+    char **values;
+};
+
+// This structure contains all information
+// supplied by user prior to benchmark start.
+struct cli_settings {
+    const char **cmds;
+    const char *shell;
+    struct export_policy export;
+    struct meas *meas;
+    const char *prepare;
+    struct input_policy input;
+    enum output_kind output;
+    const char *out_dir;
+    struct bench_param *params;
+};
+
+// Information gathered from user input (settings), parsed
+// and prepared for benchmarking. Some fields are copied from
+// cli settings as is to reduce data dependencies.
+struct settings {
+    struct cmd *cmds;
+    struct cmd_group *cmd_groups;
+    struct meas *meas;
+    const char *prepare_cmd;
+    struct export_policy export;
+    const char *out_dir;
+    int input_fd;
+};
+
 // Align this strucutre as attempt to avoid false sharing and make inconsistent
 // data reads less probable
 struct progress_bar_per_worker {
@@ -132,6 +181,28 @@ struct progress_bar {
     struct bench_analysis *analyses;
     size_t max_cmd_len;
     struct progress_bar_state *states;
+};
+
+// Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
+// noninclusive, calling 'fn' for each memory block.
+struct parfor_data {
+    pthread_t id;
+    struct bench_analysis *analyses;
+    size_t low;
+    size_t high;
+};
+
+struct bench_results {
+    size_t bench_count;
+    struct bench *benches;
+    struct bench_analysis *analyses;
+    size_t meas_count;
+    // Indexes of fastest benchmarks for each measurement
+    size_t *fastest_meas;
+    const struct meas *meas;
+    size_t primary_meas_count;
+    size_t group_count;
+    struct group_analysis **group_analyses;
 };
 
 bool g_colored_output;

@@ -92,23 +92,6 @@ enum output_kind {
     OUTPUT_POLICY_INHERIT,
 };
 
-enum export_kind {
-    DONT_EXPORT,
-    EXPORT_JSON
-};
-
-struct export_policy {
-    enum export_kind kind;
-    const char *filename;
-};
-
-struct bench_stop_policy {
-    double time_limit;
-    int runs;
-    int min_runs;
-    int max_runs;
-};
-
 enum units_kind {
     // Time units
     MU_S,
@@ -185,25 +168,6 @@ struct meas {
 #define MEAS_PERF_BRANCHM_DEF                                                  \
     ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0})
 
-struct bench_param {
-    char *name;
-    char **values;
-};
-
-// This structure contains all information
-// supplied by user prior to benchmark start.
-struct cli_settings {
-    const char **cmds;
-    const char *shell;
-    struct export_policy export;
-    struct meas *meas;
-    const char *prepare;
-    struct input_policy input;
-    enum output_kind output;
-    const char *out_dir;
-    struct bench_param *params;
-};
-
 // Description of command to benchmark.
 // Commands are executed using execve.
 struct cmd {
@@ -222,19 +186,6 @@ struct cmd_group {
     size_t count;
     size_t *cmd_idxs;
     const char **var_values;
-};
-
-// Information gathered from user input (settings), parsed
-// and prepared for benchmarking. Some fields are copied from
-// cli settings as is to reduce data dependencies.
-struct settings {
-    struct cmd *cmds;
-    struct cmd_group *cmd_groups;
-    struct meas *meas;
-    const char *prepare_cmd;
-    struct export_policy export;
-    const char *out_dir;
-    int input_fd;
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -331,28 +282,6 @@ struct group_analysis {
     struct ols_regress regress;
 };
 
-struct bench_results {
-    size_t bench_count;
-    struct bench *benches;
-    struct bench_analysis *analyses;
-    size_t meas_count;
-    // Indexes of fastest benchmarks for each measurement
-    size_t *fastest_meas;
-    const struct meas *meas;
-    size_t primary_meas_count;
-    size_t group_count;
-    struct group_analysis **group_analyses;
-};
-
-// Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
-// noninclusive, calling 'fn' for each memory block.
-struct parfor_data {
-    pthread_t id;
-    struct bench_analysis *analyses;
-    size_t low;
-    size_t high;
-};
-
 struct perf_cnt {
     uint64_t cycles;
     uint64_t branches;
@@ -397,15 +326,15 @@ struct perf_cnt {
 #define ANSI_BOLD_MAGENTA "35;1"
 #define ANSI_BOLD_CYAN "36;1"
 
-#define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
-#define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
-
 #define fprintf_colored(_f, _how, ...)                                         \
     g_colored_output ? (fprintf(_f, "\x1b[%sm", _how),                         \
                         fprintf(_f, __VA_ARGS__), fprintf(_f, "\x1b[0m"))      \
                      : fprintf(_f, __VA_ARGS__)
 #define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
 #define error(...) (printf_colored(ANSI_RED, "error: "), printf(__VA_ARGS__))
+
+#define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
+#define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
 
 //
 // csbench.c
