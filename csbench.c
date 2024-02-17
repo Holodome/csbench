@@ -144,28 +144,41 @@ struct progress_bar_per_worker {
 
 #define progress_bar_start(_p)                                                 \
     do {                                                                       \
-        double time = get_time();                                              \
-        uint64_t u;                                                            \
-        memcpy(&u, &time, sizeof(u));                                          \
-        atomic_store(&(_p)->start_time.u, u);                                  \
+        if (g_progress_bar) {                                                  \
+            double time = get_time();                                          \
+            uint64_t u;                                                        \
+            memcpy(&u, &time, sizeof(u));                                      \
+            atomic_store(&(_p)->start_time.u, u);                              \
+        }                                                                      \
     } while (0)
 #define progress_bar_aborted(_p)                                               \
     do {                                                                       \
-        atomic_store(&(_p)->aborted, true);                                    \
-        atomic_store(&(_p)->finished, true);                                   \
+        if (g_progress_bar) {                                                  \
+            atomic_store(&(_p)->aborted, true);                                \
+            atomic_store(&(_p)->finished, true);                               \
+        }                                                                      \
     } while (0);
-#define progress_bar_finished(_p) atomic_store(&(_p)->finished, true);
+#define progress_bar_finished(_p)                                              \
+    do {                                                                       \
+        if (g_progress_bar) {                                                  \
+            atomic_store(&(_p)->finished, true);                               \
+        }                                                                      \
+    } while (0)
 #define progress_bar_update_time(_p, _v, _t)                                   \
     do {                                                                       \
-        atomic_store(&(_p)->bar, _v);                                          \
-        uint64_t metric;                                                       \
-        memcpy(&metric, &_t, sizeof(metric));                                  \
-        atomic_store(&(_p)->metric.u, metric);                                 \
+        if (g_progress_bar) {                                                  \
+            atomic_store(&(_p)->bar, _v);                                      \
+            uint64_t metric;                                                   \
+            memcpy(&metric, &_t, sizeof(metric));                              \
+            atomic_store(&(_p)->metric.u, metric);                             \
+        }                                                                      \
     } while (0)
 #define progress_bar_update_runs(_p, _v, _r)                                   \
     do {                                                                       \
-        atomic_store(&(_p)->bar, _v);                                          \
-        atomic_store(&(_p)->metric.u, _r);                                     \
+        if (g_progress_bar) {                                                  \
+            atomic_store(&(_p)->bar, _v);                                      \
+            atomic_store(&(_p)->metric.u, _r);                                 \
+        }                                                                      \
     } while (0)
 
 struct progress_bar_state {
@@ -176,7 +189,7 @@ struct progress_bar_state {
 
 struct progress_bar {
     bool was_drawn;
-    volatile struct progress_bar_per_worker *bars;
+    struct progress_bar_per_worker *bars;
     size_t count;
     struct bench_analysis *analyses;
     size_t max_cmd_len;
@@ -208,16 +221,17 @@ struct bench_results {
 bool g_colored_output;
 
 static __thread uint32_t g_rng_state;
-static bool g_allow_nonzero = 0;
+static bool g_allow_nonzero = false;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
 static bool g_plot = false;
 // implies g_plot = true
 static bool g_html = false;
-static bool g_plot_src = 0;
+static bool g_plot_src = false;
 static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
-static bool g_use_perf = 0;
+static bool g_use_perf = false;
+static bool g_progress_bar = false;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -356,6 +370,9 @@ static void print_help_and_exit(int rc) {
         "  --color <when>\n"
         "          Can be one of the 'never', 'always', 'auto', similar to GNU "
         "ls.\n"
+        "  --progress-bar <when>\n"
+        "          Can be one of the 'never', 'always', 'auto', works similar "
+        "to --color option.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -788,6 +805,20 @@ static void parse_cli_args(int argc, char **argv,
                 g_colored_output = true;
             } else {
                 error("invalid --color option\n");
+                exit(EXIT_FAILURE);
+            }
+        } else if (opt_arg(argv, &cursor, "--progress-bar", &str)) {
+            if (strcmp(str, "auto") == 0) {
+                if (isatty(STDIN_FILENO))
+                    g_progress_bar = true;
+                else
+                    g_progress_bar = false;
+            } else if (strcmp(str, "never") == 0) {
+                g_progress_bar = false;
+            } else if (strcmp(str, "always") == 0) {
+                g_progress_bar = true;
+            } else {
+                error("invalid --progress_bar option\n");
                 exit(EXIT_FAILURE);
             }
         } else {
@@ -3199,6 +3230,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
 }
 
 void *progress_bar_thread_worker(void *arg) {
+    assert(g_progress_bar);
     struct progress_bar *bar = arg;
     bool is_finished = false;
     redraw_progress_bar(bar);
@@ -3222,23 +3254,30 @@ static void init_progress_bar(struct bench_analysis *analyses, size_t count,
     bar->analyses = analyses;
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
-        analyses[i].bench->progress = (void *)(bar->bars + i);
+        analyses[i].bench->progress = bar->bars + i;
         size_t cmd_len = strlen(analyses[i].bench->cmd->str);
         if (cmd_len > bar->max_cmd_len)
             bar->max_cmd_len = cmd_len;
     }
 }
 
+static void free_progress_bar(struct progress_bar *bar) {
+    free(bar->bars);
+    free(bar->states);
+}
+
 static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
     bool success = false;
     struct progress_bar progress_bar = {0};
-    init_progress_bar(analyses, count, &progress_bar);
     pthread_t progress_bar_thread;
-    if (pthread_create(&progress_bar_thread, NULL, progress_bar_thread_worker,
-                       &progress_bar) != 0) {
-        error("failed to spawn thread\n");
-        free((void *)progress_bar.bars);
-        return false;
+    if (g_progress_bar) {
+        init_progress_bar(analyses, count, &progress_bar);
+        if (pthread_create(&progress_bar_thread, NULL,
+                           progress_bar_thread_worker, &progress_bar) != 0) {
+            error("failed to spawn thread\n");
+            free(progress_bar.bars);
+            return false;
+        }
     }
 
     if (g_threads <= 1 || count == 1) {
@@ -3286,8 +3325,10 @@ static bool parallel_run_bench(struct bench_analysis *analyses, size_t count) {
 err:
     free(thread_data);
 free_progress_bar:
-    pthread_join(progress_bar_thread, NULL);
-    free((void *)progress_bar.bars);
+    if (g_progress_bar) {
+        pthread_join(progress_bar_thread, NULL);
+        free_progress_bar(&progress_bar);
+    }
     return success;
 }
 
@@ -3476,7 +3517,9 @@ static void prepare(void) {
     }
 
     // --color=auto
-    g_colored_output = isatty(STDIN_FILENO) ? true : false;
+    g_colored_output = isatty(STDOUT_FILENO) ? true : false;
+    // --progress-bar=auto
+    g_progress_bar = isatty(STDOUT_FILENO) ? true : false;
 }
 
 int main(int argc, char **argv) {
