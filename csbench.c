@@ -3315,11 +3315,21 @@ static void *bench_runner_worker(void *raw) {
 }
 
 static void redraw_progress_bar(struct progress_bar *bar) {
+    bool abbr_names = bar->max_cmd_len > 40;
+
     int length = 40;
-    if (!bar->was_drawn)
+    if (!bar->was_drawn) {
         bar->was_drawn = true;
-    else
+        if (abbr_names) {
+            for (size_t i = 0; i < bar->count; ++i) {
+                printf("%c = ", (int)('A' + i));
+                printf_colored(ANSI_BOLD, "%s\n",
+                               bar->analyses[i].bench->cmd->str);
+            }
+        }
+    } else {
         printf("\x1b[%zuA\r", bar->count);
+    }
 
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
@@ -3331,8 +3341,11 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         data.aborted = atomic_load(&bar->benches[i].aborted);
         data.metric.u = atomic_load(&bar->benches[i].metric.u);
         data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
-        printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
-                       bar->analyses[i].bench->cmd->str);
+        if (abbr_names)
+            printf("%c ", (int)('A' + i));
+        else
+            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
+                           bar->analyses[i].bench->cmd->str);
         char buf[41] = {0};
         int c = data.bar * length / 100;
         if (c > length)
