@@ -336,8 +336,7 @@ struct perf_cnt {
 // csbench.c
 //
 
-#define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
-void fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
+void printf_colored(const char *how, const char *fmt, ...);
 
 void csperror(const char *fmt);
 void error(const char *fmt, ...);

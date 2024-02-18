@@ -228,15 +228,15 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     return header + 1;
 }
 
-void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
+void printf_colored(const char *how, const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     if (g_colored_output) {
-        fprintf(f, "\x1b[%sm", how);
-        vfprintf(f, fmt, args);
-        fprintf(f, "\x1b[0m");
+        printf("\x1b[%sm", how);
+        vprintf(fmt, args);
+        printf("\x1b[0m");
     } else {
-        vfprintf(f, fmt, args);
+        vprintf(fmt, args);
     }
     va_end(args);
 }
