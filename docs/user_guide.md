@@ -1,4 +1,4 @@
-#User guide
+# User guide
 
 This file is an informal description of `csbench`. 
 

@@ -81,9 +81,6 @@ enum input_kind {
 struct input_policy {
     enum input_kind kind;
     const char *file;
-    // after some of the initialization is done, if kind is INPUT_POLICY_FILE,
-    // this contains file descriptor of that file.
-    int fd;
 };
 
 enum output_kind {

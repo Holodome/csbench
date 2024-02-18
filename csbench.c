@@ -123,7 +123,6 @@ struct settings {
     const char *prepare_cmd;
     struct export_policy export;
     const char *out_dir;
-    int input_fd;
 };
 
 // Align this structure as attempt to avoid false sharing and make inconsistent
@@ -1173,8 +1172,6 @@ static void free_settings(struct settings *settings) {
     }
     sb_free(settings->cmds);
     sb_free(settings->cmd_groups);
-    if (settings->input_fd != -1)
-        close(settings->input_fd);
 }
 
 static void init_cmd(const struct input_policy *input, enum output_kind output,
@@ -1200,7 +1197,6 @@ static bool init_settings(const struct cli_settings *cli,
     settings->prepare_cmd = cli->prepare;
     settings->out_dir = cli->out_dir;
     settings->meas = cli->meas;
-    settings->input_fd = -1;
 
     size_t cmd_count = sb_len(cli->cmds);
     if (cmd_count == 0) {
@@ -1214,9 +1210,7 @@ static bool init_settings(const struct cli_settings *cli,
 
     struct input_policy input_policy = cli->input;
     if (input_policy.kind == INPUT_POLICY_FILE) {
-        settings->input_fd = input_policy.fd =
-            open(input_policy.file, O_RDONLY);
-        if (input_policy.fd == -1) {
+        if (access(input_policy.file, R_OK) == -1) {
             error("failed to open file '%s' (specified for input)",
                   input_policy.file);
             return false;
@@ -1306,11 +1300,16 @@ static void apply_input_policy(const struct input_policy *policy) {
         if (dup2(g_dev_null_fd, STDIN_FILENO) == -1)
             _exit(-1);
         break;
-    case INPUT_POLICY_FILE:
-        close(STDIN_FILENO);
-        if (dup2(policy->fd, STDIN_FILENO) == -1)
+    case INPUT_POLICY_FILE: {
+        int fd = open(policy->file, O_RDONLY);
+        if (fd == -1)
             _exit(-1);
+        close(STDIN_FILENO);
+        if (dup2(fd, STDIN_FILENO) == -1)
+            _exit(-1);
+        close(fd);
         break;
+    }
     }
 }
 
@@ -3378,7 +3377,7 @@ static void shuffle(size_t *arr, size_t count) {
 //  variables storing states of benchmarks
 // 2. Each of benchmarks updates its state in corresponding atomic varibales
 // 3. Output of benchmarks when progress bar is used is captured (anchored), see
-//  'error' and 'cserror' functions. This is done in order to not corrupt the
+//  'error' and 'csperror' functions. This is done in order to not corrupt the
 //  output in case such message is printed.
 static bool run_benches(struct bench_analysis *analyses, size_t count) {
     bool success = false;
