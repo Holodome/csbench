@@ -1197,6 +1197,12 @@ static bool init_settings(const struct cli_settings *cli,
     settings->prepare_cmd = cli->prepare;
     settings->out_dir = cli->out_dir;
     settings->meas = cli->meas;
+    // Silently disable progress bar if output is inherit. The reasoning for
+    // this is that inheriting output should only be used when debugging, and
+    // user will not care about not having progress bar
+    if (cli->output == OUTPUT_POLICY_INHERIT) {
+        g_progress_bar = false;
+    }
 
     size_t cmd_count = sb_len(cli->cmds);
     if (cmd_count == 0) {
