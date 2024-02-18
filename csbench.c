@@ -193,7 +193,7 @@ struct output_anchor {
 
 bool g_colored_output;
 
-static __thread uint32_t g_rng_state;
+static __thread uint64_t g_rng_state;
 static bool g_allow_nonzero = false;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
@@ -1751,19 +1751,19 @@ static bool run_benchmark(struct bench *bench) {
     return true;
 }
 
-static uint32_t xorshift32(uint32_t *state) {
-    uint32_t x = *state;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    return *state = x;
+static uint32_t pcg32_fast(uint64_t *state) {
+    uint64_t x = *state;
+    unsigned count = (unsigned)(x >> 61);
+    *state = x * UINT64_C(6364136223846793005);
+    x ^= x >> 22;
+    return (uint32_t)(x >> (22 + count));
 }
 
 static void resample(const double *src, size_t count, double *dst) {
-    uint32_t entropy = xorshift32(&g_rng_state);
+    uint64_t entropy = pcg32_fast(&g_rng_state);
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
-        dst[i] = src[xorshift32(&entropy) % count];
+        dst[i] = src[pcg32_fast(&entropy) % count];
     g_rng_state = entropy;
 }
 
@@ -3291,7 +3291,7 @@ static void html_report(const struct bench_results *results, FILE *f) {
 }
 
 static bool run_bench(struct bench_analysis *analysis) {
-    g_rng_state = time(NULL);
+    g_rng_state = time(NULL) * 2 + 1;
     struct bench *bench = analysis->bench;
     if (!warmup(bench->cmd))
         return false;
@@ -3316,7 +3316,6 @@ static void *bench_runner_worker(void *raw) {
 
 static void redraw_progress_bar(struct progress_bar *bar) {
     bool abbr_names = bar->max_cmd_len > 40;
-
     int length = 40;
     if (!bar->was_drawn) {
         bar->was_drawn = true;
@@ -3445,7 +3444,7 @@ static void free_progress_bar(struct progress_bar *bar) {
 static void shuffle(size_t *arr, size_t count) {
     for (size_t i = 0; i < count - 1; ++i) {
         size_t mod = count - i;
-        size_t j = xorshift32(&g_rng_state) % mod + i;
+        size_t j = pcg32_fast(&g_rng_state) % mod + i;
         size_t tmp = arr[i];
         arr[i] = arr[j];
         arr[j] = tmp;
@@ -3797,7 +3796,7 @@ int main(int argc, char **argv) {
     if (g_use_perf && !init_perf())
         goto err_free_settings;
 
-    g_rng_state = time(NULL);
+    g_rng_state = time(NULL) * 2 + 1;
     g_dev_null_fd = open("/dev/null", O_RDWR);
     if (g_dev_null_fd == -1) {
         error("failed to open /dev/null");
