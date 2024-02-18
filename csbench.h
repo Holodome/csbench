@@ -232,7 +232,6 @@ struct bench {
     int *exit_codes;
     size_t meas_count;
     double **meas;
-
     struct progress_bar_bench *progress;
 };
 
@@ -255,7 +254,7 @@ struct cmd_in_group_data {
     const char *value;
     double value_double;
     double mean;
-    double st_dev;
+    const struct bench_analysis *analysis;
 };
 
 struct ols_regress {
