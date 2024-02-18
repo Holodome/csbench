@@ -327,12 +327,6 @@ struct perf_cnt {
 #define ANSI_BOLD_MAGENTA "35;1"
 #define ANSI_BOLD_CYAN "36;1"
 
-#define fprintf_colored(_f, _how, ...)                                         \
-    g_colored_output ? (fprintf(_f, "\x1b[%sm", _how),                         \
-                        fprintf(_f, __VA_ARGS__), fprintf(_f, "\x1b[0m"))      \
-                     : fprintf(_f, __VA_ARGS__)
-#define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
-
 #define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
 #define atomic_fetch_inc(_at) __atomic_fetch_add(_at, 1, __ATOMIC_SEQ_CST)
@@ -342,7 +336,8 @@ struct perf_cnt {
 // csbench.c
 //
 
-extern bool g_colored_output;
+#define printf_colored(_how, ...) fprintf_colored(stdout, _how, __VA_ARGS__)
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 
 void csperror(const char *fmt);
 void error(const char *fmt, ...);

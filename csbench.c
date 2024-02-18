@@ -191,8 +191,7 @@ struct output_anchor {
     bool has_message;
 };
 
-bool g_colored_output;
-
+static bool g_colored_output;
 static __thread uint64_t g_rng_state;
 static bool g_allow_nonzero = false;
 static double g_warmup_time = 0.1;
@@ -227,6 +226,19 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     header = result;
     header->capacity = new_capacity;
     return header + 1;
+}
+
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    if (g_colored_output) {
+        fprintf(f, "\x1b[%sm", how);
+        vfprintf(f, fmt, args);
+        fprintf(f, "\x1b[0m");
+    } else {
+        vfprintf(f, fmt, args);
+    }
+    va_end(args);
 }
 
 void error(const char *fmt, ...) {

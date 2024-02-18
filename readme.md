@@ -20,6 +20,7 @@ But still work from the developer is being done akin to more complex task.
 * Perform benchmarking of arbitrary shell command, where parameter analyzed is acquired from command output 
 * Parameterized benchmarking 
 * Easy access to `struct rusage` fields or performance counters (cross-platform minimal `perf stat` or `/usr/bin/time` analog)
+* Benchmark comparison
 
 ## Dependencies
 
@@ -66,7 +67,7 @@ usrtime 3.557 ms 3.583 ms 3.631 ms
   18 (2.67%) high mild
   14 (2.08%) high severe
 fastest command ls
-  2.502 ± 0.216 times faster than exa
+  2.502 ± 0.216 times faster than exa (p=0.00)
 ```
 
 But just measuring execution time of commands is not very interesting. 
