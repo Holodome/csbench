@@ -12,7 +12,7 @@ endif
 
 all: csbench
 
-csbench: csbench.c csbench_perf.c csbench_plot.c
+csbench: csbench.c csbench_perf.c csbench_plot.c csbench_utils.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 install: csbench

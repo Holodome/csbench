@@ -336,17 +336,14 @@ struct perf_cnt {
 // csbench.c
 //
 
+// These output functions contain some heavy logic connected to threading which
+// is tightly coupled with main execution logic, so they are best kept in main
+// file until we decide to split all multithreading elsewhere.
 void printf_colored(const char *how, const char *fmt, ...);
-
 void csperror(const char *fmt);
 void error(const char *fmt, ...);
 
-void *sb_grow_impl(void *arr, size_t inc, size_t stride);
-
-bool units_is_time(const struct units *units);
-const char *units_str(const struct units *units);
-
-double ols_approx(const struct ols_regress *regress, double n);
+extern __thread uint64_t g_rng_state;
 
 //
 // csbench_perf.c
@@ -380,5 +377,33 @@ void kde_plot_ext(const struct distr *distr, const struct meas *meas,
 void kde_cmp_plot(const struct distr *a, const struct distr *b,
                   const struct meas *meas, const char *output_filename,
                   FILE *f);
+
+//
+// csbench_utils.c
+//
+
+void *sb_grow_impl(void *arr, size_t inc, size_t stride);
+
+bool units_is_time(const struct units *units);
+const char *units_str(const struct units *units);
+
+int format_time(char *dst, size_t sz, double t);
+int format_memory(char *dst, size_t sz, double t);
+void format_meas(char *buf, size_t buf_size, double value,
+                 const struct units *units);
+
+const char *outliers_variance_str(double fraction);
+const char *big_o_str(enum big_o complexity);
+
+void estimate_distr(const double *data, size_t count, double *tmp,
+                    size_t nresamp, struct distr *distr);
+
+double mwu(const double *a, size_t n1, const double *b, size_t n2);
+
+double ols_approx(const struct ols_regress *regress, double n);
+void ols(const double *x, const double *y, size_t count,
+         struct ols_regress *result);
+
+void shuffle(size_t *arr, size_t count);
 
 #endif
