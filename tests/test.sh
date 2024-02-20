@@ -178,3 +178,13 @@ distclean
 $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 30 ] && \
 [ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
+
+#
+# case 12 - check that no plots for non-number parameters are generated
+#
+distclean
+$b '{cmd}' --scanl=cmd/ls,pwd --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
+[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
+[ -f "$dist_dir/kde_ext_0_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] || die

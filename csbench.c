@@ -2315,6 +2315,8 @@ static bool dump_plot_src(const struct bench_results *results,
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
+            if (!analysis->values_are_doubles)
+                break;
             f = open_file_fmt("w", "%s/group_%zu_%zu.py", out_dir, grp_idx,
                               meas_idx);
             if (f == NULL) {
@@ -2330,6 +2332,8 @@ static bool dump_plot_src(const struct bench_results *results,
         if (results->group_count > 1) {
             const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
+            if (!analyses[0].values_are_doubles)
+                break;
             f = open_file_fmt("w", "%s/group_%zu.py", out_dir, meas_idx);
             if (f == NULL) {
                 error("failed to create file %s/group_%zu.py", out_dir,
@@ -2446,6 +2450,8 @@ static bool make_plots(const struct bench_results *results,
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
             const struct group_analysis *analysis =
                 results->group_analyses[meas_idx] + grp_idx;
+            if (!analysis->values_are_doubles)
+                break;
             snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
                      meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
@@ -2459,6 +2465,8 @@ static bool make_plots(const struct bench_results *results,
         if (results->group_count > 1) {
             const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
+            if (!analyses[0].values_are_doubles)
+                break;
             snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
             if (!launch_python_stdin_pipe(&f, &pid)) {
                 error("failed to launch python");
