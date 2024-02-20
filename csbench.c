@@ -1684,6 +1684,7 @@ static bool run_benchmark(struct bench *bench) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
                                           g_dev_null_fd, g_dev_null_fd)) {
+                error("failed to execute prepare command");
                 progress_bar_abort(bench->progress);
                 return false;
             }
@@ -1710,6 +1711,7 @@ static bool run_benchmark(struct bench *bench) {
             if (bench->prepare &&
                 !execute_process_in_shell(bench->prepare, g_dev_null_fd,
                                           g_dev_null_fd, g_dev_null_fd)) {
+                error("failed to execute prepare command");
                 progress_bar_abort(bench->progress);
                 return false;
             }
