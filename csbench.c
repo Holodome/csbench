@@ -191,6 +191,28 @@ struct output_anchor {
     bool has_message;
 };
 
+enum plot_kind {
+    PLOT_BAR,
+    PLOT_GROUP_BAR,
+    PLOT_GROUP_SINGLE,
+    PLOT_GROUP,
+    PLOT_KDE,
+    PLOT_KDE_EXT,
+    PLOT_KDE_CMP,
+    PLOT_KDE_CMPG
+};
+
+struct plot_walker_args {
+    const struct bench_results *results;
+    const char *out_dir;
+    enum plot_kind plot_kind;
+    pid_t *pids;
+    size_t meas_idx;
+    size_t bench_idx;
+    size_t grp_idx;
+    size_t param_idx;
+};
+
 static bool g_colored_output;
 __thread uint64_t g_rng_state;
 static bool g_allow_nonzero = false;
@@ -2276,40 +2298,23 @@ open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
-static bool dump_plot_src(const struct bench_results *results,
-                          const char *out_dir) {
+static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
+                        struct plot_walker_args *args) {
+    const struct bench_results *results = args->results;
     size_t bench_count = results->bench_count;
-    const struct bench_analysis *analyses = results->analyses;
-    char buf[4096];
-    FILE *f;
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
         if (results->meas[meas_idx].is_secondary)
             continue;
-        const struct meas *meas = results->meas + meas_idx;
+        args->meas_idx = meas_idx;
         if (bench_count > 1) {
             if (results->group_count <= 1) {
-                f = open_file_fmt("w", "%s/bar_%zu.py", out_dir, meas_idx);
-                if (f == NULL) {
-                    error("failed to create file %s/bar_%zu.py", out_dir,
-                          meas_idx);
+                args->plot_kind = PLOT_BAR;
+                if (!walk(args))
                     return false;
-                }
-                snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
-                bar_plot(analyses, bench_count, meas_idx, buf, f);
-                fclose(f);
             } else {
-                f = open_file_fmt("w", "%s/group_bar_%zu.py", out_dir,
-                                  meas_idx);
-                if (f == NULL) {
-                    error("failed to create file %s/bar_%zu.py", out_dir,
-                          meas_idx);
+                args->plot_kind = PLOT_GROUP_BAR;
+                if (!walk(args))
                     return false;
-                }
-                snprintf(buf, sizeof(buf), "%s/group_bar_%zu.svg", out_dir,
-                         meas_idx);
-                group_bar_plot(results->group_analyses[meas_idx],
-                               results->group_count, buf, f);
-                fclose(f);
             }
         }
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
@@ -2317,231 +2322,195 @@ static bool dump_plot_src(const struct bench_results *results,
                 results->group_analyses[meas_idx] + grp_idx;
             if (!analysis->values_are_doubles)
                 break;
-            f = open_file_fmt("w", "%s/group_%zu_%zu.py", out_dir, grp_idx,
-                              meas_idx);
-            if (f == NULL) {
-                error("failed to create file %s/group_%zu_%zu.py", out_dir,
-                      grp_idx, meas_idx);
+            args->plot_kind = PLOT_GROUP_SINGLE;
+            args->grp_idx = grp_idx;
+            if (!walk(args))
                 return false;
-            }
-            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
-                     meas_idx);
-            group_plot(analysis, 1, buf, f);
-            fclose(f);
         }
         if (results->group_count > 1) {
             const struct group_analysis *analyses =
                 results->group_analyses[meas_idx];
             if (!analyses[0].values_are_doubles)
                 break;
-            f = open_file_fmt("w", "%s/group_%zu.py", out_dir, meas_idx);
-            if (f == NULL) {
-                error("failed to create file %s/group_%zu.py", out_dir,
-                      meas_idx);
+            args->plot_kind = PLOT_GROUP;
+            if (!walk(args))
                 return false;
-            }
-            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
-            group_plot(analyses, results->group_count, buf, f);
-            fclose(f);
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
-            const struct bench_analysis *analysis = analyses + bench_idx;
-            {
-                f = open_file_fmt("w", "%s/kde_%zu_%zu.py", out_dir, bench_idx,
-                                  meas_idx);
-                if (f == NULL) {
-                    error("failed to create file %s/kde_%zu_%zu.py", out_dir,
-                          bench_idx, meas_idx);
-                    return false;
-                }
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
-                         bench_idx, meas_idx);
-                kde_plot(analysis->meas + meas_idx, meas, buf, f);
-                fclose(f);
-            }
-            {
-                f = open_file_fmt("w", "%s/kde_ext_%zu_%zu.py", out_dir,
-                                  bench_idx, meas_idx);
-                if (f == NULL) {
-                    error("failed to create file %s/kde_ext_%zu_%zu.py",
-                          out_dir, bench_idx, meas_idx);
-                    return false;
-                }
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
-                         bench_idx, meas_idx);
-                kde_plot_ext(analysis->meas + meas_idx, meas, buf, f);
-                fclose(f);
-            }
+            args->plot_kind = PLOT_KDE;
+            args->bench_idx = bench_idx;
+            if (!walk(args))
+                return false;
+            args->plot_kind = PLOT_KDE_EXT;
+            args->bench_idx = bench_idx;
+            if (!walk(args))
+                return false;
         }
         if (results->group_count == 2) {
-            const struct group_analysis *a = results->group_analyses[meas_idx];
-            const struct group_analysis *b =
-                results->group_analyses[meas_idx] + 1;
-            assert(a->cmd_count == b->cmd_count);
-            size_t param_count = a->cmd_count;
+            size_t param_count = results->group_analyses[meas_idx][0].cmd_count;
             for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
-                f = open_file_fmt("w", "%s/kde_cmpg_%zu_%zu.py", out_dir,
-                                  param_idx, meas_idx);
-                if (f == NULL) {
-                    error("failed to create file %s/kde_cmpg_%zu_%zu.py",
-                          out_dir, param_idx, meas_idx);
+                args->plot_kind = PLOT_KDE_CMPG;
+                args->param_idx = param_idx;
+                if (!walk(args))
                     return false;
-                }
-                snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
-                         param_idx, meas_idx);
-                kde_cmp_plot(
-                    analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
-                    analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
-                    meas, buf, f);
-                fclose(f);
             }
         } else if (results->bench_count == 2) {
-            f = open_file_fmt("w", "%s/kde_cmp_%zu.py", out_dir, meas_idx);
-            if (f == NULL) {
-                error("failed to create file %s/kde_cmp_%zu.py", out_dir,
-                      meas_idx);
+            args->plot_kind = PLOT_KDE_CMP;
+            if (!walk(args))
                 return false;
-            }
-            snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
-            kde_cmp_plot(analyses[0].meas + meas_idx,
-                         analyses[1].meas + meas_idx, meas, buf, f);
-            fclose(f);
         }
     }
     return true;
 }
 
-static bool make_plots(const struct bench_results *results,
-                       const char *out_dir) {
-    size_t bench_count = results->bench_count;
+static void format_plot_name(char *buf, size_t buf_size,
+                             struct plot_walker_args *args,
+                             const char *extension) {
+    const char *out_dir = args->out_dir;
+    switch (args->plot_kind) {
+    case PLOT_BAR:
+        snprintf(buf, buf_size, "%s/bar_%zu.%s", out_dir, args->meas_idx,
+                 extension);
+        break;
+    case PLOT_GROUP_BAR:
+        snprintf(buf, buf_size, "%s/group_bar_%zu.%s", out_dir, args->meas_idx,
+                 extension);
+        break;
+    case PLOT_GROUP_SINGLE:
+        snprintf(buf, buf_size, "%s/group_%zu_%zu.%s", out_dir, args->grp_idx,
+                 args->meas_idx, extension);
+        break;
+    case PLOT_GROUP:
+        snprintf(buf, buf_size, "%s/group_%zu.%s", out_dir, args->meas_idx,
+                 extension);
+        break;
+    case PLOT_KDE:
+        snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", out_dir, args->bench_idx,
+                 args->meas_idx, extension);
+        break;
+    case PLOT_KDE_EXT:
+        snprintf(buf, buf_size, "%s/kde_ext_%zu_%zu.%s", out_dir,
+                 args->bench_idx, args->meas_idx, extension);
+        break;
+    case PLOT_KDE_CMPG:
+        snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", out_dir,
+                 args->param_idx, args->meas_idx, extension);
+        break;
+    case PLOT_KDE_CMP:
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", out_dir, args->meas_idx,
+                 extension);
+        break;
+    }
+}
+
+static void write_make_plot(struct plot_walker_args *args, FILE *f) {
+    char py_buf[4096], svg_buf[4096];
+    size_t meas_idx = args->meas_idx;
+    size_t grp_idx = args->grp_idx;
+    size_t bench_idx = args->bench_idx;
+    size_t param_idx = args->param_idx;
+    const struct bench_results *results = args->results;
     const struct bench_analysis *analyses = results->analyses;
-    char buf[4096];
-    pid_t *processes = NULL;
-    bool success = false;
+    const struct meas *meas = results->meas + meas_idx;
+    size_t bench_count = results->bench_count;
+    format_plot_name(py_buf, sizeof(py_buf), args, "py");
+    format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
+    switch (args->plot_kind) {
+    case PLOT_BAR:
+        bar_plot(analyses, bench_count, meas_idx, svg_buf, f);
+        break;
+    case PLOT_GROUP_BAR:
+        group_bar_plot(results->group_analyses[meas_idx], results->group_count,
+                       svg_buf, f);
+        break;
+    case PLOT_GROUP_SINGLE: {
+        const struct group_analysis *analysis =
+            results->group_analyses[meas_idx] + grp_idx;
+        group_plot(analysis, 1, svg_buf, f);
+        break;
+    }
+    case PLOT_GROUP: {
+        const struct group_analysis *analyses =
+            results->group_analyses[meas_idx];
+        group_plot(analyses, results->group_count, svg_buf, f);
+        break;
+    }
+    case PLOT_KDE: {
+        const struct bench_analysis *analysis = analyses + bench_idx;
+        kde_plot(analysis->meas + meas_idx, meas, svg_buf, f);
+        break;
+    }
+    case PLOT_KDE_EXT: {
+        const struct bench_analysis *analysis = analyses + bench_idx;
+        kde_plot_ext(analysis->meas + meas_idx, meas, svg_buf, f);
+        break;
+    }
+    case PLOT_KDE_CMPG: {
+        const struct group_analysis *a = results->group_analyses[meas_idx];
+        const struct group_analysis *b = results->group_analyses[meas_idx] + 1;
+        assert(a->cmd_count == b->cmd_count);
+        kde_cmp_plot(analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
+                     analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
+                     meas, svg_buf, f);
+        break;
+    }
+    case PLOT_KDE_CMP:
+        kde_cmp_plot(analyses[0].meas + meas_idx, analyses[1].meas + meas_idx,
+                     meas, svg_buf, f);
+        break;
+    }
+}
+
+static bool dump_plot_walk(struct plot_walker_args *args) {
+    char py_buf[4096];
+    format_plot_name(py_buf, sizeof(py_buf), args, "py");
+    FILE *py_file = fopen(py_buf, "w");
+    if (py_file == NULL) {
+        error("failed to create file %s", py_buf);
+        return false;
+    }
+    write_make_plot(args, py_file);
+    fclose(py_file);
+    return true;
+}
+
+static bool dump_plot_src(const struct bench_results *results,
+                          const char *out_dir) {
+    struct plot_walker_args args = {0};
+    args.out_dir = out_dir;
+    args.results = results;
+    return plot_walker(dump_plot_walk, &args);
+}
+
+static bool make_plot_walk(struct plot_walker_args *args) {
     FILE *f;
     pid_t pid;
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
-            continue;
-        const struct meas *meas = results->meas + meas_idx;
-        if (bench_count > 1) {
-            if (results->group_count <= 1) {
-                snprintf(buf, sizeof(buf), "%s/bar_%zu.svg", out_dir, meas_idx);
-                if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python");
-                    goto out;
-                }
-                bar_plot(analyses, bench_count, meas_idx, buf, f);
-                fclose(f);
-                sb_push(processes, pid);
-            } else {
-                snprintf(buf, sizeof(buf), "%s/group_bar_%zu.svg", out_dir,
-                         meas_idx);
-                if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python");
-                    goto out;
-                }
-                group_bar_plot(results->group_analyses[meas_idx],
-                               results->group_count, buf, f);
-                fclose(f);
-                sb_push(processes, pid);
-            }
-        }
-        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct group_analysis *analysis =
-                results->group_analyses[meas_idx] + grp_idx;
-            if (!analysis->values_are_doubles)
-                break;
-            snprintf(buf, sizeof(buf), "%s/group_%zu_%zu.svg", out_dir, grp_idx,
-                     meas_idx);
-            if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python");
-                goto out;
-            }
-            group_plot(analysis, 1, buf, f);
-            fclose(f);
-            sb_push(processes, pid);
-        }
-        if (results->group_count > 1) {
-            const struct group_analysis *analyses =
-                results->group_analyses[meas_idx];
-            if (!analyses[0].values_are_doubles)
-                break;
-            snprintf(buf, sizeof(buf), "%s/group_%zu.svg", out_dir, meas_idx);
-            if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python");
-                goto out;
-            }
-            group_plot(analyses, results->group_count, buf, f);
-            fclose(f);
-            sb_push(processes, pid);
-        }
-        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
-            const struct bench_analysis *analysis = analyses + bench_idx;
-            {
-                snprintf(buf, sizeof(buf), "%s/kde_%zu_%zu.svg", out_dir,
-                         bench_idx, meas_idx);
-                if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python");
-                    goto out;
-                }
-                kde_plot(analysis->meas + meas_idx, meas, buf, f);
-                fclose(f);
-                sb_push(processes, pid);
-            }
-            {
-                snprintf(buf, sizeof(buf), "%s/kde_ext_%zu_%zu.svg", out_dir,
-                         bench_idx, meas_idx);
-                if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python");
-                    goto out;
-                }
-                kde_plot_ext(analysis->meas + meas_idx, meas, buf, f);
-                fclose(f);
-                sb_push(processes, pid);
-            }
-        }
-        if (results->group_count == 2) {
-            const struct group_analysis *a = results->group_analyses[meas_idx];
-            const struct group_analysis *b =
-                results->group_analyses[meas_idx] + 1;
-            assert(a->cmd_count == b->cmd_count);
-            size_t param_count = a->cmd_count;
-            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
-                snprintf(buf, sizeof(buf), "%s/kde_cmpg_%zu_%zu.svg", out_dir,
-                         param_idx, meas_idx);
-                if (!launch_python_stdin_pipe(&f, &pid)) {
-                    error("failed to launch python");
-                    goto out;
-                }
-                kde_cmp_plot(
-                    analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
-                    analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
-                    meas, buf, f);
-                fclose(f);
-                sb_push(processes, pid);
-            }
-        } else if (results->bench_count == 2) {
-            snprintf(buf, sizeof(buf), "%s/kde_cmp_%zu.svg", out_dir, meas_idx);
-            if (!launch_python_stdin_pipe(&f, &pid)) {
-                error("failed to launch python");
-                goto out;
-            }
-            kde_cmp_plot(analyses[0].meas + meas_idx,
-                         analyses[1].meas + meas_idx, meas, buf, f);
-            fclose(f);
-            sb_push(processes, pid);
-        }
+    if (!launch_python_stdin_pipe(&f, &pid)) {
+        error("failed to launch python");
+        return false;
     }
-    success = true;
-out:
-    for (size_t i = 0; i < sb_len(processes); ++i) {
-        if (!process_finished_correctly(processes[i])) {
+    write_make_plot(args, f);
+    fclose(f);
+    sb_push(args->pids, pid);
+    return true;
+}
+
+static bool make_plots(const struct bench_results *results,
+                       const char *out_dir) {
+    bool success = true;
+    struct plot_walker_args args = {0};
+    args.out_dir = out_dir;
+    args.results = results;
+    if (!plot_walker(make_plot_walk, &args))
+        success = false;
+
+    for (size_t i = 0; i < sb_len(args.pids); ++i) {
+        if (!process_finished_correctly(args.pids[i])) {
             error("python finished with non-zero exit code");
             success = false;
         }
     }
-    sb_free(processes);
+    sb_free(args.pids);
     return success;
 }
 
