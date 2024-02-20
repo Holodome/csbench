@@ -268,7 +268,7 @@ const char *big_o_str(enum big_o complexity) {
         double sigma_t = 0.0;                                                  \
         double sigma_t_gn = 0.0;                                               \
         for (size_t i = 0; i < count; ++i) {                                   \
-            double gn_i = _fitting(x[i]);                                      \
+            double gn_i = _fitting(x[i] - x[0]);                               \
             sigma_gn_sq += gn_i * gn_i;                                        \
             sigma_t += y[i] - adjust_y;                                        \
             sigma_t_gn += (y[i] - adjust_y) * gn_i;                            \
@@ -276,7 +276,7 @@ const char *big_o_str(enum big_o complexity) {
         double coef = sigma_t_gn / sigma_gn_sq;                                \
         double rms = 0.0;                                                      \
         for (size_t i = 0; i < count; ++i) {                                   \
-            double fit = coef * _fitting(x[i]);                                \
+            double fit = coef * _fitting(x[i] - x[0]);                         \
             double a = (y[i] - adjust_y) - fit;                                \
             rms += a * a;                                                      \
         }                                                                      \
@@ -327,12 +327,14 @@ void ols(const double *x, const double *y, size_t count,
 
     result->a = best_fit_coef;
     result->b = min_y;
+    result->c = x[0];
     result->rms = best_fit_rms;
     result->complexity = best_fit;
 }
 
 double ols_approx(const struct ols_regress *regress, double n) {
     double f = 1.0;
+    n -= regress->c;
     switch (regress->complexity) {
     case O_1:
         f = fitting_curve_1(n);

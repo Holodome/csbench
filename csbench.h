@@ -259,11 +259,12 @@ struct cmd_in_group_data {
 
 struct ols_regress {
     enum big_o complexity;
-    // function is of the form f(x) = a * F(x) + b where F(x) is determined
-    // by complexity, a is result of OLS, and b is minimal time (seems to make
-    // models more consistent in cases where latency is high).
+    // function is of the form f(x) = a * F(x - c) + b where F(x) is determined
+    // by complexity, a is result of OLS, and b is minimal y value,
+    // and c is minimal x value.
     double a;
     double b;
+    double c;
     double rms;
 };
 
