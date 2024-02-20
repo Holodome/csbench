@@ -3093,6 +3093,8 @@ static void analyze_benches(const struct settings *settings,
         results->p_values =
             calloc(results->meas_count, sizeof(*results->p_values));
         for (size_t i = 0; i < results->meas_count; ++i) {
+            if (results->meas[i].is_secondary)
+                continue;
             const struct distr *d1 = &results->analyses[0].meas[i];
             const struct distr *d2 = &results->analyses[1].meas[i];
             double p = mwu(d1->data, d1->count, d2->data, d2->count);
@@ -3108,8 +3110,9 @@ static void analyze_benches(const struct settings *settings,
                 calloc(param_count, sizeof(**results->param_p_values));
 
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
+                continue;
             for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
-
                 const struct distr *d1 = &results->group_analyses[meas_idx][0]
                                               .data[param_idx]
                                               .analysis->meas[meas_idx];
