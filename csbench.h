@@ -216,6 +216,7 @@ struct distr {
     struct est st_dev;
     double min;
     double max;
+    double median;
     double q1;
     double q3;
     double p1;

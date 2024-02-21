@@ -245,7 +245,11 @@ void printf_colored(const char *how, const char *fmt, ...) {
 void error(const char *fmt, ...) {
     pthread_t tid = pthread_self();
     for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
-        if (pthread_equal(tid, g_output_anchors[i].id)) {
+        // Implicitly discard all messages but the first. This should not be an
+        // issue, as the only possible message is error, and it (at least it
+        // should) is always a single one
+        if (pthread_equal(tid, g_output_anchors[i].id) &&
+            !atomic_load(&g_output_anchors[i].has_message)) {
             va_list args;
             va_start(args, fmt);
             vsnprintf(g_output_anchors[i].buffer,
@@ -1938,14 +1942,14 @@ static void print_estimate(const char *name, const struct est *est,
 }
 
 static void print_distr(const struct distr *dist, const struct units *units) {
-    char buf1[256], buf2[256];
+    char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), dist->min, units);
-    format_meas(buf2, sizeof(buf2), dist->max, units);
-    printf_colored(ANSI_BOLD_MAGENTA, "min");
-    printf("/");
-    printf_colored(ANSI_BOLD_MAGENTA, "max ");
-    printf_colored(ANSI_MAGENTA, "%s          ", buf1);
-    printf_colored(ANSI_MAGENTA, "%s\n", buf2);
+    format_meas(buf2, sizeof(buf2), dist->median, units);
+    format_meas(buf3, sizeof(buf3), dist->max, units);
+    printf_colored(ANSI_BOLD_MAGENTA, " q{024} ");
+    printf_colored(ANSI_MAGENTA, "%s ", buf1);
+    printf_colored(ANSI_BOLD_MAGENTA, "%s ", buf2);
+    printf_colored(ANSI_MAGENTA, "%s\n", buf3);
     print_estimate("mean", &dist->mean, units, ANSI_BOLD_GREEN,
                    ANSI_BRIGHT_GREEN);
     print_estimate("st dev", &dist->st_dev, units, ANSI_BOLD_GREEN,
@@ -2404,7 +2408,7 @@ static void format_plot_name(char *buf, size_t buf_size,
 }
 
 static void write_make_plot(struct plot_walker_args *args, FILE *f) {
-    char py_buf[4096], svg_buf[4096];
+    char svg_buf[4096];
     size_t meas_idx = args->meas_idx;
     size_t grp_idx = args->grp_idx;
     size_t bench_idx = args->bench_idx;
@@ -2413,7 +2417,6 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     const struct bench_analysis *analyses = results->analyses;
     const struct meas *meas = results->meas + meas_idx;
     size_t bench_count = results->bench_count;
-    format_plot_name(py_buf, sizeof(py_buf), args, "py");
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
@@ -2864,7 +2867,6 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                 char eta_buf[256] = "N/A";
                 if (data.start_time.d != 0.0) {
                     double passed_time = current_time - data.start_time.d;
-                    double dt = 0.0;
                     if (bar->states[i].runs != data.metric.u) {
                         bar->states[i].eta =
                             (g_bench_stop.runs - data.metric.u) * passed_time /
@@ -2872,9 +2874,9 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                         bar->states[i].runs = data.metric.u;
                         bar->states[i].time = current_time;
                     }
+                    double eta = bar->states[i].eta;
                     if (!data.finished)
-                        dt = current_time - bar->states[i].time;
-                    double eta = bar->states[i].eta - dt;
+                        eta -= current_time - bar->states[i].time;
                     // Sometimes we would get -inf here
                     if (eta < 0.0)
                         eta = -eta;

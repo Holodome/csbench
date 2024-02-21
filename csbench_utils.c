@@ -572,6 +572,7 @@ void estimate_distr(const double *data, size_t count, double *tmp,
                           &distr->st_dev);
     memcpy(tmp, data, count * sizeof(*tmp));
     qsort(tmp, count, sizeof(*tmp), compare_doubles);
+    distr->median = tmp[count / 2];
     distr->q1 = tmp[count / 4];
     distr->q3 = tmp[count * 3 / 4];
     distr->p1 = tmp[count / 100];
