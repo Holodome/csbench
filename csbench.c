@@ -221,6 +221,7 @@ static int g_threads = 1;
 static bool g_plot = false;
 // implies g_plot = true
 static bool g_html = false;
+static bool g_csv = false;
 static bool g_plot_src = false;
 static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
@@ -812,6 +813,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--allow-nonzero") == 0) {
             ++cursor;
             g_allow_nonzero = true;
+        } else if (strcmp(argv[cursor], "--csv") == 0) {
+            ++cursor;
+            g_csv = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
@@ -2229,6 +2233,103 @@ static bool export_json(const struct bench_results *results,
     return true;
 }
 
+static void export_csv_raw_bench(const struct bench *bench,
+                                 const struct bench_results *results, FILE *f) {
+    for (size_t i = 0; i < results->meas_count; ++i) {
+        fprintf(f, "%s", results->meas[i].name);
+        if (i != results->meas_count - 1)
+            fprintf(f, ",");
+    }
+    fprintf(f, "\n");
+    for (size_t i = 0; i < bench->run_count; ++i) {
+        for (size_t j = 0; j < results->meas_count; ++j) {
+            fprintf(f, "%g", bench->meas[j][i]);
+            if (j != results->meas_count - 1)
+                fprintf(f, ",");
+        }
+        fprintf(f, "\n");
+    }
+}
+
+static void export_csv_group_results(const struct bench_results *results,
+                                     size_t meas_idx, FILE *f) {
+    const struct group_analysis **analyses = (void *)results->group_analyses;
+    assert(results->group_count > 1);
+    assert(analyses[meas_idx][0].cmd_count);
+    fprintf(f, "%s,", analyses[meas_idx][0].group->var_name);
+    for (size_t i = 0; i < results->group_count; ++i) {
+        char buf[4096];
+        json_escape(buf, sizeof(buf), analyses[meas_idx][i].group->template);
+        fprintf(f, "%s", buf);
+        if (i != results->group_count - 1)
+            fprintf(f, ",");
+    }
+    fprintf(f, "\n");
+    for (size_t i = 0; i < analyses[meas_idx][0].group->count; ++i) {
+        fprintf(f, "%s,", analyses[meas_idx][0].data[i].value);
+        for (size_t j = 0; j < results->group_count; ++j) {
+            fprintf(f, "%g", analyses[meas_idx][j].data[i].mean);
+            if (j != results->group_count - 1)
+                fprintf(f, ",");
+        }
+        fprintf(f, "\n");
+    }
+}
+
+static void export_csv_bench_results(const struct bench_results *results,
+                                     size_t meas_idx, FILE *f) {
+    fprintf(f,
+            "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,"
+            "median,q1,q3,p1,p5,p95,p99,outl\n");
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        const struct distr *distr = results->analyses[i].meas + meas_idx;
+        char buf[4096];
+        json_escape(buf, sizeof(buf), results->analyses[i].bench->cmd->str);
+        fprintf(f, "%s,", buf);
+        fprintf(f, "%g,%g,%g,%g,%g,%g,", distr->mean.lower, distr->mean.point,
+                distr->mean.upper, distr->st_dev.lower, distr->st_dev.point,
+                distr->st_dev.upper);
+        fprintf(f, "%g,%g,%g,%g,%g,%g,%g,%g,%g,", distr->min, distr->max,
+                distr->median, distr->q1, distr->q3, distr->p1, distr->p5,
+                distr->p95, distr->p99);
+        fprintf(f, "%g\n", distr->outliers.var);
+    }
+}
+
+static bool export_csvs(const struct bench_results *results,
+                        const char *out_dir) {
+    char buf[4096];
+    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+        snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", out_dir, bench_idx);
+        FILE *f = fopen(buf, "w");
+        if (f == NULL)
+            return false;
+        export_csv_raw_bench(results->analyses[bench_idx].bench, results, f);
+        fclose(f);
+    }
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        snprintf(buf, sizeof(buf), "%s/bench_%zu.csv", out_dir, meas_idx);
+        FILE *f = fopen(buf, "w");
+        if (f == NULL)
+            return false;
+        export_csv_bench_results(results, meas_idx, f);
+        fclose(f);
+    }
+    if (results->group_count) {
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
+                continue;
+            snprintf(buf, sizeof(buf), "%s/group_%zu.csv", out_dir, meas_idx);
+            FILE *f = fopen(buf, "w");
+            if (f == NULL)
+                return false;
+            export_csv_group_results(results, meas_idx, f);
+            fclose(f);
+        }
+    }
+    return true;
+}
+
 static bool python_found(void) {
     pid_t pid = fork();
     if (pid == -1) {
@@ -3149,7 +3250,7 @@ static bool make_html_report(const struct bench_results *results,
 
 static bool do_visualize(const struct bench_results *results,
                          const char *out_dir) {
-    if (!g_plot && !g_html)
+    if (!g_plot && !g_html && !g_csv)
         return true;
 
     if (mkdir(out_dir, 0766) == -1) {
@@ -3177,6 +3278,9 @@ static bool do_visualize(const struct bench_results *results,
         if (!make_plots_readme(results, out_dir))
             return false;
     }
+
+    if (g_csv && !export_csvs(results, out_dir))
+        return false;
 
     if (g_html && !make_html_report(results, out_dir))
         return false;
