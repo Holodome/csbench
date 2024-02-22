@@ -341,9 +341,10 @@ struct perf_cnt {
 // These output functions contain some heavy logic connected to threading which
 // is tightly coupled with main execution logic, so they are best kept in main
 // file until we decide to split all multithreading elsewhere.
-void printf_colored(const char *how, const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) void printf_colored(const char *how,
+                                                          const char *fmt, ...);
+__attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void csperror(const char *fmt);
-void error(const char *fmt, ...);
 
 extern __thread uint64_t g_rng_state;
 

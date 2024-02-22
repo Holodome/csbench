@@ -54,6 +54,7 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -600,8 +601,25 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
 
     size_t opt_len = strlen(opt);
     if (strncmp(opt, argv[*cursor], opt_len) == 0) {
-        int c = argv[*cursor][opt_len];
-        if (c == '=') {
+        if (opt_len == 2) {
+            assert(opt[0] == '-');
+            assert(isalpha(opt[1]));
+            if (argv[*cursor][2] == '=') {
+                error("%s syntax is not supported", argv[*cursor]);
+                exit(EXIT_FAILURE);
+            }
+            bool alldigits = true;
+            for (size_t i = 2; i < strlen(argv[*cursor]) && alldigits; ++i)
+                if (!isdigit(argv[*cursor][i]))
+                    alldigits = false;
+            if (alldigits) {
+                *arg = argv[(*cursor)++] + 2;
+                return true;
+            } else {
+                error("%s syntax is not supported", argv[*cursor]);
+                exit(EXIT_FAILURE);
+            }
+        } else if (argv[*cursor][opt_len] == '=') {
             *arg = argv[(*cursor)++] + opt_len + 1;
             return true;
         }
