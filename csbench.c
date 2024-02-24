@@ -228,6 +228,7 @@ static int g_nresamp = 100000;
 static int g_dev_null_fd = -1;
 static bool g_use_perf = false;
 static bool g_progress_bar = false;
+static bool g_regr = false;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 static struct output_anchor *g_output_anchors;
 
@@ -271,6 +272,7 @@ void error(const char *fmt, ...) {
 }
 
 void csperror(const char *fmt) {
+    // This strerror_r gives me a headache...
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-result"
@@ -403,6 +405,8 @@ static void print_help_and_exit(int rc) {
         "  --progress-bar <when>\n"
         "          Can be one of the 'never', 'always', 'auto', works similar "
         "to --color option.\n"
+        "  --regr\n"
+        "          Do linear regression based on benchmark parameters.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -841,6 +845,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--csv") == 0) {
             ++cursor;
             g_csv = true;
+        } else if (strcmp(argv[cursor], "--regr") == 0) {
+            ++cursor;
+            g_regr = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
@@ -2075,7 +2082,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     printf(" (p=%.2f)", results->p_values[meas_idx]);
                 printf("\n");
             }
-            if (results->group_count == 1) {
+            if (results->group_count == 1 && g_regr) {
                 const struct group_analysis *analysis =
                     results->group_analyses[meas_idx] + 0;
                 if (analysis->values_are_doubles)
@@ -2154,15 +2161,18 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     printf("\n");
                 }
             }
-            for (size_t grp_idx = 0; grp_idx < results->group_count;
-                 ++grp_idx) {
-                const struct group_analysis *analysis =
-                    results->group_analyses[meas_idx] + grp_idx;
-                if (analysis->values_are_doubles) {
-                    printf_colored(ANSI_BOLD, "%s ", analysis->group->template);
-                    printf("%s complexity (%g)\n",
-                           big_o_str(analysis->regress.complexity),
-                           analysis->regress.a);
+            if (g_regr) {
+                for (size_t grp_idx = 0; grp_idx < results->group_count;
+                     ++grp_idx) {
+                    const struct group_analysis *analysis =
+                        results->group_analyses[meas_idx] + grp_idx;
+                    if (analysis->values_are_doubles) {
+                        printf_colored(ANSI_BOLD, "%s ",
+                                       analysis->group->template);
+                        printf("%s complexity (%g)\n",
+                               big_o_str(analysis->regress.complexity),
+                               analysis->regress.a);
+                    }
                 }
             }
         }
@@ -2447,24 +2457,27 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                     return false;
             }
         }
-        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            const struct group_analysis *analysis =
-                results->group_analyses[meas_idx] + grp_idx;
-            if (!analysis->values_are_doubles)
-                break;
-            args->plot_kind = PLOT_GROUP_SINGLE;
-            args->grp_idx = grp_idx;
-            if (!walk(args))
-                return false;
-        }
-        if (results->group_count > 1) {
-            const struct group_analysis *analyses =
-                results->group_analyses[meas_idx];
-            if (!analyses[0].values_are_doubles)
-                break;
-            args->plot_kind = PLOT_GROUP;
-            if (!walk(args))
-                return false;
+        if (g_regr) {
+            for (size_t grp_idx = 0; grp_idx < results->group_count;
+                 ++grp_idx) {
+                const struct group_analysis *analysis =
+                    results->group_analyses[meas_idx] + grp_idx;
+                if (!analysis->values_are_doubles)
+                    break;
+                args->plot_kind = PLOT_GROUP_SINGLE;
+                args->grp_idx = grp_idx;
+                if (!walk(args))
+                    return false;
+            }
+            if (results->group_count > 1) {
+                const struct group_analysis *analyses =
+                    results->group_analyses[meas_idx];
+                if (!analyses[0].values_are_doubles)
+                    break;
+                args->plot_kind = PLOT_GROUP;
+                if (!walk(args))
+                    return false;
+            }
         }
         for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
             args->plot_kind = PLOT_KDE;
