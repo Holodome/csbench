@@ -271,11 +271,18 @@ void error(const char *fmt, ...) {
 }
 
 void csperror(const char *fmt) {
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+#endif
     int err = errno;
     char buf[4096];
     int len = snprintf(buf, sizeof(buf), "%s: ", fmt);
     strerror_r(err, buf + len, sizeof(buf) - len);
     error("%s", buf);
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 }
 
 static void print_help_and_exit(int rc) {

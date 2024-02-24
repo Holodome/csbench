@@ -56,6 +56,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
