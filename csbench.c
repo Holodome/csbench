@@ -171,20 +171,26 @@ struct bench_runner_thread_data {
 
 struct bench_results {
     size_t bench_count;
-    struct bench *benches;
-    struct bench_analysis *analyses;
     size_t meas_count;
-    // Indexes of fastest benchmarks for each measurement
-    size_t *fastest_meas;
-    const struct meas *meas;
-    size_t primary_meas_count;
     size_t group_count;
-    struct group_analysis **group_analyses;
+    size_t primary_meas_count;
+    struct bench *benches;           // [bench_count]
+    struct bench_analysis *analyses; // [bench_count]
+    // Indexes of fastest benchmarks for each measurement
+    size_t *fastest_meas;                   // [meas_count]
+    const struct meas *meas;                // [meas_count]
+    struct group_analysis **group_analyses; // [meas_count][group_count]
     // If there are only two benchmarks in total compute their p-value
-    double *p_values;
+    double *pair_p_values; // [meas_count]
+    // If there are more that two benchmakrs but baseline is specified, compute
+    // p-value of each benchmark in reference to baseline. This could reuse
+    // 'pair_p_values', but because the logic is so different it is better to
+    // split them.
+    double **baseline_p_values; // [meas_count][bench_count]
     // If there are two command groups with parameter compute p-value for each
     // parameter value
-    double **param_p_values;
+    double **param_pair_p_values;      // [meas_count][param_count]
+    double ***param_baseline_p_values; // [meas_count][param_count][group_count]
 };
 
 struct output_anchor {
@@ -2116,8 +2122,7 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                 printf(" times faster than baseline");
-                if (results->bench_count == 2)
-                    printf(" (p=%.2f)", results->p_values[meas_idx]);
+                printf(" (p=%.2f)", results->baseline_p_values[meas_idx][j]);
                 printf("\n");
             }
             if (results->group_count == 1 && g_regr) {
@@ -2179,9 +2184,9 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                     printf(" ± ");
                     printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                     printf(" times faster than baseline");
-                    if (results->group_count == 2)
-                        printf(" (p=%.2f)",
-                               results->param_p_values[meas_idx][val_idx]);
+                    printf(" (p=%.2f)",
+                           results->param_baseline_p_values[meas_idx][val_idx]
+                                                           [grp_idx]);
                     printf("\n");
                 }
             }
@@ -2238,7 +2243,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                 printf(" times faster than ");
                 printf_colored(ANSI_BOLD, "%s", analysis->bench->cmd->str);
                 if (results->bench_count == 2)
-                    printf(" (p=%.2f)", results->p_values[meas_idx]);
+                    printf(" (p=%.2f)", results->pair_p_values[meas_idx]);
                 printf("\n");
             }
             if (results->group_count == 1 && g_regr) {
@@ -2311,7 +2316,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     printf(" times faster than %c", (int)('A' + grp_idx));
                     if (results->group_count == 2)
                         printf(" (p=%.2f)",
-                               results->param_p_values[meas_idx][val_idx]);
+                               results->param_pair_p_values[meas_idx][val_idx]);
                     printf("\n");
                 }
             }
@@ -3363,29 +3368,78 @@ static void analyze_benches(const struct settings *settings,
         if (!results->meas[i].is_secondary)
             ++primary_meas_count;
     results->primary_meas_count = primary_meas_count;
-    if (results->bench_count == 2) {
-        results->p_values =
-            calloc(results->meas_count, sizeof(*results->p_values));
+    if (g_baseline != -1) {
+        results->baseline_p_values =
+            calloc(results->meas_count, sizeof(*results->baseline_p_values));
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
+                continue;
+            results->baseline_p_values[meas_idx] = calloc(
+                results->bench_count, sizeof(**results->baseline_p_values));
+            const struct distr *d1 =
+                &results->analyses[g_baseline].meas[meas_idx];
+            for (size_t bench_idx = 0; bench_idx < results->bench_count;
+                 ++bench_idx) {
+                const struct distr *d2 =
+                    &results->analyses[bench_idx].meas[meas_idx];
+                if (d1 == d2)
+                    continue;
+                double p = mwu(d1->data, d1->count, d2->data, d2->count);
+                results->baseline_p_values[meas_idx][bench_idx] = p;
+            }
+        }
+    } else if (results->bench_count == 2) {
+        results->pair_p_values =
+            calloc(results->meas_count, sizeof(*results->pair_p_values));
         for (size_t i = 0; i < results->meas_count; ++i) {
             if (results->meas[i].is_secondary)
                 continue;
             const struct distr *d1 = &results->analyses[0].meas[i];
             const struct distr *d2 = &results->analyses[1].meas[i];
             double p = mwu(d1->data, d1->count, d2->data, d2->count);
-            results->p_values[i] = p;
+            results->pair_p_values[i] = p;
         }
     }
-    if (results->group_count == 2) {
+    if (g_baseline != -1) {
+        results->param_baseline_p_values = calloc(
+            results->meas_count, sizeof(results->param_baseline_p_values));
         size_t param_count = results->group_analyses[0][0].group->count;
-        results->param_p_values =
-            calloc(results->meas_count, sizeof(*results->param_p_values));
-        for (size_t i = 0; i < results->meas_count; ++i)
-            results->param_p_values[i] =
-                calloc(param_count, sizeof(**results->param_p_values));
-
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
+            results->param_baseline_p_values[meas_idx] =
+                calloc(param_count, sizeof(*results->param_baseline_p_values));
+            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+                const struct distr *d1 =
+                    &results->group_analyses[meas_idx][g_baseline]
+                         .data[param_idx]
+                         .analysis->meas[meas_idx];
+                results->param_baseline_p_values[meas_idx][param_idx] =
+                    calloc(results->group_count,
+                           sizeof(**results->param_baseline_p_values));
+                for (size_t grp_idx = 0; grp_idx < results->group_count;
+                     ++grp_idx) {
+                    const struct distr *d2 =
+                        &results->group_analyses[meas_idx][grp_idx]
+                             .data[param_idx]
+                             .analysis->meas[meas_idx];
+                    if (d1 == d2)
+                        continue;
+                    double p = mwu(d1->data, d1->count, d2->data, d2->count);
+                    results->param_baseline_p_values[meas_idx][param_idx]
+                                                    [grp_idx] = p;
+                }
+            }
+        }
+    } else if (results->group_count == 2) {
+        size_t param_count = results->group_analyses[0][0].group->count;
+        results->param_pair_p_values =
+            calloc(results->meas_count, sizeof(*results->param_pair_p_values));
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            if (results->meas[meas_idx].is_secondary)
+                continue;
+            results->param_pair_p_values[meas_idx] =
+                calloc(param_count, sizeof(**results->param_pair_p_values));
             for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
                 const struct distr *d1 = &results->group_analyses[meas_idx][0]
                                               .data[param_idx]
@@ -3394,7 +3448,7 @@ static void analyze_benches(const struct settings *settings,
                                               .data[param_idx]
                                               .analysis->meas[meas_idx];
                 double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                results->param_p_values[meas_idx][param_idx] = p;
+                results->param_pair_p_values[meas_idx][param_idx] = p;
             }
         }
     }
@@ -3486,6 +3540,33 @@ static bool do_visualize(const struct bench_results *results,
 static void free_bench_results(struct bench_results *results) {
     // these ifs are needed because results can be partially initialized in
     // case of failure
+    if (results->param_pair_p_values) {
+        for (size_t i = 0; i < results->meas_count; ++i) {
+            if (results->meas[i].is_secondary)
+                continue;
+            free(results->param_pair_p_values[i]);
+        }
+        free(results->param_pair_p_values);
+    }
+    if (results->baseline_p_values) {
+        for (size_t i = 0; i < results->meas_count; ++i) {
+            if (results->meas[i].is_secondary)
+                continue;
+            free(results->baseline_p_values[i]);
+        }
+        free(results->baseline_p_values);
+    }
+    if (results->param_baseline_p_values) {
+        size_t param_count = results->group_analyses[0][0].cmd_count;
+        for (size_t i = 0; i < results->meas_count; ++i) {
+            if (results->meas[i].is_secondary)
+                continue;
+            for (size_t j = 0; j < param_count; ++j)
+                free(results->param_baseline_p_values[i][j]);
+            free(results->param_baseline_p_values[i]);
+        }
+        free(results->param_baseline_p_values);
+    }
     if (results->benches) {
         for (size_t i = 0; i < results->bench_count; ++i) {
             struct bench *bench = results->benches + i;
@@ -3514,12 +3595,7 @@ static void free_bench_results(struct bench_results *results) {
         }
         free(results->group_analyses);
     }
-    if (results->param_p_values) {
-        for (size_t i = 0; i < results->meas_count; ++i)
-            free(results->param_p_values[i]);
-        free(results->p_values);
-    }
-    free(results->param_p_values);
+    free(results->pair_p_values);
     free(results->fastest_meas);
 }
 
