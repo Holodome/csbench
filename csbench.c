@@ -272,19 +272,14 @@ void error(const char *fmt, ...) {
 }
 
 void csperror(const char *fmt) {
-    // This strerror_r gives me a headache...
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-result"
-#endif
     int err = errno;
     char buf[4096];
     int len = snprintf(buf, sizeof(buf), "%s: ", fmt);
-    strerror_r(err, buf + len, sizeof(buf) - len);
+    if (err < sys_nerr)
+        snprintf(buf + len, sizeof(buf) - len, "%s", sys_errlist[err]);
+    else
+        snprintf(buf + len, sizeof(buf) - len, "unknown error %d", err);
     error("%s", buf);
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
 }
 
 static void print_help_and_exit(int rc) {
@@ -407,6 +402,10 @@ static void print_help_and_exit(int rc) {
         "to --color option.\n"
         "  --regr\n"
         "          Do linear regression based on benchmark parameters.\n"
+        " --baseline <n>\n"
+        "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
+        "as baseline in comparison. If this option is not set, baseline will "
+        "be chosen automatically.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
