@@ -112,6 +112,7 @@ struct cli_settings {
     enum output_kind output;
     const char *out_dir;
     struct bench_param *params;
+    int baseline;
 };
 
 // Information gathered from user input (settings), parsed
@@ -214,13 +215,12 @@ struct plot_walker_args {
     size_t param_idx;
 };
 
-static bool g_colored_output;
 __thread uint64_t g_rng_state;
+static bool g_colored_output = false;
 static bool g_allow_nonzero = false;
 static double g_warmup_time = 0.1;
 static int g_threads = 1;
 static bool g_plot = false;
-// implies g_plot = true
 static bool g_html = false;
 static bool g_csv = false;
 static bool g_plot_src = false;
@@ -229,8 +229,9 @@ static int g_dev_null_fd = -1;
 static bool g_use_perf = false;
 static bool g_progress_bar = false;
 static bool g_regr = false;
+static int g_baseline = -1;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
-static struct output_anchor *g_output_anchors;
+static struct output_anchor *g_output_anchors = NULL;
 
 void printf_colored(const char *how, const char *fmt, ...) {
     va_list args;
@@ -275,7 +276,7 @@ void csperror(const char *fmt) {
     int err = errno;
     char buf[4096];
     int len = snprintf(buf, sizeof(buf), "%s: ", fmt);
-    if (err < sys_nerr)
+    if (err >= 0 && err < sys_nerr)
         snprintf(buf + len, sizeof(buf) - len, "%s", sys_errlist[err]);
     else
         snprintf(buf + len, sizeof(buf) - len, "unknown error %d", err);
@@ -641,6 +642,7 @@ static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
     settings->out_dir = ".csbench";
+    settings->baseline = -1;
     bool no_wall = false;
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
@@ -849,6 +851,18 @@ static void parse_cli_args(int argc, char **argv,
             g_regr = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
+        } else if (opt_arg(argv, &cursor, "--baseline", &str)) {
+            char *str_end;
+            long value = strtol(str, &str_end, 10);
+            if (str_end == str) {
+                error("invalid --baseline argument");
+                exit(EXIT_FAILURE);
+            }
+            if (value <= 0) {
+                error("baseline number must be positive number");
+                exit(EXIT_FAILURE);
+            }
+            settings->baseline = value;
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
             if (strcmp(str, "auto") == 0) {
                 if (isatty(STDIN_FILENO))
@@ -1336,6 +1350,29 @@ static bool init_settings(const struct cli_settings *cli,
             init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
                      strdup(cmd_str), &cmd);
             sb_push(settings->cmds, cmd);
+        }
+    }
+    if (cli->baseline > 0) {
+        size_t baseline = cli->baseline - 1;
+        size_t grp_count = sb_len(settings->cmd_groups);
+        size_t cmd_count = sb_len(settings->cmds);
+        if (grp_count == 0) {
+            // No parameterized benchmarks specified, just select the command
+            if (baseline >= cmd_count) {
+                error("baseline number is too big");
+                goto err_free_settings;
+            }
+            g_baseline = baseline;
+        } else if (grp_count == 1) {
+            // User specified baseline, but used a parameterized benchmark.
+            // Silently do nothing
+        } else {
+            // Multiple parameterized benchmarks
+            if (baseline >= grp_count) {
+                error("baseline number is too big");
+                goto err_free_settings;
+            }
+            g_baseline = baseline;
         }
     }
     return true;
@@ -2053,25 +2090,33 @@ static void print_cmd_comparison(const struct bench_results *results) {
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            size_t best_idx = results->fastest_meas[meas_idx];
-            const struct bench_analysis *best = results->analyses + best_idx;
             const struct meas *meas = results->meas + meas_idx;
             if (results->primary_meas_count != 1) {
                 printf("measurement ");
                 printf_colored(ANSI_YELLOW, "%s\n", meas->name);
             }
-            printf("fastest command ");
-            printf_colored(ANSI_BOLD, "%s\n", best->bench->cmd->str);
+            const struct bench_analysis *baseline;
+            if (g_baseline == -1) {
+                size_t best_idx = results->fastest_meas[meas_idx];
+                baseline = results->analyses + best_idx;
+                printf("fastest command ");
+                printf_colored(ANSI_BOLD, "%s\n", baseline->bench->cmd->str);
+            } else {
+                baseline = results->analyses + g_baseline;
+                printf("baseline command ");
+                printf_colored(ANSI_BOLD, "%s\n",
+                               baseline->bench->cmd->str);
+            }
             for (size_t j = 0; j < results->bench_count; ++j) {
                 const struct bench_analysis *analysis = results->analyses + j;
-                if (analysis == best)
+                if (analysis == baseline)
                     continue;
-
                 double ref, ref_st_dev;
                 ref_speed(analysis->meas[meas_idx].mean.point,
                           analysis->meas[meas_idx].st_dev.point,
-                          best->meas[meas_idx].mean.point,
-                          best->meas[meas_idx].st_dev.point, &ref, &ref_st_dev);
+                          baseline->meas[meas_idx].mean.point,
+                          baseline->meas[meas_idx].st_dev.point, &ref,
+                          &ref_st_dev);
                 printf_colored(ANSI_BOLD_GREEN, "  %.3f", ref);
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
@@ -2112,26 +2157,25 @@ static void print_cmd_comparison(const struct bench_results *results) {
             size_t val_count = analyses[0].group->count;
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
                 const char *value = analyses[0].group->var_values[val_idx];
-                size_t fastest_idx = 0;
-                double fastest_mean = analyses[0].data[val_idx].mean,
-                       fastest_st_dev = analyses[0]
-                                            .data[val_idx]
-                                            .analysis->meas[meas_idx]
-                                            .st_dev.point;
-                for (size_t grp_idx = 1; grp_idx < results->group_count;
-                     ++grp_idx) {
-                    if (analyses[grp_idx].data[val_idx].mean < fastest_mean) {
-                        fastest_mean = analyses[grp_idx].data[val_idx].mean;
-                        fastest_st_dev = analyses[grp_idx]
-                                             .data[val_idx]
-                                             .analysis->meas[meas_idx]
-                                             .st_dev.point;
-                        fastest_idx = grp_idx;
+                size_t baseline_idx;
+                if (g_baseline == -1) {
+                    size_t fastest_idx = 0;
+                    double fastest_mean = analyses[0].data[val_idx].mean;
+                    for (size_t grp_idx = 1; grp_idx < results->group_count;
+                         ++grp_idx) {
+                        if (analyses[grp_idx].data[val_idx].mean <
+                            fastest_mean) {
+                            fastest_mean = analyses[grp_idx].data[val_idx].mean;
+                            fastest_idx = grp_idx;
+                        }
                     }
+                    baseline_idx = fastest_idx;
+                } else {
+                    baseline_idx = g_baseline;
                 }
-
                 printf("%s=%s:\t%c is ", val_name, value,
-                       (int)('A' + fastest_idx));
+                       (int)('A' + baseline_idx));
+
                 const char *ident = "";
                 if (results->group_count > 2) {
                     printf("\n");
@@ -2139,16 +2183,20 @@ static void print_cmd_comparison(const struct bench_results *results) {
                 }
                 for (size_t grp_idx = 0; grp_idx < results->group_count;
                      ++grp_idx) {
-                    if (grp_idx == fastest_idx)
+                    if (grp_idx == baseline_idx)
                         continue;
-
                     double ref, ref_st_dev;
                     ref_speed(analyses[grp_idx].data[val_idx].mean,
                               analyses[grp_idx]
                                   .data[val_idx]
                                   .analysis->meas[meas_idx]
                                   .st_dev.point,
-                              fastest_mean, fastest_st_dev, &ref, &ref_st_dev);
+                              analyses[baseline_idx].data[val_idx].mean,
+                              analyses[baseline_idx]
+                                  .data[val_idx]
+                                  .analysis->meas[meas_idx]
+                                  .st_dev.point,
+                              &ref, &ref_st_dev);
                     printf("%s", ident);
                     printf_colored(ANSI_BOLD_GREEN, "%6.3f", ref);
                     printf(" ± ");
