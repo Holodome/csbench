@@ -105,26 +105,19 @@ struct bench_param {
 struct cli_settings {
     const char **cmds;
     const char *shell;
-    struct export_policy export;
     struct meas *meas;
-    const char *prepare;
     struct input_policy input;
     enum output_kind output;
-    const char *out_dir;
     struct bench_param *params;
     int baseline;
 };
 
 // Information gathered from user input (settings), parsed
-// and prepared for benchmarking. Some fields are copied from
-// cli settings as is to reduce data dependencies.
-struct settings {
+// and prepared for benchmarking.
+struct run_settings {
     struct cmd *cmds;
     struct cmd_group *cmd_groups;
     struct meas *meas;
-    const char *prepare_cmd;
-    struct export_policy export;
-    const char *out_dir;
 };
 
 // Align this structure as attempt to avoid false sharing and make inconsistent
@@ -212,13 +205,17 @@ enum plot_kind {
 
 struct plot_walker_args {
     const struct bench_results *results;
-    const char *out_dir;
     enum plot_kind plot_kind;
     pid_t *pids;
     size_t meas_idx;
     size_t bench_idx;
     size_t grp_idx;
     size_t param_idx;
+};
+
+enum app_mode {
+    APP_BENCH,
+    APP_LOAD
 };
 
 __thread uint64_t g_rng_state;
@@ -231,25 +228,31 @@ static bool g_html = false;
 static bool g_csv = false;
 static bool g_plot_src = false;
 static int g_nresamp = 100000;
-static int g_dev_null_fd = -1;
 static bool g_use_perf = false;
 static bool g_progress_bar = false;
 static bool g_regr = false;
 static int g_baseline = -1;
+static enum app_mode g_mode = APP_BENCH;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 static struct output_anchor *g_output_anchors = NULL;
+static struct export_policy g_export = {0};
+static const char *g_out_dir = ".csbench";
+static const char *g_prepare = NULL;
 
-void printf_colored(const char *how, const char *fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
     if (g_colored_output) {
-        printf("\x1b[%sm", how);
-        vprintf(fmt, args);
-        printf("\x1b[0m");
+        fprintf(f, "\x1b[%sm", how);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+        fprintf(f, "\x1b[0m");
     } else {
-        vprintf(fmt, args);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
     }
-    va_end(args);
 }
 
 void error(const char *fmt, ...) {
@@ -270,12 +273,12 @@ void error(const char *fmt, ...) {
             return;
         }
     }
+    fprintf_colored(stderr, ANSI_RED, "error: ");
     va_list args;
     va_start(args, fmt);
-    printf_colored(ANSI_RED, "error: ");
-    vprintf(fmt, args);
+    vfprintf(stderr, fmt, args);
     va_end(args);
-    putc('\n', stdout);
+    putc('\n', stderr);
 }
 
 void csperror(const char *fmt) {
@@ -292,9 +295,15 @@ void csperror(const char *fmt) {
 static void print_help_and_exit(int rc) {
     printf("A command line benchmarking tool\n"
            "\n"
-           "Usage: csbench [OPTIONS] <command>...\n"
+           "Usage: csbench [subcommand] [OPTIONS] <command>...\n"
            "\n"
            "Arguments:\n"
+           "          If first argument is one of the following: 'load', then "
+           "consider it a subcommand name. 'load' means not to run benchmarks "
+           "and instead load raw benchmark results from csv files. Each file "
+           "correspons to a single benchmark, and has the following structure: "
+           "the first line optionally contains measurement names, all other "
+           "lines contain double values corresponding to measurements.\n"
            "  <command>...\n"
            "          The command to benchmark. Can be a shell command line, "
            "like 'ls $(pwd) && echo 1', or a direct executable invocation, "
@@ -647,7 +656,6 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
-    settings->out_dir = ".csbench";
     settings->baseline = -1;
     bool no_wall = false;
     struct meas *meas_list = NULL;
@@ -655,6 +663,11 @@ static void parse_cli_args(int argc, char **argv,
 
     char *str;
     int cursor = 1;
+    if (strcmp(argv[cursor], "load") == 0) {
+        g_mode = APP_LOAD;
+        ++cursor;
+    }
+
     while (cursor < argc) {
         if (strcmp(argv[cursor], "--help") == 0 ||
             strcmp(argv[cursor], "-h") == 0) {
@@ -725,7 +738,7 @@ static void parse_cli_args(int argc, char **argv,
             }
             g_bench_stop.max_runs = value;
         } else if (opt_arg(argv, &cursor, "--prepare", &str)) {
-            settings->prepare = str;
+            g_prepare = str;
         } else if (opt_arg(argv, &cursor, "--nrs", &str)) {
             char *str_end;
             long value = strtol(str, &str_end, 10);
@@ -829,11 +842,11 @@ static void parse_cli_args(int argc, char **argv,
             }
             g_threads = value;
         } else if (opt_arg(argv, &cursor, "--export-json", &str)) {
-            settings->export.kind = EXPORT_JSON;
-            settings->export.filename = str;
+            g_export.kind = EXPORT_JSON;
+            g_export.filename = str;
         } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
                    opt_arg(argv, &cursor, "-o", &str)) {
-            settings->out_dir = str;
+            g_out_dir = str;
         } else if (strcmp(argv[cursor], "--html") == 0) {
             ++cursor;
             g_plot = g_html = true;
@@ -1232,7 +1245,7 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
     return true;
 }
 
-static void free_settings(struct settings *settings) {
+static void free_run_settings(struct run_settings *settings) {
     for (size_t i = 0; i < sb_len(settings->cmds); ++i) {
         struct cmd *cmd = settings->cmds + i;
         free(cmd->exec);
@@ -1268,11 +1281,8 @@ static void init_cmd(const struct input_policy *input, enum output_kind output,
     }
 }
 
-static bool init_settings(const struct cli_settings *cli,
-                          struct settings *settings) {
-    settings->export = cli->export;
-    settings->prepare_cmd = cli->prepare;
-    settings->out_dir = cli->out_dir;
+static bool init_run_settings(const struct cli_settings *cli,
+                              struct run_settings *settings) {
     settings->meas = cli->meas;
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging, and
@@ -1383,7 +1393,7 @@ static bool init_settings(const struct cli_settings *cli,
     }
     return true;
 err_free_settings:
-    free_settings(settings);
+    free_run_settings(settings);
     return false;
 }
 
@@ -1401,11 +1411,16 @@ static double get_time(void) {
 
 static void apply_input_policy(const struct input_policy *policy) {
     switch (policy->kind) {
-    case INPUT_POLICY_NULL:
-        close(STDIN_FILENO);
-        if (dup2(g_dev_null_fd, STDIN_FILENO) == -1)
+    case INPUT_POLICY_NULL: {
+        int fd = open("/dev/null", O_RDWR);
+        if (fd == -1)
             _exit(-1);
+        close(STDIN_FILENO);
+        if (dup2(fd, STDIN_FILENO) == -1)
+            _exit(-1);
+        close(fd);
         break;
+    }
     case INPUT_POLICY_FILE: {
         int fd = open(policy->file, O_RDONLY);
         if (fd == -1)
@@ -1421,13 +1436,17 @@ static void apply_input_policy(const struct input_policy *policy) {
 
 static void apply_output_policy(enum output_kind policy) {
     switch (policy) {
-    case OUTPUT_POLICY_NULL:
+    case OUTPUT_POLICY_NULL: {
+        int fd = open("/dev/null", O_RDWR);
+        if (fd == -1)
+            _exit(-1);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
-        if (dup2(g_dev_null_fd, STDOUT_FILENO) == -1 ||
-            dup2(g_dev_null_fd, STDERR_FILENO) == -1)
+        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
             _exit(-1);
+        close(fd);
         break;
+    }
     case OUTPUT_POLICY_INHERIT:
         break;
     }
@@ -1446,11 +1465,15 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
         apply_input_policy(&cmd->input);
         // special handling when stdout needs to be piped
         if (stdout_fd != -1) {
+            int fd = open("/dev/null", O_RDWR);
+            if (fd == -1)
+                _exit(-1);
             close(STDERR_FILENO);
-            if (dup2(g_dev_null_fd, STDERR_FILENO) == -1)
+            if (dup2(fd, STDERR_FILENO) == -1)
                 _exit(-1);
             if (dup2(stdout_fd, STDOUT_FILENO) == -1)
                 _exit(-1);
+            close(fd);
         } else {
             apply_output_policy(cmd->output);
         }
@@ -1505,8 +1528,8 @@ static bool process_finished_correctly(pid_t pid) {
     return false;
 }
 
-static bool execute_process_in_shell(const char *cmd, int stdin_fd,
-                                     int stdout_fd, int stderr_fd) {
+static bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
+                             int stderr_fd) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -1517,6 +1540,17 @@ static bool execute_process_in_shell(const char *cmd, int stdin_fd,
         return false;
     }
     if (pid == 0) {
+        if (stdin_fd == -1 || stdout_fd == -1 || stderr_fd == -1) {
+            int fd = open("/dev/null", O_RDWR);
+            if (fd == -1)
+                _exit(-1);
+            if (stdin_fd == -1)
+                stdin_fd = fd;
+            if (stdout_fd == -1)
+                stdout_fd = fd;
+            if (stderr_fd == -1)
+                stderr_fd = fd;
+        }
         close(STDIN_FILENO);
         close(STDOUT_FILENO);
         close(STDERR_FILENO);
@@ -1581,8 +1615,7 @@ static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
         goto out;
     }
 
-    if (!execute_process_in_shell(custom->cmd, stdout_fd, custom_output_fd,
-                                  g_dev_null_fd))
+    if (!execute_in_shell(custom->cmd, stdout_fd, custom_output_fd, -1))
         goto out;
 
     if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -1712,7 +1745,7 @@ out:
 
 static bool warmup(const struct cmd *cmd) {
     double time_limit = g_warmup_time;
-    if (time_limit < 0.0)
+    if (time_limit <= 0.0)
         return true;
     double start_time = get_time();
     do {
@@ -1785,9 +1818,7 @@ static bool run_benchmark(struct bench *bench) {
     if (g_bench_stop.runs != 0) {
         progress_bar_start(bench->progress, get_time());
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
-            if (bench->prepare &&
-                !execute_process_in_shell(bench->prepare, g_dev_null_fd,
-                                          g_dev_null_fd, g_dev_null_fd)) {
+            if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
                 error("failed to execute prepare command");
                 progress_bar_abort(bench->progress);
                 return false;
@@ -1812,9 +1843,7 @@ static bool run_benchmark(struct bench *bench) {
     progress_bar_start(bench->progress, start_time);
     for (size_t count = 1;; ++count) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            if (bench->prepare &&
-                !execute_process_in_shell(bench->prepare, g_dev_null_fd,
-                                          g_dev_null_fd, g_dev_null_fd)) {
+            if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
                 error("failed to execute prepare command");
                 progress_bar_abort(bench->progress);
                 return false;
@@ -1886,7 +1915,7 @@ static void compare_benches(struct bench_results *results) {
     free(best);
 }
 
-static void analyze_cmd_groups(const struct settings *settings,
+static void analyze_cmd_groups(const struct run_settings *settings,
                                struct bench_results *results) {
     size_t group_count = sb_len(settings->cmd_groups);
     if (group_count == 0)
@@ -2386,8 +2415,8 @@ static bool export_json(const struct bench_results *results,
     for (size_t i = 0; i < bench_count; ++i) {
         const struct bench *bench = benches + i;
         fprintf(f, "{ ");
-        if (bench->prepare)
-            json_escape(buf, sizeof(buf), bench->prepare);
+        if (g_prepare)
+            json_escape(buf, sizeof(buf), g_prepare);
         else
             *buf = '\0';
         fprintf(f, "\"prepare\": \"%s\", ", buf);
@@ -2490,11 +2519,11 @@ static void export_csv_bench_results(const struct bench_results *results,
     }
 }
 
-static bool export_csvs(const struct bench_results *results,
-                        const char *out_dir) {
+static bool export_csvs(const struct bench_results *results) {
     char buf[4096];
     for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
-        snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", out_dir, bench_idx);
+        snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", g_out_dir,
+                 bench_idx);
         FILE *f = fopen(buf, "w");
         if (f == NULL)
             return false;
@@ -2502,7 +2531,7 @@ static bool export_csvs(const struct bench_results *results,
         fclose(f);
     }
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        snprintf(buf, sizeof(buf), "%s/bench_%zu.csv", out_dir, meas_idx);
+        snprintf(buf, sizeof(buf), "%s/bench_%zu.csv", g_out_dir, meas_idx);
         FILE *f = fopen(buf, "w");
         if (f == NULL)
             return false;
@@ -2513,7 +2542,7 @@ static bool export_csvs(const struct bench_results *results,
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            snprintf(buf, sizeof(buf), "%s/group_%zu.csv", out_dir, meas_idx);
+            snprintf(buf, sizeof(buf), "%s/group_%zu.csv", g_out_dir, meas_idx);
             FILE *f = fopen(buf, "w");
             if (f == NULL)
                 return false;
@@ -2668,38 +2697,37 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
 static void format_plot_name(char *buf, size_t buf_size,
                              struct plot_walker_args *args,
                              const char *extension) {
-    const char *out_dir = args->out_dir;
     switch (args->plot_kind) {
     case PLOT_BAR:
-        snprintf(buf, buf_size, "%s/bar_%zu.%s", out_dir, args->meas_idx,
+        snprintf(buf, buf_size, "%s/bar_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
         break;
     case PLOT_GROUP_BAR:
-        snprintf(buf, buf_size, "%s/group_bar_%zu.%s", out_dir, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/group_bar_%zu.%s", g_out_dir,
+                 args->meas_idx, extension);
         break;
     case PLOT_GROUP_SINGLE:
-        snprintf(buf, buf_size, "%s/group_%zu_%zu.%s", out_dir, args->grp_idx,
+        snprintf(buf, buf_size, "%s/group_%zu_%zu.%s", g_out_dir, args->grp_idx,
                  args->meas_idx, extension);
         break;
     case PLOT_GROUP:
-        snprintf(buf, buf_size, "%s/group_%zu.%s", out_dir, args->meas_idx,
+        snprintf(buf, buf_size, "%s/group_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
         break;
     case PLOT_KDE:
-        snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", out_dir, args->bench_idx,
+        snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", g_out_dir, args->bench_idx,
                  args->meas_idx, extension);
         break;
     case PLOT_KDE_EXT:
-        snprintf(buf, buf_size, "%s/kde_ext_%zu_%zu.%s", out_dir,
+        snprintf(buf, buf_size, "%s/kde_ext_%zu_%zu.%s", g_out_dir,
                  args->bench_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMPG:
-        snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", out_dir,
+        snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", g_out_dir,
                  args->param_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
-        snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", out_dir, args->meas_idx,
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
         break;
     }
@@ -2775,10 +2803,8 @@ static bool dump_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool dump_plot_src(const struct bench_results *results,
-                          const char *out_dir) {
+static bool dump_plot_src(const struct bench_results *results) {
     struct plot_walker_args args = {0};
-    args.out_dir = out_dir;
     args.results = results;
     return plot_walker(dump_plot_walk, &args);
 }
@@ -2796,11 +2822,9 @@ static bool make_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool make_plots(const struct bench_results *results,
-                       const char *out_dir) {
+static bool make_plots(const struct bench_results *results) {
     bool success = true;
     struct plot_walker_args args = {0};
-    args.out_dir = out_dir;
     args.results = results;
     if (!plot_walker(make_plot_walk, &args))
         success = false;
@@ -2815,11 +2839,10 @@ static bool make_plots(const struct bench_results *results,
     return success;
 }
 
-static bool make_plots_readme(const struct bench_results *results,
-                              const char *out_dir) {
-    FILE *f = open_file_fmt("w", "%s/readme.md", out_dir);
+static bool make_plots_readme(const struct bench_results *results) {
+    FILE *f = open_file_fmt("w", "%s/readme.md", g_out_dir);
     if (f == NULL) {
-        error("failed to create file %s/readme.md", out_dir);
+        error("failed to create file %s/readme.md", g_out_dir);
         return false;
     }
     fprintf(f, "# csbench analyze map\n");
@@ -3336,7 +3359,7 @@ free_progress_bar:
     return success;
 }
 
-static bool execute_benches(const struct settings *settings,
+static bool execute_benches(const struct run_settings *settings,
                             struct bench_results *results) {
     size_t bench_count = results->bench_count = sb_len(settings->cmds);
     assert(bench_count != 0);
@@ -3346,7 +3369,6 @@ static bool execute_benches(const struct settings *settings,
     results->meas = settings->meas;
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         struct bench *bench = results->benches + bench_idx;
-        bench->prepare = settings->prepare_cmd;
         bench->cmd = settings->cmds + bench_idx;
         bench->meas_count = sb_len(bench->cmd->meas);
         assert(bench->meas_count != 0);
@@ -3358,7 +3380,7 @@ static bool execute_benches(const struct settings *settings,
     return run_benches(results->analyses, bench_count);
 }
 
-static void analyze_benches(const struct settings *settings,
+static void analyze_benches(const struct run_settings *settings,
                             struct bench_results *results) {
     compare_benches(results);
     analyze_cmd_groups(settings, results);
@@ -3474,22 +3496,20 @@ static void print_analysis(const struct bench_results *results) {
         print_cmd_comparison_baseline(results);
 }
 
-static bool do_export(const struct settings *settings,
-                      const struct bench_results *results) {
-    switch (settings->export.kind) {
+static bool do_export(const struct bench_results *results) {
+    switch (g_export.kind) {
     case EXPORT_JSON:
-        return export_json(results, settings->export.filename);
+        return export_json(results, g_export.filename);
     case DONT_EXPORT:
         break;
     }
     return true;
 }
 
-static bool make_html_report(const struct bench_results *results,
-                             const char *out_dir) {
-    FILE *f = open_file_fmt("w", "%s/index.html", out_dir);
+static bool make_html_report(const struct bench_results *results) {
+    FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
-        error("failed to create file %s/index.html", out_dir);
+        error("failed to create file %s/index.html", g_out_dir);
         return false;
     }
     html_report(results, f);
@@ -3497,12 +3517,11 @@ static bool make_html_report(const struct bench_results *results,
     return true;
 }
 
-static bool do_visualize(const struct bench_results *results,
-                         const char *out_dir) {
+static bool do_visualize(const struct bench_results *results) {
     if (!g_plot && !g_html && !g_csv)
         return true;
 
-    if (mkdir(out_dir, 0766) == -1) {
+    if (mkdir(g_out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
             csperror("mkdir");
@@ -3520,18 +3539,18 @@ static bool do_visualize(const struct bench_results *results,
             return false;
         }
 
-        if (g_plot_src && !dump_plot_src(results, out_dir))
+        if (g_plot_src && !dump_plot_src(results))
             return false;
-        if (!make_plots(results, out_dir))
+        if (!make_plots(results))
             return false;
-        if (!make_plots_readme(results, out_dir))
+        if (!make_plots_readme(results))
             return false;
     }
 
-    if (g_csv && !export_csvs(results, out_dir))
+    if (g_csv && !export_csvs(results))
         return false;
 
-    if (g_html && !make_html_report(results, out_dir))
+    if (g_html && !make_html_report(results))
         return false;
 
     return true;
@@ -3599,21 +3618,48 @@ static void free_bench_results(struct bench_results *results) {
     free(results->fastest_meas);
 }
 
-static bool run(const struct settings *settings) {
+static bool run_app_bench(const struct cli_settings *cli) {
     bool success = false;
+    struct run_settings settings = {0};
+    if (!init_run_settings(cli, &settings))
+        return false;
+
+    if (g_use_perf && !init_perf())
+        goto err_free_settings;
+
     struct bench_results results = {0};
-    if (!execute_benches(settings, &results))
-        goto out;
-    analyze_benches(settings, &results);
+    if (!execute_benches(&settings, &results))
+        goto err_deinit_perf;
+    analyze_benches(&settings, &results);
     print_analysis(&results);
-    if (!do_export(settings, &results))
-        goto out;
-    if (!do_visualize(&results, settings->out_dir))
-        goto out;
+    if (!do_export(&results))
+        goto err_deinit_perf;
+    if (!do_visualize(&results))
+        goto err_deinit_perf;
     success = true;
-out:
+err_deinit_perf:
+    if (g_use_perf)
+        deinit_perf();
     free_bench_results(&results);
+err_free_settings:
+    free_run_settings(&settings);
     return success;
+}
+
+static bool run_app_load(const struct cli_settings *settings) {
+    (void)settings;
+    return true;
+}
+
+static bool run(const struct cli_settings *cli) {
+    switch (g_mode) {
+    case APP_BENCH:
+        return run_app_bench(cli);
+    case APP_LOAD:
+        return run_app_load(cli);
+    }
+
+    return false;
 }
 
 static void sigint_handler(int sig) {
@@ -3642,6 +3688,8 @@ static void prepare(void) {
     g_colored_output = isatty(STDOUT_FILENO) ? true : false;
     // --progress-bar=auto
     g_progress_bar = isatty(STDOUT_FILENO) ? true : false;
+
+    g_rng_state = time(NULL) * 2 + 1;
 }
 
 int main(int argc, char **argv) {
@@ -3651,31 +3699,10 @@ int main(int argc, char **argv) {
     struct cli_settings cli = {0};
     parse_cli_args(argc, argv, &cli);
 
-    struct settings settings = {0};
-    if (!init_settings(&cli, &settings))
+    if (!run(&cli))
         goto err_free_cli;
 
-    if (g_use_perf && !init_perf())
-        goto err_free_settings;
-
-    g_rng_state = time(NULL) * 2 + 1;
-    g_dev_null_fd = open("/dev/null", O_RDWR);
-    if (g_dev_null_fd == -1) {
-        error("failed to open /dev/null");
-        goto err_deinit_perf;
-    }
-
-    if (!run(&settings))
-        goto err_close_dev_null;
-
     rc = EXIT_SUCCESS;
-err_close_dev_null:
-    close(g_dev_null_fd);
-err_deinit_perf:
-    if (g_use_perf)
-        deinit_perf();
-err_free_settings:
-    free_settings(&settings);
 err_free_cli:
     deinit_perf();
     free_cli_settings(&cli);

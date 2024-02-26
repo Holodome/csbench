@@ -227,7 +227,6 @@ struct distr {
 };
 
 struct bench {
-    const char *prepare;
     const struct cmd *cmd;
     size_t run_count;
     int *exit_codes;
@@ -341,8 +340,9 @@ struct perf_cnt {
 // These output functions contain some heavy logic connected to threading which
 // is tightly coupled with main execution logic, so they are best kept in main
 // file until we decide to split all multithreading elsewhere.
-__attribute__((format(printf, 2, 3))) void printf_colored(const char *how,
-                                                          const char *fmt, ...);
+#define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
+__attribute__((format(printf, 3, 4))) void
+fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void csperror(const char *fmt);
 
