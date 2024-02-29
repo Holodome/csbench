@@ -1880,13 +1880,11 @@ static void analyze_benchmark(struct bench_analysis *analysis) {
     const struct bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count != 0);
-    double *tmp = malloc(count * sizeof(*tmp));
     for (size_t i = 0; i < bench->meas_count; ++i) {
         assert(sb_len(bench->meas[i]) == count);
-        estimate_distr(bench->meas[i], count, tmp, g_nresamp,
+        estimate_distr(bench->meas[i], count, g_nresamp,
                        analysis->meas + i);
     }
-    free(tmp);
 }
 
 static void compare_benches(struct bench_results *results) {

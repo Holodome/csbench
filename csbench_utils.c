@@ -380,6 +380,16 @@ static uint32_t pcg32_fast(uint64_t *state) {
     return (uint32_t)(x >> (22 + count));
 }
 
+static int compare_doubles(const void *a, const void *b) {
+    double arg1 = *(const double *)a;
+    double arg2 = *(const double *)b;
+    if (arg1 < arg2)
+        return -1;
+    if (arg1 > arg2)
+        return 1;
+    return 0;
+}
+
 static void resample(const double *src, size_t count, double *dst) {
     uint64_t entropy = pcg32_fast(&g_rng_state);
     // Resample with replacement
@@ -391,6 +401,8 @@ static void resample(const double *src, size_t count, double *dst) {
 static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
                                   size_t nresamp, struct est *meane,
                                   struct est *st_deve) {
+    double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
+    double *tmp_rss = tmp_means + nresamp;
     double sum = 0;
     for (size_t i = 0; i < count; ++i)
         sum += src[i];
@@ -402,34 +414,27 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
         rss += a * a;
     }
     st_deve->point = sqrt(rss / count);
-    double min_mean = INFINITY;
-    double max_mean = -INFINITY;
-    double min_rss = INFINITY;
-    double max_rss = -INFINITY;
     for (size_t sample = 0; sample < nresamp; ++sample) {
         resample(src, count, tmp);
         sum = 0;
         for (size_t i = 0; i < count; ++i)
             sum += tmp[i];
         mean = sum / count;
-        if (mean < min_mean)
-            min_mean = mean;
-        if (mean > max_mean)
-            max_mean = mean;
+        tmp_means[sample] = mean;
         rss = 0.0;
         for (size_t i = 0; i < count; ++i) {
             double a = tmp[i] - mean;
             rss += a * a;
         }
-        if (rss < min_rss)
-            min_rss = rss;
-        if (rss > max_rss)
-            max_rss = rss;
+        tmp_rss[sample] = rss;
     }
-    meane->lower = min_mean;
-    meane->upper = max_mean;
-    st_deve->lower = sqrt(min_rss / count);
-    st_deve->upper = sqrt(max_rss / count);
+    qsort(tmp_means, nresamp, sizeof(*tmp_means), compare_doubles);
+    qsort(tmp_rss, nresamp, sizeof(*tmp_rss), compare_doubles);
+    meane->lower = tmp_means[25 * nresamp / 1000];
+    meane->upper = tmp_means[975 * nresamp / 1000];
+    st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / count);
+    st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / count);
+    free(tmp_means);
 }
 
 // Fisher–Yates shuffle algorithm implementation
@@ -441,16 +446,6 @@ void shuffle(size_t *arr, size_t count) {
         arr[i] = arr[j];
         arr[j] = tmp;
     }
-}
-
-static int compare_doubles(const void *a, const void *b) {
-    double arg1 = *(const double *)a;
-    double arg2 = *(const double *)b;
-    if (arg1 < arg2)
-        return -1;
-    if (arg1 > arg2)
-        return 1;
-    return 0;
 }
 
 // Performs Mann–Whitney U test.
@@ -565,8 +560,9 @@ static void classify_outliers(struct distr *distr) {
         outlier_variance(distr->mean.point, distr->st_dev.point, distr->count);
 }
 
-void estimate_distr(const double *data, size_t count, double *tmp,
-                    size_t nresamp, struct distr *distr) {
+void estimate_distr(const double *data, size_t count, size_t nresamp,
+                    struct distr *distr) {
+    double *tmp = malloc(sizeof(*tmp) * count);
     distr->data = data;
     distr->count = count;
     bootstrap_mean_st_dev(data, count, tmp, nresamp, &distr->mean,
@@ -583,4 +579,5 @@ void estimate_distr(const double *data, size_t count, double *tmp,
     distr->min = tmp[0];
     distr->max = tmp[count - 1];
     classify_outliers(distr);
+    free(tmp);
 }
