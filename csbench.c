@@ -1882,8 +1882,7 @@ static void analyze_benchmark(struct bench_analysis *analysis) {
     assert(count != 0);
     for (size_t i = 0; i < bench->meas_count; ++i) {
         assert(sb_len(bench->meas[i]) == count);
-        estimate_distr(bench->meas[i], count, g_nresamp,
-                       analysis->meas + i);
+        estimate_distr(bench->meas[i], count, g_nresamp, analysis->meas + i);
     }
 }
 
@@ -3420,7 +3419,7 @@ static void analyze_benches(const struct run_settings *settings,
             results->pair_p_values[i] = p;
         }
     }
-    if (g_baseline != -1) {
+    if (g_baseline != -1 && results->group_count != 0) {
         results->param_baseline_p_values = calloc(
             results->meas_count, sizeof(results->param_baseline_p_values));
         size_t param_count = results->group_analyses[0][0].group->count;
