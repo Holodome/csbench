@@ -1,5 +1,3 @@
-// csbench
-// command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
 //
@@ -103,7 +101,7 @@ struct bench_param {
 // This structure contains all information
 // supplied by user prior to benchmark start.
 struct cli_settings {
-    const char **cmds;
+    const char **args;
     const char *shell;
     struct meas *meas;
     struct input_policy input;
@@ -114,10 +112,10 @@ struct cli_settings {
 
 // Information gathered from user input (settings), parsed
 // and prepared for benchmarking.
-struct run_settings {
+struct run_info {
     struct cmd *cmds;
     struct cmd_group *cmd_groups;
-    struct meas *meas;
+    const struct meas *meas;
 };
 
 // Align this structure as attempt to avoid false sharing and make inconsistent
@@ -915,7 +913,7 @@ static void parse_cli_args(int argc, char **argv,
                 error("unknown option %s", argv[cursor]);
                 exit(EXIT_FAILURE);
             }
-            sb_push(settings->cmds, argv[cursor++]);
+            sb_push(settings->args, argv[cursor++]);
         }
     }
 
@@ -992,7 +990,7 @@ static void free_cli_settings(struct cli_settings *settings) {
             free(param->values[j]);
         sb_free(param->values);
     }
-    sb_free(settings->cmds);
+    sb_free(settings->args);
     sb_free(settings->meas);
     sb_free(settings->params);
 }
@@ -1245,7 +1243,7 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
     return true;
 }
 
-static void free_run_settings(struct run_settings *settings) {
+static void free_run_info(struct run_info *settings) {
     for (size_t i = 0; i < sb_len(settings->cmds); ++i) {
         struct cmd *cmd = settings->cmds + i;
         free(cmd->exec);
@@ -1281,9 +1279,9 @@ static void init_cmd(const struct input_policy *input, enum output_kind output,
     }
 }
 
-static bool init_run_settings(const struct cli_settings *cli,
-                              struct run_settings *settings) {
-    settings->meas = cli->meas;
+static bool init_run_info(const struct cli_settings *cli,
+                          struct run_info *info) {
+    info->meas = cli->meas;
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging, and
     // user will not care about not having progress bar
@@ -1291,7 +1289,7 @@ static bool init_run_settings(const struct cli_settings *cli,
         g_progress_bar = false;
     }
 
-    size_t cmd_count = sb_len(cli->cmds);
+    size_t cmd_count = sb_len(cli->args);
     if (cmd_count == 0) {
         error("no commands specified");
         return false;
@@ -1311,7 +1309,7 @@ static bool init_run_settings(const struct cli_settings *cli,
     }
 
     for (size_t i = 0; i < cmd_count; ++i) {
-        const char *cmd_str = cli->cmds[i];
+        const char *cmd_str = cli->args[i];
         bool found_param = 0;
         for (size_t j = 0; j < sb_len(cli->params); ++j) {
             const struct bench_param *param = cli->params + j;
@@ -1345,15 +1343,15 @@ static bool init_run_settings(const struct cli_settings *cli,
                 }
 
                 struct cmd cmd = {0};
-                init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
+                init_cmd(&input_policy, cli->output, info->meas, exec, argv,
                          strdup(buf), &cmd);
-                group.cmd_idxs[k] = sb_len(settings->cmds);
+                group.cmd_idxs[k] = sb_len(info->cmds);
                 group.var_values[k] = param_value;
-                sb_push(settings->cmds, cmd);
+                sb_push(info->cmds, cmd);
             }
             group.var_name = param->name;
             group.template = strdup(cmd_str);
-            sb_push(settings->cmd_groups, group);
+            sb_push(info->cmd_groups, group);
         }
 
         if (!found_param) {
@@ -1363,15 +1361,15 @@ static bool init_run_settings(const struct cli_settings *cli,
                 goto err_free_settings;
             }
             struct cmd cmd = {0};
-            init_cmd(&input_policy, cli->output, settings->meas, exec, argv,
+            init_cmd(&input_policy, cli->output, info->meas, exec, argv,
                      strdup(cmd_str), &cmd);
-            sb_push(settings->cmds, cmd);
+            sb_push(info->cmds, cmd);
         }
     }
     if (cli->baseline > 0) {
         size_t baseline = cli->baseline - 1;
-        size_t grp_count = sb_len(settings->cmd_groups);
-        size_t cmd_count = sb_len(settings->cmds);
+        size_t grp_count = sb_len(info->cmd_groups);
+        size_t cmd_count = sb_len(info->cmds);
         if (grp_count == 0) {
             // No parameterized benchmarks specified, just select the command
             if (baseline >= cmd_count) {
@@ -1393,7 +1391,7 @@ static bool init_run_settings(const struct cli_settings *cli,
     }
     return true;
 err_free_settings:
-    free_run_settings(settings);
+    free_run_info(info);
     return false;
 }
 
@@ -1912,9 +1910,9 @@ static void compare_benches(struct bench_results *results) {
     free(best);
 }
 
-static void analyze_cmd_groups(const struct run_settings *settings,
+static void analyze_cmd_groups(const struct run_info *info,
                                struct bench_results *results) {
-    size_t group_count = sb_len(settings->cmd_groups);
+    size_t group_count = sb_len(info->cmd_groups);
     if (group_count == 0)
         return;
 
@@ -1932,7 +1930,7 @@ static void analyze_cmd_groups(const struct run_settings *settings,
         if (meas->is_secondary)
             continue;
         for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
-            const struct cmd_group *group = settings->cmd_groups + grp_idx;
+            const struct cmd_group *group = info->cmd_groups + grp_idx;
             size_t cmd_count = group->count;
             assert(cmd_count != 0);
             struct group_analysis *analysis =
@@ -1945,8 +1943,7 @@ static void analyze_cmd_groups(const struct run_settings *settings,
             double slowest = -INFINITY, fastest = INFINITY;
             for (size_t cmd_idx = 0; cmd_idx < cmd_count; ++cmd_idx) {
                 const char *value = group->var_values[cmd_idx];
-                const struct cmd *cmd =
-                    settings->cmds + group->cmd_idxs[cmd_idx];
+                const struct cmd *cmd = info->cmds + group->cmd_idxs[cmd_idx];
                 size_t bench_idx = -1;
                 for (size_t i = 0; i < results->bench_count; ++i) {
                     if (results->benches[i].cmd == cmd) {
@@ -3356,17 +3353,17 @@ free_progress_bar:
     return success;
 }
 
-static bool execute_benches(const struct run_settings *settings,
+static bool execute_benches(const struct run_info *info,
                             struct bench_results *results) {
-    size_t bench_count = results->bench_count = sb_len(settings->cmds);
+    size_t bench_count = results->bench_count = sb_len(info->cmds);
     assert(bench_count != 0);
     results->benches = calloc(bench_count, sizeof(*results->benches));
     results->analyses = calloc(bench_count, sizeof(*results->analyses));
-    results->meas_count = sb_len(settings->meas);
-    results->meas = settings->meas;
+    results->meas_count = sb_len(info->meas);
+    results->meas = info->meas;
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         struct bench *bench = results->benches + bench_idx;
-        bench->cmd = settings->cmds + bench_idx;
+        bench->cmd = info->cmds + bench_idx;
         bench->meas_count = sb_len(bench->cmd->meas);
         assert(bench->meas_count != 0);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
@@ -3377,10 +3374,20 @@ static bool execute_benches(const struct run_settings *settings,
     return run_benches(results->analyses, bench_count);
 }
 
-static void analyze_benches(const struct run_settings *settings,
+// Load benchmark results from file instead of running it and generate info ad
+// hoc
+static bool load_bench_result(const char *file, struct run_info *info,
+                              struct bench_results *results) {
+    (void)file;
+    (void)info;
+    (void)results;
+    return true;
+}
+
+static void analyze_benches(const struct run_info *info,
                             struct bench_results *results) {
     compare_benches(results);
-    analyze_cmd_groups(settings, results);
+    analyze_cmd_groups(info, results);
     size_t meas_count = results->meas_count;
     size_t primary_meas_count = 0;
     for (size_t i = 0; i < meas_count; ++i)
@@ -3615,23 +3622,27 @@ static void free_bench_results(struct bench_results *results) {
     free(results->fastest_meas);
 }
 
+static bool make_report(const struct bench_results *results) {
+    print_analysis(results);
+    if (!do_export(results))
+        return false;
+    if (!do_visualize(results))
+        return false;
+    return true;
+}
+
 static bool run_app_bench(const struct cli_settings *cli) {
     bool success = false;
-    struct run_settings settings = {0};
-    if (!init_run_settings(cli, &settings))
+    struct run_info info = {0};
+    if (!init_run_info(cli, &info))
         return false;
-
     if (g_use_perf && !init_perf())
         goto err_free_settings;
-
     struct bench_results results = {0};
-    if (!execute_benches(&settings, &results))
+    if (!execute_benches(&info, &results))
         goto err_deinit_perf;
-    analyze_benches(&settings, &results);
-    print_analysis(&results);
-    if (!do_export(&results))
-        goto err_deinit_perf;
-    if (!do_visualize(&results))
+    analyze_benches(&info, &results);
+    if (!make_report(&results))
         goto err_deinit_perf;
     success = true;
 err_deinit_perf:
@@ -3639,12 +3650,17 @@ err_deinit_perf:
         deinit_perf();
     free_bench_results(&results);
 err_free_settings:
-    free_run_settings(&settings);
+    free_run_info(&info);
     return success;
 }
 
 static bool run_app_load(const struct cli_settings *settings) {
-    (void)settings;
+    struct run_info info = {0};
+    struct bench_results results = {0};
+    for (size_t i = 0; i < sb_len(settings->args); ++i) {
+        const char *file = settings->args[i];
+        load_bench_result(file, &info, &results);
+    }
     return true;
 }
 

@@ -135,7 +135,7 @@ struct meas {
     size_t primary_idx;
 };
 
-// Some default measurements. Although these definitions should be used only one
+// Default measurements. Although these definitions should be used only one
 // time, they are put here to make them clearer to see.
 #define MEAS_WALL_DEF                                                          \
     ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0})
@@ -398,8 +398,8 @@ void format_meas(char *buf, size_t buf_size, double value,
 const char *outliers_variance_str(double fraction);
 const char *big_o_str(enum big_o complexity);
 
-void estimate_distr(const double *data, size_t count, 
-                    size_t nresamp, struct distr *distr);
+void estimate_distr(const double *data, size_t count, size_t nresamp,
+                    struct distr *distr);
 
 double mwu(const double *a, size_t n1, const double *b, size_t n2);
 
