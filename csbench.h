@@ -237,8 +237,8 @@ struct bench {
 
 struct bench_analysis {
     struct bench *bench;
-    // array of size bench->meas_count
-    struct distr *meas;
+    struct distr *meas; // [meas_count]
+    const char *name;
 };
 
 enum big_o {

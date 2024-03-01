@@ -2128,7 +2128,7 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
             const struct bench_analysis *baseline;
             baseline = results->analyses + g_baseline;
             printf("baseline command ");
-            printf_colored(ANSI_BOLD, "%s\n", baseline->bench->cmd->str);
+            printf_colored(ANSI_BOLD, "%s\n", baseline->name);
             for (size_t j = 0; j < results->bench_count; ++j) {
                 const struct bench_analysis *analysis = results->analyses + j;
                 if (analysis == baseline)
@@ -2139,7 +2139,7 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                           analysis->meas[meas_idx].mean.point,
                           analysis->meas[meas_idx].st_dev.point, &ref,
                           &ref_st_dev);
-                printf_colored(ANSI_BOLD, "  %s", analysis->bench->cmd->str);
+                printf_colored(ANSI_BOLD, "  %s", analysis->name);
                 printf(" is ");
                 printf_colored(ANSI_BOLD_GREEN, "%.3f", ref);
                 printf(" ± ");
@@ -2249,7 +2249,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
             const struct bench_analysis *fastest =
                 results->analyses + fastest_idx;
             printf("fastest command ");
-            printf_colored(ANSI_BOLD, "%s\n", fastest->bench->cmd->str);
+            printf_colored(ANSI_BOLD, "%s\n", fastest->name);
             for (size_t j = 0; j < results->bench_count; ++j) {
                 const struct bench_analysis *analysis = results->analyses + j;
                 if (analysis == fastest)
@@ -2264,7 +2264,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                 printf(" times faster than ");
-                printf_colored(ANSI_BOLD, "%s", analysis->bench->cmd->str);
+                printf_colored(ANSI_BOLD, "%s", analysis->name);
                 if (results->bench_count == 2)
                     printf(" (p=%.2f)", results->pair_p_values[meas_idx]);
                 printf("\n");
@@ -2398,7 +2398,7 @@ static bool export_json(const struct bench_results *results,
 
     char buf[4096];
     size_t bench_count = results->bench_count;
-    const struct bench *benches = results->benches;
+    const struct bench_analysis *analyses = results->analyses;
     fprintf(f,
             "{ \"settings\": {"
             "\"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
@@ -2407,14 +2407,15 @@ static bool export_json(const struct bench_results *results,
             g_bench_stop.time_limit, g_bench_stop.runs, g_bench_stop.min_runs,
             g_bench_stop.max_runs, g_warmup_time, g_nresamp);
     for (size_t i = 0; i < bench_count; ++i) {
-        const struct bench *bench = benches + i;
+        const struct bench_analysis *analysis = analyses + i;
+        const struct bench *bench = analysis->bench;
         fprintf(f, "{ ");
         if (g_prepare)
             json_escape(buf, sizeof(buf), g_prepare);
         else
             *buf = '\0';
         fprintf(f, "\"prepare\": \"%s\", ", buf);
-        json_escape(buf, sizeof(buf), bench->cmd->str);
+        json_escape(buf, sizeof(buf), analysis->name);
         fprintf(f, "\"command\": \"%s\", ", buf);
         size_t run_count = bench->run_count;
         fprintf(f, "\"run_count\": %zu, ", bench->run_count);
@@ -2424,7 +2425,7 @@ static bool export_json(const struct bench_results *results,
                     j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"meas\": [");
         for (size_t j = 0; j < bench->meas_count; ++j) {
-            const struct meas *info = bench->cmd->meas + j;
+            const struct meas *info = results->meas + j;
             json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
             json_escape(buf, sizeof(buf), units_str(&info->units));
@@ -2501,7 +2502,7 @@ static void export_csv_bench_results(const struct bench_results *results,
     for (size_t i = 0; i < results->bench_count; ++i) {
         const struct distr *distr = results->analyses[i].meas + meas_idx;
         char buf[4096];
-        json_escape(buf, sizeof(buf), results->analyses[i].bench->cmd->str);
+        json_escape(buf, sizeof(buf), results->analyses[i].name);
         fprintf(f, "%s,", buf);
         fprintf(f, "%g,%g,%g,%g,%g,%g,", distr->mean.lower, distr->mean.point,
                 distr->mean.upper, distr->st_dev.lower, distr->st_dev.point,
@@ -2859,7 +2860,7 @@ static bool make_plots_readme(const struct bench_results *results) {
              ++bench_idx) {
             const struct bench_analysis *analysis =
                 results->analyses + bench_idx;
-            const char *cmd_str = analysis->bench->cmd->str;
+            const char *cmd_str = analysis->name;
             fprintf(f, "* [%s](kde_%zu_%zu.svg)\n", cmd_str, bench_idx,
                     meas_idx);
         }
@@ -2868,7 +2869,7 @@ static bool make_plots_readme(const struct bench_results *results) {
              ++bench_idx) {
             const struct bench_analysis *analysis =
                 results->analyses + bench_idx;
-            const char *cmd_str = analysis->bench->cmd->str;
+            const char *cmd_str = analysis->name;
             fprintf(f, "* [%s](kde_ext_%zu_%zu.svg)\n", cmd_str, bench_idx,
                     meas_idx);
         }
@@ -3195,7 +3196,8 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                     // Sometimes we would get -inf here
                     if (eta < 0.0)
                         eta = -eta;
-                    format_time(eta_buf, sizeof(eta_buf), eta);
+                    if (eta != INFINITY)
+                        format_time(eta_buf, sizeof(eta_buf), eta);
                 }
                 char total_buf[256];
                 snprintf(total_buf, sizeof(total_buf), "%zu",
@@ -3370,6 +3372,7 @@ static bool execute_benches(const struct run_info *info,
         struct bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
+        analysis->name = bench->cmd->str;
     }
     return run_benches(results->analyses, bench_count);
 }
