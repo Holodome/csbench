@@ -282,13 +282,15 @@ void error(const char *fmt, ...) {
 
 void csperror(const char *fmt) {
     int err = errno;
-    char buf[4096];
-    int len = snprintf(buf, sizeof(buf), "%s: ", fmt);
-    if (err >= 0 && err < sys_nerr)
-        snprintf(buf + len, sizeof(buf) - len, "%s", sys_errlist[err]);
-    else
-        snprintf(buf + len, sizeof(buf) - len, "unknown error %d", err);
-    error("%s", buf);
+    char errbuf[4096];
+    char *err_msg;
+#if _GNU_SOURCE
+    err_msg = strerror_r(err, errbuf, sizeof(errbuf));
+#else 
+    strerror_r(err, errbuf, sizeof(errbuf));
+    err_msg = errbuf;
+#endif
+    error("%s: %s", fmt, err_msg);
 }
 
 static void print_help_and_exit(int rc) {
@@ -3373,6 +3375,7 @@ static bool execute_benches(const struct run_info *info,
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
         analysis->name = cmd->str;
+        analysis->cmd = cmd;
     }
     return run_benches(results->analyses, bench_count);
 }
