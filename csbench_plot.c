@@ -93,7 +93,7 @@ struct prettify_plot {
 
 static void prettify_plot(const struct units *units, double min, double max,
                           struct prettify_plot *plot) {
-    if (log10(max / min) > 3.0)
+    if (log10(max / min) > 2.5)
         plot->logscale = 1;
 
     plot->multiplier = 1;
@@ -113,13 +113,13 @@ static void prettify_plot(const struct units *units, double min, double max,
         default:
             assert(0);
         }
-        if (max < 1e-6) {
+        if (max < 1e-6 * 5) {
             plot->units_str = "ns";
             plot->multiplier *= 1e9;
-        } else if (max < 1e-3) {
+        } else if (max < 1e-3 * 5) {
             plot->units_str = "us";
             plot->multiplier *= 1e6;
-        } else if (max < 1.0) {
+        } else if (max < 1.0 * 5) {
             plot->units_str = "ms";
             plot->multiplier *= 1e3;
         } else {
