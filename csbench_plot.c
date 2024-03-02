@@ -552,7 +552,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
                "x = np.arange(len(param_val))\n"
                "width = 1.0 / (len(times) + 1)\n"
                "multiplier = 0\n"
-               "fig, ax = plt.subplots(layout='constrained')\n"
+               "fig, ax = plt.subplots()\n"
                "for at, meas in times.items():\n"
                "  offset = width * multiplier\n"
                "  rects = ax.bar(x + offset, meas, width, label=at)\n"
@@ -561,8 +561,8 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
         fprintf(f, "ax.set_yscale('log')\n");
     fprintf(f,
             "ax.set_ylabel('%s [%s]')\n"
-            "ax.set_xticks(x + width, param_val)\n"
-            "ax.legend(loc='upper left')\n"
+            "ax.legend(loc='best')\n"
+            "plt.xticks(param_val)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             analyses[0].meas->name, prettify.units_str, output_filename);
 }

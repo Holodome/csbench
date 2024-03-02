@@ -3352,7 +3352,9 @@ free_progress_bar:
         pthread_join(progress_bar_thread, NULL);
         free_progress_bar(&progress_bar);
     }
-    sb_free(g_output_anchors);
+    struct output_anchor *anchors = g_output_anchors;
+    g_output_anchors = NULL;
+    free(anchors);
     return success;
 }
 
