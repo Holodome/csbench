@@ -142,8 +142,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
     }
 
     struct prettify_plot prettify = {0};
-    prettify_plot(&analyses[0].cmd->meas[meas_idx].units, min, max,
-                  &prettify);
+    prettify_plot(&analyses[0].cmd->meas[meas_idx].units, min, max, &prettify);
     fprintf(f, "data = [");
     for (size_t i = 0; i < count; ++i) {
         const struct bench_analysis *analysis = analyses + i;
@@ -562,7 +561,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
     fprintf(f,
             "ax.set_ylabel('%s [%s]')\n"
             "ax.legend(loc='best')\n"
-            "plt.xticks(param_val)\n"
+            "plt.xticks(x, param_val)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             analyses[0].meas->name, prettify.units_str, output_filename);
 }

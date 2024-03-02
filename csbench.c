@@ -230,6 +230,7 @@ static int g_nresamp = 100000;
 static bool g_use_perf = false;
 static bool g_progress_bar = false;
 static bool g_regr = false;
+static bool g_python_output = false;
 static int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
@@ -286,7 +287,7 @@ void csperror(const char *fmt) {
     char *err_msg;
 #if _GNU_SOURCE
     err_msg = strerror_r(err, errbuf, sizeof(errbuf));
-#else 
+#else
     strerror_r(err, errbuf, sizeof(errbuf));
     err_msg = errbuf;
 #endif
@@ -419,10 +420,14 @@ static void print_help_and_exit(int rc) {
         "to --color option.\n"
         "  --regr\n"
         "          Do linear regression based on benchmark parameters.\n"
-        " --baseline <n>\n"
+        "  --baseline <n>\n"
         "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
         "as baseline in comparison. If this option is not set, baseline will "
         "be chosen automatically.\n"
+        "  --python-output\n"
+        "          Do not silence python output. Intended for developers, as "
+        "users should not have to see python output as it should always work "
+        "correctly.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -869,6 +874,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--regr") == 0) {
             ++cursor;
             g_regr = true;
+        } else if (strcmp(argv[cursor], "--python-output") == 0) {
+            ++cursor;
+            g_python_output = true;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_arg(argv, &cursor, "--baseline", &str)) {
@@ -2582,9 +2590,10 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
         close(STDIN_FILENO);
         if (dup2(pipe_fds[0], STDIN_FILENO) == -1)
             _exit(-1);
-        // we don't need any output
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
+        if (!g_python_output) {
+            close(STDOUT_FILENO);
+            close(STDERR_FILENO);
+        }
         if (execlp("python3", "python3", NULL) == -1)
             _exit(-1);
     }
@@ -3135,8 +3144,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         if (abbr_names) {
             for (size_t i = 0; i < bar->count; ++i) {
                 printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n",
-                               bar->analyses[i].cmd->str);
+                printf_colored(ANSI_BOLD, "%s\n", bar->analyses[i].cmd->str);
             }
         }
     } else {
@@ -3354,7 +3362,7 @@ free_progress_bar:
     }
     struct output_anchor *anchors = g_output_anchors;
     g_output_anchors = NULL;
-    free(anchors);
+    sb_free(anchors);
     return success;
 }
 
