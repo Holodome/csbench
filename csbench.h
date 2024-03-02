@@ -227,7 +227,6 @@ struct distr {
 };
 
 struct bench {
-    const struct cmd *cmd;
     size_t run_count;
     int *exit_codes;
     size_t meas_count;
@@ -236,6 +235,7 @@ struct bench {
 };
 
 struct bench_analysis {
+    const struct cmd *cmd;
     struct bench *bench;
     struct distr *meas; // [meas_count]
     const char *name;

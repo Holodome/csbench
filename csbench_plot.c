@@ -142,7 +142,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
     }
 
     struct prettify_plot prettify = {0};
-    prettify_plot(&analyses[0].bench->cmd->meas[meas_idx].units, min, max,
+    prettify_plot(&analyses[0].cmd->meas[meas_idx].units, min, max,
                   &prettify);
     fprintf(f, "data = [");
     for (size_t i = 0; i < count; ++i) {
@@ -154,7 +154,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
         const struct bench_analysis *analysis = analyses + i;
-        fprintf(f, "'%s', ", analysis->bench->cmd->str);
+        fprintf(f, "'%s', ", analysis->cmd->str);
     }
     fprintf(f, "]\n"
                "import matplotlib as mpl\n"
@@ -167,7 +167,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analyses[0].bench->cmd->meas[meas_idx].name, prettify.units_str,
+            analyses[0].cmd->meas[meas_idx].name, prettify.units_str,
             output_filename);
 }
 
