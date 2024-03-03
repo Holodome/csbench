@@ -165,18 +165,6 @@ struct meas {
 #define MEAS_PERF_BRANCHM_DEF                                                  \
     ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0})
 
-// Description of command to benchmark.
-// Commands are executed using execve.
-struct cmd {
-    char *str;
-    char *exec;
-    char **argv;
-    struct input_policy input;
-    enum output_kind output;
-    const struct meas *meas;
-    bool has_custom_meas;
-};
-
 struct cmd_group {
     char *template;
     const char *var_name;
@@ -235,7 +223,6 @@ struct bench {
 };
 
 struct bench_analysis {
-    const struct cmd *cmd;
     struct bench *bench;
     struct distr *meas; // [meas_count]
     const char *name;
@@ -284,6 +271,30 @@ struct perf_cnt {
     uint64_t branches;
     uint64_t missed_branches;
     uint64_t instructions;
+};
+
+struct bench_results {
+    size_t bench_count;
+    size_t meas_count;
+    size_t group_count;
+    size_t primary_meas_count;
+    struct bench *benches;           // [bench_count]
+    struct bench_analysis *analyses; // [bench_count]
+    // Indexes of fastest benchmarks for each measurement
+    size_t *fastest_meas;                   // [meas_count]
+    const struct meas *meas;                // [meas_count]
+    struct group_analysis **group_analyses; // [meas_count][group_count]
+    // If there are only two benchmarks in total compute their p-value
+    double *pair_p_values; // [meas_count]
+    // If there are more that two benchmakrs but baseline is specified, compute
+    // p-value of each benchmark in reference to baseline. This could reuse
+    // 'pair_p_values', but because the logic is so different it is better to
+    // split them.
+    double **baseline_p_values; // [meas_count][bench_count]
+    // If there are two command groups with variables compute p-value for each
+    // parameter value
+    double **var_pair_p_values;      // [meas_count][var_count]
+    double ***var_baseline_p_values; // [meas_count][var_count][group_count]
 };
 
 #define sb_header(_a)                                                          \
@@ -368,7 +379,8 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 //
 
 void bar_plot(const struct bench_analysis *analyses, size_t count,
-              size_t meas_idx, const char *output_filename, FILE *f);
+              size_t meas_idx, const struct bench_results *results,
+              const char *output_filename, FILE *f);
 void group_bar_plot(const struct group_analysis *analyses, size_t count,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,

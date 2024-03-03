@@ -93,7 +93,7 @@ struct bench_stop_policy {
     int max_runs;
 };
 
-struct bench_param {
+struct bench_var {
     char *name;
     char **values;
 };
@@ -106,14 +106,21 @@ struct cli_settings {
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
-    struct bench_param *params;
+    struct bench_var *vars;
     int baseline;
 };
 
-// Information gathered from user input (settings), parsed
-// and prepared for benchmarking.
+struct bench_params {
+    char *str;
+    char *exec;
+    char **argv;
+    struct input_policy input;
+    enum output_kind output;
+    const struct meas *meas;
+};
+
 struct run_info {
-    struct cmd *cmds;
+    struct bench_params *params;
     struct cmd_group *cmd_groups;
     const struct meas *meas;
 };
@@ -146,7 +153,7 @@ struct progress_bar {
     struct progress_bar_bench *benches;
     size_t count;
     struct bench_analysis *analyses;
-    size_t max_cmd_len;
+    size_t max_name_len;
     struct progress_bar_state *states;
 };
 
@@ -155,34 +162,10 @@ struct progress_bar {
 struct bench_runner_thread_data {
     pthread_t id;
     struct bench_analysis *analyses;
+    const struct bench_params *params;
     const size_t *indexes;
     size_t *cursor;
     size_t max;
-};
-
-struct bench_results {
-    size_t bench_count;
-    size_t meas_count;
-    size_t group_count;
-    size_t primary_meas_count;
-    const struct cmd *cmds;
-    struct bench *benches;           // [bench_count]
-    struct bench_analysis *analyses; // [bench_count]
-    // Indexes of fastest benchmarks for each measurement
-    size_t *fastest_meas;                   // [meas_count]
-    const struct meas *meas;                // [meas_count]
-    struct group_analysis **group_analyses; // [meas_count][group_count]
-    // If there are only two benchmarks in total compute their p-value
-    double *pair_p_values; // [meas_count]
-    // If there are more that two benchmakrs but baseline is specified, compute
-    // p-value of each benchmark in reference to baseline. This could reuse
-    // 'pair_p_values', but because the logic is so different it is better to
-    // split them.
-    double **baseline_p_values; // [meas_count][bench_count]
-    // If there are two command groups with parameter compute p-value for each
-    // parameter value
-    double **param_pair_p_values;      // [meas_count][param_count]
-    double ***param_baseline_p_values; // [meas_count][param_count][group_count]
 };
 
 struct output_anchor {
@@ -209,7 +192,7 @@ struct plot_walker_args {
     size_t meas_idx;
     size_t bench_idx;
     size_t grp_idx;
-    size_t param_idx;
+    size_t var_value_idx;
 };
 
 enum app_mode {
@@ -231,6 +214,7 @@ static bool g_use_perf = false;
 static bool g_progress_bar = false;
 static bool g_regr = false;
 static bool g_python_output = false;
+static bool g_has_custom_meas = false;
 static int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
@@ -310,7 +294,7 @@ static void print_help_and_exit(int rc) {
            "          The command to benchmark. Can be a shell command line, "
            "like 'ls $(pwd) && echo 1', or a direct executable invocation, "
            "like 'sleep 0.5'. Former is not available when --shell none is "
-           "specified. Can contain parameters in the form 'sleep {n}', see "
+           "specified. Can contain variables in the form 'sleep {n}', see "
            "--scan family of options. If multiple commands are given, their "
            "comparison will be performed.\n"
            "\n");
@@ -368,11 +352,11 @@ static void print_help_and_exit(int rc) {
            "which case results will pretty printed. If <units> is 'none', no "
            "units are printed. Alternatively <units> can be any string.\n"
            "  --scan <i>/<n>/<m>[/<s>]\n"
-           "          Add parameter with name <i> running in range from <n> to "
+           "          Add variable with name <i> running in range from <n> to "
            "<m> with step <s>. <s> is optional, default is 1. Can be used from "
            "command in the form '{<i>}'.\n"
            "  --scan <i>/v[,...]\n"
-           "          Add parameter with name <i> running values from comma "
+           "          Add variable with name <i> running values from comma "
            "separated list <v>.\n"
            "  -j, --jobs <n>\n"
            "          Execute benchmarks in parallel with <n> threads. Default "
@@ -386,7 +370,7 @@ static void print_help_and_exit(int rc) {
     printf(
         "  --plot\n"
         "          Generate plots. For each benchmark KDE is generated in two "
-        "variants. For each parameter (--scan and --scanl) parameter values "
+        "variants. For each variable (--scan and --scanl) variable values "
         "are "
         "plotted against mean time. Single violin plot is produced if multiple "
         "commands are specified. For each measurement (--custom and others) "
@@ -419,7 +403,7 @@ static void print_help_and_exit(int rc) {
         "          Can be one of the 'never', 'always', 'auto', works similar "
         "to --color option.\n"
         "  --regr\n"
-        "          Do linear regression based on benchmark parameters.\n"
+        "          Do linear regression based on benchmark variables.\n"
         "  --baseline <n>\n"
         "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
         "as baseline in comparison. If this option is not set, baseline will "
@@ -491,7 +475,7 @@ err_free_name:
     return false;
 }
 
-static char **range_to_param_list(double low, double high, double step) {
+static char **range_to_var_value_list(double low, double high, double step) {
     assert(high > low);
     char **result = NULL;
     for (double cursor = low; cursor <= high + 0.000001; cursor += step) {
@@ -532,27 +516,24 @@ err_free_name:
     return false;
 }
 
-static char **parse_comma_separated(const char *scan_list) {
-    char **param_list = NULL;
-    const char *cursor = scan_list;
-    const char *end = scan_list + strlen(scan_list);
+static char **parse_comma_separated_value_list(const char *str) {
+    char **value_list = NULL;
+    const char *cursor = str;
+    const char *end = str + strlen(str);
     while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
-            sb_push(param_list, strdup(cursor));
+            sb_push(value_list, strdup(cursor));
             break;
         }
-
-        size_t param_len = next - cursor;
-        char *param = malloc(param_len + 1);
-        memcpy(param, cursor, param_len);
-        param[param_len] = '\0';
-        sb_push(param_list, param);
-
+        size_t value_len = next - cursor;
+        char *value = malloc(value_len + 1);
+        memcpy(value, cursor, value_len);
+        value[value_len] = '\0';
+        sb_push(value_list, value);
         cursor = next + 1;
     }
-
-    return param_list;
+    return value_list;
 }
 
 static void parse_units_str(const char *str, struct units *units) {
@@ -581,7 +562,7 @@ static void parse_units_str(const char *str, struct units *units) {
 }
 
 static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
-    char **list = parse_comma_separated(opts);
+    char **list = parse_comma_separated_value_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
@@ -817,23 +798,23 @@ static void parse_cli_args(int argc, char **argv,
                 error("invalid --scan argument");
                 exit(EXIT_FAILURE);
             }
-            char **param_list = range_to_param_list(low, high, step);
-            struct bench_param param = {0};
-            param.name = name;
-            param.values = param_list;
-            sb_push(settings->params, param);
+            char **value_list = range_to_var_value_list(low, high, step);
+            struct bench_var var = {0};
+            var.name = name;
+            var.values = value_list;
+            sb_push(settings->vars, var);
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
             char *name, *scan_list;
             if (!parse_comma_separated_settings(str, &name, &scan_list)) {
                 error("invalid --scanl argument");
                 exit(EXIT_FAILURE);
             }
-            char **param_list = parse_comma_separated(scan_list);
+            char **value_list = parse_comma_separated_value_list(scan_list);
             free(scan_list);
-            struct bench_param param = {0};
-            param.name = name;
-            param.values = param_list;
-            sb_push(settings->params, param);
+            struct bench_var var = {0};
+            var.name = name;
+            var.values = value_list;
+            sb_push(settings->vars, var);
         } else if (opt_arg(argv, &cursor, "--jobs", &str) ||
                    opt_arg(argv, &cursor, "-j", &str)) {
             char *str_end;
@@ -994,29 +975,29 @@ static void parse_cli_args(int argc, char **argv,
 }
 
 static void free_cli_settings(struct cli_settings *settings) {
-    for (size_t i = 0; i < sb_len(settings->params); ++i) {
-        struct bench_param *param = settings->params + i;
-        free(param->name);
-        for (size_t j = 0; j < sb_len(param->values); ++j)
-            free(param->values[j]);
-        sb_free(param->values);
+    for (size_t i = 0; i < sb_len(settings->vars); ++i) {
+        struct bench_var *var = settings->vars + i;
+        free(var->name);
+        for (size_t j = 0; j < sb_len(var->values); ++j)
+            free(var->values[j]);
+        sb_free(var->values);
     }
     sb_free(settings->args);
     sb_free(settings->meas);
-    sb_free(settings->params);
+    sb_free(settings->vars);
 }
 
-static bool replace_param_str(char *buf, size_t buf_size, const char *src,
-                              const char *name, const char *value) {
+static bool replace_var_str(char *buf, size_t buf_size, const char *src,
+                            const char *name, const char *value) {
     char *buf_end = buf + buf_size;
-    size_t param_name_len = strlen(name);
+    size_t var_name_len = strlen(name);
     char *wr_cursor = buf;
     const char *rd_cursor = src;
     while (*rd_cursor) {
         if (*rd_cursor == '{' &&
-            strncmp(rd_cursor + 1, name, param_name_len) == 0 &&
-            rd_cursor[param_name_len + 1] == '}') {
-            rd_cursor += 2 + param_name_len;
+            strncmp(rd_cursor + 1, name, var_name_len) == 0 &&
+            rd_cursor[var_name_len + 1] == '}') {
+            rd_cursor += 2 + var_name_len;
             size_t len = strlen(value);
             if (wr_cursor + len >= buf_end)
                 return false;
@@ -1254,40 +1235,35 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
     return true;
 }
 
-static void free_run_info(struct run_info *settings) {
-    for (size_t i = 0; i < sb_len(settings->cmds); ++i) {
-        struct cmd *cmd = settings->cmds + i;
-        free(cmd->exec);
-        for (char **word = cmd->argv; *word; ++word)
+static void free_run_info(struct run_info *run_info) {
+    for (size_t i = 0; i < sb_len(run_info->params); ++i) {
+        struct bench_params *params = run_info->params + i;
+        free(params->exec);
+        for (char **word = params->argv; *word; ++word)
             free(*word);
-        sb_free(cmd->argv);
-        free(cmd->str);
+        sb_free(params->argv);
+        free(params->str);
     }
-    for (size_t i = 0; i < sb_len(settings->cmd_groups); ++i) {
-        struct cmd_group *group = settings->cmd_groups + i;
+    sb_free(run_info->params);
+    for (size_t i = 0; i < sb_len(run_info->cmd_groups); ++i) {
+        struct cmd_group *group = run_info->cmd_groups + i;
         free(group->template);
         free(group->cmd_idxs);
         free(group->var_values);
     }
-    sb_free(settings->cmds);
-    sb_free(settings->cmd_groups);
+    sb_free(run_info->cmd_groups);
 }
 
-static void init_cmd(const struct input_policy *input, enum output_kind output,
-                     const struct meas *meas, char *exec, char **argv,
-                     char *cmd_str, struct cmd *cmd) {
-    cmd->input = *input;
-    cmd->output = output;
-    cmd->meas = meas;
-    cmd->exec = exec;
-    cmd->argv = argv;
-    cmd->str = cmd_str;
-    for (size_t i = 0; i < sb_len(meas); ++i) {
-        if (meas[i].kind == MEAS_CUSTOM) {
-            cmd->has_custom_meas = 1;
-            break;
-        }
-    }
+static void init_bench_params(const struct input_policy *input,
+                              enum output_kind output, const struct meas *meas,
+                              char *exec, char **argv, char *cmd_str,
+                              struct bench_params *params) {
+    params->input = *input;
+    params->output = output;
+    params->meas = meas;
+    params->exec = exec;
+    params->argv = argv;
+    params->str = cmd_str;
 }
 
 static bool init_run_info(const struct cli_settings *cli,
@@ -1321,25 +1297,25 @@ static bool init_run_info(const struct cli_settings *cli,
 
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->args[i];
-        bool found_param = 0;
-        for (size_t j = 0; j < sb_len(cli->params); ++j) {
-            const struct bench_param *param = cli->params + j;
+        bool found_var = 0;
+        for (size_t j = 0; j < sb_len(cli->vars); ++j) {
+            const struct bench_var *var = cli->vars + j;
             char buf[4096];
-            snprintf(buf, sizeof(buf), "{%s}", param->name);
+            snprintf(buf, sizeof(buf), "{%s}", var->name);
             if (strstr(cmd_str, buf) == NULL)
                 continue;
 
-            size_t its_in_group = sb_len(param->values);
+            size_t its_in_group = sb_len(var->values);
             assert(its_in_group != 0);
-            found_param = true;
+            found_var = true;
             struct cmd_group group = {0};
             group.count = its_in_group;
             group.cmd_idxs = calloc(its_in_group, sizeof(*group.cmd_idxs));
             group.var_values = calloc(its_in_group, sizeof(*group.var_values));
             for (size_t k = 0; k < its_in_group; ++k) {
-                const char *param_value = param->values[k];
-                if (!replace_param_str(buf, sizeof(buf), cmd_str, param->name,
-                                       param_value)) {
+                const char *var_value = var->values[k];
+                if (!replace_var_str(buf, sizeof(buf), cmd_str, var->name,
+                                     var_value)) {
                     free(group.cmd_idxs);
                     free(group.var_values);
                     goto err_free_settings;
@@ -1353,34 +1329,34 @@ static bool init_run_info(const struct cli_settings *cli,
                     goto err_free_settings;
                 }
 
-                struct cmd cmd = {0};
-                init_cmd(&input_policy, cli->output, info->meas, exec, argv,
-                         strdup(buf), &cmd);
-                group.cmd_idxs[k] = sb_len(info->cmds);
-                group.var_values[k] = param_value;
-                sb_push(info->cmds, cmd);
+                struct bench_params bench_params = {0};
+                init_bench_params(&input_policy, cli->output, info->meas, exec,
+                                  argv, strdup(buf), &bench_params);
+                group.cmd_idxs[k] = sb_len(info->params);
+                group.var_values[k] = var_value;
+                sb_push(info->params, bench_params);
             }
-            group.var_name = param->name;
+            group.var_name = var->name;
             group.template = strdup(cmd_str);
             sb_push(info->cmd_groups, group);
         }
 
-        if (!found_param) {
+        if (!found_var) {
             char *exec = NULL, **argv = NULL;
             if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
                 error("failed to initialize command '%s'", cmd_str);
                 goto err_free_settings;
             }
-            struct cmd cmd = {0};
-            init_cmd(&input_policy, cli->output, info->meas, exec, argv,
-                     strdup(cmd_str), &cmd);
-            sb_push(info->cmds, cmd);
+            struct bench_params bench_params = {0};
+            init_bench_params(&input_policy, cli->output, info->meas, exec,
+                              argv, strdup(cmd_str), &bench_params);
+            sb_push(info->params, bench_params);
         }
     }
     if (cli->baseline > 0) {
         size_t baseline = cli->baseline - 1;
         size_t grp_count = sb_len(info->cmd_groups);
-        size_t cmd_count = sb_len(info->cmds);
+        size_t cmd_count = sb_len(info->params);
         if (grp_count == 0) {
             // No parameterized benchmarks specified, just select the command
             if (baseline >= cmd_count) {
@@ -1398,6 +1374,12 @@ static bool init_run_info(const struct cli_settings *cli,
                 goto err_free_settings;
             }
             g_baseline = baseline;
+        }
+    }
+    for (size_t i = 0; i < sb_len(cli->meas); ++i) {
+        if (cli->meas[i].kind == MEAS_CUSTOM) {
+            g_has_custom_meas = 1;
+            break;
         }
     }
     return true;
@@ -1461,8 +1443,8 @@ static void apply_output_policy(enum output_kind policy) {
     }
 }
 
-static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
-                    struct perf_cnt *pmc) {
+static int exec_cmd(const struct bench_params *params, int stdout_fd,
+                    struct rusage *rusage, struct perf_cnt *pmc) {
     bool success = true;
     pid_t pid = fork();
     if (pid == -1) {
@@ -1471,7 +1453,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
     }
 
     if (pid == 0) {
-        apply_input_policy(&cmd->input);
+        apply_input_policy(&params->input);
         // special handling when stdout needs to be piped
         if (stdout_fd != -1) {
             int fd = open("/dev/null", O_RDWR);
@@ -1484,7 +1466,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
                 _exit(-1);
             close(fd);
         } else {
-            apply_output_policy(cmd->output);
+            apply_output_policy(params->output);
         }
         if (pmc != NULL) {
             sigset_t set;
@@ -1493,7 +1475,7 @@ static int exec_cmd(const struct cmd *cmd, int stdout_fd, struct rusage *rusage,
             int sig;
             sigwait(&set, &sig);
         }
-        if (execvp(cmd->exec, cmd->argv) == -1)
+        if (execvp(params->exec, params->argv) == -1)
             _exit(-1);
     } else {
         if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
@@ -1658,10 +1640,11 @@ out:
 // 4. Optionally check that command exit code is not zero
 // 5. Execute custom measurements if specified
 // 6. Save measurements specified in benchmark settings
-static bool exec_and_measure(const struct cmd *cmd, struct bench *bench) {
+static bool exec_and_measure(const struct bench_params *params,
+                             struct bench *bench) {
     bool success = false;
     int stdout_fd = -1;
-    if (cmd->has_custom_meas) {
+    if (g_has_custom_meas) {
         stdout_fd = tmpfile_fd();
         if (stdout_fd == -1)
             goto out;
@@ -1673,14 +1656,14 @@ static bool exec_and_measure(const struct cmd *cmd, struct bench *bench) {
     if (g_use_perf)
         pmc = &pmc_;
     volatile double wall_clock_start = get_time();
-    volatile int rc = exec_cmd(cmd, stdout_fd, &rusage, pmc);
+    volatile int rc = exec_cmd(params, stdout_fd, &rusage, pmc);
     volatile double wall_clock_end = get_time();
 
     if (rc == -1)
         goto out;
 
     if (!g_allow_nonzero && rc != 0) {
-        error("command '%s' finished with non-zero exit code (%d)", cmd->str,
+        error("command '%s' finished with non-zero exit code (%d)", params->str,
               rc);
         goto out;
     }
@@ -1688,7 +1671,7 @@ static bool exec_and_measure(const struct cmd *cmd, struct bench *bench) {
     ++bench->run_count;
     sb_push(bench->exit_codes, rc);
     for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
-        const struct meas *meas = cmd->meas + meas_idx;
+        const struct meas *meas = params->meas + meas_idx;
         double val = 0.0;
         switch (meas->kind) {
         case MEAS_WALL:
@@ -1735,7 +1718,8 @@ static bool exec_and_measure(const struct cmd *cmd, struct bench *bench) {
             break;
         case MEAS_CUSTOM:
             assert(stdout_fd > 0);
-            if (!do_custom_measurement(cmd->meas + meas_idx, stdout_fd, &val))
+            if (!do_custom_measurement(params->meas + meas_idx, stdout_fd,
+                                       &val))
                 goto out;
             break;
         default:
@@ -1751,7 +1735,7 @@ out:
     return success;
 }
 
-static bool warmup(const struct cmd *cmd) {
+static bool warmup(const struct bench_params *cmd) {
     double time_limit = g_warmup_time;
     if (time_limit <= 0.0)
         return true;
@@ -1821,7 +1805,8 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
 // During the benchmark run, progress bar is notified about current state
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
-static bool run_benchmark(const struct cmd *cmd, struct bench *bench) {
+static bool run_benchmark(const struct bench_params *params,
+                          struct bench *bench) {
     // Check if we should run fixed number of times.
     if (g_bench_stop.runs != 0) {
         progress_bar_start(bench->progress, get_time());
@@ -1831,7 +1816,7 @@ static bool run_benchmark(const struct cmd *cmd, struct bench *bench) {
                 progress_bar_abort(bench->progress);
                 return false;
             }
-            if (!exec_and_measure(cmd, bench)) {
+            if (!exec_and_measure(params, bench)) {
                 progress_bar_abort(bench->progress);
                 return false;
             }
@@ -1856,7 +1841,7 @@ static bool run_benchmark(const struct cmd *cmd, struct bench *bench) {
                 progress_bar_abort(bench->progress);
                 return false;
             }
-            if (!exec_and_measure(cmd, bench)) {
+            if (!exec_and_measure(params, bench)) {
                 progress_bar_abort(bench->progress);
                 return false;
             }
@@ -1953,10 +1938,11 @@ static void analyze_cmd_groups(const struct run_info *info,
             double slowest = -INFINITY, fastest = INFINITY;
             for (size_t cmd_idx = 0; cmd_idx < cmd_count; ++cmd_idx) {
                 const char *value = group->var_values[cmd_idx];
-                const struct cmd *cmd = info->cmds + group->cmd_idxs[cmd_idx];
+                const struct bench_params *params =
+                    info->params + group->cmd_idxs[cmd_idx];
                 size_t bench_idx = -1;
                 for (size_t i = 0; i < results->bench_count; ++i) {
-                    if (results->cmds + i == cmd) {
+                    if (info->params + i == params) {
                         bench_idx = i;
                         break;
                     }
@@ -2083,9 +2069,8 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
                                  const struct bench_results *results) {
     const struct bench *bench = analysis->bench;
     size_t run_count = bench->run_count;
-    const struct cmd *cmd = analysis->cmd;
     printf("command ");
-    printf_colored(ANSI_BOLD, "%s\n", cmd->str);
+    printf_colored(ANSI_BOLD, "%s\n", analysis->name);
     // Print runs count only if it not explicitly specified, otherwise it is
     // printed in 'print_analysis'
     if (g_bench_stop.runs == 0)
@@ -2093,7 +2078,7 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
     print_exit_code_info(bench);
     if (results->primary_meas_count != 0) {
         for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
-            const struct meas *meas = cmd->meas + meas_idx;
+            const struct meas *meas = results->meas + meas_idx;
             if (meas->is_secondary)
                 continue;
 
@@ -2104,17 +2089,18 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
             const struct distr *distr = analysis->meas + meas_idx;
             print_distr(distr, &meas->units);
             for (size_t j = 0; j < bench->meas_count; ++j) {
-                if (cmd->meas[j].is_secondary &&
-                    cmd->meas[j].primary_idx == meas_idx)
-                    print_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
-                                   &cmd->meas[j].units, ANSI_BOLD_BLUE,
+                if (results->meas[j].is_secondary &&
+                    results->meas[j].primary_idx == meas_idx)
+                    print_estimate(results->meas[j].name,
+                                   &analysis->meas[j].mean,
+                                   &results->meas[j].units, ANSI_BOLD_BLUE,
                                    ANSI_BRIGHT_BLUE);
             }
             print_outliers(&distr->outliers, run_count);
         }
     } else {
         for (size_t i = 0; i < bench->meas_count; ++i) {
-            const struct meas *info = cmd->meas + i;
+            const struct meas *info = results->meas + i;
             print_estimate(info->name, &analysis->meas[i].mean, &info->units,
                            ANSI_BOLD_BLUE, ANSI_BRIGHT_BLUE);
         }
@@ -2218,8 +2204,8 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                     printf_colored(ANSI_BRIGHT_GREEN, "%.3f", ref_st_dev);
                     printf(" times faster than baseline");
                     printf(" (p=%.2f)",
-                           results->param_baseline_p_values[meas_idx][val_idx]
-                                                           [grp_idx]);
+                           results->var_baseline_p_values[meas_idx][val_idx]
+                                                         [grp_idx]);
                     printf("\n");
                 }
             }
@@ -2349,7 +2335,7 @@ static void print_cmd_comparison(const struct bench_results *results) {
                     printf(" times faster than %c", (int)('A' + grp_idx));
                     if (results->group_count == 2)
                         printf(" (p=%.2f)",
-                               results->param_pair_p_values[meas_idx][val_idx]);
+                               results->var_pair_p_values[meas_idx][val_idx]);
                     printf("\n");
                 }
             }
@@ -2684,10 +2670,10 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                 return false;
         }
         if (results->group_count == 2) {
-            size_t param_count = results->group_analyses[meas_idx][0].cmd_count;
-            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+            size_t value_count = results->group_analyses[meas_idx][0].cmd_count;
+            for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
                 args->plot_kind = PLOT_KDE_CMPG;
-                args->param_idx = param_idx;
+                args->var_value_idx = val_idx;
                 if (!walk(args))
                     return false;
             }
@@ -2730,7 +2716,7 @@ static void format_plot_name(char *buf, size_t buf_size,
         break;
     case PLOT_KDE_CMPG:
         snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", g_out_dir,
-                 args->param_idx, args->meas_idx, extension);
+                 args->var_value_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
         snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", g_out_dir, args->meas_idx,
@@ -2744,7 +2730,7 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     size_t meas_idx = args->meas_idx;
     size_t grp_idx = args->grp_idx;
     size_t bench_idx = args->bench_idx;
-    size_t param_idx = args->param_idx;
+    size_t var_value_idx = args->var_value_idx;
     const struct bench_results *results = args->results;
     const struct bench_analysis *analyses = results->analyses;
     const struct meas *meas = results->meas + meas_idx;
@@ -2752,7 +2738,7 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
-        bar_plot(analyses, bench_count, meas_idx, svg_buf, f);
+        bar_plot(analyses, bench_count, meas_idx, results, svg_buf, f);
         break;
     case PLOT_GROUP_BAR:
         group_bar_plot(results->group_analyses[meas_idx], results->group_count,
@@ -2784,9 +2770,10 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
         const struct group_analysis *a = results->group_analyses[meas_idx];
         const struct group_analysis *b = results->group_analyses[meas_idx] + 1;
         assert(a->cmd_count == b->cmd_count);
-        kde_cmp_plot(analyses[a->group->cmd_idxs[param_idx]].meas + meas_idx,
-                     analyses[b->group->cmd_idxs[param_idx]].meas + meas_idx,
-                     meas, svg_buf, f);
+        kde_cmp_plot(
+            analyses[a->group->cmd_idxs[var_value_idx]].meas + meas_idx,
+            analyses[b->group->cmd_idxs[var_value_idx]].meas + meas_idx, meas,
+            svg_buf, f);
         break;
     }
     case PLOT_KDE_CMP:
@@ -2935,11 +2922,11 @@ static void html_outliers(const struct outliers *outliers, size_t run_count,
 }
 
 static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
-                       size_t meas_idx, FILE *f) {
+                       size_t meas_idx, const struct bench_results *results,
+                       FILE *f) {
     const struct distr *distr = analysis->meas + meas_idx;
     const struct bench *bench = analysis->bench;
-    const struct meas *info = analysis->cmd->meas + meas_idx;
-    const struct cmd *cmd = analysis->cmd;
+    const struct meas *info = results->meas + meas_idx;
     assert(!info->is_secondary);
     fprintf(f,
             "<div class=\"row\">"
@@ -2966,9 +2953,10 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
     for (size_t j = 0; j < bench->meas_count; ++j) {
-        if (cmd->meas[j].is_secondary && cmd->meas[j].primary_idx == meas_idx)
-            html_estimate(cmd->meas[j].name, &analysis->meas[j].mean,
-                          &cmd->meas->units, f);
+        if (results->meas[j].is_secondary &&
+            results->meas[j].primary_idx == meas_idx)
+            html_estimate(results->meas[j].name, &analysis->meas[j].mean,
+                          &results->meas->units, f);
     }
     fprintf(f, "</tbody></table>");
     html_outliers(&distr->outliers, bench->run_count, f);
@@ -3047,11 +3035,10 @@ static void html_cmd_group(const struct group_analysis *analysis,
     fprintf(f, "</div></div>");
 }
 
-static void html_paramter_analysis(const struct bench_results *results,
-                                   FILE *f) {
+static void html_var_analysis(const struct bench_results *results, FILE *f) {
     if (!results->group_count)
         return;
-    fprintf(f, "<div><h2>parameter analysis</h2>");
+    fprintf(f, "<div><h2>variable analysis</h2>");
     for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
         if (results->meas[meas_idx].is_secondary)
             continue;
@@ -3065,7 +3052,7 @@ static void html_paramter_analysis(const struct bench_results *results,
                     "</div></div></div></div>",
                     results->meas[meas_idx].name, meas_idx, meas_idx);
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            fprintf(f, "<div><h3>group '%s' with parameter %s</h3>",
+            fprintf(f, "<div><h3>group '%s' with value %s</h3>",
                     results->group_analyses[0][grp_idx].group->template,
                     results->group_analyses[0][grp_idx].group->var_name);
             const struct meas *meas = results->meas + meas_idx;
@@ -3096,28 +3083,28 @@ static void html_report(const struct bench_results *results, FILE *f) {
             "</style></head>");
     fprintf(f, "<body>");
 
-    html_paramter_analysis(results, f);
+    html_var_analysis(results, f);
     html_compare(results, f);
     for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
         const struct bench *bench = results->benches + bench_idx;
         const struct bench_analysis *analysis = results->analyses + bench_idx;
-        fprintf(f, "<div><h2>command '%s'</h2>", analysis->cmd->str);
+        fprintf(f, "<div><h2>command '%s'</h2>", analysis->name);
         for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
-            const struct meas *info = analysis->cmd->meas + meas_idx;
+            const struct meas *info = results->meas + meas_idx;
             if (info->is_secondary)
                 continue;
-            html_distr(analysis, bench_idx, meas_idx, f);
+            html_distr(analysis, bench_idx, meas_idx, results, f);
         }
         fprintf(f, "</div>");
     }
     fprintf(f, "</body>");
 }
 
-static bool run_bench(struct bench_analysis *analysis) {
-    g_rng_state = time(NULL) * 2 + 1;
-    if (!warmup(analysis->cmd))
+static bool run_bench(const struct bench_params *params,
+                      struct bench_analysis *analysis) {
+    if (!warmup(params))
         return false;
-    if (!run_benchmark(analysis->cmd, analysis->bench))
+    if (!run_benchmark(params, analysis->bench))
         return false;
     analyze_benchmark(analysis);
     return true;
@@ -3125,26 +3112,28 @@ static bool run_bench(struct bench_analysis *analysis) {
 
 static void *bench_runner_worker(void *raw) {
     struct bench_runner_thread_data *data = raw;
+    g_rng_state = time(NULL) * 2 + 1;
     for (;;) {
-        size_t idx = atomic_fetch_inc(data->cursor);
-        if (idx >= data->max)
+        size_t task_idx = atomic_fetch_inc(data->cursor);
+        if (task_idx >= data->max)
             break;
 
-        if (!run_bench(data->analyses + data->indexes[idx]))
+        size_t bench_idx = data->indexes[task_idx];
+        if (!run_bench(data->params + bench_idx, data->analyses + bench_idx))
             return (void *)-1;
     }
     return NULL;
 }
 
 static void redraw_progress_bar(struct progress_bar *bar) {
-    bool abbr_names = bar->max_cmd_len > 40;
+    bool abbr_names = bar->max_name_len > 40;
     int length = 40;
     if (!bar->was_drawn) {
         bar->was_drawn = true;
         if (abbr_names) {
             for (size_t i = 0; i < bar->count; ++i) {
                 printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n", bar->analyses[i].cmd->str);
+                printf_colored(ANSI_BOLD, "%s\n", bar->analyses[i].name);
             }
         }
     } else {
@@ -3164,8 +3153,8 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         if (abbr_names)
             printf("%c ", (int)('A' + i));
         else
-            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_cmd_len,
-                           bar->analyses[i].cmd->str);
+            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len,
+                           bar->analyses[i].name);
         char buf[41] = {0};
         int c = data.bar * length / 100;
         if (c > length)
@@ -3250,9 +3239,9 @@ static void init_progress_bar(struct bench_analysis *analyses, size_t count,
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
         analyses[i].bench->progress = bar->benches + i;
-        size_t cmd_len = strlen(analyses[i].cmd->str);
-        if (cmd_len > bar->max_cmd_len)
-            bar->max_cmd_len = cmd_len;
+        size_t name_len = strlen(analyses[i].name);
+        if (name_len > bar->max_name_len)
+            bar->max_name_len = name_len;
     }
 }
 
@@ -3278,7 +3267,8 @@ static void free_progress_bar(struct progress_bar *bar) {
 // 3. Output of benchmarks when progress bar is used is captured (anchored), see
 //  'error' and 'csperror' functions. This is done in order to not corrupt the
 //  output in case such message is printed.
-static bool run_benches(struct bench_analysis *analyses, size_t count) {
+static bool run_benches(const struct bench_params *params,
+                        struct bench_analysis *analyses, size_t count) {
     bool success = false;
     struct progress_bar progress_bar = {0};
     pthread_t progress_bar_thread;
@@ -3300,7 +3290,7 @@ static bool run_benches(struct bench_analysis *analyses, size_t count) {
             g_output_anchors[0].id = pthread_self();
         }
         for (size_t i = 0; i < count; ++i) {
-            if (!run_bench(analyses + i))
+            if (!run_bench(params + i, analyses + i))
                 goto free_progress_bar;
         }
         success = true;
@@ -3323,6 +3313,7 @@ static bool run_benches(struct bench_analysis *analyses, size_t count) {
     // select the task from 'task_indexes' array.
     size_t cursor = 0;
     for (size_t i = 0; i < thread_count; ++i) {
+        thread_data[i].params = params;
         thread_data[i].analyses = analyses;
         thread_data[i].indexes = task_indexes;
         thread_data[i].cursor = &cursor;
@@ -3368,26 +3359,24 @@ free_progress_bar:
 
 static bool execute_benches(const struct run_info *info,
                             struct bench_results *results) {
-    size_t bench_count = results->bench_count = sb_len(info->cmds);
+    size_t bench_count = results->bench_count = sb_len(info->params);
     assert(bench_count != 0);
     results->benches = calloc(bench_count, sizeof(*results->benches));
     results->analyses = calloc(bench_count, sizeof(*results->analyses));
     results->meas_count = sb_len(info->meas);
     results->meas = info->meas;
-    results->cmds = info->cmds;
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         struct bench *bench = results->benches + bench_idx;
-        const struct cmd *cmd = info->cmds + bench_idx;
-        bench->meas_count = sb_len(cmd->meas);
+        const struct bench_params *params = info->params + bench_idx;
+        bench->meas_count = sb_len(params->meas);
         assert(bench->meas_count != 0);
         bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
         struct bench_analysis *analysis = results->analyses + bench_idx;
         analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
-        analysis->name = cmd->str;
-        analysis->cmd = cmd;
+        analysis->name = params->str;
     }
-    return run_benches(results->analyses, bench_count);
+    return run_benches(info->params, results->analyses, bench_count);
 }
 
 // Load benchmark results from file instead of running it and generate info ad
@@ -3443,54 +3432,57 @@ static void analyze_benches(const struct run_info *info,
         }
     }
     if (g_baseline != -1 && results->group_count != 0) {
-        results->param_baseline_p_values = calloc(
-            results->meas_count, sizeof(results->param_baseline_p_values));
-        size_t param_count = results->group_analyses[0][0].group->count;
+        results->var_baseline_p_values =
+            calloc(results->meas_count, sizeof(results->var_baseline_p_values));
+        size_t var_value_count = results->group_analyses[0][0].group->count;
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            results->param_baseline_p_values[meas_idx] =
-                calloc(param_count, sizeof(*results->param_baseline_p_values));
-            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+            results->var_baseline_p_values[meas_idx] = calloc(
+                var_value_count, sizeof(*results->var_baseline_p_values));
+            for (size_t value_idx = 0; value_idx < var_value_count;
+                 ++value_idx) {
                 const struct distr *d1 =
                     &results->group_analyses[meas_idx][g_baseline]
-                         .data[param_idx]
+                         .data[value_idx]
                          .analysis->meas[meas_idx];
-                results->param_baseline_p_values[meas_idx][param_idx] =
+                results->var_baseline_p_values[meas_idx][value_idx] =
                     calloc(results->group_count,
-                           sizeof(**results->param_baseline_p_values));
+                           sizeof(**results->var_baseline_p_values));
                 for (size_t grp_idx = 0; grp_idx < results->group_count;
                      ++grp_idx) {
                     const struct distr *d2 =
                         &results->group_analyses[meas_idx][grp_idx]
-                             .data[param_idx]
+                             .data[value_idx]
                              .analysis->meas[meas_idx];
                     if (d1 == d2)
                         continue;
                     double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                    results->param_baseline_p_values[meas_idx][param_idx]
-                                                    [grp_idx] = p;
+                    results
+                        ->var_baseline_p_values[meas_idx][value_idx][grp_idx] =
+                        p;
                 }
             }
         }
     } else if (results->group_count == 2) {
-        size_t param_count = results->group_analyses[0][0].group->count;
-        results->param_pair_p_values =
-            calloc(results->meas_count, sizeof(*results->param_pair_p_values));
+        size_t var_value_count = results->group_analyses[0][0].group->count;
+        results->var_pair_p_values =
+            calloc(results->meas_count, sizeof(*results->var_pair_p_values));
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            results->param_pair_p_values[meas_idx] =
-                calloc(param_count, sizeof(**results->param_pair_p_values));
-            for (size_t param_idx = 0; param_idx < param_count; ++param_idx) {
+            results->var_pair_p_values[meas_idx] =
+                calloc(var_value_count, sizeof(**results->var_pair_p_values));
+            for (size_t value_idx = 0; value_idx < var_value_count;
+                 ++value_idx) {
                 const struct distr *d1 = &results->group_analyses[meas_idx][0]
-                                              .data[param_idx]
+                                              .data[value_idx]
                                               .analysis->meas[meas_idx];
                 const struct distr *d2 = &results->group_analyses[meas_idx][1]
-                                              .data[param_idx]
+                                              .data[value_idx]
                                               .analysis->meas[meas_idx];
                 double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                results->param_pair_p_values[meas_idx][param_idx] = p;
+                results->var_pair_p_values[meas_idx][value_idx] = p;
             }
         }
     }
@@ -3579,13 +3571,13 @@ static bool do_visualize(const struct bench_results *results) {
 static void free_bench_results(struct bench_results *results) {
     // these ifs are needed because results can be partially initialized in
     // case of failure
-    if (results->param_pair_p_values) {
+    if (results->var_pair_p_values) {
         for (size_t i = 0; i < results->meas_count; ++i) {
             if (results->meas[i].is_secondary)
                 continue;
-            free(results->param_pair_p_values[i]);
+            free(results->var_pair_p_values[i]);
         }
-        free(results->param_pair_p_values);
+        free(results->var_pair_p_values);
     }
     if (results->baseline_p_values) {
         for (size_t i = 0; i < results->meas_count; ++i) {
@@ -3595,16 +3587,16 @@ static void free_bench_results(struct bench_results *results) {
         }
         free(results->baseline_p_values);
     }
-    if (results->param_baseline_p_values) {
-        size_t param_count = results->group_analyses[0][0].cmd_count;
+    if (results->var_baseline_p_values) {
+        size_t var_value_count = results->group_analyses[0][0].cmd_count;
         for (size_t i = 0; i < results->meas_count; ++i) {
             if (results->meas[i].is_secondary)
                 continue;
-            for (size_t j = 0; j < param_count; ++j)
-                free(results->param_baseline_p_values[i][j]);
-            free(results->param_baseline_p_values[i]);
+            for (size_t j = 0; j < var_value_count; ++j)
+                free(results->var_baseline_p_values[i][j]);
+            free(results->var_baseline_p_values[i]);
         }
-        free(results->param_baseline_p_values);
+        free(results->var_baseline_p_values);
     }
     if (results->benches) {
         for (size_t i = 0; i < results->bench_count; ++i) {

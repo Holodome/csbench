@@ -131,7 +131,8 @@ static void prettify_plot(const struct units *units, double min, double max,
 }
 
 void bar_plot(const struct bench_analysis *analyses, size_t count,
-              size_t meas_idx, const char *output_filename, FILE *f) {
+              size_t meas_idx, const struct bench_results *results,
+              const char *output_filename, FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
         double v = analyses[i].meas[meas_idx].mean.point;
@@ -142,7 +143,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
     }
 
     struct prettify_plot prettify = {0};
-    prettify_plot(&analyses[0].cmd->meas[meas_idx].units, min, max, &prettify);
+    prettify_plot(&results->meas[meas_idx].units, min, max, &prettify);
     fprintf(f, "data = [");
     for (size_t i = 0; i < count; ++i) {
         const struct bench_analysis *analysis = analyses + i;
@@ -153,7 +154,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
         const struct bench_analysis *analysis = analyses + i;
-        fprintf(f, "'%s', ", analysis->cmd->str);
+        fprintf(f, "'%s', ", analysis->name);
     }
     fprintf(f, "]\n"
                "import matplotlib as mpl\n"
@@ -166,7 +167,7 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analyses[0].cmd->meas[meas_idx].name, prettify.units_str,
+            results->meas[meas_idx].name, prettify.units_str,
             output_filename);
 }
 
@@ -532,7 +533,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
     struct prettify_plot prettify = {0};
     prettify_plot(&analyses[0].meas->units, min, max, &prettify);
 
-    fprintf(f, "param_val = [");
+    fprintf(f, "var_values = [");
     for (size_t i = 0; i < analyses[0].group->count; ++i)
         fprintf(f, "'%s', ", analyses[0].group->var_values[i]);
     fprintf(f, "]\n");
@@ -548,7 +549,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n"
                "import numpy as np\n"
-               "x = np.arange(len(param_val))\n"
+               "x = np.arange(len(var_values))\n"
                "width = 1.0 / (len(times) + 1)\n"
                "multiplier = 0\n"
                "fig, ax = plt.subplots()\n"
@@ -561,7 +562,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
     fprintf(f,
             "ax.set_ylabel('%s [%s]')\n"
             "ax.legend(loc='best')\n"
-            "plt.xticks(x, param_val)\n"
+            "plt.xticks(x, var_values)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             analyses[0].meas->name, prettify.units_str, output_filename);
 }
