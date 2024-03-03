@@ -167,15 +167,15 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            results->meas[meas_idx].name, prettify.units_str,
-            output_filename);
+            results->meas[meas_idx].name, prettify.units_str, output_filename);
 }
 
 void group_plot(const struct group_analysis *analyses, size_t count,
-                const char *output_filename, FILE *f) {
+                const struct bench_var *var, const char *output_filename,
+                FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i) {
+        for (size_t i = 0; i < var->value_count; ++i) {
             double v = analyses[grp_idx].data[i].mean;
             if (v > max)
                 max = v;
@@ -188,7 +188,7 @@ void group_plot(const struct group_analysis *analyses, size_t count,
     prettify_plot(&analyses[0].meas->units, min, max, &prettify);
 
     fprintf(f, "x = [");
-    for (size_t i = 0; i < analyses[0].cmd_count; ++i) {
+    for (size_t i = 0; i < var->value_count; ++i) {
         double v = analyses[0].data[i].value_double;
         fprintf(f, "%g, ", v);
     }
@@ -196,7 +196,7 @@ void group_plot(const struct group_analysis *analyses, size_t count,
     fprintf(f, "y = [");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f, "[");
-        for (size_t i = 0; i < analyses[grp_idx].cmd_count; ++i)
+        for (size_t i = 0; i < var->value_count; ++i)
             fprintf(f, "%g, ",
                     analyses[grp_idx].data[i].mean * prettify.multiplier);
         fprintf(f, "],");
@@ -209,9 +209,7 @@ void group_plot(const struct group_analysis *analyses, size_t count,
         double low = analyses[grp_idx].data[0].value_double;
         if (low < lowest_x)
             lowest_x = low;
-        double high = analyses[grp_idx]
-                          .data[analyses[grp_idx].cmd_count - 1]
-                          .value_double;
+        double high = analyses[grp_idx].data[var->value_count - 1].value_double;
         if (high > highest_x)
             highest_x = high;
     }
@@ -250,8 +248,8 @@ void group_plot(const struct group_analysis *analyses, size_t count,
             "plt.xlabel('%s')\n"
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analyses[0].group->var_name, analyses[0].meas->name,
-            prettify.units_str, output_filename);
+            var->name, analyses[0].meas->name, prettify.units_str,
+            output_filename);
 }
 
 static void construct_kde(const struct distr *distr, double *kde,
@@ -518,10 +516,11 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot) {
 }
 
 void group_bar_plot(const struct group_analysis *analyses, size_t count,
-                    const char *output_filename, FILE *f) {
+                    const struct bench_var *var, const char *output_filename,
+                    FILE *f) {
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
-        for (size_t j = 0; j < analyses[i].group->count; ++j) {
+        for (size_t j = 0; j < var->value_count; ++j) {
             double v = analyses[i].data[j].mean;
             if (v > max)
                 max = v;
@@ -534,8 +533,8 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
     prettify_plot(&analyses[0].meas->units, min, max, &prettify);
 
     fprintf(f, "var_values = [");
-    for (size_t i = 0; i < analyses[0].group->count; ++i)
-        fprintf(f, "'%s', ", analyses[0].group->var_values[i]);
+    for (size_t i = 0; i < var->value_count; ++i)
+        fprintf(f, "'%s', ", var->values[i]);
     fprintf(f, "]\n");
     fprintf(f, "times = {");
     for (size_t i = 0; i < count; ++i) {

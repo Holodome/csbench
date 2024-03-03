@@ -165,12 +165,17 @@ struct meas {
 #define MEAS_PERF_BRANCHM_DEF                                                  \
     ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0})
 
-struct cmd_group {
+// Variable which can be substitued in benchmark string.
+struct bench_var {
+    char *name;
+    char **values;
+    size_t value_count;
+};
+
+struct bench_var_group {
     char *template;
-    const char *var_name;
     size_t count;
-    size_t *cmd_idxs;
-    const char **var_values;
+    size_t *cmd_idxs; // [count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -257,8 +262,7 @@ struct ols_regress {
 
 struct group_analysis {
     const struct meas *meas;
-    const struct cmd_group *group;
-    size_t cmd_count;
+    const struct bench_var_group *group;
     struct cmd_in_group_data *data;
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
@@ -274,6 +278,7 @@ struct perf_cnt {
 };
 
 struct bench_results {
+    const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
@@ -382,9 +387,11 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
               size_t meas_idx, const struct bench_results *results,
               const char *output_filename, FILE *f);
 void group_bar_plot(const struct group_analysis *analyses, size_t count,
+        const struct bench_var *var,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
-                const char *output_filename, FILE *f);
+                const struct bench_var *var, const char *output_filename,
+                FILE *f);
 void kde_plot(const struct distr *distr, const struct meas *meas,
               const char *output_filename, FILE *f);
 void kde_plot_ext(const struct distr *distr, const struct meas *meas,
