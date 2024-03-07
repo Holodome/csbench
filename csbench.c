@@ -3277,8 +3277,14 @@ static bool run_benches(const struct bench_params *params,
             g_output_anchors[0].id = pthread_self();
         }
         for (size_t i = 0; i < count; ++i) {
-            if (!run_bench(params + i, analyses + i))
+            if (!run_bench(params + i, analyses + i)) {
+                // In case of benchmark abort we have to explicitly tell
+                // progress bar that all benchmarks have finished, otherwise it
+                // will spin continiously waiting for it
+                for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
+                    progress_bar.benches[bench_idx].finished = true;
                 goto free_progress_bar;
+            }
         }
         success = true;
         goto free_progress_bar;
