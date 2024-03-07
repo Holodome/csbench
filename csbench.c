@@ -2221,10 +2221,12 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                      ++grp_idx) {
                     if (grp_idx == (size_t)g_baseline)
                         continue;
+                    const struct point_err_est *est =
+                        results->group_baseline_speedup[meas_idx] + grp_idx;
                     printf("%s%c is ", ident, (int)('A' + grp_idx));
-                    printf_colored(
-                        ANSI_BOLD_GREEN, "%.3f",
-                        results->group_baseline_speedup[meas_idx][grp_idx]);
+                    printf_colored(ANSI_BOLD_GREEN, "%.3f", est->point);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", est->err);
                     printf(" times faster than baseline\n");
                 }
             }
@@ -3519,9 +3521,10 @@ static void analyze_benches(const struct run_info *info,
                     results->group_analyses[meas_idx] + grp_idx;
                 if (group == baseline_group)
                     continue;
-                double accum = 1;
-                for (size_t val_idx = 0; val_idx < results->var->value_count;
-                     ++val_idx) {
+                double mean_accum = 1;
+                double st_dev_accum = 0.0;
+                size_t n = results->var->value_count;
+                for (size_t val_idx = 0; val_idx < n; ++val_idx) {
                     const struct distr *baseline_distr =
                         baseline_group->data[val_idx].analysis->meas + meas_idx;
                     const struct distr *distr =
@@ -3531,11 +3534,18 @@ static void analyze_benches(const struct run_info *info,
                     ref_speed(baseline_distr->mean.point,
                               baseline_distr->st_dev.point, distr->mean.point,
                               distr->st_dev.point, &ref, &ref_st_dev);
-                    accum *= ref;
+                    mean_accum *= ref;
+                    double a = pow(ref, 1.0 / n - 1) * ref_st_dev;
+                    st_dev_accum += a * a;
                 }
                 // geometric mean
-                double av = pow(accum, 1.0 / results->var->value_count);
-                results->group_baseline_speedup[meas_idx][grp_idx] = av;
+                double av = pow(mean_accum, 1.0 / n);
+                double av_st_dev = av / n * sqrt(st_dev_accum);
+
+                struct point_err_est *est =
+                    results->group_baseline_speedup[meas_idx] + grp_idx;
+                est->point = av;
+                est->err = av_st_dev;
             }
         }
     }

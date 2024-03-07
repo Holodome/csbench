@@ -276,6 +276,12 @@ struct perf_cnt {
     uint64_t instructions;
 };
 
+// Point estimate with error. Standard deviation is used as error.
+struct point_err_est {
+    double point;
+    double err;
+};
+
 struct bench_results {
     const struct bench_var *var;
     size_t bench_count;
@@ -299,9 +305,10 @@ struct bench_results {
     // parameter value
     double **var_pair_p_values;      // [meas_count][var_count]
     double ***var_baseline_p_values; // [meas_count][var_count][group_count]
+
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
-    double **group_baseline_speedup; // [meas_idx][group_count]
+    struct point_err_est **group_baseline_speedup; // [meas_idx][group_count]
 };
 
 #define sb_header(_a)                                                          \
