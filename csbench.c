@@ -997,7 +997,8 @@ static void free_cli_settings(struct cli_settings *settings) {
 }
 
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
-                            const char *name, const char *value) {
+                            const char *name, const char *value,
+                            bool *replaced) {
     char *buf_end = buf + buf_size;
     size_t var_name_len = strlen(name);
     char *wr_cursor = buf;
@@ -1012,6 +1013,8 @@ static bool replace_var_str(char *buf, size_t buf_size, const char *src,
                 return false;
             memcpy(wr_cursor, value, len);
             wr_cursor += len;
+
+            *replaced = true;
         } else {
             if (wr_cursor >= buf_end)
                 return false;
@@ -1315,10 +1318,18 @@ static bool init_run_info(const struct cli_settings *cli,
             for (size_t k = 0; k < value_count; ++k) {
                 const char *var_value = var->values[k];
                 char *exec = NULL, **argv = NULL;
+                bool replaced = false;
                 if (!replace_var_str(buf, sizeof(buf), cmd_str, var->name,
-                                     var_value) ||
+                                     var_value, &replaced) ||
+                    !replaced ||
                     !init_cmd_exec(cli->shell, buf, &exec, &argv)) {
-                    error("failed to initialize command '%s'", buf);
+                    if (replaced) {
+                        error("failed to initialize command '%s'", buf);
+                    } else {
+                        error("command string '%s' does not contain variable "
+                              "substitutions",
+                              buf);
+                    }
                     free(group.cmd_idxs);
                     goto err_free_settings;
                 }
