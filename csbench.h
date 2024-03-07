@@ -291,7 +291,8 @@ struct bench_results {
     struct bench *benches;           // [bench_count]
     struct bench_analysis *analyses; // [bench_count]
     // Indexes of fastest benchmarks for each measurement
-    size_t *fastest_meas;                   // [meas_count]
+    size_t *fastest;                   // [meas_count]
+    size_t **fastest_val; // [meas_count][val_count]
     const struct meas *meas;                // [meas_count]
     struct group_analysis **group_analyses; // [meas_count][group_count]
     // If there are only two benchmarks in total compute their p-value
@@ -303,9 +304,12 @@ struct bench_results {
     double **baseline_p_values; // [meas_count][bench_count]
     // If there are two command groups with variables compute p-value for each
     // parameter value
-    double **var_pair_p_values;      // [meas_count][var_count]
-    double ***var_baseline_p_values; // [meas_count][var_count][group_count]
+    double **var_pair_p_values;      // [meas_count][val_count]
+    double ***var_baseline_p_values; // [meas_count][val_count][group_count]
 
+    struct point_err_est **speedup; // [meas_count][bench_count]
+    struct point_err_est **
+        *var_speedup; // [meas_count][val_count][group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
     struct point_err_est **group_baseline_speedup; // [meas_idx][group_count]
