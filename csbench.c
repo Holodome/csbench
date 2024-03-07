@@ -2210,6 +2210,23 @@ static void print_cmd_comparison_baseline(const struct bench_results *results) {
                                analysis->regress.a);
                     }
                 }
+            } else {
+                printf("on average ");
+                const char *ident = "";
+                if (results->group_count > 2) {
+                    printf("\n");
+                    ident = "  ";
+                }
+                for (size_t grp_idx = 0; grp_idx < results->group_count;
+                     ++grp_idx) {
+                    if (grp_idx == (size_t)g_baseline)
+                        continue;
+                    printf("%s%c is ", ident, (int)('A' + grp_idx));
+                    printf_colored(
+                        ANSI_BOLD_GREEN, "%.3f",
+                        results->group_baseline_speedup[meas_idx][grp_idx]);
+                    printf(" times faster than baseline\n");
+                }
             }
         }
     }
@@ -3486,6 +3503,42 @@ static void analyze_benches(const struct run_info *info,
             }
         }
     }
+
+    if (g_baseline != -1 && results->group_count > 1 && !g_regr) {
+        results->group_baseline_speedup = calloc(
+            results->meas_count, sizeof(*results->group_baseline_speedup));
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            results->group_baseline_speedup[meas_idx] =
+                calloc(results->group_count,
+                       sizeof(**results->group_baseline_speedup));
+            const struct group_analysis *baseline_group =
+                results->group_analyses[meas_idx] + g_baseline;
+            for (size_t grp_idx = 0; grp_idx < results->group_count;
+                 ++grp_idx) {
+                const struct group_analysis *group =
+                    results->group_analyses[meas_idx] + grp_idx;
+                if (group == baseline_group)
+                    continue;
+                double accum = 1;
+                for (size_t val_idx = 0; val_idx < results->var->value_count;
+                     ++val_idx) {
+                    const struct distr *baseline_distr =
+                        baseline_group->data[val_idx].analysis->meas + meas_idx;
+                    const struct distr *distr =
+                        group->data[val_idx].analysis->meas + meas_idx;
+
+                    double ref, ref_st_dev;
+                    ref_speed(baseline_distr->mean.point,
+                              baseline_distr->st_dev.point, distr->mean.point,
+                              distr->st_dev.point, &ref, &ref_st_dev);
+                    accum *= ref;
+                }
+                // geometric mean
+                double av = pow(accum, 1.0 / results->var->value_count);
+                results->group_baseline_speedup[meas_idx][grp_idx] = av;
+            }
+        }
+    }
 }
 
 static void print_analysis(const struct bench_results *results) {
@@ -3502,6 +3555,7 @@ static void print_analysis(const struct bench_results *results) {
     }
     for (size_t i = 0; i < results->bench_count; ++i)
         print_benchmark_info(results->analyses + i, results);
+
     if (g_baseline == -1)
         print_cmd_comparison(results);
     else
@@ -3619,6 +3673,11 @@ static void free_bench_results(struct bench_results *results) {
             free(results->group_analyses[i]);
         }
         free(results->group_analyses);
+    }
+    if (results->group_baseline_speedup) {
+        for (size_t i = 0; i < results->meas_count; ++i)
+            free(results->group_baseline_speedup[i]);
+        free(results->group_baseline_speedup);
     }
     free(results->pair_p_values);
     free(results->fastest_meas);

@@ -299,6 +299,9 @@ struct bench_results {
     // parameter value
     double **var_pair_p_values;      // [meas_count][var_count]
     double ***var_baseline_p_values; // [meas_count][var_count][group_count]
+    // Geometric mean of speedup of each benchmark group when baseline is
+    // specified
+    double **group_baseline_speedup; // [meas_idx][group_count]
 };
 
 #define sb_header(_a)                                                          \
