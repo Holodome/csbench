@@ -539,7 +539,7 @@ void group_bar_plot(const struct group_analysis *analyses, size_t count,
     fprintf(f, "times = {");
     for (size_t i = 0; i < count; ++i) {
         fprintf(f, "  '%s': [", analyses[i].group->template);
-        for (size_t j = 0; j < analyses[i].group->count; ++j)
+        for (size_t j = 0; j < var->value_count; ++j)
             fprintf(f, "%g, ", analyses[i].data[j].mean * prettify.multiplier);
         fprintf(f, "],\n");
     }

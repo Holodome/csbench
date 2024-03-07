@@ -174,8 +174,7 @@ struct bench_var {
 
 struct bench_var_group {
     char *template;
-    size_t count;
-    size_t *cmd_idxs; // [count]
+    size_t *cmd_idxs; // [var->value_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -387,8 +386,8 @@ void bar_plot(const struct bench_analysis *analyses, size_t count,
               size_t meas_idx, const struct bench_results *results,
               const char *output_filename, FILE *f);
 void group_bar_plot(const struct group_analysis *analyses, size_t count,
-        const struct bench_var *var,
-                    const char *output_filename, FILE *f);
+                    const struct bench_var *var, const char *output_filename,
+                    FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const struct bench_var *var, const char *output_filename,
                 FILE *f);

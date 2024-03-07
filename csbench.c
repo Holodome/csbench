@@ -1311,7 +1311,6 @@ static bool init_run_info(const struct cli_settings *cli,
             char buf[4096];
             size_t value_count = var->value_count;
             struct bench_var_group group = {0};
-            group.count = value_count;
             group.cmd_idxs = calloc(value_count, sizeof(*group.cmd_idxs));
             for (size_t k = 0; k < value_count; ++k) {
                 const char *var_value = var->values[k];
@@ -1348,16 +1347,13 @@ static bool init_run_info(const struct cli_settings *cli,
         size_t baseline = cli->baseline - 1;
         size_t grp_count = sb_len(info->groups);
         size_t cmd_count = sb_len(info->params);
-        if (grp_count == 0) {
+        if (grp_count <= 1) {
             // No parameterized benchmarks specified, just select the command
             if (baseline >= cmd_count) {
                 error("baseline number is too big");
                 goto err_free_settings;
             }
             g_baseline = baseline;
-        } else if (grp_count == 1) {
-            // User specified baseline, but used a parameterized benchmark.
-            // Silently do nothing
         } else {
             // Multiple parameterized benchmarks
             if (baseline >= grp_count) {
@@ -2459,8 +2455,8 @@ static void export_csv_group_results(const struct bench_results *results,
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t i = 0; i < analyses[meas_idx][0].group->count; ++i) {
-        fprintf(f, "%s,", analyses[meas_idx][0].data[i].value);
+    for (size_t i = 0; i < results->var->value_count; ++i) {
+        fprintf(f, "%s,", results->var->values[i]);
         for (size_t j = 0; j < results->group_count; ++j) {
             fprintf(f, "%g", analyses[meas_idx][j].data[i].mean);
             if (j != results->group_count - 1)
@@ -3383,11 +3379,13 @@ static void analyze_benches(const struct run_info *info,
     if (g_baseline != -1) {
         results->baseline_p_values =
             calloc(results->meas_count, sizeof(*results->baseline_p_values));
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx)
+            results->baseline_p_values[meas_idx] = calloc(
+                results->bench_count, sizeof(**results->baseline_p_values));
+
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            results->baseline_p_values[meas_idx] = calloc(
-                results->bench_count, sizeof(**results->baseline_p_values));
             const struct distr *d1 =
                 &results->analyses[g_baseline].meas[meas_idx];
             for (size_t bench_idx = 0; bench_idx < results->bench_count;
@@ -3412,24 +3410,28 @@ static void analyze_benches(const struct run_info *info,
             results->pair_p_values[i] = p;
         }
     }
-    if (g_baseline != -1 && results->group_count != 0) {
+    if (g_baseline != -1 && results->group_count > 1) {
+        size_t var_value_count = results->var->value_count;
         results->var_baseline_p_values =
             calloc(results->meas_count, sizeof(results->var_baseline_p_values));
-        size_t var_value_count = results->group_analyses[0][0].group->count;
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+            results->var_baseline_p_values[meas_idx] = calloc(
+                var_value_count, sizeof(*results->var_baseline_p_values));
+            for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx)
+                results->var_baseline_p_values[meas_idx][value_idx] =
+                    calloc(results->group_count,
+                           sizeof(**results->var_baseline_p_values));
+        }
+
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             if (results->meas[meas_idx].is_secondary)
                 continue;
-            results->var_baseline_p_values[meas_idx] = calloc(
-                var_value_count, sizeof(*results->var_baseline_p_values));
             for (size_t value_idx = 0; value_idx < var_value_count;
                  ++value_idx) {
                 const struct distr *d1 =
                     &results->group_analyses[meas_idx][g_baseline]
                          .data[value_idx]
                          .analysis->meas[meas_idx];
-                results->var_baseline_p_values[meas_idx][value_idx] =
-                    calloc(results->group_count,
-                           sizeof(**results->var_baseline_p_values));
                 for (size_t grp_idx = 0; grp_idx < results->group_count;
                      ++grp_idx) {
                     const struct distr *d2 =
@@ -3446,7 +3448,7 @@ static void analyze_benches(const struct run_info *info,
             }
         }
     } else if (results->group_count == 2) {
-        size_t var_value_count = results->group_analyses[0][0].group->count;
+        size_t var_value_count = results->var->value_count;
         results->var_pair_p_values =
             calloc(results->meas_count, sizeof(*results->var_pair_p_values));
         for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
@@ -3554,16 +3556,12 @@ static void free_bench_results(struct bench_results *results) {
     // case of failure
     if (results->var_pair_p_values) {
         for (size_t i = 0; i < results->meas_count; ++i) {
-            if (results->meas[i].is_secondary)
-                continue;
             free(results->var_pair_p_values[i]);
         }
         free(results->var_pair_p_values);
     }
     if (results->baseline_p_values) {
         for (size_t i = 0; i < results->meas_count; ++i) {
-            if (results->meas[i].is_secondary)
-                continue;
             free(results->baseline_p_values[i]);
         }
         free(results->baseline_p_values);
@@ -3571,8 +3569,6 @@ static void free_bench_results(struct bench_results *results) {
     if (results->var_baseline_p_values) {
         size_t var_value_count = results->var->value_count;
         for (size_t i = 0; i < results->meas_count; ++i) {
-            if (results->meas[i].is_secondary)
-                continue;
             for (size_t j = 0; j < var_value_count; ++j)
                 free(results->var_baseline_p_values[i][j]);
             free(results->var_baseline_p_values[i]);

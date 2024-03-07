@@ -208,3 +208,12 @@ $b ls pwd --csv > /dev/null || die
 [ -f "$dist_dir/bench_0.csv" ] && [ -f "$dist_dir/bench_1.csv" ] && \
 [ -f "$dist_dir/bench_2.csv" ] && [ -f "$dist_dir/bench_raw_0.csv" ] && \
 [ -f "$dist_dir/bench_raw_1.csv" ] || die
+
+#
+# check that baseline works
+#
+
+distclean
+$b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=1 > /dev/null || die
+distclean
+$b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=3 > /dev/null || die
