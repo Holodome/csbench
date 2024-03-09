@@ -281,9 +281,9 @@ struct point_err_est {
     double err;
 };
 
-// Analysis for a single measurement for all benchmarks. We don't do
+// Analysis for a single measurement kind for all benchmarks. We don't do
 // inter-measurement analysis, so this is more or less self-contained.
-struct bench_meas_results {
+struct bench_meas_analysis {
     // Make it easy to pass this structure around as base is always needed
     struct bench_results *base;
     const struct meas *meas;
@@ -318,10 +318,10 @@ struct bench_results {
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
-    struct bench *benches;                   // [bench_count]
-    struct bench_analysis *analyses;         // [bench_count]
-    const struct meas *meas;                 // [meas_count]
-    struct bench_meas_results *meas_results; // [meas_count]
+    struct bench *benches;                     // [bench_count]
+    struct bench_analysis *bench_analyses;     // [bench_count]
+    const struct meas *meas;                   // [meas_count]
+    struct bench_meas_analysis *meas_analyses; // [meas_count]
 };
 
 #define sb_header(_a)                                                          \
@@ -405,9 +405,9 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 // csbench_plot.c
 //
 
-void bar_plot(const struct bench_meas_results *results,
+void bar_plot(const struct bench_meas_analysis *analysis,
               const char *output_filename, FILE *f);
-void group_bar_plot(const struct bench_meas_results *results,
+void group_bar_plot(const struct bench_meas_analysis *analysis,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const struct meas *meas, const struct bench_var *var,

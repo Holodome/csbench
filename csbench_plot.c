@@ -130,12 +130,12 @@ static void prettify_plot(const struct units *units, double min, double max,
     }
 }
 
-void bar_plot(const struct bench_meas_results *results,
+void bar_plot(const struct bench_meas_analysis *analysis,
               const char *output_filename, FILE *f) {
-    size_t count = results->base->bench_count;
+    size_t count = analysis->base->bench_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
-        double v = results->benches[i]->mean.point;
+        double v = analysis->benches[i]->mean.point;
         if (v > max)
             max = v;
         if (v < min)
@@ -143,16 +143,16 @@ void bar_plot(const struct bench_meas_results *results,
     }
 
     struct prettify_plot prettify = {0};
-    prettify_plot(&results->meas->units, min, max, &prettify);
+    prettify_plot(&analysis->meas->units, min, max, &prettify);
     fprintf(f, "data = [");
     for (size_t i = 0; i < count; ++i)
         fprintf(f, "%g, ",
-                results->benches[i]->mean.point * prettify.multiplier);
+                analysis->benches[i]->mean.point * prettify.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
-        const struct bench_analysis *analysis = results->base->analyses + i;
-        fprintf(f, "'%s', ", analysis->name);
+        const struct bench_analysis *bench = analysis->base->bench_analyses + i;
+        fprintf(f, "'%s', ", bench->name);
     }
     fprintf(f, "]\n"
                "import matplotlib as mpl\n"
@@ -165,7 +165,7 @@ void bar_plot(const struct bench_meas_results *results,
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            results->meas->name, prettify.units_str, output_filename);
+            analysis->meas->name, prettify.units_str, output_filename);
 }
 
 void group_plot(const struct group_analysis *analyses, size_t count,
@@ -512,14 +512,14 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot) {
     free(plot->b_data);
 }
 
-void group_bar_plot(const struct bench_meas_results *results,
+void group_bar_plot(const struct bench_meas_analysis *analysis,
                     const char *output_filename, FILE *f) {
-    const struct bench_var *var = results->base->var;
-    size_t count = results->base->group_count;
+    const struct bench_var *var = analysis->base->var;
+    size_t count = analysis->base->group_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
         for (size_t j = 0; j < var->value_count; ++j) {
-            double v = results->group_analyses[i].data[j].mean;
+            double v = analysis->group_analyses[i].data[j].mean;
             if (v > max)
                 max = v;
             if (v < min)
@@ -528,7 +528,7 @@ void group_bar_plot(const struct bench_meas_results *results,
     }
 
     struct prettify_plot prettify = {0};
-    prettify_plot(&results->meas->units, min, max, &prettify);
+    prettify_plot(&analysis->meas->units, min, max, &prettify);
 
     fprintf(f, "var_values = [");
     for (size_t i = 0; i < var->value_count; ++i)
@@ -536,10 +536,10 @@ void group_bar_plot(const struct bench_meas_results *results,
     fprintf(f, "]\n");
     fprintf(f, "times = {");
     for (size_t i = 0; i < count; ++i) {
-        fprintf(f, "  '%s': [", results->group_analyses[i].group->template);
+        fprintf(f, "  '%s': [", analysis->group_analyses[i].group->template);
         for (size_t j = 0; j < var->value_count; ++j)
             fprintf(f, "%g, ",
-                    results->group_analyses[i].data[j].mean *
+                    analysis->group_analyses[i].data[j].mean *
                         prettify.multiplier);
         fprintf(f, "],\n");
     }
@@ -563,7 +563,7 @@ void group_bar_plot(const struct bench_meas_results *results,
             "ax.legend(loc='best')\n"
             "plt.xticks(x, var_values)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            results->meas->name, prettify.units_str, output_filename);
+            analysis->meas->name, prettify.units_str, output_filename);
 }
 
 void kde_plot(const struct distr *distr, const struct meas *meas,
