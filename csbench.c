@@ -185,7 +185,7 @@ enum plot_kind {
 };
 
 struct plot_walker_args {
-    const struct bench_results *results;
+    const struct bench_meas_results *results;
     enum plot_kind plot_kind;
     pid_t *pids;
     size_t meas_idx;
@@ -1900,88 +1900,61 @@ static void compare_benches(struct bench_results *results) {
 }
 
 static void analyze_var_groups(const struct run_info *info,
-                               struct bench_results *results) {
-    size_t group_count = sb_len(info->groups);
-    if (group_count == 0)
+                               struct bench_meas_results *results) {
+    if (results->base->group_count == 0)
         return;
     const struct bench_var *var = info->var;
-    results->group_count = group_count;
-    for (size_t i = 0; i < results->meas_count; ++i)
-        results->meas_results[i].group_analyses = calloc(
-            group_count, sizeof(*results->meas_results[i].group_analyses));
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        const struct meas *meas = results->meas + meas_idx;
-        if (meas->is_secondary)
-            continue;
-        for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
-            const struct bench_var_group *group = info->groups + grp_idx;
-            struct group_analysis *analysis =
-                results->meas_results[meas_idx].group_analyses + grp_idx;
-            analysis->meas = meas;
-            analysis->group = group;
-            analysis->data = calloc(var->value_count, sizeof(*analysis->data));
-            bool values_are_doubles = true;
-            double slowest = -INFINITY, fastest = INFINITY;
-            for (size_t cmd_idx = 0; cmd_idx < var->value_count; ++cmd_idx) {
-                const char *value = var->values[cmd_idx];
-                size_t bench_idx = group->cmd_idxs[cmd_idx];
-                char *end = NULL;
-                double value_double = strtod(value, &end);
-                if (end == value)
-                    values_are_doubles = false;
-                double mean =
-                    results->analyses[bench_idx].meas[meas_idx].mean.point;
-                struct cmd_in_group_data *data = analysis->data + cmd_idx;
-                data->analysis = results->analyses + bench_idx;
-                data->mean = mean;
-                data->value = value;
-                data->value_double = value_double;
-                if (mean > slowest) {
-                    slowest = mean;
-                    analysis->slowest = data;
-                }
-                if (mean < fastest) {
-                    fastest = mean;
-                    analysis->fastest = data;
-                }
+    for (size_t grp_idx = 0; grp_idx < results->base->group_count; ++grp_idx) {
+        const struct bench_var_group *group = info->groups + grp_idx;
+        struct group_analysis *analysis = results->group_analyses + grp_idx;
+        analysis->group = group;
+        analysis->data = calloc(var->value_count, sizeof(*analysis->data));
+        bool values_are_doubles = true;
+        double slowest = -INFINITY, fastest = INFINITY;
+        for (size_t cmd_idx = 0; cmd_idx < var->value_count; ++cmd_idx) {
+            const char *value = var->values[cmd_idx];
+            size_t bench_idx = group->cmd_idxs[cmd_idx];
+            char *end = NULL;
+            double value_double = strtod(value, &end);
+            if (end == value)
+                values_are_doubles = false;
+            double mean = results->benches[bench_idx]->mean.point;
+            struct cmd_in_group_data *data = analysis->data + cmd_idx;
+            data->distr = results->benches[bench_idx];
+            data->mean = mean;
+            data->value = value;
+            data->value_double = value_double;
+            if (mean > slowest) {
+                slowest = mean;
+                analysis->slowest = data;
             }
-            analysis->values_are_doubles = values_are_doubles;
-            if (values_are_doubles) {
-                double *x = calloc(var->value_count, sizeof(*x));
-                double *y = calloc(var->value_count, sizeof(*y));
-                for (size_t i = 0; i < var->value_count; ++i) {
-                    x[i] = analysis->data[i].value_double;
-                    y[i] = analysis->data[i].mean;
-                }
-                ols(x, y, var->value_count, &analysis->regress);
-                free(x);
-                free(y);
+            if (mean < fastest) {
+                fastest = mean;
+                analysis->fastest = data;
             }
         }
+        analysis->values_are_doubles = values_are_doubles;
+        if (values_are_doubles) {
+            double *x = calloc(var->value_count, sizeof(*x));
+            double *y = calloc(var->value_count, sizeof(*y));
+            for (size_t i = 0; i < var->value_count; ++i) {
+                x[i] = analysis->data[i].value_double;
+                y[i] = analysis->data[i].mean;
+            }
+            ols(x, y, var->value_count, &analysis->regress);
+            free(x);
+            free(y);
+        }
     }
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        results->meas_results[meas_idx].fastest_val =
-            calloc(results->var->value_count,
-                   sizeof(*results->meas_results[meas_idx].fastest_val));
-        if (results->meas[meas_idx].is_secondary)
-            continue;
-        for (size_t val_idx = 0; val_idx < results->var->value_count;
-             ++val_idx) {
-            double fastest_mean = results->meas_results[meas_idx]
-                                      .group_analyses[0]
-                                      .data[val_idx]
-                                      .mean;
-            for (size_t grp_idx = 1; grp_idx < results->group_count;
-                 ++grp_idx) {
-                double t = results->meas_results[meas_idx]
-                               .group_analyses[grp_idx]
-                               .data[val_idx]
-                               .mean;
-                if (t < fastest_mean) {
-                    fastest_mean = t;
-                    results->meas_results[meas_idx].fastest_val[val_idx] =
-                        grp_idx;
-                }
+    for (size_t val_idx = 0; val_idx < results->base->var->value_count;
+         ++val_idx) {
+        double fastest_mean = results->group_analyses[0].data[val_idx].mean;
+        for (size_t grp_idx = 1; grp_idx < results->base->group_count;
+             ++grp_idx) {
+            double t = results->group_analyses[grp_idx].data[val_idx].mean;
+            if (t < fastest_mean) {
+                fastest_mean = t;
+                results->fastest_val[val_idx] = grp_idx;
             }
         }
     }
@@ -1999,256 +1972,139 @@ static void ref_speed(double u1, double sigma1, double u2, double sigma2,
     *ref_sigma = ref_st_dev;
 }
 
-static void calculate_speedups(struct bench_results *results) {
-    if (results->bench_count == 1)
+static void calculate_speedups(struct bench_meas_results *results) {
+    if (results->base->bench_count == 1)
         return;
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        results->meas_results[meas_idx].speedup =
-            calloc(results->bench_count,
-                   sizeof(*results->meas_results[meas_idx].speedup));
-        if (results->meas[meas_idx].is_secondary)
-            continue;
-        bool flip = false;
-        const struct bench_analysis *reference;
-        if (g_baseline != -1) {
-            reference = results->analyses + g_baseline;
-        } else {
-            reference =
-                results->analyses + results->meas_results[meas_idx].fastest;
-            flip = true;
-        }
-        for (size_t bench_idx = 0; bench_idx < results->bench_count;
-             ++bench_idx) {
-            const struct bench_analysis *bench = results->analyses + bench_idx;
-            if (bench == reference)
-                continue;
-            struct point_err_est *est =
-                results->meas_results[meas_idx].speedup + bench_idx;
-            if (flip)
-                ref_speed(bench->meas[meas_idx].mean.point,
-                          bench->meas[meas_idx].st_dev.point,
-                          reference->meas[meas_idx].mean.point,
-                          reference->meas[meas_idx].st_dev.point, &est->point,
-                          &est->err);
-            else
-                ref_speed(reference->meas[meas_idx].mean.point,
-                          reference->meas[meas_idx].st_dev.point,
-                          bench->meas[meas_idx].mean.point,
-                          bench->meas[meas_idx].st_dev.point, &est->point,
-                          &est->err);
-        }
+    bool flip = false;
+    const struct distr *reference;
+    if (g_baseline != -1) {
+        reference = results->benches[g_baseline];
+    } else {
+        reference = results->benches[results->fastest];
+        flip = true;
     }
-    if (results->var) {
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            results->meas_results[meas_idx].var_speedup =
-                calloc(results->var->value_count,
-                       sizeof(*results->meas_results[meas_idx].var_speedup));
-            for (size_t val_idx = 0; val_idx < results->var->value_count;
-                 ++val_idx) {
-                results->meas_results[meas_idx].var_speedup[val_idx] = calloc(
-                    results->group_count,
-                    sizeof(**results->meas_results[meas_idx].var_speedup));
+    for (size_t bench_idx = 0; bench_idx < results->base->bench_count;
+         ++bench_idx) {
+        const struct distr *bench = results->benches[bench_idx];
+        if (bench == reference)
+            continue;
+        struct point_err_est *est = results->speedup + bench_idx;
+        if (flip)
+            ref_speed(bench->mean.point, bench->st_dev.point,
+                      reference->mean.point, reference->st_dev.point,
+                      &est->point, &est->err);
+        else
+            ref_speed(reference->mean.point, reference->st_dev.point,
+                      bench->mean.point, bench->st_dev.point, &est->point,
+                      &est->err);
+    }
+    if (results->base->var && results->base->group_count > 1) {
+        for (size_t val_idx = 0; val_idx < results->base->var->value_count;
+             ++val_idx) {
+            const struct group_analysis *reference_group;
+            bool flip = false;
+            if (g_baseline != -1) {
+                reference_group = results->group_analyses + g_baseline;
+            } else {
+                reference_group =
+                    results->group_analyses + results->fastest_val[val_idx];
+                flip = true;
+            }
+            for (size_t grp_idx = 0; grp_idx < results->base->group_count;
+                 ++grp_idx) {
+                const struct group_analysis *group =
+                    results->group_analyses + grp_idx;
+                if (group == reference_group)
+                    continue;
+                struct point_err_est *est =
+                    results->var_speedup[val_idx] + grp_idx;
+                if (flip)
+                    ref_speed(
+                        group->data[val_idx].distr->mean.point,
+                        group->data[val_idx].distr->st_dev.point,
+                        reference_group->data[val_idx].distr->mean.point,
+                        reference_group->data[val_idx].distr->st_dev.point,
+                        &est->point, &est->err);
+                else
+                    ref_speed(
+                        reference_group->data[val_idx].distr->mean.point,
+                        reference_group->data[val_idx].distr->st_dev.point,
+                        group->data[val_idx].distr->mean.point,
+                        group->data[val_idx].distr->st_dev.point, &est->point,
+                        &est->err);
             }
         }
-        if (results->group_count > 1) {
-            for (size_t meas_idx = 0; meas_idx < results->meas_count;
-                 ++meas_idx) {
-                if (results->meas[meas_idx].is_secondary)
+        if (g_baseline != -1 && !g_regr) {
+            const struct group_analysis *baseline_group =
+                results->group_analyses + g_baseline;
+            for (size_t grp_idx = 0; grp_idx < results->base->group_count;
+                 ++grp_idx) {
+                const struct group_analysis *group =
+                    results->group_analyses + grp_idx;
+                if (group == baseline_group)
                     continue;
-                for (size_t val_idx = 0; val_idx < results->var->value_count;
-                     ++val_idx) {
-                    const struct group_analysis *reference_group;
-                    bool flip = false;
-                    if (g_baseline != -1) {
-                        reference_group =
-                            results->meas_results[meas_idx].group_analyses +
-                            g_baseline;
-                    } else {
-                        reference_group =
-                            results->meas_results[meas_idx].group_analyses +
-                            results->meas_results[meas_idx]
-                                .fastest_val[val_idx];
-                        flip = true;
-                    }
-                    for (size_t grp_idx = 0; grp_idx < results->group_count;
-                         ++grp_idx) {
-                        const struct group_analysis *group =
-                            results->meas_results[meas_idx].group_analyses +
-                            grp_idx;
-                        if (group == reference_group)
-                            continue;
-                        struct point_err_est *est =
-                            results->meas_results[meas_idx]
-                                .var_speedup[val_idx] +
-                            grp_idx;
-                        if (flip)
-                            ref_speed(group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .mean.point,
-                                      group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .st_dev.point,
-                                      reference_group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .mean.point,
-                                      reference_group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .st_dev.point,
-                                      &est->point, &est->err);
-                        else
-                            ref_speed(reference_group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .mean.point,
-                                      reference_group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .st_dev.point,
-                                      group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .mean.point,
-                                      group->data[val_idx]
-                                          .analysis->meas[meas_idx]
-                                          .st_dev.point,
-                                      &est->point, &est->err);
-                    }
+                double mean_accum = 1;
+                double st_dev_accum = 0.0;
+                size_t n = results->base->var->value_count;
+                for (size_t val_idx = 0; val_idx < n; ++val_idx) {
+                    const struct point_err_est *est =
+                        results->var_speedup[val_idx] + grp_idx;
+                    mean_accum *= est->point;
+                    double a = pow(est->point, 1.0 / n - 1.0) * est->err;
+                    st_dev_accum += a * a;
                 }
-            }
-            if (g_baseline != -1 && !g_regr) {
-                for (size_t meas_idx = 0; meas_idx < results->meas_count;
-                     ++meas_idx) {
-                    results->meas_results[meas_idx].group_baseline_speedup =
-                        calloc(results->group_count,
-                               sizeof(*results->meas_results[meas_idx]
-                                           .group_baseline_speedup));
-                    if (results->meas[meas_idx].is_secondary)
-                        continue;
-                    const struct group_analysis *baseline_group =
-                        results->meas_results[meas_idx].group_analyses +
-                        g_baseline;
-                    for (size_t grp_idx = 0; grp_idx < results->group_count;
-                         ++grp_idx) {
-                        const struct group_analysis *group =
-                            results->meas_results[meas_idx].group_analyses +
-                            grp_idx;
-                        if (group == baseline_group)
-                            continue;
-                        double mean_accum = 1;
-                        double st_dev_accum = 0.0;
-                        size_t n = results->var->value_count;
-                        for (size_t val_idx = 0; val_idx < n; ++val_idx) {
-                            const struct point_err_est *est =
-                                results->meas_results[meas_idx]
-                                    .var_speedup[val_idx] +
-                                grp_idx;
-                            mean_accum *= est->point;
-                            double a =
-                                pow(est->point, 1.0 / n - 1.0) * est->err;
-                            st_dev_accum += a * a;
-                        }
-                        double av = pow(mean_accum, 1.0 / n);
-                        double av_st_dev = av / n * sqrt(st_dev_accum);
-                        struct point_err_est *est =
-                            results->meas_results[meas_idx]
-                                .group_baseline_speedup +
-                            grp_idx;
-                        est->point = av;
-                        est->err = av_st_dev;
-                    }
-                }
+                double av = pow(mean_accum, 1.0 / n);
+                double av_st_dev = av / n * sqrt(st_dev_accum);
+                struct point_err_est *est =
+                    results->group_baseline_speedup + grp_idx;
+                est->point = av;
+                est->err = av_st_dev;
             }
         }
     }
 }
 
-static void calculate_p_values(struct bench_results *results) {
+static void calculate_p_values(struct bench_meas_results *results) {
     if (g_baseline != -1) {
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx)
-            results->meas_results[meas_idx].baseline_p_values = calloc(
-                results->bench_count,
-                sizeof(*results->meas_results[meas_idx].baseline_p_values));
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (results->meas[meas_idx].is_secondary)
+        const struct distr *d1 = results->benches[g_baseline];
+        for (size_t bench_idx = 0; bench_idx < results->base->bench_count;
+             ++bench_idx) {
+            const struct distr *d2 = results->benches[bench_idx];
+            if (d1 == d2)
                 continue;
+            double p = mwu(d1->data, d1->count, d2->data, d2->count);
+            results->baseline_p_values[bench_idx] = p;
+        }
+    } else if (results->base->bench_count == 2) {
+        const struct distr *d1 = results->benches[0];
+        const struct distr *d2 = results->benches[1];
+        double p = mwu(d1->data, d1->count, d2->data, d2->count);
+        results->pair_p_values = p;
+    }
+    if (g_baseline != -1 && results->base->group_count > 1) {
+        size_t var_value_count = results->base->var->value_count;
+        for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx) {
             const struct distr *d1 =
-                &results->analyses[g_baseline].meas[meas_idx];
-            for (size_t bench_idx = 0; bench_idx < results->bench_count;
-                 ++bench_idx) {
+                results->group_analyses[g_baseline].data[value_idx].distr;
+            for (size_t grp_idx = 0; grp_idx < results->base->group_count;
+                 ++grp_idx) {
                 const struct distr *d2 =
-                    &results->analyses[bench_idx].meas[meas_idx];
+                    results->group_analyses[grp_idx].data[value_idx].distr;
                 if (d1 == d2)
                     continue;
                 double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                results->meas_results[meas_idx].baseline_p_values[bench_idx] =
-                    p;
+                results->var_baseline_p_values[value_idx][grp_idx] = p;
             }
         }
-    } else if (results->bench_count == 2) {
-        for (size_t i = 0; i < results->meas_count; ++i) {
-            if (results->meas[i].is_secondary)
-                continue;
-            const struct distr *d1 = &results->analyses[0].meas[i];
-            const struct distr *d2 = &results->analyses[1].meas[i];
+    } else if (results->base->group_count == 2) {
+        size_t var_value_count = results->base->var->value_count;
+        for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx) {
+            const struct distr *d1 =
+                results->group_analyses[0].data[value_idx].distr;
+            const struct distr *d2 =
+                results->group_analyses[1].data[value_idx].distr;
             double p = mwu(d1->data, d1->count, d2->data, d2->count);
-            results->meas_results[i].pair_p_values = p;
-        }
-    }
-    if (g_baseline != -1 && results->group_count > 1) {
-        size_t var_value_count = results->var->value_count;
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            results->meas_results[meas_idx].var_baseline_p_values = calloc(
-                var_value_count,
-                sizeof(*results->meas_results[meas_idx].var_baseline_p_values));
-            for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx)
-                results->meas_results[meas_idx]
-                    .var_baseline_p_values[value_idx] =
-                    calloc(results->group_count,
-                           sizeof(**results->meas_results[meas_idx]
-                                        .var_baseline_p_values));
-        }
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (results->meas[meas_idx].is_secondary)
-                continue;
-            for (size_t value_idx = 0; value_idx < var_value_count;
-                 ++value_idx) {
-                const struct distr *d1 = &results->meas_results[meas_idx]
-                                              .group_analyses[g_baseline]
-                                              .data[value_idx]
-                                              .analysis->meas[meas_idx];
-                for (size_t grp_idx = 0; grp_idx < results->group_count;
-                     ++grp_idx) {
-                    const struct distr *d2 = &results->meas_results[meas_idx]
-                                                  .group_analyses[grp_idx]
-                                                  .data[value_idx]
-                                                  .analysis->meas[meas_idx];
-                    if (d1 == d2)
-                        continue;
-                    double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                    results->meas_results[meas_idx]
-                        .var_baseline_p_values[value_idx][grp_idx] = p;
-                }
-            }
-        }
-    } else if (results->group_count == 2) {
-        size_t var_value_count = results->var->value_count;
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            results->meas_results[meas_idx].var_pair_p_values = calloc(
-                var_value_count,
-                sizeof(*results->meas_results[meas_idx].var_pair_p_values));
-            if (results->meas[meas_idx].is_secondary)
-                continue;
-            for (size_t value_idx = 0; value_idx < var_value_count;
-                 ++value_idx) {
-                const struct distr *d1 = &results->meas_results[meas_idx]
-                                              .group_analyses[meas_idx]
-                                              .data[value_idx]
-                                              .analysis->meas[meas_idx];
-                const struct distr *d2 = &results->meas_results[meas_idx]
-                                              .group_analyses[1]
-                                              .data[value_idx]
-                                              .analysis->meas[meas_idx];
-                double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                results->meas_results[meas_idx].var_pair_p_values[value_idx] =
-                    p;
-            }
+            results->var_pair_p_values[value_idx] = p;
         }
     }
 }
@@ -2871,68 +2727,62 @@ open_file_fmt(const char *mode, const char *fmt, ...) {
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                         struct plot_walker_args *args) {
-    const struct bench_results *results = args->results;
-    size_t bench_count = results->bench_count;
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
-            continue;
-        args->meas_idx = meas_idx;
-        if (bench_count > 1) {
-            if (results->group_count <= 1) {
-                args->plot_kind = PLOT_BAR;
-                if (!walk(args))
-                    return false;
-            } else {
-                args->plot_kind = PLOT_GROUP_BAR;
-                if (!walk(args))
-                    return false;
-            }
+    const struct bench_meas_results *results = args->results;
+    if (results->base->bench_count > 1) {
+        if (results->base->group_count <= 1) {
+            args->plot_kind = PLOT_BAR;
+            if (!walk(args))
+                return false;
+        } else {
+            args->plot_kind = PLOT_GROUP_BAR;
+            if (!walk(args))
+                return false;
         }
-        if (g_regr) {
-            for (size_t grp_idx = 0; grp_idx < results->group_count;
-                 ++grp_idx) {
-                const struct group_analysis *analysis =
-                    results->meas_results[meas_idx].group_analyses + grp_idx;
-                if (!analysis->values_are_doubles)
-                    break;
-                args->plot_kind = PLOT_GROUP_SINGLE;
-                args->grp_idx = grp_idx;
-                if (!walk(args))
-                    return false;
-            }
-            if (results->group_count > 1) {
-                const struct group_analysis *analyses =
-                    results->meas_results[meas_idx].group_analyses;
-                if (!analyses[0].values_are_doubles)
-                    break;
+    }
+    if (g_regr) {
+        for (size_t grp_idx = 0; grp_idx < results->base->group_count;
+             ++grp_idx) {
+            const struct group_analysis *analysis =
+                results->group_analyses + grp_idx;
+            if (!analysis->values_are_doubles)
+                break;
+            args->plot_kind = PLOT_GROUP_SINGLE;
+            args->grp_idx = grp_idx;
+            if (!walk(args))
+                return false;
+        }
+        if (results->base->group_count > 1) {
+            const struct group_analysis *analyses = results->group_analyses;
+            if (analyses[0].values_are_doubles) {
                 args->plot_kind = PLOT_GROUP;
                 if (!walk(args))
                     return false;
             }
         }
-        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
-            args->plot_kind = PLOT_KDE;
-            args->bench_idx = bench_idx;
-            if (!walk(args))
-                return false;
-            args->plot_kind = PLOT_KDE_EXT;
-            args->bench_idx = bench_idx;
-            if (!walk(args))
-                return false;
-        }
-        if (results->group_count == 2) {
-            size_t value_count = results->var->value_count;
-            for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-                args->plot_kind = PLOT_KDE_CMPG;
-                args->var_value_idx = val_idx;
-                if (!walk(args))
-                    return false;
-            }
-        } else if (results->bench_count == 2) {
-            args->plot_kind = PLOT_KDE_CMP;
+    }
+    for (size_t bench_idx = 0; bench_idx < results->base->bench_count;
+         ++bench_idx) {
+        args->plot_kind = PLOT_KDE;
+        args->bench_idx = bench_idx;
+        if (!walk(args))
+            return false;
+        args->plot_kind = PLOT_KDE_EXT;
+        args->bench_idx = bench_idx;
+        if (!walk(args))
+            return false;
+    }
+    if (results->base->group_count == 2) {
+        size_t value_count = results->base->var->value_count;
+        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+            args->plot_kind = PLOT_KDE_CMPG;
+            args->var_value_idx = val_idx;
             if (!walk(args))
                 return false;
         }
+    } else if (results->base->bench_count == 2) {
+        args->plot_kind = PLOT_KDE_CMP;
+        if (!walk(args))
+            return false;
     }
     return true;
 }
@@ -2978,59 +2828,48 @@ static void format_plot_name(char *buf, size_t buf_size,
 
 static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     char svg_buf[4096];
-    size_t meas_idx = args->meas_idx;
     size_t grp_idx = args->grp_idx;
     size_t bench_idx = args->bench_idx;
     size_t var_value_idx = args->var_value_idx;
-    const struct bench_results *results = args->results;
-    const struct bench_analysis *analyses = results->analyses;
-    const struct meas *meas = results->meas + meas_idx;
-    size_t bench_count = results->bench_count;
+    const struct bench_meas_results *results = args->results;
+    const struct meas *meas = results->meas;
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
-        bar_plot(analyses, bench_count, meas_idx, results, svg_buf, f);
+        bar_plot(results, svg_buf, f);
         break;
     case PLOT_GROUP_BAR:
-        group_bar_plot(results->meas_results[meas_idx].group_analyses,
-                       results->group_count, results->var, svg_buf, f);
+        group_bar_plot(results, svg_buf, f);
         break;
     case PLOT_GROUP_SINGLE: {
-        const struct group_analysis *analysis =
-            results->meas_results[meas_idx].group_analyses + grp_idx;
-        group_plot(analysis, 1, results->var, svg_buf, f);
+        group_plot(results->group_analyses + grp_idx, 1, meas,
+                   results->base->var, svg_buf, f);
         break;
     }
     case PLOT_GROUP: {
-        const struct group_analysis *analyses =
-            results->meas_results[meas_idx].group_analyses;
-        group_plot(analyses, results->group_count, results->var, svg_buf, f);
+        group_plot(results->group_analyses, results->base->group_count, meas,
+                   results->base->var, svg_buf, f);
         break;
     }
     case PLOT_KDE: {
-        const struct bench_analysis *analysis = analyses + bench_idx;
-        kde_plot(analysis->meas + meas_idx, meas, svg_buf, f);
+        kde_plot(results->benches[bench_idx], meas, svg_buf, f);
         break;
     }
     case PLOT_KDE_EXT: {
-        const struct bench_analysis *analysis = analyses + bench_idx;
-        kde_plot_ext(analysis->meas + meas_idx, meas, svg_buf, f);
+        kde_plot_ext(results->benches[bench_idx], meas, svg_buf, f);
         break;
     }
     case PLOT_KDE_CMPG: {
-        const struct group_analysis *a =
-            results->meas_results[meas_idx].group_analyses;
-        const struct group_analysis *b =
-            results->meas_results[meas_idx].group_analyses + 1;
-        kde_cmp_plot(
-            analyses[a->group->cmd_idxs[var_value_idx]].meas + meas_idx,
-            analyses[b->group->cmd_idxs[var_value_idx]].meas + meas_idx, meas,
-            svg_buf, f);
+        const struct group_analysis *a = results->group_analyses;
+        const struct group_analysis *b = results->group_analyses + 1;
+        kde_cmp_plot(results->benches[a->group->cmd_idxs[var_value_idx]],
+                     results->benches[b->group->cmd_idxs[var_value_idx]], meas,
+                     svg_buf, f);
         break;
     }
     case PLOT_KDE_CMP:
-        kde_cmp_plot(analyses[0].meas + meas_idx, analyses[1].meas + meas_idx,
-                     meas, svg_buf, f);
+        kde_cmp_plot(results->benches[0], results->benches[1], meas, svg_buf,
+                     f);
         break;
     }
 }
@@ -3049,9 +2888,16 @@ static bool dump_plot_walk(struct plot_walker_args *args) {
 }
 
 static bool dump_plot_src(const struct bench_results *results) {
-    struct plot_walker_args args = {0};
-    args.results = results;
-    return plot_walker(dump_plot_walk, &args);
+    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+        if (results->meas[meas_idx].is_secondary)
+            continue;
+        struct plot_walker_args args = {0};
+        args.results = results->meas_results + meas_idx;
+        args.meas_idx = meas_idx;
+        if (!plot_walker(dump_plot_walk, &args))
+            return false;
+    }
+    return true;
 }
 
 static bool make_plot_walk(struct plot_walker_args *args) {
@@ -3070,10 +2916,15 @@ static bool make_plot_walk(struct plot_walker_args *args) {
 static bool make_plots(const struct bench_results *results) {
     bool success = true;
     struct plot_walker_args args = {0};
-    args.results = results;
-    if (!plot_walker(make_plot_walk, &args))
-        success = false;
-
+    for (size_t meas_idx = 0; meas_idx < results->meas_count && success;
+         ++meas_idx) {
+        if (results->meas[meas_idx].is_secondary)
+            continue;
+        args.results = results->meas_results + meas_idx;
+        args.meas_idx = meas_idx;
+        if (!plot_walker(make_plot_walk, &args))
+            success = false;
+    }
     for (size_t i = 0; i < sb_len(args.pids); ++i) {
         if (!process_finished_correctly(args.pids[i])) {
             error("python finished with non-zero exit code");
@@ -3634,20 +3485,71 @@ static bool load_bench_result(const char *file, struct run_info *info,
 
 static void analyze_benches(const struct run_info *info,
                             struct bench_results *results) {
+    size_t group_count = sb_len(info->groups);
+    results->group_count = group_count;
+
     size_t meas_count = results->meas_count;
     size_t primary_meas_count = 0;
     for (size_t i = 0; i < meas_count; ++i)
         if (!results->meas[i].is_secondary)
             ++primary_meas_count;
     results->primary_meas_count = primary_meas_count;
+
     results->meas_results = calloc(meas_count, sizeof(*results->meas_results));
-    for (size_t i = 0; i < meas_count; ++i)
+    for (size_t i = 0; i < meas_count; ++i) {
+        results->meas_results[i].meas = results->meas + i;
         results->meas_results[i].base = results;
+        results->meas_results[i].benches = calloc(
+            results->bench_count, sizeof(*results->meas_results[i].benches));
+        for (size_t j = 0; j < results->bench_count; ++j)
+            results->meas_results[i].benches[j] = results->analyses[j].meas + i;
+        results->meas_results[i].group_analyses = calloc(
+            group_count, sizeof(*results->meas_results[i].group_analyses));
+        results->meas_results[i].speedup = calloc(
+            results->bench_count, sizeof(*results->meas_results[i].speedup));
+        results->meas_results[i].group_baseline_speedup =
+            calloc(results->group_count,
+                   sizeof(*results->meas_results[i].group_baseline_speedup));
+        results->meas_results[i].baseline_p_values =
+            calloc(results->bench_count,
+                   sizeof(*results->meas_results[i].baseline_p_values));
+        if (results->var) {
+            results->meas_results[i].fastest_val =
+                calloc(results->var->value_count,
+                       sizeof(*results->meas_results[i].fastest_val));
+            results->meas_results[i].var_speedup =
+                calloc(results->var->value_count,
+                       sizeof(*results->meas_results[i].var_speedup));
+            for (size_t val_idx = 0; val_idx < results->var->value_count;
+                 ++val_idx) {
+                results->meas_results[i].var_speedup[val_idx] =
+                    calloc(results->group_count,
+                           sizeof(**results->meas_results[i].var_speedup));
+            }
+            results->meas_results[i].var_pair_p_values =
+                calloc(results->var->value_count,
+                       sizeof(*results->meas_results[i].var_pair_p_values));
+            results->meas_results[i].var_baseline_p_values =
+                calloc(results->var->value_count,
+                       sizeof(*results->meas_results[i].var_baseline_p_values));
+            for (size_t value_idx = 0; value_idx < results->var->value_count;
+                 ++value_idx)
+                results->meas_results[i].var_baseline_p_values[value_idx] =
+                    calloc(
+                        results->group_count,
+                        sizeof(
+                            **results->meas_results[i].var_baseline_p_values));
+        }
+    }
 
     compare_benches(results);
-    analyze_var_groups(info, results);
-    calculate_p_values(results);
-    calculate_speedups(results);
+    for (size_t i = 0; i < meas_count; ++i) {
+        if (results->meas[i].is_secondary)
+            continue;
+        analyze_var_groups(info, results->meas_results + i);
+        calculate_p_values(results->meas_results + i);
+        calculate_speedups(results->meas_results + i);
+    }
 }
 
 static void print_analysis(const struct bench_results *results) {

@@ -245,7 +245,7 @@ struct cmd_in_group_data {
     const char *value;
     double value_double;
     double mean;
-    const struct bench_analysis *analysis;
+    const struct distr *distr;
 };
 
 struct ols_regress {
@@ -260,7 +260,6 @@ struct ols_regress {
 };
 
 struct group_analysis {
-    const struct meas *meas;
     const struct bench_var_group *group;
     struct cmd_in_group_data *data;
     const struct cmd_in_group_data *slowest;
@@ -282,10 +281,14 @@ struct point_err_est {
     double err;
 };
 
-// Analysis for a single measurement for all benchmarks. We don't do inter-measurement analysis, so this is more or less self-contained.
+// Analysis for a single measurement for all benchmarks. We don't do
+// inter-measurement analysis, so this is more or less self-contained.
 struct bench_meas_results {
     // Make it easy to pass this structure around as base is always needed
     struct bench_results *base;
+    const struct meas *meas;
+    // Array of bench_analysis->meas[meas_idx]
+    const struct distr **benches; // [bench_count]
     // Index of fastest command
     size_t fastest;
     size_t *fastest_val;                   // [val_count]
@@ -402,15 +405,13 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 // csbench_plot.c
 //
 
-void bar_plot(const struct bench_analysis *analyses, size_t count,
-              size_t meas_idx, const struct bench_results *results,
+void bar_plot(const struct bench_meas_results *results,
               const char *output_filename, FILE *f);
-void group_bar_plot(const struct group_analysis *analyses, size_t count,
-                    const struct bench_var *var, const char *output_filename,
-                    FILE *f);
+void group_bar_plot(const struct bench_meas_results *results,
+                    const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
-                const struct bench_var *var, const char *output_filename,
-                FILE *f);
+                const struct meas *meas, const struct bench_var *var,
+                const char *output_filename, FILE *f);
 void kde_plot(const struct distr *distr, const struct meas *meas,
               const char *output_filename, FILE *f);
 void kde_plot_ext(const struct distr *distr, const struct meas *meas,
