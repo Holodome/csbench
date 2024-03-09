@@ -2082,7 +2082,7 @@ static void calculate_p_values(struct bench_meas_analysis *analysis) {
             analysis->p_values[bench_idx] = p;
         }
     }
-    if (analysis->base->var) {
+    if (analysis->base->group_count > 1) {
         size_t var_value_count = analysis->base->var->value_count;
         for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx) {
             const struct distr *d1;
