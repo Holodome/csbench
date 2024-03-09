@@ -293,23 +293,15 @@ struct bench_meas_analysis {
     size_t fastest;
     size_t *fastest_val;                   // [val_count]
     struct group_analysis *group_analyses; // [group_count]
-    // If there are only two benchmarks in total compute their p-value
-    double pair_p_values;
-    // If there are more that two benchmakrs but baseline is specified, compute
-    // p-value of each benchmark in reference to baseline. This could reuse
-    // 'pair_p_values', but because the logic is so different it is better to
-    // split them.
-    double *baseline_p_values; // [bench_count]
-    // If there are two command groups with variables compute p-value for each
-    // parameter value
-    double *var_pair_p_values;      // [val_count]
-    double **var_baseline_p_values; // [val_count][group_count]
-
+    // Comparison
     struct point_err_est *speedup;      // [bench_count]
     struct point_err_est **var_speedup; // [val_count][group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
     struct point_err_est *group_baseline_speedup; // [group_count]
+    // P-values in reference to either fastests command or baseline
+    double *p_values;      // [bench_count]
+    double **var_p_values; // [val_count][group_count]
 };
 
 struct bench_results {

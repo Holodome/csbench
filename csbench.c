@@ -2067,27 +2067,31 @@ static void calculate_speedups(struct bench_meas_analysis *analysis) {
 }
 
 static void calculate_p_values(struct bench_meas_analysis *analysis) {
-    if (g_baseline != -1) {
-        const struct distr *d1 = analysis->benches[g_baseline];
+    {
+        const struct distr *d1;
+        if (g_baseline != -1)
+            d1 = analysis->benches[g_baseline];
+        else
+            d1 = analysis->benches[analysis->fastest];
         for (size_t bench_idx = 0; bench_idx < analysis->base->bench_count;
              ++bench_idx) {
             const struct distr *d2 = analysis->benches[bench_idx];
             if (d1 == d2)
                 continue;
             double p = mwu(d1->data, d1->count, d2->data, d2->count);
-            analysis->baseline_p_values[bench_idx] = p;
+            analysis->p_values[bench_idx] = p;
         }
-    } else if (analysis->base->bench_count == 2) {
-        const struct distr *d1 = analysis->benches[0];
-        const struct distr *d2 = analysis->benches[1];
-        double p = mwu(d1->data, d1->count, d2->data, d2->count);
-        analysis->pair_p_values = p;
     }
-    if (g_baseline != -1 && analysis->base->group_count > 1) {
+    if (analysis->base->var) {
         size_t var_value_count = analysis->base->var->value_count;
         for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx) {
-            const struct distr *d1 =
-                analysis->group_analyses[g_baseline].data[value_idx].distr;
+            const struct distr *d1;
+            if (g_baseline != -1)
+                d1 = analysis->group_analyses[g_baseline].data[value_idx].distr;
+            else
+                d1 = analysis->group_analyses[analysis->fastest_val[value_idx]]
+                         .data[value_idx]
+                         .distr;
             for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
                  ++grp_idx) {
                 const struct distr *d2 =
@@ -2095,18 +2099,8 @@ static void calculate_p_values(struct bench_meas_analysis *analysis) {
                 if (d1 == d2)
                     continue;
                 double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                analysis->var_baseline_p_values[value_idx][grp_idx] = p;
+                analysis->var_p_values[value_idx][grp_idx] = p;
             }
-        }
-    } else if (analysis->base->group_count == 2) {
-        size_t var_value_count = analysis->base->var->value_count;
-        for (size_t value_idx = 0; value_idx < var_value_count; ++value_idx) {
-            const struct distr *d1 =
-                analysis->group_analyses[0].data[value_idx].distr;
-            const struct distr *d2 =
-                analysis->group_analyses[1].data[value_idx].distr;
-            double p = mwu(d1->data, d1->count, d2->data, d2->count);
-            analysis->var_pair_p_values[value_idx] = p;
         }
     }
 }
@@ -2251,14 +2245,11 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
             printf(" ± ");
             printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->err);
             printf(" times faster than ");
-            if (g_baseline == -1) {
+            if (g_baseline == -1)
                 printf_colored(ANSI_BOLD, "%s", bench->name);
-                if (analysis->base->bench_count == 2)
-                    printf(" (p=%.2f)", analysis->pair_p_values);
-            } else {
+            else
                 printf("baseline");
-                printf(" (p=%.2f)", analysis->baseline_p_values[j]);
-            }
+            printf(" (p=%.2f)", analysis->p_values[j]);
             printf("\n");
         }
         if (analysis->base->group_count == 1 && g_regr) {
@@ -2309,16 +2300,11 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", est->err);
                 printf(" times faster than ");
-                if (g_baseline == -1) {
+                if (g_baseline == -1)
                     printf("%c", (int)('A' + grp_idx));
-                    if (analysis->base->group_count == 2)
-                        printf(" (p=%.2f)",
-                               analysis->var_pair_p_values[val_idx]);
-                } else {
+                else
                     printf("baseline");
-                    printf(" (p=%.2f)",
-                           analysis->var_baseline_p_values[val_idx][grp_idx]);
-                }
+                printf(" (p=%.2f)", analysis->var_p_values[val_idx][grp_idx]);
                 printf("\n");
             }
         }
@@ -3408,9 +3394,8 @@ static void analyze_benches(const struct run_info *info,
         results->meas_analyses[i].group_baseline_speedup =
             calloc(results->group_count,
                    sizeof(*results->meas_analyses[i].group_baseline_speedup));
-        results->meas_analyses[i].baseline_p_values =
-            calloc(results->bench_count,
-                   sizeof(*results->meas_analyses[i].baseline_p_values));
+        results->meas_analyses[i].p_values = calloc(
+            results->bench_count, sizeof(*results->meas_analyses[i].p_values));
         if (results->var) {
             results->meas_analyses[i].fastest_val =
                 calloc(results->var->value_count,
@@ -3424,19 +3409,14 @@ static void analyze_benches(const struct run_info *info,
                     calloc(results->group_count,
                            sizeof(**results->meas_analyses[i].var_speedup));
             }
-            results->meas_analyses[i].var_pair_p_values =
+            results->meas_analyses[i].var_p_values =
                 calloc(results->var->value_count,
-                       sizeof(*results->meas_analyses[i].var_pair_p_values));
-            results->meas_analyses[i].var_baseline_p_values = calloc(
-                results->var->value_count,
-                sizeof(*results->meas_analyses[i].var_baseline_p_values));
+                       sizeof(*results->meas_analyses[i].var_p_values));
             for (size_t value_idx = 0; value_idx < results->var->value_count;
                  ++value_idx)
-                results->meas_analyses[i].var_baseline_p_values[value_idx] =
-                    calloc(
-                        results->group_count,
-                        sizeof(
-                            **results->meas_analyses[i].var_baseline_p_values));
+                results->meas_analyses[i].var_p_values[value_idx] =
+                    calloc(results->group_count,
+                           sizeof(**results->meas_analyses[i].var_p_values));
         }
     }
 
@@ -3539,14 +3519,13 @@ static bool do_visualize(const struct bench_results *results) {
 
 static void free_bench_meas_analysis(struct bench_meas_analysis *analysis) {
     free(analysis->fastest_val);
-    free(analysis->var_pair_p_values);
-    free(analysis->baseline_p_values);
+    free(analysis->p_values);
     free(analysis->speedup);
     free(analysis->group_baseline_speedup);
-    if (analysis->var_baseline_p_values) {
+    if (analysis->var_p_values) {
         for (size_t i = 0; i < analysis->base->var->value_count; ++i)
-            free(analysis->var_baseline_p_values[i]);
-        free(analysis->var_baseline_p_values);
+            free(analysis->var_p_values[i]);
+        free(analysis->var_p_values);
     }
     if (analysis->group_analyses) {
         for (size_t i = 0; i < analysis->base->group_count; ++i)
