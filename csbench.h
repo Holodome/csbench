@@ -112,6 +112,7 @@ struct units {
 
 enum meas_kind {
     MEAS_CUSTOM,
+    MEAS_LOADED,
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
     MEAS_RUSAGE_STIME,
@@ -134,36 +135,6 @@ struct meas {
     bool is_secondary;
     size_t primary_idx;
 };
-
-// Default measurements. Although these definitions should be used only one
-// time, they are put here to make them clearer to see.
-#define MEAS_WALL_DEF                                                          \
-    ((struct meas){"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0})
-#define MEAS_RUSAGE_UTIME_DEF                                                  \
-    ((struct meas){"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, true, 0})
-#define MEAS_RUSAGE_STIME_DEF                                                  \
-    ((struct meas){"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, true, 0})
-#define MEAS_RUSAGE_MAXRSS_DEF                                                 \
-    ((struct meas){"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, true, 0})
-#define MEAS_RUSAGE_MINFLT_DEF                                                 \
-    ((struct meas){                                                            \
-        "minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, true, 0})
-#define MEAS_RUSAGE_MAJFLT_DEF                                                 \
-    ((struct meas){                                                            \
-        "majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, true, 0})
-#define MEAS_RUSAGE_NVCSW_DEF                                                  \
-    ((struct meas){"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, true, 0})
-#define MEAS_RUSAGE_NIVCSW_DEF                                                 \
-    ((struct meas){                                                            \
-        "nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, true, 0})
-#define MEAS_PERF_CYCLES_DEF                                                   \
-    ((struct meas){"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, true, 0})
-#define MEAS_PERF_INS_DEF                                                      \
-    ((struct meas){"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, true, 0})
-#define MEAS_PERF_BRANCH_DEF                                                   \
-    ((struct meas){"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, true, 0})
-#define MEAS_PERF_BRANCHM_DEF                                                  \
-    ((struct meas){"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0})
 
 // Variable which can be substitued in benchmark string.
 struct bench_var {
@@ -221,8 +192,7 @@ struct distr {
 struct bench {
     size_t run_count;
     int *exit_codes;
-    size_t meas_count;
-    double **meas;
+    double **meas; // [meas_count]
     struct progress_bar_bench *progress;
 };
 
@@ -305,6 +275,7 @@ struct bench_meas_analysis {
 };
 
 struct bench_results {
+    const struct bench_var_group *var_groups;
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;

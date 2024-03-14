@@ -114,6 +114,7 @@ struct bench_params {
     char **argv;
     struct input_policy input;
     enum output_kind output;
+    size_t meas_count;
     const struct meas *meas;
 };
 
@@ -221,6 +222,23 @@ static struct output_anchor *g_output_anchors = NULL;
 static struct export_policy g_export = {0};
 static const char *g_out_dir = ".csbench";
 static const char *g_prepare = NULL;
+
+static const struct meas BUILTIN_MEASUREMENTS[] = {
+    /* MEAS_CUSTOM */ {0},
+    /* MEAS_LOADED */ {0},
+    {"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0},
+    {"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, true, 0},
+    {"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, true, 0},
+    {"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, true, 0},
+    {"minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, true, 0},
+    {"majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, true, 0},
+    {"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, true, 0},
+    {"nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, true, 0},
+    {"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, true, 0},
+    {"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, true, 0},
+    {"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, true, 0},
+    {"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0},
+};
 
 void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
     if (g_colored_output) {
@@ -522,7 +540,11 @@ static char **parse_comma_separated_value_list(const char *str) {
     while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
-            sb_push(value_list, strdup(cursor));
+            char *new_str = strdup(cursor);
+            size_t len = strlen(new_str);
+            while (len && new_str[len - 1] == '\n')
+                new_str[len-- - 1] = '\0';
+            sb_push(value_list, new_str);
             break;
         }
         size_t value_len = next - cursor;
@@ -867,6 +889,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--python-output") == 0) {
             ++cursor;
             g_python_output = true;
+        } else if (strcmp(argv[cursor], "--load") == 0) {
+            ++cursor;
+            g_mode = APP_LOAD;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_arg(argv, &cursor, "--baseline", &str)) {
@@ -919,7 +944,7 @@ static void parse_cli_args(int argc, char **argv,
     }
 
     if (!no_wall) {
-        sb_push(settings->meas, MEAS_WALL_DEF);
+        sb_push(settings->meas, BUILTIN_MEASUREMENTS[MEAS_WALL]);
         bool already_has_stime = false, already_has_utime = false;
         for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
             if (rusage_opts[i] == MEAS_RUSAGE_STIME)
@@ -934,49 +959,8 @@ static void parse_cli_args(int argc, char **argv,
     }
     for (size_t i = 0; i < sb_len(rusage_opts); ++i) {
         enum meas_kind kind = rusage_opts[i];
-        switch (kind) {
-        case MEAS_RUSAGE_STIME:
-            sb_push(settings->meas, MEAS_RUSAGE_STIME_DEF);
-            break;
-        case MEAS_RUSAGE_UTIME:
-            sb_push(settings->meas, MEAS_RUSAGE_UTIME_DEF);
-            break;
-        case MEAS_RUSAGE_MAXRSS:
-            sb_push(settings->meas, MEAS_RUSAGE_MAXRSS_DEF);
-            break;
-        case MEAS_RUSAGE_MINFLT:
-            sb_push(settings->meas, MEAS_RUSAGE_MINFLT_DEF);
-            break;
-        case MEAS_RUSAGE_MAJFLT:
-            sb_push(settings->meas, MEAS_RUSAGE_MAJFLT_DEF);
-            break;
-        case MEAS_RUSAGE_NVCSW:
-            sb_push(settings->meas, MEAS_RUSAGE_NVCSW_DEF);
-            break;
-        case MEAS_RUSAGE_NIVCSW:
-            sb_push(settings->meas, MEAS_RUSAGE_NIVCSW_DEF);
-            break;
-        case MEAS_PERF_CYCLES:
-            sb_push(settings->meas, MEAS_PERF_CYCLES_DEF);
-            g_use_perf = true;
-            break;
-        case MEAS_PERF_INS:
-            sb_push(settings->meas, MEAS_PERF_INS_DEF);
-            g_use_perf = true;
-            break;
-        case MEAS_PERF_BRANCH:
-            sb_push(settings->meas, MEAS_PERF_BRANCH_DEF);
-            g_use_perf = true;
-            break;
-        case MEAS_PERF_BRANCHM:
-            sb_push(settings->meas, MEAS_PERF_BRANCHM_DEF);
-            g_use_perf = true;
-            break;
-        default:
-            assert(0);
-        }
+        sb_push(settings->meas, BUILTIN_MEASUREMENTS[kind]);
     }
-
     sb_free(rusage_opts);
     for (size_t i = 0; i < sb_len(meas_list); ++i)
         sb_push(settings->meas, meas_list[i]);
@@ -1272,6 +1256,7 @@ static void init_bench_params(const struct input_policy *input,
     params->input = *input;
     params->output = output;
     params->meas = meas;
+    params->meas_count = sb_len(meas);
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
@@ -1671,7 +1656,7 @@ static bool exec_and_measure(const struct bench_params *params,
 
     ++bench->run_count;
     sb_push(bench->exit_codes, rc);
-    for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
         const struct meas *meas = params->meas + meas_idx;
         double val = 0.0;
         switch (meas->kind) {
@@ -1723,6 +1708,8 @@ static bool exec_and_measure(const struct bench_params *params,
                                        &val))
                 goto out;
             break;
+        case MEAS_LOADED:
+            assert(0);
         }
         sb_push(bench->meas[meas_idx], val);
     }
@@ -1868,11 +1855,12 @@ static bool run_benchmark(const struct bench_params *params,
     return true;
 }
 
-static void analyze_benchmark(struct bench_analysis *analysis) {
+static void analyze_benchmark(struct bench_analysis *analysis,
+                              size_t meas_count) {
     const struct bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count != 0);
-    for (size_t i = 0; i < bench->meas_count; ++i) {
+    for (size_t i = 0; i < meas_count; ++i) {
         assert(sb_len(bench->meas[i]) == count);
         estimate_distr(bench->meas[i], count, g_nresamp, analysis->meas + i);
     }
@@ -1899,13 +1887,13 @@ static void compare_benches(struct bench_results *results) {
     }
 }
 
-static void analyze_var_groups(const struct run_info *info,
-                               struct bench_meas_analysis *analysis) {
+static void analyze_var_groups(struct bench_meas_analysis *analysis) {
     if (analysis->base->group_count == 0)
         return;
-    const struct bench_var *var = info->var;
+    const struct bench_var *var = analysis->base->var;
     for (size_t grp_idx = 0; grp_idx < analysis->base->group_count; ++grp_idx) {
-        const struct bench_var_group *group = info->groups + grp_idx;
+        const struct bench_var_group *group =
+            analysis->base->var_groups + grp_idx;
         struct group_analysis *grp_analysis =
             analysis->group_analyses + grp_idx;
         grp_analysis->group = group;
@@ -2106,6 +2094,9 @@ static void calculate_p_values(struct bench_meas_analysis *analysis) {
 }
 
 static void print_exit_code_info(const struct bench *bench) {
+    if (!bench->exit_codes)
+        return;
+
     size_t count_nonzero = 0;
     for (size_t i = 0; i < bench->run_count; ++i)
         if (bench->exit_codes[i] != 0)
@@ -2186,7 +2177,7 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
         printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
     if (results->primary_meas_count != 0) {
-        for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             const struct meas *meas = results->meas + meas_idx;
             if (meas->is_secondary)
                 continue;
@@ -2197,7 +2188,7 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
             }
             const struct distr *distr = analysis->meas + meas_idx;
             print_distr(distr, &meas->units);
-            for (size_t j = 0; j < bench->meas_count; ++j) {
+            for (size_t j = 0; j < results->meas_count; ++j) {
                 if (results->meas[j].is_secondary &&
                     results->meas[j].primary_idx == meas_idx)
                     print_estimate(results->meas[j].name,
@@ -2208,7 +2199,7 @@ static void print_benchmark_info(const struct bench_analysis *analysis,
             print_outliers(&distr->outliers, run_count);
         }
     } else {
-        for (size_t i = 0; i < bench->meas_count; ++i) {
+        for (size_t i = 0; i < results->meas_count; ++i) {
             const struct meas *info = results->meas + i;
             print_estimate(info->name, &analysis->meas[i].mean, &info->units,
                            ANSI_BOLD_BLUE, ANSI_BRIGHT_BLUE);
@@ -2405,7 +2396,7 @@ static bool export_json(const struct bench_results *results,
             fprintf(f, "%d%s", bench->exit_codes[j],
                     j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"meas\": [");
-        for (size_t j = 0; j < bench->meas_count; ++j) {
+        for (size_t j = 0; j < results->meas_count; ++j) {
             const struct meas *info = results->meas + j;
             json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
@@ -2420,7 +2411,7 @@ static bool export_json(const struct bench_results *results,
                 fprintf(f, "%f%s", bench->meas[j][k],
                         k != run_count - 1 ? ", " : "");
             fprintf(f, "]}");
-            if (j != bench->meas_count - 1)
+            if (j != results->meas_count - 1)
                 fprintf(f, ", ");
         }
         fprintf(f, "]}");
@@ -2933,7 +2924,7 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
                "</tr></thead><tbody>");
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
-    for (size_t j = 0; j < bench->meas_count; ++j) {
+    for (size_t j = 0; j < results->meas_count; ++j) {
         if (results->meas[j].is_secondary &&
             results->meas[j].primary_idx == meas_idx)
             html_estimate(results->meas[j].name, &analysis->meas[j].mean,
@@ -3050,11 +3041,10 @@ static void html_report(const struct bench_results *results, FILE *f) {
     html_var_analysis(results, f);
     html_compare(results, f);
     for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
-        const struct bench *bench = results->benches + bench_idx;
         const struct bench_analysis *analysis =
             results->bench_analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", analysis->name);
-        for (size_t meas_idx = 0; meas_idx < bench->meas_count; ++meas_idx) {
+        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
             const struct meas *info = results->meas + meas_idx;
             if (info->is_secondary)
                 continue;
@@ -3071,7 +3061,7 @@ static bool run_bench(const struct bench_params *params,
         return false;
     if (!run_benchmark(params, analysis->bench))
         return false;
-    analyze_benchmark(analysis);
+    analyze_benchmark(analysis, params->meas_count);
     return true;
 }
 
@@ -3342,31 +3332,20 @@ static bool execute_benches(const struct run_info *info,
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         struct bench *bench = results->benches + bench_idx;
         const struct bench_params *params = info->params + bench_idx;
-        bench->meas_count = sb_len(params->meas);
-        assert(bench->meas_count != 0);
-        bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
+        bench->meas = calloc(results->meas_count, sizeof(*bench->meas));
         struct bench_analysis *analysis = results->bench_analyses + bench_idx;
-        analysis->meas = calloc(bench->meas_count, sizeof(*analysis->meas));
+        analysis->meas = calloc(results->meas_count, sizeof(*analysis->meas));
         analysis->bench = bench;
         analysis->name = params->str;
     }
     return run_benches(info->params, results->bench_analyses, bench_count);
 }
 
-// Load benchmark results from file instead of running it and generate info ad
-// hoc
-static bool load_bench_result(const char *file, struct run_info *info,
-                              struct bench_results *results) {
-    (void)file;
-    (void)info;
-    (void)results;
-    return true;
-}
-
 static void analyze_benches(const struct run_info *info,
                             struct bench_results *results) {
     size_t group_count = sb_len(info->groups);
     results->group_count = group_count;
+    results->var_groups = info->groups;
 
     size_t meas_count = results->meas_count;
     size_t primary_meas_count = 0;
@@ -3424,7 +3403,7 @@ static void analyze_benches(const struct run_info *info,
     for (size_t i = 0; i < meas_count; ++i) {
         if (results->meas[i].is_secondary)
             continue;
-        analyze_var_groups(info, results->meas_analyses + i);
+        analyze_var_groups(results->meas_analyses + i);
         calculate_p_values(results->meas_analyses + i);
         calculate_speedups(results->meas_analyses + i);
     }
@@ -3546,7 +3525,7 @@ static void free_bench_results(struct bench_results *results) {
         for (size_t i = 0; i < results->bench_count; ++i) {
             struct bench *bench = results->benches + i;
             sb_free(bench->exit_codes);
-            for (size_t i = 0; i < bench->meas_count; ++i)
+            for (size_t i = 0; i < results->meas_count; ++i)
                 sb_free(bench->meas[i]);
             free(bench->meas);
         }
@@ -3596,13 +3575,175 @@ err_free_settings:
     return success;
 }
 
-static bool run_app_load(const struct cli_settings *settings) {
-    struct run_info info = {0};
-    struct bench_results results = {0};
-    for (size_t i = 0; i < sb_len(settings->args); ++i) {
-        const char *file = settings->args[i];
-        load_bench_result(file, &info, &results);
+static bool load_meas_names(const char *file, char ***meas_names) {
+    bool success = false;
+    FILE *f = fopen(file, "r");
+    if (f == NULL)
+        return false;
+
+    char *line_buffer = NULL;
+    size_t n = 0;
+    if (getline(&line_buffer, &n, f) < 0)
+        goto out;
+
+    char *end = NULL;
+    (void)strtod(line_buffer, &end);
+    if (end == line_buffer) {
+        *meas_names = parse_comma_separated_value_list(line_buffer);
+        success = true;
+    } else {
+        success = true;
     }
+
+    free(line_buffer);
+out:
+    fclose(f);
+    return success;
+}
+
+static bool load_bench_run_meas(const char *str, double **meas,
+                                size_t meas_count) {
+    size_t cursor = 0;
+    while (cursor < meas_count) {
+        char *end = NULL;
+        double value = strtod(str, &end);
+        if (end == str)
+            return false;
+        sb_push(meas[cursor], value);
+        ++cursor;
+        str = end;
+        if (*str == '\n' || !*str)
+            break;
+        if (*str != ',')
+            return false;
+        ++str;
+    }
+    return cursor == meas_count ? true : false;
+}
+
+static bool load_bench_result(const char *file, struct bench *bench,
+                              size_t meas_count) {
+    bool success = false;
+    FILE *f = fopen(file, "r");
+    if (f == NULL)
+        return false;
+
+    size_t n = 0;
+    char *line_buffer = NULL;
+    // Skip line with measurement names
+    if (getline(&line_buffer, &n, f) < 0) {
+        error("failed to parse file '%s'", file);
+        goto out;
+    }
+    for (;;) {
+        ssize_t read_result = getline(&line_buffer, &n, f);
+        if (read_result < 0) {
+            if (ferror(f)) {
+                error("failed to read line from file '%s'", file);
+                goto out;
+            }
+            break;
+        }
+        ++bench->run_count;
+        if (!load_bench_run_meas(line_buffer, bench->meas, meas_count)) {
+            error("failed to parse file '%s'", file);
+            goto out;
+        }
+    }
+
+    success = true;
+out:
+    fclose(f);
+    free(line_buffer);
+    return success;
+}
+
+static bool run_app_load(const struct cli_settings *settings) {
+    struct meas *meas_list = NULL;
+    for (size_t file_idx = 0; file_idx < sb_len(settings->args); ++file_idx) {
+        const char *file = settings->args[file_idx];
+        char **file_meas_names;
+        if (!load_meas_names(file, &file_meas_names)) {
+            error("failed to load measurement names");
+            // TODO: Assign default names
+            // TODO: free resources
+            return false;
+        }
+        if (file_idx != 0) {
+            if (sb_len(file_meas_names) != sb_len(meas_list)) {
+                error("measurement number in different files does not match");
+                // TODO: free resources
+                return false;
+            }
+            continue;
+        }
+
+        for (size_t meas_idx = 0; meas_idx < sb_len(file_meas_names);
+             ++meas_idx) {
+            char *file_meas = file_meas_names[meas_idx];
+            // First check if measurement with same name exists
+            bool is_found = false;
+            for (size_t test_idx = 0; test_idx < sb_len(meas_list) && !is_found;
+                 ++test_idx) {
+                if (strcmp(file_meas, meas_list[test_idx].name) == 0)
+                    is_found = true;
+            }
+            // We have to add new measurement
+            if (is_found)
+                continue;
+
+            // Scan measurements from user input
+            const struct meas *meas_from_settings = NULL;
+            for (size_t test_idx = 0; test_idx < sb_len(settings->meas) &&
+                                      meas_from_settings == NULL;
+                 ++test_idx)
+                if (strcmp(file_meas, settings->meas[test_idx].name) == 0)
+                    meas_from_settings = settings->meas + test_idx;
+            if (meas_from_settings) {
+                sb_push(meas_list, *meas_from_settings);
+                continue;
+            }
+
+            struct meas meas = {strdup(file_meas), // FIXME: Not freed
+                                NULL,
+                                {MU_NONE, NULL},
+                                MEAS_LOADED,
+                                false,
+                                0};
+            // Try to guess and use seconds as measurement unit for first
+            // measurement
+            if (meas_idx == 0)
+                meas.units.kind = MU_S;
+            sb_push(meas_list, meas);
+        }
+    }
+
+    struct bench_results results = {0};
+    results.meas = meas_list;
+    size_t meas_count = results.meas_count = sb_len(meas_list);
+    results.bench_count = sb_len(settings->args);
+    results.benches = calloc(results.bench_count, sizeof(*results.benches));
+    results.bench_analyses =
+        calloc(results.bench_count, sizeof(*results.bench_analyses));
+    for (size_t i = 0; i < results.bench_count; ++i) {
+        struct bench *bench = results.benches + i;
+        struct bench_analysis *analysis = results.bench_analyses + i;
+        const char *file = settings->args[i];
+        bench->meas = calloc(meas_count, sizeof(*bench->meas));
+        analysis->meas = calloc(meas_count, sizeof(*analysis->meas));
+        analysis->bench = bench;
+        analysis->name = file;
+        if (!load_bench_result(file, bench, meas_count)) {
+            // TODO: Free resources
+            return false;
+        }
+        analyze_benchmark(analysis, meas_count);
+    }
+    struct run_info info = {0};
+    analyze_benches(&info, &results);
+    if (!make_report(&results))
+        return false;
+    free_bench_results(&results);
     return true;
 }
 
