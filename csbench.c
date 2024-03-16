@@ -226,18 +226,18 @@ static const char *g_prepare = NULL;
 static const struct meas BUILTIN_MEASUREMENTS[] = {
     /* MEAS_CUSTOM */ {0},
     /* MEAS_LOADED */ {0},
-    {"wall clock time", NULL, {MU_S, NULL}, MEAS_WALL, false, 0},
-    {"usrtime", NULL, {MU_S, NULL}, MEAS_RUSAGE_UTIME, true, 0},
-    {"systime", NULL, {MU_S, NULL}, MEAS_RUSAGE_STIME, true, 0},
-    {"maxrss", NULL, {MU_B, NULL}, MEAS_RUSAGE_MAXRSS, true, 0},
-    {"minflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MINFLT, true, 0},
-    {"majflt", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_MAJFLT, true, 0},
-    {"nvcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NVCSW, true, 0},
-    {"nivcsw", NULL, {MU_NONE, NULL}, MEAS_RUSAGE_NIVCSW, true, 0},
-    {"cycles", NULL, {MU_NONE, NULL}, MEAS_PERF_CYCLES, true, 0},
-    {"ins", NULL, {MU_NONE, NULL}, MEAS_PERF_INS, true, 0},
-    {"b", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCH, true, 0},
-    {"bm", NULL, {MU_NONE, NULL}, MEAS_PERF_BRANCHM, true, 0},
+    {"wall clock time", NULL, {MU_S, ""}, MEAS_WALL, false, 0},
+    {"usrtime", NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
+    {"systime", NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
+    {"maxrss", NULL, {MU_B, ""}, MEAS_RUSAGE_MAXRSS, true, 0},
+    {"minflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MINFLT, true, 0},
+    {"majflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MAJFLT, true, 0},
+    {"nvcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NVCSW, true, 0},
+    {"nivcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NIVCSW, true, 0},
+    {"cycles", NULL, {MU_NONE, ""}, MEAS_PERF_CYCLES, true, 0},
+    {"ins", NULL, {MU_NONE, ""}, MEAS_PERF_INS, true, 0},
+    {"b", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCH, true, 0},
+    {"bm", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
 };
 
 void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
@@ -578,7 +578,7 @@ static void parse_units_str(const char *str, struct units *units) {
         units->kind = MU_NONE;
     } else {
         units->kind = MU_CUSTOM;
-        units->str = str;
+        strlcpy(units->str, str, sizeof(units->str));
     }
 }
 
@@ -783,7 +783,7 @@ static void parse_cli_args(int argc, char **argv,
             }
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas = {0};
-            meas.name = str;
+            strlcpy(meas.name, str, sizeof(meas.name));
             meas.cmd = "cat";
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
@@ -795,7 +795,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *name = argv[cursor++];
             const char *cmd = argv[cursor++];
             struct meas meas = {0};
-            meas.name = name;
+            strlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
@@ -808,7 +808,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *units = argv[cursor++];
             const char *cmd = argv[cursor++];
             struct meas meas = {0};
-            meas.name = name;
+            strlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
@@ -825,7 +825,7 @@ static void parse_cli_args(int argc, char **argv,
             }
             char **value_list = range_to_var_value_list(low, high, step);
             struct bench_var *var = calloc(1, sizeof(*var));
-            var->name = name;
+            strlcpy(var->name, name, sizeof(var->name));
             var->values = value_list;
             var->value_count = sb_len(value_list);
             settings->var = var;
@@ -842,7 +842,7 @@ static void parse_cli_args(int argc, char **argv,
             char **value_list = parse_comma_separated_value_list(scan_list);
             free(scan_list);
             struct bench_var *var = calloc(1, sizeof(*var));
-            var->name = name;
+            strlcpy(var->name, name, sizeof(var->name));
             var->values = value_list;
             var->value_count = sb_len(value_list);
             settings->var = var;
@@ -970,7 +970,6 @@ static void parse_cli_args(int argc, char **argv,
 static void free_cli_settings(struct cli_settings *settings) {
     if (settings->var) {
         struct bench_var *var = settings->var;
-        free(var->name);
         for (size_t j = 0; j < sb_len(var->values); ++j)
             free(var->values[j]);
         sb_free(var->values);
@@ -3704,12 +3703,8 @@ static bool run_app_load(const struct cli_settings *settings) {
                 continue;
             }
 
-            struct meas meas = {strdup(file_meas), // FIXME: Not freed
-                                NULL,
-                                {MU_NONE, NULL},
-                                MEAS_LOADED,
-                                false,
-                                0};
+            struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
+            strlcpy(meas.name, file_meas, sizeof(meas.name));
             // Try to guess and use seconds as measurement unit for first
             // measurement
             if (meas_idx == 0)

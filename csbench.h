@@ -107,7 +107,8 @@ enum units_kind {
 
 struct units {
     enum units_kind kind;
-    const char *str;
+    // If kind is MU_CUSTOM, contains units name
+    char str[32];
 };
 
 enum meas_kind {
@@ -128,7 +129,10 @@ enum meas_kind {
 };
 
 struct meas {
-    const char *name;
+    // Measurement name that will be used in reports
+    char name[64];
+    // If measurement is MEAS_CUSTOM, cotains command string to be exucted in
+    // shell to do custom measurement.
     const char *cmd;
     struct units units;
     enum meas_kind kind;
@@ -136,9 +140,9 @@ struct meas {
     size_t primary_idx;
 };
 
-// Variable which can be substitued in benchmark string.
+// Variable which can be substitued in command string.
 struct bench_var {
-    char *name;
+    char name[64];
     char **values;
     size_t value_count;
 };
