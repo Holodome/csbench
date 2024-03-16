@@ -316,6 +316,7 @@ struct bench_results {
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
 #define sb_purge(_a) ((_a) ? (sb_size(_a) = 0) : 0)
+#define sb_new(_a) (sb_maybegrow(_a, 1), (_a) + sb_size(_a)++)
 
 #define ANSI_RED "31"
 #define ANSI_GREEN "32"

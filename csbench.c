@@ -93,6 +93,13 @@ struct bench_stop_policy {
     int max_runs;
 };
 
+// Instruction to rename certain benchmark. 'n' refers to individual benchmark
+// when variable is not used, otherwise it refers to benchmark group.
+struct rename_entry {
+    size_t n;
+    char name[256];
+};
+
 // This structure contains all information
 // supplied by user prior to benchmark start.
 struct cli_settings {
@@ -106,6 +113,7 @@ struct cli_settings {
     // variables.
     struct bench_var *var;
     int baseline;
+    struct rename_entry *rename_list;
 };
 
 struct bench_params {
@@ -424,11 +432,20 @@ static void print_help_and_exit(int rc) {
         "  --baseline <n>\n"
         "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
         "as baseline in comparison. If this option is not set, baseline will "
-        "be chosen automatically.\n"
+        "be chosen automatically.\n");
+    printf(
         "  --python-output\n"
         "          Do not silence python output. Intended for developers, as "
         "users should not have to see python output as it should always work "
         "correctly.\n"
+        "  --load\n"
+        "          Interpret <command> list given to csbench as list of csv "
+        "files, containing results of benchmarks. In this case csbench does "
+        "not run benchmarks, but does provide the usual analysis using data "
+        "specified in files.\n"
+        "  --rename <n> <name>\n"
+        "          Rename benchmark with number <n> to <name>. This name will "
+        "be used in reports instead of default one, which is command name. \n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -533,7 +550,7 @@ err_free_name:
     return false;
 }
 
-static char **parse_comma_separated_value_list(const char *str) {
+static char **parse_comma_separated_list(const char *str) {
     char **value_list = NULL;
     const char *cursor = str;
     const char *end = str + strlen(str);
@@ -583,7 +600,7 @@ static void parse_units_str(const char *str, struct units *units) {
 }
 
 static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
-    char **list = parse_comma_separated_value_list(opts);
+    char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
@@ -812,6 +829,36 @@ static void parse_cli_args(int argc, char **argv,
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
+        } else if (strcmp(argv[cursor], "--rename") == 0) {
+            ++cursor;
+            if (cursor + 1 >= argc) {
+                error("--rename requires 2 arguments");
+                exit(EXIT_FAILURE);
+            }
+            const char *n = argv[cursor++];
+            const char *name = argv[cursor++];
+            char *str_end;
+            long value = strtol(n, &str_end, 10);
+            if (str_end == str) {
+                error("invalid --rename command number argument");
+                exit(EXIT_FAILURE);
+            }
+            if (value < 1) {
+                error("command number must be at least 1");
+                exit(EXIT_FAILURE);
+            }
+            struct rename_entry *entry = sb_new(settings->rename_list);
+            entry->n = value - 1;
+            strlcpy(entry->name, name, sizeof(entry->name));
+        } else if (opt_arg(argv, &cursor, "--rename-all", &str)) {
+            char **list = parse_comma_separated_list(str);
+            for (size_t i = 0; i < sb_len(list); ++i) {
+                struct rename_entry *entry = sb_new(settings->rename_list);
+                entry->n = i;
+                strlcpy(entry->name, list[i], sizeof(entry->name));
+                free(list[i]);
+            }
+            sb_free(list);
         } else if (opt_arg(argv, &cursor, "--scan", &str)) {
             double low, high, step;
             char *name;
@@ -839,7 +886,7 @@ static void parse_cli_args(int argc, char **argv,
                 error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
-            char **value_list = parse_comma_separated_value_list(scan_list);
+            char **value_list = parse_comma_separated_list(scan_list);
             free(scan_list);
             struct bench_var *var = calloc(1, sizeof(*var));
             strlcpy(var->name, name, sizeof(var->name));
@@ -901,6 +948,8 @@ static void parse_cli_args(int argc, char **argv,
                 error("invalid --baseline argument");
                 exit(EXIT_FAILURE);
             }
+            // Filter out negative values as we treat this as unsigned number
+            // later.
             if (value <= 0) {
                 error("baseline number must be positive number");
                 exit(EXIT_FAILURE);
@@ -977,6 +1026,7 @@ static void free_cli_settings(struct cli_settings *settings) {
     }
     sb_free(settings->args);
     sb_free(settings->meas);
+    sb_free(settings->rename_list);
 }
 
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
@@ -3318,28 +3368,6 @@ free_progress_bar:
     return success;
 }
 
-static bool execute_benches(const struct run_info *info,
-                            struct bench_results *results) {
-    size_t bench_count = results->bench_count = sb_len(info->params);
-    assert(bench_count != 0);
-    results->benches = calloc(bench_count, sizeof(*results->benches));
-    results->bench_analyses =
-        calloc(bench_count, sizeof(*results->bench_analyses));
-    results->meas_count = sb_len(info->meas);
-    results->meas = info->meas;
-    results->var = info->var;
-    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
-        struct bench *bench = results->benches + bench_idx;
-        const struct bench_params *params = info->params + bench_idx;
-        bench->meas = calloc(results->meas_count, sizeof(*bench->meas));
-        struct bench_analysis *analysis = results->bench_analyses + bench_idx;
-        analysis->meas = calloc(results->meas_count, sizeof(*analysis->meas));
-        analysis->bench = bench;
-        analysis->name = params->str;
-    }
-    return run_benches(info->params, results->bench_analyses, bench_count);
-}
-
 static void analyze_benches(const struct run_info *info,
                             struct bench_results *results) {
     size_t group_count = sb_len(info->groups);
@@ -3551,25 +3579,77 @@ static bool make_report(const struct bench_results *results) {
     return true;
 }
 
+static void init_bench_results(const struct meas *meas_list, size_t bench_count,
+                               const struct bench_var *var,
+                               struct bench_results *results) {
+    results->meas = meas_list;
+    results->meas_count = sb_len(meas_list);
+    results->bench_count = bench_count;
+    results->benches = calloc(bench_count, sizeof(*results->benches));
+    results->bench_analyses =
+        calloc(bench_count, sizeof(*results->bench_analyses));
+    results->var = var;
+    for (size_t i = 0; i < results->bench_count; ++i) {
+        struct bench *bench = results->benches + i;
+        struct bench_analysis *analysis = results->bench_analyses + i;
+        bench->meas = calloc(results->meas_count, sizeof(*bench->meas));
+        analysis->meas = calloc(results->meas_count, sizeof(*analysis->meas));
+        analysis->bench = bench;
+    }
+}
+
+static bool check_rename_list(const struct rename_entry *rename_list,
+                              size_t bench_count) {
+    for (size_t i = 0; i < sb_len(rename_list); ++i) {
+        if (rename_list[i].n >= bench_count) {
+            error("number (%zu) of benchmark to be renamed ('%s') is too high",
+                  rename_list[i].n + 1, rename_list[i].name);
+            return false;
+        }
+    }
+    return true;
+}
+
+static void attempt_rename(const struct rename_entry *rename_list, size_t idx,
+                           const char **name) {
+    for (size_t i = 0; i < sb_len(rename_list); ++i) {
+        if (rename_list[i].n == idx) {
+            *name = rename_list[i].name;
+            break;
+        }
+    }
+}
+
 static bool run_app_bench(const struct cli_settings *cli) {
     bool success = false;
     struct run_info info = {0};
     if (!init_run_info(cli, &info))
         return false;
     if (g_use_perf && !init_perf())
-        goto err_free_settings;
-    struct bench_results results = {0};
-    if (!execute_benches(&info, &results))
+        goto err_free_run_info;
+    size_t bench_count = sb_len(info.params);
+    if (!check_rename_list(cli->rename_list, bench_count))
         goto err_deinit_perf;
+    struct bench_results results = {0};
+    init_bench_results(cli->meas, bench_count, info.var, &results);
+    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+        const struct bench_params *params = info.params + bench_idx;
+        struct bench_analysis *analysis = results.bench_analyses + bench_idx;
+        analysis->name = params->str;
+        attempt_rename(cli->rename_list, bench_idx, &analysis->name);
+    }
+    if (!run_benches(info.params, results.bench_analyses, bench_count))
+        goto err_free_results;
     analyze_benches(&info, &results);
     if (!make_report(&results))
-        goto err_deinit_perf;
+        goto err_free_results;
     success = true;
+err_free_results:
+    free_bench_results(&results);
 err_deinit_perf:
     if (g_use_perf)
         deinit_perf();
-    free_bench_results(&results);
-err_free_settings:
+err_free_run_info:
     free_run_info(&info);
     return success;
 }
@@ -3588,7 +3668,7 @@ static bool load_meas_names(const char *file, char ***meas_names) {
     char *end = NULL;
     (void)strtod(line_buffer, &end);
     if (end == line_buffer) {
-        *meas_names = parse_comma_separated_value_list(line_buffer);
+        *meas_names = parse_comma_separated_list(line_buffer);
         success = true;
     } else {
         success = true;
@@ -3713,21 +3793,20 @@ static bool run_app_load(const struct cli_settings *settings) {
         }
     }
 
+    size_t bench_count = sb_len(settings->args);
+    if (!check_rename_list(settings->rename_list, bench_count)) {
+        // TODO: free resources
+        return false;
+    }
+    size_t meas_count = sb_len(meas_list);
     struct bench_results results = {0};
-    results.meas = meas_list;
-    size_t meas_count = results.meas_count = sb_len(meas_list);
-    results.bench_count = sb_len(settings->args);
-    results.benches = calloc(results.bench_count, sizeof(*results.benches));
-    results.bench_analyses =
-        calloc(results.bench_count, sizeof(*results.bench_analyses));
+    init_bench_results(meas_list, bench_count, NULL, &results);
     for (size_t i = 0; i < results.bench_count; ++i) {
         struct bench *bench = results.benches + i;
         struct bench_analysis *analysis = results.bench_analyses + i;
         const char *file = settings->args[i];
-        bench->meas = calloc(meas_count, sizeof(*bench->meas));
-        analysis->meas = calloc(meas_count, sizeof(*analysis->meas));
-        analysis->bench = bench;
         analysis->name = file;
+        attempt_rename(settings->rename_list, i, &analysis->name);
         if (!load_bench_result(file, bench, meas_count)) {
             // TODO: Free resources
             return false;
