@@ -136,29 +136,31 @@ done
 # check json schema
 #
 
-j=/tmp/csbench.json
-$b ls --export-json $j > /dev/null || die
+if command -v jq &> /dev/null ; then 
+    j=/tmp/csbench.json
+    $b ls --export-json $j > /dev/null || die
 
-cat $j | jq -e '.["settings"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["time_limit"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["runs"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["min_runs"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["max_runs"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["warmup_time"]' > /dev/null || die
-cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
-cat $j | jq -e '.["benches"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["prepare"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["command"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["run_count"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["meas"].[]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["exit_codes"].[]' > /dev/null || die
+    cat $j | jq -e '.["settings"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["time_limit"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["runs"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["min_runs"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["max_runs"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["warmup_time"]' > /dev/null || die
+    cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
+    cat $j | jq -e '.["benches"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["prepare"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["command"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["run_count"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["meas"].[]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["exit_codes"].[]' > /dev/null || die
 
-$b ls --export-json $j --custom-t aaa 'echo $RANDOM' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["name"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["units"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["cmd"]' > /dev/null || die
-cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["val"].[]' > /dev/null || die
+    $b ls --export-json $j --custom-t aaa 'echo $RANDOM' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["name"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["units"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["cmd"]' > /dev/null || die
+    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["val"].[]' > /dev/null || die
+fi
 
 #
 # check that --regr flag works
