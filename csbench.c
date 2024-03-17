@@ -1983,12 +1983,11 @@ static void analyze_var_groups(struct bench_meas_analysis *analysis) {
 
 static void ref_speed(double u1, double sigma1, double u2, double sigma2,
                       double *ref_u, double *ref_sigma) {
-    double ref = u1 / u2;
     // propagate standard deviation for formula (t1 / t2)
+    double ref = u1 / u2;
     double a = sigma1 / u1;
     double b = sigma2 / u2;
     double ref_st_dev = ref * sqrt(a * a + b * b);
-
     *ref_u = ref;
     *ref_sigma = ref_st_dev;
 }
@@ -2064,6 +2063,9 @@ static void calculate_speedups(struct bench_meas_analysis *analysis) {
                     analysis->group_analyses + grp_idx;
                 if (group == baseline_group)
                     continue;
+                // This uses hand-written error propagation formula, for
+                // reference see
+                // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
                 double mean_accum = 1;
                 double st_dev_accum = 0.0;
                 size_t n = analysis->base->var->value_count;
