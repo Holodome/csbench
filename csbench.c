@@ -446,6 +446,10 @@ static void print_help_and_exit(int rc) {
         "  --rename <n> <name>\n"
         "          Rename benchmark with number <n> to <name>. This name will "
         "be used in reports instead of default one, which is command name. \n"
+        "   -s, --simple\n"
+        "          Preset to run benchmarks in parallel for one second without "
+        "warmup. Useful "
+        "for quickly checking something.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -520,13 +524,13 @@ static char **range_to_var_value_list(double low, double high, double step) {
     return result;
 }
 
-static bool parse_comma_separated_settings(const char *settings, char **namep,
+static bool parse_comma_separated_settings(const char *str, char **namep,
                                            char **scan_listp) {
     char *name = NULL;
     char *scan_list = NULL;
 
-    const char *cursor = settings;
-    const char *settings_end = settings + strlen(settings);
+    const char *cursor = str;
+    const char *str_end = str + strlen(str);
     char *i_end = strchr(cursor, '/');
     if (i_end == NULL)
         return false;
@@ -537,7 +541,7 @@ static bool parse_comma_separated_settings(const char *settings, char **namep,
     name[name_len] = '\0';
 
     cursor = i_end + 1;
-    if (cursor == settings_end)
+    if (cursor == str_end)
         goto err_free_name;
 
     scan_list = strdup(cursor);
@@ -599,7 +603,7 @@ static void parse_units_str(const char *str, struct units *units) {
     }
 }
 
-static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
+static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
     char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
@@ -630,7 +634,7 @@ static void parse_meas_list(const char *opts, enum meas_kind **rusage_opts) {
             error("invalid measurement name: '%s'", opt);
             exit(EXIT_FAILURE);
         }
-        sb_push(*rusage_opts, kind);
+        sb_push(*meas_list, kind);
     }
     for (size_t i = 0; i < sb_len(list); ++i)
         free(list[i]);
@@ -676,6 +680,34 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
         }
     }
     return false;
+}
+
+static size_t simple_get_thread_count(void) {
+    int pipe_fd[2];
+    if (pipe(pipe_fd) == -1)
+        return 1;
+
+    if (!execute_in_shell("nproc", -1, pipe_fd[1], -1)) {
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
+        return 1;
+    }
+
+    char buffer[4096];
+    ssize_t nread = read(pipe_fd[0], buffer, sizeof(buffer));
+    close(pipe_fd[0]);
+    close(pipe_fd[1]);
+    if (nread < 0 || nread == 0 || nread == sizeof(buffer))
+        return 1;
+
+    buffer[nread] = '\0';
+
+    char *str_end;
+    long value = strtol(buffer, &str_end, 10);
+    if (str_end == buffer)
+        return 1;
+
+    return value;
 }
 
 static void parse_cli_args(int argc, char **argv,
@@ -939,6 +971,12 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--load") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
+        } else if (strcmp(argv[cursor], "--simple") == 0 ||
+                   strcmp(argv[cursor], "-s") == 0) {
+            ++cursor;
+            g_threads = simple_get_thread_count();
+            g_warmup_time = 0.0;
+            g_bench_stop.time_limit = 1.0;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_arg(argv, &cursor, "--baseline", &str)) {
@@ -1046,7 +1084,6 @@ static bool replace_var_str(char *buf, size_t buf_size, const char *src,
                 return false;
             memcpy(wr_cursor, value, len);
             wr_cursor += len;
-
             *replaced = true;
         } else {
             if (wr_cursor >= buf_end)
@@ -1063,7 +1100,6 @@ static bool replace_var_str(char *buf, size_t buf_size, const char *src,
 static char **split_shell_words(const char *cmd) {
     char **words = NULL;
     char *current_word = NULL;
-
     enum {
         STATE_DELIMITER,
         STATE_BACKSLASH,
@@ -1074,7 +1110,6 @@ static char **split_shell_words(const char *cmd) {
         STATE_DOUBLE_QUOTED_BACKSLASH,
         STATE_COMMENT
     } state = STATE_DELIMITER;
-
     for (;;) {
         int c = *cmd++;
         switch (state) {
@@ -1253,7 +1288,6 @@ static bool extract_exec_and_argv(const char *cmd_str, char **exec,
         error("invalid command syntax");
         return false;
     }
-
     *exec = strdup(words[0]);
     for (size_t i = 0; i < sb_len(words); ++i)
         sb_push(*argv, strdup(words[i]));
@@ -1536,58 +1570,6 @@ static int exec_cmd(const struct bench_params *params, int stdout_fd,
         error("process finished with unexpected status");
 
     return ret;
-}
-
-static bool process_finished_correctly(pid_t pid) {
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            csperror("waitpid");
-        return false;
-    }
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return true;
-    return false;
-}
-
-static bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
-                             int stderr_fd) {
-    char *exec = "/bin/sh";
-    char *argv[] = {"sh", "-c", NULL, NULL};
-    argv[2] = (char *)cmd;
-
-    pid_t pid = fork();
-    if (pid == -1) {
-        csperror("fork");
-        return false;
-    }
-    if (pid == 0) {
-        int fd = -1;
-        if (stdin_fd == -1 || stdout_fd == -1 || stderr_fd == -1) {
-            fd = open("/dev/null", O_RDWR);
-            if (fd == -1)
-                _exit(-1);
-            if (stdin_fd == -1)
-                stdin_fd = fd;
-            if (stdout_fd == -1)
-                stdout_fd = fd;
-            if (stderr_fd == -1)
-                stderr_fd = fd;
-        }
-        close(STDIN_FILENO);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
-            dup2(stdout_fd, STDOUT_FILENO) == -1 ||
-            dup2(stderr_fd, STDERR_FILENO) == -1)
-            _exit(-1);
-        if (fd != -1)
-            close(fd);
-        if (execv(exec, argv) == -1)
-            _exit(-1);
-    }
-    return process_finished_correctly(pid);
 }
 
 static bool parse_custom_output(int fd, double *valuep) {

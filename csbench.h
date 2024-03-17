@@ -416,4 +416,8 @@ void ols(const double *x, const double *y, size_t count,
 
 void shuffle(size_t *arr, size_t count);
 
+bool process_finished_correctly(pid_t pid);
+bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
+                      int stderr_fd);
+
 #endif

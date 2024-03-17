@@ -56,6 +56,8 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
@@ -359,19 +361,6 @@ double ols_approx(const struct ols_regress *regress, double n) {
     return regress->a * f + regress->b;
 }
 
-bool process_finished_correctly(pid_t pid) {
-    int status = 0;
-    pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            csperror("waitpid");
-        return false;
-    }
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
-        return true;
-    return false;
-}
-
 static uint32_t pcg32_fast(uint64_t *state) {
     uint64_t x = *state;
     unsigned count = (unsigned)(x >> 61);
@@ -580,4 +569,56 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
     distr->max = tmp[count - 1];
     classify_outliers(distr);
     free(tmp);
+}
+
+bool process_finished_correctly(pid_t pid) {
+    int status = 0;
+    pid_t wpid;
+    if ((wpid = waitpid(pid, &status, 0)) != pid) {
+        if (wpid == -1)
+            csperror("waitpid");
+        return false;
+    }
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+        return true;
+    return false;
+}
+
+bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
+                      int stderr_fd) {
+    char *exec = "/bin/sh";
+    char *argv[] = {"sh", "-c", NULL, NULL};
+    argv[2] = (char *)cmd;
+
+    pid_t pid = fork();
+    if (pid == -1) {
+        csperror("fork");
+        return false;
+    }
+    if (pid == 0) {
+        int fd = -1;
+        if (stdin_fd == -1 || stdout_fd == -1 || stderr_fd == -1) {
+            fd = open("/dev/null", O_RDWR);
+            if (fd == -1)
+                _exit(-1);
+            if (stdin_fd == -1)
+                stdin_fd = fd;
+            if (stdout_fd == -1)
+                stdout_fd = fd;
+            if (stderr_fd == -1)
+                stderr_fd = fd;
+        }
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
+            dup2(stdout_fd, STDOUT_FILENO) == -1 ||
+            dup2(stderr_fd, STDERR_FILENO) == -1)
+            _exit(-1);
+        if (fd != -1)
+            close(fd);
+        if (execv(exec, argv) == -1)
+            _exit(-1);
+    }
+    return process_finished_correctly(pid);
 }
