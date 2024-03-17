@@ -62,6 +62,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -223,6 +224,7 @@ static bool g_progress_bar = false;
 static bool g_regr = false;
 static bool g_python_output = false;
 static bool g_has_custom_meas = false;
+static bool g_loada = false;
 static int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
 static struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
@@ -443,6 +445,9 @@ static void print_help_and_exit(int rc) {
         "files, containing results of benchmarks. In this case csbench does "
         "not run benchmarks, but does provide the usual analysis using data "
         "specified in files.\n"
+        "  --loada\n"
+        "          Try to load benchmark results from current output "
+        "directory.\n"
         "  --rename <n> <name>\n"
         "          Rename benchmark with number <n> to <name>. This name will "
         "be used in reports instead of default one, which is command name. \n"
@@ -971,6 +976,10 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--load") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
+        } else if (strcmp(argv[cursor], "--loada") == 0) {
+            ++cursor;
+            g_mode = APP_LOAD;
+            g_loada = true;
         } else if (strcmp(argv[cursor], "--simple") == 0 ||
                    strcmp(argv[cursor], "-s") == 0) {
             ++cursor;
@@ -3721,10 +3730,63 @@ out:
     return success;
 }
 
+static char **find_loada_filenames(void) {
+    DIR *dir = opendir(g_out_dir);
+    if (dir == NULL) {
+        csperror("opendir");
+        return NULL;
+    }
+    char **list = NULL;
+    for (;;) {
+        errno = 0;
+        struct dirent *dirent = readdir(dir);
+        if (dirent == NULL && errno != 0) {
+            csperror("readdir");
+            for (size_t i = 0; i < sb_len(list); ++i)
+                free(list[i]);
+            sb_free(list);
+            list = NULL;
+            break;
+        } else if (dirent == NULL) {
+            break;
+        }
+        const char *name = dirent->d_name;
+        const char *prefix = "bench_raw_";
+        size_t prefix_len = strlen(prefix);
+        if (strncmp(prefix, name, prefix_len) == 0) {
+            name += prefix_len;
+            if (!isdigit(*name))
+                continue;
+            size_t n = 0;
+            do {
+                n = n * 10 + (*name - '0');
+                ++name;
+            } while (isdigit(*name));
+            if (strcmp(name, ".csv") == 0) {
+                char buffer[4096];
+                snprintf(buffer, sizeof(buffer), "%s/%s", g_out_dir,
+                         dirent->d_name);
+                sb_ensure(list, n + 1);
+                list[n] = strdup(buffer);
+            }
+        }
+    }
+    closedir(dir);
+    if (list) {
+    }
+    return list;
+}
+
 static bool run_app_load(const struct cli_settings *settings) {
+    const char **file_list = settings->args;
+    if (g_loada) {
+        file_list = (const char **)find_loada_filenames();
+        assert(file_list);
+    }
+
     struct meas *meas_list = NULL;
-    for (size_t file_idx = 0; file_idx < sb_len(settings->args); ++file_idx) {
-        const char *file = settings->args[file_idx];
+    for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
+        const char *file = file_list[file_idx];
         char **file_meas_names;
         if (!load_meas_names(file, &file_meas_names)) {
             error("failed to load measurement names");
@@ -3777,7 +3839,7 @@ static bool run_app_load(const struct cli_settings *settings) {
         }
     }
 
-    size_t bench_count = sb_len(settings->args);
+    size_t bench_count = sb_len(file_list);
     if (!check_rename_list(settings->rename_list, bench_count)) {
         // TODO: free resources
         return false;
@@ -3788,7 +3850,7 @@ static bool run_app_load(const struct cli_settings *settings) {
     for (size_t i = 0; i < results.bench_count; ++i) {
         struct bench *bench = results.benches + i;
         struct bench_analysis *analysis = results.bench_analyses + i;
-        const char *file = settings->args[i];
+        const char *file = file_list[i];
         analysis->name = file;
         attempt_rename(settings->rename_list, i, &analysis->name);
         if (!load_bench_result(file, bench, meas_count)) {

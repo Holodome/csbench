@@ -223,6 +223,7 @@ $b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=3 > /d
 #
 # check that renaming works
 #
+
 distclean 
 out=$($b ls --rename 1 test)
 echo "$out" | grep -q test || die 
@@ -231,7 +232,12 @@ echo "$out" | grep -qv ls || die
 #
 # check that loading results from csv produces the same report
 #
+
 distclean 
 out=$($b ls pwd --rename-all=one,two --csv)
 out1=$($b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two)
+[ "$out" = "$out1" ] || die
+distclean 
+out=$($b ls pwd --rename-all=one,two --csv)
+out1=$($b --loada --rename-all=one,two)
 [ "$out" = "$out1" ] || die
