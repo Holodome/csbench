@@ -3787,7 +3787,7 @@ static bool run_app_load(const struct cli_settings *settings) {
     struct meas *meas_list = NULL;
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
-        char **file_meas_names;
+        char **file_meas_names = NULL;
         if (!load_meas_names(file, &file_meas_names)) {
             error("failed to load measurement names");
             // TODO: Assign default names
