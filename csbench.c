@@ -3558,9 +3558,11 @@ static void free_bench_results(struct bench_results *results) {
         }
         free(results->bench_analyses);
     }
-    for (size_t i = 0; i < results->meas_count; ++i)
-        free_bench_meas_analysis(results->meas_analyses + i);
-    free(results->meas_analyses);
+    if (results->meas_analyses) {
+        for (size_t i = 0; i < results->meas_count; ++i)
+            free_bench_meas_analysis(results->meas_analyses + i);
+        free(results->meas_analyses);
+    }
 }
 
 static bool make_report(const struct bench_results *results) {
