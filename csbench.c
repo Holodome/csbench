@@ -234,8 +234,8 @@ static const char *g_out_dir = ".csbench";
 static const char *g_prepare = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
-    /* MEAS_CUSTOM */ {0},
-    /* MEAS_LOADED */ {0},
+    /* MEAS_CUSTOM */ {"", NULL, {0}, 0, false, 0},
+    /* MEAS_LOADED */ {"", NULL, {0}, 0, false, 0},
     {"wall clock time", NULL, {MU_S, ""}, MEAS_WALL, false, 0},
     {"usrtime", NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
     {"systime", NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
