@@ -53,12 +53,12 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <fcntl.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -621,4 +621,14 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
             _exit(-1);
     }
     return process_finished_correctly(pid);
+}
+
+size_t csstrlcpy(char *dst, const char *src, size_t size) {
+    size_t ret = strlen(src);
+    if (size) {
+        size_t len = (ret >= size) ? size - 1 : ret;
+        memcpy(dst, src, len);
+        dst[len] = '\0';
+    }
+    return ret;
 }

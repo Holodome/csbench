@@ -422,4 +422,10 @@ bool process_finished_correctly(pid_t pid);
 bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
                       int stderr_fd);
 
+size_t csstrlcpy(char *dst, const char *src, size_t size);
+#ifdef strlcpy 
+#undef strlcpy 
+#endif 
+#define strlcpy csstrlcpy
+
 #endif

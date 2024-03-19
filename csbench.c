@@ -296,7 +296,7 @@ void csperror(const char *fmt) {
     int err = errno;
     char errbuf[4096];
     char *err_msg;
-#if _GNU_SOURCE
+#ifdef _GNU_SOURCE
     err_msg = strerror_r(err, errbuf, sizeof(errbuf));
 #else
     strerror_r(err, errbuf, sizeof(errbuf));
