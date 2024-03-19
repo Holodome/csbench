@@ -203,7 +203,7 @@ struct bench {
 struct bench_analysis {
     struct bench *bench;
     struct distr *meas; // [meas_count]
-    char name[256];
+    char name[1024];
 };
 
 enum big_o {
