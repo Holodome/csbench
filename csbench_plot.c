@@ -536,7 +536,7 @@ void group_bar_plot(const struct bench_meas_analysis *analysis,
     fprintf(f, "]\n");
     fprintf(f, "times = {");
     for (size_t i = 0; i < count; ++i) {
-        fprintf(f, "  '%s': [", analysis->group_analyses[i].group->template);
+        fprintf(f, "  '%s': [", analysis->group_analyses[i].group->name);
         for (size_t j = 0; j < var->value_count; ++j)
             fprintf(f, "%g, ",
                     analysis->group_analyses[i].data[j].mean *

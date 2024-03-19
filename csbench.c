@@ -1335,7 +1335,6 @@ static void free_run_info(struct run_info *run_info) {
     sb_free(run_info->params);
     for (size_t i = 0; i < sb_len(run_info->groups); ++i) {
         struct bench_var_group *group = run_info->groups + i;
-        free(group->template);
         free(group->cmd_idxs);
     }
     sb_free(run_info->groups);
@@ -1352,6 +1351,17 @@ static void init_bench_params(const struct input_policy *input,
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
+}
+
+static bool attempt_group_rename(const struct rename_entry *rename_list,
+                                 size_t grp_idx, struct bench_var_group *grp) {
+    for (size_t i = 0; i < sb_len(rename_list); ++i) {
+        if (rename_list[i].n == grp_idx) {
+            strlcpy(grp->name, rename_list[i].name, sizeof(grp->name));
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool init_run_info(const struct cli_settings *cli,
@@ -1417,7 +1427,9 @@ static bool init_run_info(const struct cli_settings *cli,
                 group.cmd_idxs[k] = sb_len(info->params);
                 sb_push(info->params, bench_params);
             }
-            group.template = strdup(cmd_str);
+            if (!attempt_group_rename(cli->rename_list, sb_len(info->groups),
+                                      &group))
+                strlcpy(group.name, cmd_str, sizeof(group.name));
             sb_push(info->groups, group);
         } else {
             char *exec = NULL, **argv = NULL;
@@ -2296,7 +2308,7 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
              ++grp_idx) {
             printf("%c = ", (int)('A' + grp_idx));
             printf_colored(ANSI_BOLD, "%s\n",
-                           analysis->group_analyses[grp_idx].group->template);
+                           analysis->group_analyses[grp_idx].group->name);
         }
 
         if (g_baseline != -1)
@@ -2347,7 +2359,7 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                 const struct group_analysis *grp =
                     analysis->group_analyses + grp_idx;
                 if (grp->values_are_doubles) {
-                    printf_colored(ANSI_BOLD, "%s ", grp->group->template);
+                    printf_colored(ANSI_BOLD, "%s ", grp->group->name);
                     printf("%s complexity (%g)\n",
                            big_o_str(grp->regress.complexity), grp->regress.a);
                 }
@@ -2489,8 +2501,7 @@ static void export_csv_group_results(const struct bench_meas_analysis *analysis,
     fprintf(f, "%s,", analysis->base->var->name);
     for (size_t i = 0; i < analysis->base->group_count; ++i) {
         char buf[4096];
-        json_escape(buf, sizeof(buf),
-                    analysis->group_analyses[i].group->template);
+        json_escape(buf, sizeof(buf), analysis->group_analyses[i].group->name);
         fprintf(f, "%s", buf);
         if (i != analysis->base->group_count - 1)
             fprintf(f, ",");
@@ -2864,7 +2875,7 @@ static bool make_plots_readme(const struct bench_results *results) {
             fprintf(f,
                     "* [command group '%s' regression "
                     "plot](group_%zu_%zu.svg)\n",
-                    analysis->group->template, grp_idx, meas_idx);
+                    analysis->group->name, grp_idx, meas_idx);
         }
         fprintf(f, "### KDE plots\n");
         fprintf(f, "#### regular\n");
@@ -3049,7 +3060,7 @@ static void html_var_analysis(const struct bench_results *results, FILE *f) {
             fprintf(f, "<div><h3>group '%s' with value %s</h3>",
                     results->meas_analyses[0]
                         .group_analyses[grp_idx]
-                        .group->template,
+                        .group->name,
                     results->var->name);
             const struct meas *meas = results->meas + meas_idx;
             const struct group_analysis *analysis =
@@ -3594,25 +3605,68 @@ static void init_bench_results(const struct meas *meas_list, size_t bench_count,
 }
 
 static bool check_rename_list(const struct rename_entry *rename_list,
-                              size_t bench_count) {
-    for (size_t i = 0; i < sb_len(rename_list); ++i) {
-        if (rename_list[i].n >= bench_count) {
-            error("number (%zu) of benchmark to be renamed ('%s') is too high",
-                  rename_list[i].n + 1, rename_list[i].name);
-            return false;
+                              size_t bench_count,
+                              const struct bench_var_group *groups) {
+    if (sb_len(groups) == 0) {
+        for (size_t i = 0; i < sb_len(rename_list); ++i) {
+            if (rename_list[i].n >= bench_count) {
+                error("number (%zu) of benchmark to be renamed ('%s') is too "
+                      "high",
+                      rename_list[i].n + 1, rename_list[i].name);
+                return false;
+            }
+        }
+    } else {
+        for (size_t i = 0; i < sb_len(rename_list); ++i) {
+            if (rename_list[i].n >= sb_len(groups)) {
+                error("number (%zu) of benchmark to be renamed ('%s') is too "
+                      "high",
+                      rename_list[i].n + 1, rename_list[i].name);
+                return false;
+            }
         }
     }
     return true;
 }
 
-static void attempt_rename(const struct rename_entry *rename_list, size_t idx,
-                           const char **name) {
+static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
+                           struct bench_analysis *analysis) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == idx) {
-            *name = rename_list[i].name;
-            break;
+            strlcpy(analysis->name, rename_list[i].name,
+                    sizeof(analysis->name));
+            return true;
         }
     }
+    return false;
+}
+
+static bool attempt_groupped_rename(const struct rename_entry *rename_list,
+                                    size_t bench_idx,
+                                    const struct bench_var_group *groups,
+                                    const struct bench_var *var,
+                                    struct bench_analysis *analysis) {
+    assert(var);
+    assert(groups);
+    size_t value_count = var->value_count;
+    for (size_t grp_idx = 0; grp_idx < sb_len(groups); ++grp_idx) {
+        const struct bench_var_group *grp = groups + grp_idx;
+        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+            if (grp->cmd_idxs[val_idx] == bench_idx) {
+                for (size_t rename_idx = 0; rename_idx < sb_len(rename_list);
+                     ++rename_idx) {
+                    if (rename_list[rename_idx].n == grp_idx) {
+                        snprintf(analysis->name, sizeof(analysis->name),
+                                 "%s %s=%s", rename_list[rename_idx].name,
+                                 var->name, var->values[val_idx]);
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 static bool run_app_bench(const struct cli_settings *cli) {
@@ -3623,15 +3677,22 @@ static bool run_app_bench(const struct cli_settings *cli) {
     if (g_use_perf && !init_perf())
         goto err_free_run_info;
     size_t bench_count = sb_len(info.params);
-    if (!check_rename_list(cli->rename_list, bench_count))
+    if (!check_rename_list(cli->rename_list, bench_count, info.groups))
         goto err_deinit_perf;
     struct bench_results results = {0};
     init_bench_results(cli->meas, bench_count, info.var, &results);
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         const struct bench_params *params = info.params + bench_idx;
         struct bench_analysis *analysis = results.bench_analyses + bench_idx;
-        analysis->name = params->str;
-        attempt_rename(cli->rename_list, bench_idx, &analysis->name);
+        bool renamed = false;
+        if (sb_len(info.groups) == 0) {
+            renamed = attempt_rename(cli->rename_list, bench_idx, analysis);
+        } else {
+            renamed = attempt_groupped_rename(cli->rename_list, bench_idx,
+                                              info.groups, cli->var, analysis);
+        }
+        if (!renamed)
+            strlcpy(analysis->name, params->str, sizeof(analysis->name));
     }
     if (!run_benches(info.params, results.bench_analyses, bench_count))
         goto err_free_results;
@@ -3842,7 +3903,7 @@ static bool run_app_load(const struct cli_settings *settings) {
     }
 
     size_t bench_count = sb_len(file_list);
-    if (!check_rename_list(settings->rename_list, bench_count)) {
+    if (!check_rename_list(settings->rename_list, bench_count, NULL)) {
         // TODO: free resources
         return false;
     }
@@ -3853,8 +3914,8 @@ static bool run_app_load(const struct cli_settings *settings) {
         struct bench *bench = results.benches + i;
         struct bench_analysis *analysis = results.bench_analyses + i;
         const char *file = file_list[i];
-        analysis->name = file;
-        attempt_rename(settings->rename_list, i, &analysis->name);
+        if (!attempt_rename(settings->rename_list, i, analysis))
+            strlcpy(analysis->name, file, sizeof(analysis->name));
         if (!load_bench_result(file, bench, meas_count)) {
             // TODO: Free resources
             return false;

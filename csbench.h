@@ -148,7 +148,7 @@ struct bench_var {
 };
 
 struct bench_var_group {
-    char *template;
+    char name[1024];
     size_t *cmd_idxs; // [var->value_count]
 };
 
@@ -203,7 +203,7 @@ struct bench {
 struct bench_analysis {
     struct bench *bench;
     struct distr *meas; // [meas_count]
-    const char *name;
+    char name[256];
 };
 
 enum big_o {
@@ -423,9 +423,9 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
                       int stderr_fd);
 
 size_t csstrlcpy(char *dst, const char *src, size_t size);
-#ifdef strlcpy 
-#undef strlcpy 
-#endif 
+#ifdef strlcpy
+#undef strlcpy
+#endif
 #define strlcpy csstrlcpy
 
 #endif

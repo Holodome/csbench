@@ -225,7 +225,7 @@ $b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=3 > /d
 #
 
 distclean 
-out=$($b ls --rename 1 test)
+out=$($b ls --rename 1 test || die)
 echo "$out" | grep -q test || die 
 echo "$out" | grep -qv ls || die 
 
@@ -242,3 +242,11 @@ echo "$out" | grep -qv ls || die
 # $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
 # $b --loada --rename-all=one,two > /tmp/csbench_2
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
+
+#
+# check that renaming works for groups
+#
+distclean
+out=$($b 'echo {n} | python3 tests/quicksort.py' --scan n/100/500/100 --rename-all quick)
+echo "$out" | grep -qv 'quicksort.py' || die 
+echo "$out" | grep -q quick || die 
