@@ -141,6 +141,17 @@ usrtime 5.190 ms 6.550 ms 7.795 ms
  maxrss 3.562 MB 3.562 MB 3.562 MB
 ```
 
+If you want to see example of advanced csbench usage, try running the following command and explore the outputs:
+```
+csbench 'echo {n} | python3 tests/quicksort.py' \
+        'echo {n} | python3 tests/bubble.py' \
+        --rename-all quicksort,bubble \
+        --scanl n/64,128,256,512,1024,2048 \
+        --custom t \
+        -W 0.1 -j$(nproc) -R10 \
+        --plot --no-wall --csv --plot-src --python-output --regr 
+```
+
 ## License 
 
 `csbench` is dual-licensed under the terms of the MIT License and the Apache License 2.0.

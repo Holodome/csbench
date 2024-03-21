@@ -3227,7 +3227,7 @@ void *progress_bar_thread_worker(void *arg) {
     bool is_finished = false;
     redraw_progress_bar(bar);
     do {
-        usleep(50000);
+        usleep(100000);
         redraw_progress_bar(bar);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i)
