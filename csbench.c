@@ -1920,6 +1920,29 @@ static void analyze_benchmark(struct bench_analysis *analysis,
     }
 }
 
+struct bench_sort_state {
+    size_t meas_idx;
+    const struct bench_analysis *analyses;
+};
+
+#ifdef __linux__
+static int bench_sort_cmp(const void *ap, const void *bp, void *statep) {
+#elif defined(__APPLE__)
+static int bench_sort_cmp(void *statep, const void *ap, const void *bp) {
+#else
+#error
+#endif
+    const struct bench_sort_state *state = statep;
+    size_t a_idx = *(const size_t *)ap;
+    size_t b_idx = *(const size_t *)bp;
+    if (a_idx == b_idx)
+        return 0;
+
+    double va = state->analyses[a_idx].meas[state->meas_idx].mean.point;
+    double vb = state->analyses[b_idx].meas[state->meas_idx].mean.point;
+    return va > vb;
+}
+
 static void compare_benches(struct bench_results *results) {
     if (results->bench_count == 1)
         return;
@@ -1929,15 +1952,23 @@ static void compare_benches(struct bench_results *results) {
     for (size_t i = 0; i < meas_count; ++i) {
         if (results->meas[i].is_secondary)
             continue;
-        double best = results->bench_analyses[0].meas[i].mean.point;
-        for (size_t j = 1; j < bench_count; ++j) {
-            const struct bench_analysis *analysis = results->bench_analyses + j;
-            double mean = analysis->meas[i].mean.point;
-            if (mean < best) {
-                results->meas_analyses[i].fastest = j;
-                best = mean;
-            }
-        }
+
+        struct bench_sort_state state = {0};
+        state.meas_idx = i;
+        state.analyses = results->bench_analyses;
+        for (size_t j = 0; j < bench_count; ++j)
+            results->meas_analyses[i].fastest[j] = j;
+#ifdef __linux__
+        qsort_r(results->meas_analyses[i].fastest, bench_count,
+                sizeof(*results->meas_analyses[i].fastest), bench_sort_cmp,
+                &state);
+#elif defined(__APPLE__)
+        qsort_r(results->meas_analyses[i].fastest, bench_count,
+                sizeof(*results->meas_analyses[i].fastest), &state,
+                bench_sort_cmp);
+#else
+#error
+#endif
     }
 }
 
@@ -2023,7 +2054,7 @@ static void calculate_speedups(struct bench_meas_analysis *analysis) {
     if (g_baseline != -1) {
         reference = analysis->benches[g_baseline];
     } else {
-        reference = analysis->benches[analysis->fastest];
+        reference = analysis->benches[analysis->fastest[0]];
         flip = true;
     }
     for (size_t bench_idx = 0; bench_idx < analysis->base->bench_count;
@@ -2116,7 +2147,7 @@ static void calculate_p_values(struct bench_meas_analysis *analysis) {
         if (g_baseline != -1)
             d1 = analysis->benches[g_baseline];
         else
-            d1 = analysis->benches[analysis->fastest];
+            d1 = analysis->benches[analysis->fastest[0]];
         for (size_t bench_idx = 0; bench_idx < analysis->base->bench_count;
              ++bench_idx) {
             const struct distr *d2 = analysis->benches[bench_idx];
@@ -2274,15 +2305,18 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
             reference = analysis->base->bench_analyses + g_baseline;
         } else {
             printf("fastest command ");
-            reference = analysis->base->bench_analyses + analysis->fastest;
+            reference = analysis->base->bench_analyses + analysis->fastest[0];
         }
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
         for (size_t j = 0; j < analysis->base->bench_count; ++j) {
+            size_t bench_idx = j;
+            if (g_baseline == -1)
+                bench_idx = analysis->fastest[j];
             const struct bench_analysis *bench =
-                analysis->base->bench_analyses + j;
+                analysis->base->bench_analyses + bench_idx;
             if (bench == reference)
                 continue;
-            const struct point_err_est *speedup = analysis->speedup + j;
+            const struct point_err_est *speedup = analysis->speedup + bench_idx;
             if (g_baseline != -1)
                 printf_colored(ANSI_BOLD, "  %s", bench->name);
             else
@@ -2296,7 +2330,7 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                 printf_colored(ANSI_BOLD, "%s", bench->name);
             else
                 printf("baseline");
-            printf(" (p=%.2f)", analysis->p_values[j]);
+            printf(" (p=%.2f)", analysis->p_values[bench_idx]);
             printf("\n");
         }
         if (analysis->base->group_count == 1 && g_regr) {
@@ -3393,6 +3427,8 @@ static void analyze_benches(const struct run_info *info,
             continue;
         results->meas_analyses[i].meas = results->meas + i;
         results->meas_analyses[i].base = results;
+        results->meas_analyses[i].fastest = calloc(
+            results->bench_count, sizeof(*results->meas_analyses[i].fastest));
         results->meas_analyses[i].benches = calloc(
             results->bench_count, sizeof(*results->meas_analyses[i].benches));
         for (size_t j = 0; j < results->bench_count; ++j)
@@ -3529,6 +3565,7 @@ static bool do_visualize(const struct bench_results *results) {
 }
 
 static void free_bench_meas_analysis(struct bench_meas_analysis *analysis) {
+    free(analysis->fastest);
     free(analysis->fastest_val);
     free(analysis->p_values);
     free(analysis->speedup);
