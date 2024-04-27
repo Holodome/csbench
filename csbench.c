@@ -3059,11 +3059,10 @@ static void html_var_analysis(const struct bench_results *results, FILE *f) {
                     "</div></div></div></div>",
                     results->meas[meas_idx].name, meas_idx, meas_idx);
         for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            fprintf(f, "<div><h3>group '%s' with value %s</h3>",
-                    results->meas_analyses[0]
-                        .group_analyses[grp_idx]
-                        .group->name,
-                    results->var->name);
+            fprintf(
+                f, "<div><h3>group '%s' with value %s</h3>",
+                results->meas_analyses[0].group_analyses[grp_idx].group->name,
+                results->var->name);
             const struct meas *meas = results->meas + meas_idx;
             const struct group_analysis *analysis =
                 results->meas_analyses[meas_idx].group_analyses + grp_idx;
@@ -3837,33 +3836,36 @@ static char **find_loada_filenames(void) {
         }
     }
     closedir(dir);
-    if (list) {
-    }
     return list;
 }
 
 static bool run_app_load(const struct cli_settings *settings) {
+    bool result = false;
     const char **file_list = settings->args;
+    struct meas *meas_list = NULL;
+    struct bench_results results = {0};
     if (g_loada) {
         file_list = (const char **)find_loada_filenames();
-        assert(file_list);
+        if (!file_list) {
+            error("failed to find files as required for --loada argument");
+            return false;
+        }
     }
 
-    struct meas *meas_list = NULL;
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
         char **file_meas_names = NULL;
         if (!load_meas_names(file, &file_meas_names)) {
-            error("failed to load measurement names");
-            // TODO: Assign default names
-            // TODO: free resources
-            return false;
+            error("failed to load measurement names from file '%s'", file);
+            goto err;
         }
         if (file_idx != 0) {
             if (sb_len(file_meas_names) != sb_len(meas_list)) {
-                error("measurement number in different files does not match");
-                // TODO: free resources
-                return false;
+                error("measurement number in different files does not match "
+                      "(current file '%s')",
+                      file);
+                sb_free(file_meas_names);
+                goto err;
             }
             continue;
         }
@@ -3902,15 +3904,14 @@ static bool run_app_load(const struct cli_settings *settings) {
                 meas.units.kind = MU_S;
             sb_push(meas_list, meas);
         }
+        sb_free(file_meas_names);
     }
 
     size_t bench_count = sb_len(file_list);
-    if (!check_rename_list(settings->rename_list, bench_count, NULL)) {
-        // TODO: free resources
-        return false;
-    }
+    if (!check_rename_list(settings->rename_list, bench_count, NULL))
+        goto err;
+
     size_t meas_count = sb_len(meas_list);
-    struct bench_results results = {0};
     init_bench_results(meas_list, bench_count, NULL, &results);
     for (size_t i = 0; i < results.bench_count; ++i) {
         struct bench *bench = results.benches + i;
@@ -3918,18 +3919,26 @@ static bool run_app_load(const struct cli_settings *settings) {
         const char *file = file_list[i];
         if (!attempt_rename(settings->rename_list, i, analysis))
             strlcpy(analysis->name, file, sizeof(analysis->name));
-        if (!load_bench_result(file, bench, meas_count)) {
-            // TODO: Free resources
-            return false;
-        }
+        if (!load_bench_result(file, bench, meas_count))
+            goto err;
         analyze_benchmark(analysis, meas_count);
     }
     struct run_info info = {0};
     analyze_benches(&info, &results);
     if (!make_report(&results))
-        return false;
+        goto err;
     free_bench_results(&results);
-    return true;
+    result = true;
+err:
+    free_bench_results(&results);
+    if (file_list && file_list != settings->args) {
+        for (size_t i = 0; i < sb_len(file_list); ++i)
+            free((char *)file_list[i]);
+        sb_free(file_list);
+    }
+    if (meas_list)
+        sb_free(meas_list);
+    return result;
 }
 
 static bool run(const struct cli_settings *cli) {
