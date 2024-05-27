@@ -838,7 +838,8 @@ static void parse_cli_args(int argc, char **argv,
                 settings->input.file = str;
             }
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
-            struct meas meas = {0};
+            struct meas meas;
+            memset(&meas, 0, sizeof(meas));
             strlcpy(meas.name, str, sizeof(meas.name));
             meas.cmd = "cat";
             sb_push(meas_list, meas);
@@ -850,7 +851,8 @@ static void parse_cli_args(int argc, char **argv,
             }
             const char *name = argv[cursor++];
             const char *cmd = argv[cursor++];
-            struct meas meas = {0};
+            struct meas meas;
+            memset(&meas, 0, sizeof(meas));
             strlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             sb_push(meas_list, meas);
@@ -863,7 +865,8 @@ static void parse_cli_args(int argc, char **argv,
             const char *name = argv[cursor++];
             const char *units = argv[cursor++];
             const char *cmd = argv[cursor++];
-            struct meas meas = {0};
+            struct meas meas;
+            memset(&meas, 0, sizeof(meas));
             strlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
@@ -1402,7 +1405,8 @@ static bool init_run_info(const struct cli_settings *cli,
             const struct bench_var *var = cli->var;
             char buf[4096];
             size_t value_count = var->value_count;
-            struct bench_var_group group = {0};
+            struct bench_var_group group;
+            memset(&group, 0, sizeof(group));
             group.cmd_idxs = calloc(value_count, sizeof(*group.cmd_idxs));
             for (size_t k = 0; k < value_count; ++k) {
                 const char *var_value = var->values[k];
@@ -1690,7 +1694,8 @@ static bool exec_and_measure(const struct bench_params *params,
             goto out;
     }
 
-    struct rusage rusage = {0};
+    struct rusage rusage;
+    memset(&rusage, 0, sizeof(rusage));
     struct perf_cnt pmc_ = {0};
     struct perf_cnt *pmc = NULL;
     if (g_use_perf)
@@ -3994,7 +3999,8 @@ static void sigint_handler(int sig) {
         perf_signal_cleanup();
 
     // Use default signal handler
-    struct sigaction action = {0};
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
     action.sa_handler = SIG_DFL;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) == -1)
@@ -4003,7 +4009,8 @@ static void sigint_handler(int sig) {
 }
 
 static void prepare(void) {
-    struct sigaction action = {0};
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
     action.sa_handler = sigint_handler;
     sigemptyset(&action.sa_mask);
     if (sigaction(SIGINT, &action, NULL) == -1) {
