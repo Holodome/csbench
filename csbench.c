@@ -725,6 +725,9 @@ static void parse_cli_args(int argc, char **argv,
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
 
+    if (argc == 1)
+        print_help_and_exit(EXIT_SUCCESS);
+
     char *str;
     int cursor = 1;
     if (strcmp(argv[cursor], "load") == 0) {
