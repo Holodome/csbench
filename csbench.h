@@ -387,6 +387,7 @@ extern bool g_regr;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
 
+extern bool g_allow_nonzero;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
@@ -409,10 +410,10 @@ void analyze_benches(const struct run_info *info, struct analysis *al);
 void free_analysis(struct analysis *al);
 
 //
-// csbench_visualize.c
+// csbench_report.c
 //
 
-bool do_visualize(const struct analysis *al);
+bool make_report(const struct analysis *al);
 
 //
 // csbench_perf.c
