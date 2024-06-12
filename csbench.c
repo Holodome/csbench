@@ -3500,6 +3500,7 @@ static void print_analysis(const struct bench_results *results) {
     for (size_t i = 0; i < results->bench_count; ++i)
         print_benchmark_info(results->bench_analyses + i, results);
 
+
     for (size_t i = 0; i < results->meas_count; ++i) {
         const struct meas *meas = results->meas + i;
         if (meas->is_secondary)

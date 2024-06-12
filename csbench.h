@@ -429,4 +429,4 @@ size_t csstrlcpy(char *dst, const char *src, size_t size);
 #endif
 #define strlcpy csstrlcpy
 
-#endif
+#endif // CSBENCH_H

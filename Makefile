@@ -21,3 +21,7 @@ install: csbench
 clean:
 	rm -f csbench
 
+amalgamated:
+	./scripts/amalgamated.pl
+
+.PHONY: all csbench install clean

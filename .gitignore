@@ -2,3 +2,4 @@ csbench
 *.o
 *.d
 .csbench
+csbench_amalgamated.c
