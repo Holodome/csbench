@@ -292,6 +292,13 @@ struct bench_results {
     struct bench_meas_analysis *meas_analyses; // [meas_count]
 };
 
+struct run_info {
+    struct bench_params *params;
+    struct bench_var_group *groups;
+    const struct bench_var *var;
+    const struct meas *meas;
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -356,6 +363,24 @@ __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void csperror(const char *fmt);
 
 extern __thread uint64_t g_rng_state;
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
+// Use linear regression to estimate slope when doing parameterized benchmark.
+extern bool g_regr;
+// Index of benchmark that should be used as baseline or -1.
+extern int g_baseline;
+
+//
+// csbench_analyze.c
+//
+
+void init_bench_results(const struct meas *meas_list, size_t bench_count,
+                        const struct bench_var *var,
+                        struct bench_results *results);
+void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
+void analyze_benches(const struct run_info *info,
+                     struct bench_results *results);
+void free_bench_results(struct bench_results *results);
 
 //
 // csbench_perf.c
