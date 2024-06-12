@@ -299,6 +299,23 @@ struct run_info {
     const struct meas *meas;
 };
 
+struct bench_stop_policy {
+    double time_limit;
+    int runs;
+    int min_runs;
+    int max_runs;
+};
+
+enum export_kind {
+    DONT_EXPORT,
+    EXPORT_JSON
+};
+
+struct export_policy {
+    enum export_kind kind;
+    const char *filename;
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -370,6 +387,17 @@ extern bool g_regr;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
 
+extern bool g_plot;
+extern bool g_html;
+extern bool g_csv;
+extern bool g_plot_src;
+extern struct export_policy g_export;
+extern struct bench_stop_policy g_bench_stop;
+extern double g_warmup_time;
+extern const char *g_prepare;
+extern const char *g_out_dir;
+extern bool g_python_output;
+
 //
 // csbench_analyze.c
 //
@@ -379,6 +407,12 @@ void init_analysis(const struct meas *meas_list, size_t bench_count,
 void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
 void analyze_benches(const struct run_info *info, struct analysis *al);
 void free_analysis(struct analysis *al);
+
+//
+// csbench_visualize.c
+//
+
+bool do_visualize(const struct analysis *al);
 
 //
 // csbench_perf.c
