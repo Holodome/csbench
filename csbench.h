@@ -257,9 +257,9 @@ struct point_err_est {
 
 // Analysis for a single measurement kind for all benchmarks. We don't do
 // inter-measurement analysis, so this is more or less self-contained.
-struct bench_meas_analysis {
+struct meas_analysis {
     // Make it easy to pass this structure around as base is always needed
-    struct bench_results *base;
+    struct analysis *base;
     const struct meas *meas;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
@@ -279,17 +279,17 @@ struct bench_meas_analysis {
     double **var_p_values; // [val_count][group_count]
 };
 
-struct bench_results {
+struct analysis {
     const struct bench_var_group *var_groups;
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
-    struct bench *benches;                     // [bench_count]
-    struct bench_analysis *bench_analyses;     // [bench_count]
-    const struct meas *meas;                   // [meas_count]
-    struct bench_meas_analysis *meas_analyses; // [meas_count]
+    struct bench *benches;                 // [bench_count]
+    struct bench_analysis *bench_analyses; // [bench_count]
+    const struct meas *meas;               // [meas_count]
+    struct meas_analysis *meas_analyses;   // [meas_count]
 };
 
 struct run_info {
@@ -374,13 +374,11 @@ extern int g_baseline;
 // csbench_analyze.c
 //
 
-void init_bench_results(const struct meas *meas_list, size_t bench_count,
-                        const struct bench_var *var,
-                        struct bench_results *results);
+void init_analysis(const struct meas *meas_list, size_t bench_count,
+                   const struct bench_var *var, struct analysis *al);
 void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
-void analyze_benches(const struct run_info *info,
-                     struct bench_results *results);
-void free_bench_results(struct bench_results *results);
+void analyze_benches(const struct run_info *info, struct analysis *al);
+void free_analysis(struct analysis *al);
 
 //
 // csbench_perf.c
@@ -401,9 +399,9 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 // csbench_plot.c
 //
 
-void bar_plot(const struct bench_meas_analysis *analysis,
-              const char *output_filename, FILE *f);
-void group_bar_plot(const struct bench_meas_analysis *analysis,
+void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
+              FILE *f);
+void group_bar_plot(const struct meas_analysis *analysis,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const struct meas *meas, const struct bench_var *var,

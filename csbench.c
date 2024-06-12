@@ -190,7 +190,7 @@ enum plot_kind {
 };
 
 struct plot_walker_args {
-    const struct bench_meas_analysis *analysis;
+    const struct meas_analysis *analysis;
     enum plot_kind plot_kind;
     pid_t *pids;
     size_t meas_idx;
@@ -1910,7 +1910,6 @@ static bool run_benchmark(const struct bench_params *params,
     return true;
 }
 
-
 static void print_exit_code_info(const struct bench *bench) {
     if (!bench->exit_codes)
         return;
@@ -1983,71 +1982,70 @@ static void print_distr(const struct distr *dist, const struct units *units) {
                    ANSI_BRIGHT_GREEN);
 }
 
-static void print_benchmark_info(const struct bench_analysis *analysis,
-                                 const struct bench_results *results) {
-    const struct bench *bench = analysis->bench;
+static void print_benchmark_info(const struct bench_analysis *cur,
+                                 const struct analysis *al) {
+    const struct bench *bench = cur->bench;
     size_t run_count = bench->run_count;
     printf("command ");
-    printf_colored(ANSI_BOLD, "%s\n", analysis->name);
+    printf_colored(ANSI_BOLD, "%s\n", cur->name);
     // Print runs count only if it not explicitly specified, otherwise it is
     // printed in 'print_analysis'
     if (g_bench_stop.runs == 0)
         printf("%zu runs\n", bench->run_count);
     print_exit_code_info(bench);
-    if (results->primary_meas_count != 0) {
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            const struct meas *meas = results->meas + meas_idx;
+    if (al->primary_meas_count != 0) {
+        for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+            const struct meas *meas = al->meas + meas_idx;
             if (meas->is_secondary)
                 continue;
 
-            if (results->primary_meas_count != 1) {
+            if (al->primary_meas_count != 1) {
                 printf("measurement ");
                 printf_colored(ANSI_YELLOW, "%s\n", meas->name);
             }
-            const struct distr *distr = analysis->meas + meas_idx;
+            const struct distr *distr = cur->meas + meas_idx;
             print_distr(distr, &meas->units);
-            for (size_t j = 0; j < results->meas_count; ++j) {
-                if (results->meas[j].is_secondary &&
-                    results->meas[j].primary_idx == meas_idx)
-                    print_estimate(results->meas[j].name,
-                                   &analysis->meas[j].mean,
-                                   &results->meas[j].units, ANSI_BOLD_BLUE,
+            for (size_t j = 0; j < al->meas_count; ++j) {
+                if (al->meas[j].is_secondary &&
+                    al->meas[j].primary_idx == meas_idx)
+                    print_estimate(al->meas[j].name, &cur->meas[j].mean,
+                                   &al->meas[j].units, ANSI_BOLD_BLUE,
                                    ANSI_BRIGHT_BLUE);
             }
             print_outliers(&distr->outliers, run_count);
         }
     } else {
-        for (size_t i = 0; i < results->meas_count; ++i) {
-            const struct meas *info = results->meas + i;
-            print_estimate(info->name, &analysis->meas[i].mean, &info->units,
+        for (size_t i = 0; i < al->meas_count; ++i) {
+            const struct meas *info = al->meas + i;
+            print_estimate(info->name, &cur->meas[i].mean, &info->units,
                            ANSI_BOLD_BLUE, ANSI_BRIGHT_BLUE);
         }
     }
 }
 
-static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
-    if (analysis->base->bench_count == 1)
+static void print_cmd_comparison(const struct meas_analysis *al) {
+    if (al->base->bench_count == 1)
         return;
 
-    if (analysis->base->group_count <= 1) {
+    if (al->base->group_count <= 1) {
         const struct bench_analysis *reference;
         if (g_baseline != -1) {
             printf("baseline command ");
-            reference = analysis->base->bench_analyses + g_baseline;
+            reference = al->base->bench_analyses + g_baseline;
         } else {
             printf("fastest command ");
-            reference = analysis->base->bench_analyses + analysis->fastest[0];
+            reference = al->base->bench_analyses + al->fastest[0];
         }
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
-        for (size_t j = 0; j < analysis->base->bench_count; ++j) {
+        for (size_t j = 0; j < al->base->bench_count; ++j) {
             size_t bench_idx = j;
             if (g_baseline == -1)
-                bench_idx = analysis->fastest[j];
+                bench_idx = al->fastest[j];
             const struct bench_analysis *bench =
-                analysis->base->bench_analyses + bench_idx;
+                al->base->bench_analyses + bench_idx;
             if (bench == reference)
                 continue;
-            const struct point_err_est *speedup = analysis->speedup + bench_idx;
+            const struct point_err_est *speedup = al->speedup + bench_idx;
             if (g_baseline != -1)
                 printf_colored(ANSI_BOLD, "  %s", bench->name);
             else
@@ -2061,32 +2059,31 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                 printf_colored(ANSI_BOLD, "%s", bench->name);
             else
                 printf("baseline");
-            printf(" (p=%.2f)", analysis->p_values[bench_idx]);
+            printf(" (p=%.2f)", al->p_values[bench_idx]);
             printf("\n");
         }
-        if (analysis->base->group_count == 1 && g_regr) {
-            const struct group_analysis *grp = analysis->group_analyses;
+        if (al->base->group_count == 1 && g_regr) {
+            const struct group_analysis *grp = al->group_analyses;
             if (grp->values_are_doubles)
                 printf("%s complexity (%g)\n",
                        big_o_str(grp->regress.complexity), grp->regress.a);
         }
     } else {
-        for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
-             ++grp_idx) {
+        for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
             printf("%c = ", (int)('A' + grp_idx));
             printf_colored(ANSI_BOLD, "%s\n",
-                           analysis->group_analyses[grp_idx].group->name);
+                           al->group_analyses[grp_idx].group->name);
         }
 
         if (g_baseline != -1)
             printf("baseline is %c\n", (int)('A' + g_baseline));
-        const struct bench_var *var = analysis->base->var;
+        const struct bench_var *var = al->base->var;
         size_t value_count = var->value_count;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
             const char *value = var->values[val_idx];
             size_t reference_idx;
             if (g_baseline == -1)
-                reference_idx = analysis->fastest_val[val_idx];
+                reference_idx = al->fastest_val[val_idx];
             else
                 reference_idx = g_baseline;
 
@@ -2095,16 +2092,16 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                 printf("%c is ", (int)('A' + reference_idx));
             }
             const char *ident = "";
-            if (analysis->base->group_count > 2) {
+            if (al->base->group_count > 2) {
                 printf("\n");
                 ident = "  ";
             }
-            for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
+            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
                  ++grp_idx) {
                 if (grp_idx == reference_idx)
                     continue;
                 const struct point_err_est *est =
-                    analysis->var_speedup[val_idx] + grp_idx;
+                    al->var_speedup[val_idx] + grp_idx;
                 printf("%s", ident);
                 if (g_baseline != -1)
                     printf("%c is ", (int)('A' + grp_idx));
@@ -2116,15 +2113,14 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
                     printf("%c", (int)('A' + grp_idx));
                 else
                     printf("baseline");
-                printf(" (p=%.2f)", analysis->var_p_values[val_idx][grp_idx]);
+                printf(" (p=%.2f)", al->var_p_values[val_idx][grp_idx]);
                 printf("\n");
             }
         }
         if (g_regr) {
-            for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
+            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
                  ++grp_idx) {
-                const struct group_analysis *grp =
-                    analysis->group_analyses + grp_idx;
+                const struct group_analysis *grp = al->group_analyses + grp_idx;
                 if (grp->values_are_doubles) {
                     printf_colored(ANSI_BOLD, "%s ", grp->group->name);
                     printf("%s complexity (%g)\n",
@@ -2134,16 +2130,16 @@ static void print_cmd_comparison(const struct bench_meas_analysis *analysis) {
         } else if (g_baseline != -1) {
             printf("on average ");
             const char *ident = "";
-            if (analysis->base->group_count > 2) {
+            if (al->base->group_count > 2) {
                 printf("\n");
                 ident = "  ";
             }
-            for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
+            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
                  ++grp_idx) {
                 if (grp_idx == (size_t)g_baseline)
                     continue;
                 const struct point_err_est *est =
-                    analysis->group_baseline_speedup + grp_idx;
+                    al->group_baseline_speedup + grp_idx;
                 printf("%s%c is ", ident, (int)('A' + grp_idx));
                 printf_colored(ANSI_BOLD_GREEN, "%.3f", est->point);
                 printf(" ± ");
@@ -2181,8 +2177,7 @@ static bool json_escape(char *buf, size_t buf_size, const char *src) {
     return true;
 }
 
-static bool export_json(const struct bench_results *results,
-                        const char *filename) {
+static bool export_json(const struct analysis *al, const char *filename) {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         error("failed to open file '%s' for export", filename);
@@ -2190,8 +2185,8 @@ static bool export_json(const struct bench_results *results,
     }
 
     char buf[4096];
-    size_t bench_count = results->bench_count;
-    const struct bench_analysis *bench_analyses = results->bench_analyses;
+    size_t bench_count = al->bench_count;
+    const struct bench_analysis *bench_analyses = al->bench_analyses;
     fprintf(f,
             "{ \"settings\": {"
             "\"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
@@ -2217,8 +2212,8 @@ static bool export_json(const struct bench_results *results,
             fprintf(f, "%d%s", bench->exit_codes[j],
                     j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"meas\": [");
-        for (size_t j = 0; j < results->meas_count; ++j) {
-            const struct meas *info = results->meas + j;
+        for (size_t j = 0; j < al->meas_count; ++j) {
+            const struct meas *info = al->meas + j;
             json_escape(buf, sizeof(buf), info->name);
             fprintf(f, "{ \"name\": \"%s\", ", buf);
             json_escape(buf, sizeof(buf), units_str(&info->units));
@@ -2232,7 +2227,7 @@ static bool export_json(const struct bench_results *results,
                 fprintf(f, "%f%s", bench->meas[j][k],
                         k != run_count - 1 ? ", " : "");
             fprintf(f, "]}");
-            if (j != results->meas_count - 1)
+            if (j != al->meas_count - 1)
                 fprintf(f, ", ");
         }
         fprintf(f, "]}");
@@ -2245,55 +2240,54 @@ static bool export_json(const struct bench_results *results,
 }
 
 static void export_csv_raw_bench(const struct bench *bench,
-                                 const struct bench_results *results, FILE *f) {
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        fprintf(f, "%s", results->meas[i].name);
-        if (i != results->meas_count - 1)
+                                 const struct analysis *al, FILE *f) {
+    for (size_t i = 0; i < al->meas_count; ++i) {
+        fprintf(f, "%s", al->meas[i].name);
+        if (i != al->meas_count - 1)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
     for (size_t i = 0; i < bench->run_count; ++i) {
-        for (size_t j = 0; j < results->meas_count; ++j) {
+        for (size_t j = 0; j < al->meas_count; ++j) {
             fprintf(f, "%g", bench->meas[j][i]);
-            if (j != results->meas_count - 1)
+            if (j != al->meas_count - 1)
                 fprintf(f, ",");
         }
         fprintf(f, "\n");
     }
 }
 
-static void export_csv_group_results(const struct bench_meas_analysis *analysis,
-                                     FILE *f) {
-    assert(analysis->base->group_count > 1 && analysis->base->var);
-    fprintf(f, "%s,", analysis->base->var->name);
-    for (size_t i = 0; i < analysis->base->group_count; ++i) {
+static void export_csv_group_results(const struct meas_analysis *al, FILE *f) {
+    assert(al->base->group_count > 1 && al->base->var);
+    fprintf(f, "%s,", al->base->var->name);
+    for (size_t i = 0; i < al->base->group_count; ++i) {
         char buf[4096];
-        json_escape(buf, sizeof(buf), analysis->group_analyses[i].group->name);
+        json_escape(buf, sizeof(buf), al->group_analyses[i].group->name);
         fprintf(f, "%s", buf);
-        if (i != analysis->base->group_count - 1)
+        if (i != al->base->group_count - 1)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t i = 0; i < analysis->base->var->value_count; ++i) {
-        fprintf(f, "%s,", analysis->base->var->values[i]);
-        for (size_t j = 0; j < analysis->base->group_count; ++j) {
-            fprintf(f, "%g", analysis->group_analyses[j].data[i].mean);
-            if (j != analysis->base->group_count - 1)
+    for (size_t i = 0; i < al->base->var->value_count; ++i) {
+        fprintf(f, "%s,", al->base->var->values[i]);
+        for (size_t j = 0; j < al->base->group_count; ++j) {
+            fprintf(f, "%g", al->group_analyses[j].data[i].mean);
+            if (j != al->base->group_count - 1)
                 fprintf(f, ",");
         }
         fprintf(f, "\n");
     }
 }
 
-static void export_csv_bench_results(const struct bench_results *results,
-                                     size_t meas_idx, FILE *f) {
+static void export_csv_bench_results(const struct analysis *al, size_t meas_idx,
+                                     FILE *f) {
     fprintf(f,
             "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,"
             "median,q1,q3,p1,p5,p95,p99,outl\n");
-    for (size_t i = 0; i < results->bench_count; ++i) {
-        const struct distr *distr = results->bench_analyses[i].meas + meas_idx;
+    for (size_t i = 0; i < al->bench_count; ++i) {
+        const struct distr *distr = al->bench_analyses[i].meas + meas_idx;
         char buf[4096];
-        json_escape(buf, sizeof(buf), results->bench_analyses[i].name);
+        json_escape(buf, sizeof(buf), al->bench_analyses[i].name);
         fprintf(f, "%s,", buf);
         fprintf(f, "%g,%g,%g,%g,%g,%g,", distr->mean.lower, distr->mean.point,
                 distr->mean.upper, distr->st_dev.lower, distr->st_dev.point,
@@ -2305,35 +2299,34 @@ static void export_csv_bench_results(const struct bench_results *results,
     }
 }
 
-static bool export_csvs(const struct bench_results *results) {
+static bool export_csvs(const struct analysis *al) {
     char buf[4096];
-    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
+    for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
         snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", g_out_dir,
                  bench_idx);
         FILE *f = fopen(buf, "w");
         if (f == NULL)
             return false;
-        export_csv_raw_bench(results->bench_analyses[bench_idx].bench, results,
-                             f);
+        export_csv_raw_bench(al->bench_analyses[bench_idx].bench, al, f);
         fclose(f);
     }
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         snprintf(buf, sizeof(buf), "%s/bench_%zu.csv", g_out_dir, meas_idx);
         FILE *f = fopen(buf, "w");
         if (f == NULL)
             return false;
-        export_csv_bench_results(results, meas_idx, f);
+        export_csv_bench_results(al, meas_idx, f);
         fclose(f);
     }
-    if (results->group_count) {
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            if (results->meas[meas_idx].is_secondary)
+    if (al->group_count) {
+        for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+            if (al->meas[meas_idx].is_secondary)
                 continue;
             snprintf(buf, sizeof(buf), "%s/group_%zu.csv", g_out_dir, meas_idx);
             FILE *f = fopen(buf, "w");
             if (f == NULL)
                 return false;
-            export_csv_group_results(results->meas_analyses + meas_idx, f);
+            export_csv_group_results(al->meas_analyses + meas_idx, f);
             fclose(f);
         }
     }
@@ -2416,9 +2409,9 @@ open_file_fmt(const char *mode, const char *fmt, ...) {
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                         struct plot_walker_args *args) {
-    const struct bench_meas_analysis *analysis = args->analysis;
-    if (analysis->base->bench_count > 1) {
-        if (analysis->base->group_count <= 1) {
+    const struct meas_analysis *al = args->analysis;
+    if (al->base->bench_count > 1) {
+        if (al->base->group_count <= 1) {
             args->plot_kind = PLOT_BAR;
             if (!walk(args))
                 return false;
@@ -2429,10 +2422,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     if (g_regr) {
-        for (size_t grp_idx = 0; grp_idx < analysis->base->group_count;
-             ++grp_idx) {
-            const struct group_analysis *grp =
-                analysis->group_analyses + grp_idx;
+        for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
+            const struct group_analysis *grp = al->group_analyses + grp_idx;
             if (!grp->values_are_doubles)
                 break;
             args->plot_kind = PLOT_GROUP_SINGLE;
@@ -2440,8 +2431,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             if (!walk(args))
                 return false;
         }
-        if (analysis->base->group_count > 1) {
-            const struct group_analysis *grp = analysis->group_analyses;
+        if (al->base->group_count > 1) {
+            const struct group_analysis *grp = al->group_analyses;
             if (grp[0].values_are_doubles) {
                 args->plot_kind = PLOT_GROUP;
                 if (!walk(args))
@@ -2449,8 +2440,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             }
         }
     }
-    for (size_t bench_idx = 0; bench_idx < analysis->base->bench_count;
-         ++bench_idx) {
+    for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
         args->plot_kind = PLOT_KDE;
         args->bench_idx = bench_idx;
         if (!walk(args))
@@ -2460,15 +2450,15 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         if (!walk(args))
             return false;
     }
-    if (analysis->base->group_count == 2) {
-        size_t value_count = analysis->base->var->value_count;
+    if (al->base->group_count == 2) {
+        size_t value_count = al->base->var->value_count;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
             args->plot_kind = PLOT_KDE_CMPG;
             args->var_value_idx = val_idx;
             if (!walk(args))
                 return false;
         }
-    } else if (analysis->base->bench_count == 2) {
+    } else if (al->base->bench_count == 2) {
         args->plot_kind = PLOT_KDE_CMP;
         if (!walk(args))
             return false;
@@ -2520,45 +2510,44 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     size_t grp_idx = args->grp_idx;
     size_t bench_idx = args->bench_idx;
     size_t var_value_idx = args->var_value_idx;
-    const struct bench_meas_analysis *analysis = args->analysis;
-    const struct meas *meas = analysis->meas;
+    const struct meas_analysis *al = args->analysis;
+    const struct meas *meas = al->meas;
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
-        bar_plot(analysis, svg_buf, f);
+        bar_plot(al, svg_buf, f);
         break;
     case PLOT_GROUP_BAR:
-        group_bar_plot(analysis, svg_buf, f);
+        group_bar_plot(al, svg_buf, f);
         break;
     case PLOT_GROUP_SINGLE: {
-        group_plot(analysis->group_analyses + grp_idx, 1, meas,
-                   analysis->base->var, svg_buf, f);
+        group_plot(al->group_analyses + grp_idx, 1, meas, al->base->var,
+                   svg_buf, f);
         break;
     }
     case PLOT_GROUP: {
-        group_plot(analysis->group_analyses, analysis->base->group_count, meas,
-                   analysis->base->var, svg_buf, f);
+        group_plot(al->group_analyses, al->base->group_count, meas,
+                   al->base->var, svg_buf, f);
         break;
     }
     case PLOT_KDE: {
-        kde_plot(analysis->benches[bench_idx], meas, svg_buf, f);
+        kde_plot(al->benches[bench_idx], meas, svg_buf, f);
         break;
     }
     case PLOT_KDE_EXT: {
-        kde_plot_ext(analysis->benches[bench_idx], meas, svg_buf, f);
+        kde_plot_ext(al->benches[bench_idx], meas, svg_buf, f);
         break;
     }
     case PLOT_KDE_CMPG: {
-        const struct group_analysis *a = analysis->group_analyses;
-        const struct group_analysis *b = analysis->group_analyses + 1;
-        kde_cmp_plot(analysis->benches[a->group->cmd_idxs[var_value_idx]],
-                     analysis->benches[b->group->cmd_idxs[var_value_idx]], meas,
+        const struct group_analysis *a = al->group_analyses;
+        const struct group_analysis *b = al->group_analyses + 1;
+        kde_cmp_plot(al->benches[a->group->cmd_idxs[var_value_idx]],
+                     al->benches[b->group->cmd_idxs[var_value_idx]], meas,
                      svg_buf, f);
         break;
     }
     case PLOT_KDE_CMP:
-        kde_cmp_plot(analysis->benches[0], analysis->benches[1], meas, svg_buf,
-                     f);
+        kde_cmp_plot(al->benches[0], al->benches[1], meas, svg_buf, f);
         break;
     }
 }
@@ -2576,12 +2565,12 @@ static bool dump_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool dump_plot_src(const struct bench_results *results) {
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
+static bool dump_plot_src(const struct analysis *al) {
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
             continue;
         struct plot_walker_args args = {0};
-        args.analysis = results->meas_analyses + meas_idx;
+        args.analysis = al->meas_analyses + meas_idx;
         args.meas_idx = meas_idx;
         if (!plot_walker(dump_plot_walk, &args))
             return false;
@@ -2602,14 +2591,14 @@ static bool make_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool make_plots(const struct bench_results *results) {
+static bool make_plots(const struct analysis *al) {
     bool success = true;
     struct plot_walker_args args = {0};
-    for (size_t meas_idx = 0; meas_idx < results->meas_count && success;
+    for (size_t meas_idx = 0; meas_idx < al->meas_count && success;
          ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
+        if (al->meas[meas_idx].is_secondary)
             continue;
-        args.analysis = results->meas_analyses + meas_idx;
+        args.analysis = al->meas_analyses + meas_idx;
         args.meas_idx = meas_idx;
         if (!plot_walker(make_plot_walk, &args))
             success = false;
@@ -2624,21 +2613,21 @@ static bool make_plots(const struct bench_results *results) {
     return success;
 }
 
-static bool make_plots_readme(const struct bench_results *results) {
+static bool make_plots_readme(const struct analysis *al) {
     FILE *f = open_file_fmt("w", "%s/readme.md", g_out_dir);
     if (f == NULL) {
         error("failed to create file %s/readme.md", g_out_dir);
         return false;
     }
     fprintf(f, "# csbench analyze map\n");
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
             continue;
-        const struct meas *meas = results->meas + meas_idx;
+        const struct meas *meas = al->meas + meas_idx;
         fprintf(f, "## measurement %s\n", meas->name);
-        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
+        for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
             const struct group_analysis *analysis =
-                results->meas_analyses[meas_idx].group_analyses + grp_idx;
+                al->meas_analyses[meas_idx].group_analyses + grp_idx;
             fprintf(f,
                     "* [command group '%s' regression "
                     "plot](group_%zu_%zu.svg)\n",
@@ -2646,19 +2635,17 @@ static bool make_plots_readme(const struct bench_results *results) {
         }
         fprintf(f, "### KDE plots\n");
         fprintf(f, "#### regular\n");
-        for (size_t bench_idx = 0; bench_idx < results->bench_count;
-             ++bench_idx) {
+        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
             const struct bench_analysis *analysis =
-                results->bench_analyses + bench_idx;
+                al->bench_analyses + bench_idx;
             const char *cmd_str = analysis->name;
             fprintf(f, "* [%s](kde_%zu_%zu.svg)\n", cmd_str, bench_idx,
                     meas_idx);
         }
         fprintf(f, "#### extended\n");
-        for (size_t bench_idx = 0; bench_idx < results->bench_count;
-             ++bench_idx) {
+        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
             const struct bench_analysis *analysis =
-                results->bench_analyses + bench_idx;
+                al->bench_analyses + bench_idx;
             const char *cmd_str = analysis->name;
             fprintf(f, "* [%s](kde_ext_%zu_%zu.svg)\n", cmd_str, bench_idx,
                     meas_idx);
@@ -2714,11 +2701,10 @@ static void html_outliers(const struct outliers *outliers, size_t run_count,
 }
 
 static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
-                       size_t meas_idx, const struct bench_results *results,
-                       FILE *f) {
+                       size_t meas_idx, const struct analysis *al, FILE *f) {
     const struct distr *distr = analysis->meas + meas_idx;
     const struct bench *bench = analysis->bench;
-    const struct meas *info = results->meas + meas_idx;
+    const struct meas *info = al->meas + meas_idx;
     assert(!info->is_secondary);
     fprintf(f,
             "<div class=\"row\">"
@@ -2744,32 +2730,31 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
                "</tr></thead><tbody>");
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
-    for (size_t j = 0; j < results->meas_count; ++j) {
-        if (results->meas[j].is_secondary &&
-            results->meas[j].primary_idx == meas_idx)
-            html_estimate(results->meas[j].name, &analysis->meas[j].mean,
-                          &results->meas->units, f);
+    for (size_t j = 0; j < al->meas_count; ++j) {
+        if (al->meas[j].is_secondary && al->meas[j].primary_idx == meas_idx)
+            html_estimate(al->meas[j].name, &analysis->meas[j].mean,
+                          &al->meas->units, f);
     }
     fprintf(f, "</tbody></table>");
     html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, "</div></div></div>");
 }
 
-static void html_compare(const struct bench_results *results, FILE *f) {
-    if (results->bench_count == 1)
+static void html_compare(const struct analysis *al, FILE *f) {
+    if (al->bench_count == 1)
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
-    size_t meas_count = results->meas_count;
+    size_t meas_count = al->meas_count;
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
+        if (al->meas[meas_idx].is_secondary)
             continue;
-        const struct meas *meas = results->meas + meas_idx;
+        const struct meas *meas = al->meas + meas_idx;
         fprintf(f,
                 "<div><h3>%s comparison</h3>"
                 "<div class=\"row\"><div class=\"col\">"
                 "<img src=\"bar_%zu.svg\"></div>",
                 meas->name, meas_idx);
-        if (results->bench_count == 2)
+        if (al->bench_count == 2)
             fprintf(f,
                     "<div class=\"col\">"
                     "<img src=\"kde_cmp_%zu.svg\"></div>",
@@ -2779,7 +2764,7 @@ static void html_compare(const struct bench_results *results, FILE *f) {
     fprintf(f, "</div>");
 }
 
-static void html_bench_group(const struct group_analysis *analysis,
+static void html_bench_group(const struct group_analysis *al,
                              const struct meas *meas, size_t meas_idx,
                              size_t grp_idx, const struct bench_var *var,
                              FILE *f) {
@@ -2789,32 +2774,32 @@ static void html_bench_group(const struct group_analysis *analysis,
             "<img src=\"group_%zu_%zu.svg\"></div>",
             meas->name, grp_idx, meas_idx);
     char buf[256];
-    format_time(buf, sizeof(buf), analysis->fastest->mean);
+    format_time(buf, sizeof(buf), al->fastest->mean);
     fprintf(f,
             "<div class=\"col stats\">"
             "<p>lowest time %s with %s=%s</p>",
-            buf, var->name, analysis->fastest->value);
-    format_time(buf, sizeof(buf), analysis->slowest->mean);
+            buf, var->name, al->fastest->value);
+    format_time(buf, sizeof(buf), al->slowest->mean);
     fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, var->name,
-            analysis->slowest->value);
-    if (analysis->values_are_doubles) {
+            al->slowest->value);
+    if (al->values_are_doubles) {
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
                 "<p>linear coef %g rms %.3f</p>",
-                big_o_str(analysis->regress.complexity), analysis->regress.a,
-                analysis->regress.rms);
+                big_o_str(al->regress.complexity), al->regress.a,
+                al->regress.rms);
     }
     fprintf(f, "</div></div>");
 }
 
-static void html_var_analysis(const struct bench_results *results, FILE *f) {
-    if (!results->group_count)
+static void html_var_analysis(const struct analysis *al, FILE *f) {
+    if (!al->group_count)
         return;
     fprintf(f, "<div><h2>variable analysis</h2>");
-    for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-        if (results->meas[meas_idx].is_secondary)
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
             continue;
-        if (results->group_count > 1)
+        if (al->group_count > 1)
             fprintf(f,
                     "<div><h3>summary for %s</h3>"
                     "<div class=\"row\"><div class=\"col\">"
@@ -2822,24 +2807,22 @@ static void html_var_analysis(const struct bench_results *results, FILE *f) {
                     "<div class=\"col\">"
                     "<img src=\"group_bar_%zu.svg\">"
                     "</div></div></div></div>",
-                    results->meas[meas_idx].name, meas_idx, meas_idx);
-        for (size_t grp_idx = 0; grp_idx < results->group_count; ++grp_idx) {
-            fprintf(
-                f, "<div><h3>group '%s' with value %s</h3>",
-                results->meas_analyses[0].group_analyses[grp_idx].group->name,
-                results->var->name);
-            const struct meas *meas = results->meas + meas_idx;
+                    al->meas[meas_idx].name, meas_idx, meas_idx);
+        for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
+            fprintf(f, "<div><h3>group '%s' with value %s</h3>",
+                    al->meas_analyses[0].group_analyses[grp_idx].group->name,
+                    al->var->name);
+            const struct meas *meas = al->meas + meas_idx;
             const struct group_analysis *analysis =
-                results->meas_analyses[meas_idx].group_analyses + grp_idx;
-            html_bench_group(analysis, meas, meas_idx, grp_idx, results->var,
-                             f);
+                al->meas_analyses[meas_idx].group_analyses + grp_idx;
+            html_bench_group(analysis, meas, meas_idx, grp_idx, al->var, f);
         }
         fprintf(f, "</div>");
     }
     fprintf(f, "</div>");
 }
 
-static void html_report(const struct bench_results *results, FILE *f) {
+static void html_report(const struct analysis *al, FILE *f) {
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -2857,17 +2840,16 @@ static void html_report(const struct bench_results *results, FILE *f) {
             "</style></head>");
     fprintf(f, "<body>");
 
-    html_var_analysis(results, f);
-    html_compare(results, f);
-    for (size_t bench_idx = 0; bench_idx < results->bench_count; ++bench_idx) {
-        const struct bench_analysis *analysis =
-            results->bench_analyses + bench_idx;
+    html_var_analysis(al, f);
+    html_compare(al, f);
+    for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
+        const struct bench_analysis *analysis = al->bench_analyses + bench_idx;
         fprintf(f, "<div><h2>command '%s'</h2>", analysis->name);
-        for (size_t meas_idx = 0; meas_idx < results->meas_count; ++meas_idx) {
-            const struct meas *info = results->meas + meas_idx;
+        for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+            const struct meas *info = al->meas + meas_idx;
             if (info->is_secondary)
                 continue;
-            html_distr(analysis, bench_idx, meas_idx, results, f);
+            html_distr(analysis, bench_idx, meas_idx, al, f);
         }
         fprintf(f, "</div>");
     }
@@ -2875,12 +2857,12 @@ static void html_report(const struct bench_results *results, FILE *f) {
 }
 
 static bool run_bench(const struct bench_params *params,
-                      struct bench_analysis *analysis) {
+                      struct bench_analysis *al) {
     if (!warmup(params))
         return false;
-    if (!run_benchmark(params, analysis->bench))
+    if (!run_benchmark(params, al->bench))
         return false;
-    analyze_benchmark(analysis, params->meas_count);
+    analyze_benchmark(al, params->meas_count);
     return true;
 }
 
@@ -3004,16 +2986,16 @@ void *progress_bar_thread_worker(void *arg) {
     return NULL;
 }
 
-static void init_progress_bar(struct bench_analysis *analyses, size_t count,
+static void init_progress_bar(struct bench_analysis *als, size_t count,
                               struct progress_bar *bar) {
     bar->count = count;
     bar->benches = calloc(count, sizeof(*bar->benches));
     bar->states = calloc(count, sizeof(*bar->states));
-    bar->analyses = analyses;
+    bar->analyses = als;
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
-        analyses[i].bench->progress = bar->benches + i;
-        size_t name_len = strlen(analyses[i].name);
+        als[i].bench->progress = bar->benches + i;
+        size_t name_len = strlen(als[i].name);
         if (name_len > bar->max_name_len)
             bar->max_name_len = name_len;
     }
@@ -3042,12 +3024,12 @@ static void free_progress_bar(struct progress_bar *bar) {
 //  'error' and 'csperror' functions. This is done in order to not corrupt the
 //  output in case such message is printed.
 static bool run_benches(const struct bench_params *params,
-                        struct bench_analysis *analyses, size_t count) {
+                        struct bench_analysis *als, size_t count) {
     bool success = false;
     struct progress_bar progress_bar = {0};
     pthread_t progress_bar_thread;
     if (g_progress_bar) {
-        init_progress_bar(analyses, count, &progress_bar);
+        init_progress_bar(als, count, &progress_bar);
         if (pthread_create(&progress_bar_thread, NULL,
                            progress_bar_thread_worker, &progress_bar) != 0) {
             error("failed to spawn thread");
@@ -3064,7 +3046,7 @@ static bool run_benches(const struct bench_params *params,
             g_output_anchors[0].id = pthread_self();
         }
         for (size_t i = 0; i < count; ++i) {
-            if (!run_bench(params + i, analyses + i)) {
+            if (!run_bench(params + i, als + i)) {
                 // In case of benchmark abort we have to explicitly tell
                 // progress bar that all benchmarks have finished, otherwise it
                 // will spin continiously waiting for it
@@ -3095,7 +3077,7 @@ static bool run_benches(const struct bench_params *params,
     size_t cursor = 0;
     for (size_t i = 0; i < thread_count; ++i) {
         thread_data[i].params = params;
-        thread_data[i].analyses = analyses;
+        thread_data[i].analyses = als;
         thread_data[i].indexes = task_indexes;
         thread_data[i].cursor = &cursor;
         thread_data[i].max = count;
@@ -3138,57 +3120,55 @@ free_progress_bar:
     return success;
 }
 
-
-static void print_analysis(const struct bench_results *results) {
+static void print_analysis(const struct analysis *al) {
     if (g_bench_stop.runs != 0)
         printf("%d runs\n", g_bench_stop.runs);
-    if (results->primary_meas_count == 1) {
+    if (al->primary_meas_count == 1) {
         const struct meas *meas = NULL;
-        for (size_t i = 0; i < results->meas_count && meas == NULL; ++i)
-            if (!results->meas[i].is_secondary)
-                meas = results->meas + i;
+        for (size_t i = 0; i < al->meas_count && meas == NULL; ++i)
+            if (!al->meas[i].is_secondary)
+                meas = al->meas + i;
         assert(meas != NULL);
         printf("measurement ");
         printf_colored(ANSI_YELLOW, "%s\n", meas->name);
     }
-    for (size_t i = 0; i < results->bench_count; ++i)
-        print_benchmark_info(results->bench_analyses + i, results);
+    for (size_t i = 0; i < al->bench_count; ++i)
+        print_benchmark_info(al->bench_analyses + i, al);
 
-
-    for (size_t i = 0; i < results->meas_count; ++i) {
-        const struct meas *meas = results->meas + i;
+    for (size_t i = 0; i < al->meas_count; ++i) {
+        const struct meas *meas = al->meas + i;
         if (meas->is_secondary)
             continue;
-        if (results->primary_meas_count != 1) {
+        if (al->primary_meas_count != 1) {
             printf("measurement ");
             printf_colored(ANSI_YELLOW, "%s\n", meas->name);
         }
-        print_cmd_comparison(results->meas_analyses + i);
+        print_cmd_comparison(al->meas_analyses + i);
     }
 }
 
-static bool do_export(const struct bench_results *results) {
+static bool do_export(const struct analysis *al) {
     switch (g_export.kind) {
     case EXPORT_JSON:
-        return export_json(results, g_export.filename);
+        return export_json(al, g_export.filename);
     case DONT_EXPORT:
         break;
     }
     return true;
 }
 
-static bool make_html_report(const struct bench_results *results) {
+static bool make_html_report(const struct analysis *al) {
     FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
         error("failed to create file %s/index.html", g_out_dir);
         return false;
     }
-    html_report(results, f);
+    html_report(al, f);
     fclose(f);
     return true;
 }
 
-static bool do_visualize(const struct bench_results *results) {
+static bool do_visualize(const struct analysis *al) {
     if (!g_plot && !g_html && !g_csv)
         return true;
 
@@ -3210,35 +3190,35 @@ static bool do_visualize(const struct bench_results *results) {
             return false;
         }
 
-        if (g_plot_src && !dump_plot_src(results))
+        if (g_plot_src && !dump_plot_src(al))
             return false;
-        if (!make_plots(results))
+        if (!make_plots(al))
             return false;
-        if (!make_plots_readme(results))
+        if (!make_plots_readme(al))
             return false;
     }
 
-    if (g_csv && !export_csvs(results))
+    if (g_csv && !export_csvs(al))
         return false;
 
-    if (g_html && !make_html_report(results))
+    if (g_html && !make_html_report(al))
         return false;
 
     return true;
 }
 
-static bool make_report(const struct bench_results *results) {
-    print_analysis(results);
-    if (!do_export(results))
+static bool make_report(const struct analysis *al) {
+    print_analysis(al);
+    if (!do_export(al))
         return false;
-    if (!do_visualize(results))
+    if (!do_visualize(al))
         return false;
     return true;
 }
 
 static bool validate_rename_list(const struct rename_entry *rename_list,
-                              size_t bench_count,
-                              const struct bench_var_group *groups) {
+                                 size_t bench_count,
+                                 const struct bench_var_group *groups) {
     if (sb_len(groups) == 0) {
         for (size_t i = 0; i < sb_len(rename_list); ++i) {
             if (rename_list[i].n >= bench_count) {
@@ -3262,11 +3242,10 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
 }
 
 static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
-                           struct bench_analysis *analysis) {
+                           struct bench_analysis *al) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == idx) {
-            strlcpy(analysis->name, rename_list[i].name,
-                    sizeof(analysis->name));
+            strlcpy(al->name, rename_list[i].name, sizeof(al->name));
             return true;
         }
     }
@@ -3277,7 +3256,7 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
                                     size_t bench_idx,
                                     const struct bench_var_group *groups,
                                     const struct bench_var *var,
-                                    struct bench_analysis *analysis) {
+                                    struct bench_analysis *al) {
     assert(var);
     assert(groups);
     size_t value_count = var->value_count;
@@ -3288,9 +3267,9 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
                 for (size_t rename_idx = 0; rename_idx < sb_len(rename_list);
                      ++rename_idx) {
                     if (rename_list[rename_idx].n == grp_idx) {
-                        snprintf(analysis->name, sizeof(analysis->name),
-                                 "%s %s=%s", rename_list[rename_idx].name,
-                                 var->name, var->values[val_idx]);
+                        snprintf(al->name, sizeof(al->name), "%s %s=%s",
+                                 rename_list[rename_idx].name, var->name,
+                                 var->values[val_idx]);
                         return true;
                     }
                 }
@@ -3311,11 +3290,11 @@ static bool run_app_bench(const struct cli_settings *cli) {
     size_t bench_count = sb_len(info.params);
     if (!validate_rename_list(cli->rename_list, bench_count, info.groups))
         goto err_deinit_perf;
-    struct bench_results results = {0};
-    init_bench_results(cli->meas, bench_count, info.var, &results);
+    struct analysis al = {0};
+    init_analysis(cli->meas, bench_count, info.var, &al);
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         const struct bench_params *params = info.params + bench_idx;
-        struct bench_analysis *analysis = results.bench_analyses + bench_idx;
+        struct bench_analysis *analysis = al.bench_analyses + bench_idx;
         bool renamed = false;
         if (sb_len(info.groups) == 0) {
             renamed = attempt_rename(cli->rename_list, bench_idx, analysis);
@@ -3326,14 +3305,14 @@ static bool run_app_bench(const struct cli_settings *cli) {
         if (!renamed)
             strlcpy(analysis->name, params->str, sizeof(analysis->name));
     }
-    if (!run_benches(info.params, results.bench_analyses, bench_count))
-        goto err_free_results;
-    analyze_benches(&info, &results);
-    if (!make_report(&results))
-        goto err_free_results;
+    if (!run_benches(info.params, al.bench_analyses, bench_count))
+        goto err_free_analysis;
+    analyze_benches(&info, &al);
+    if (!make_report(&al))
+        goto err_free_analysis;
     success = true;
-err_free_results:
-    free_bench_results(&results);
+err_free_analysis:
+    free_analysis(&al);
 err_deinit_perf:
     if (g_use_perf)
         deinit_perf();
@@ -3474,7 +3453,6 @@ static bool run_app_load(const struct cli_settings *settings) {
     bool result = false;
     const char **file_list = settings->args;
     struct meas *meas_list = NULL;
-    struct bench_results results = {0};
     if (g_loada) {
         file_list = (const char **)find_loada_filenames();
         if (!file_list) {
@@ -3543,10 +3521,11 @@ static bool run_app_load(const struct cli_settings *settings) {
         goto err;
 
     size_t meas_count = sb_len(meas_list);
-    init_bench_results(meas_list, bench_count, NULL, &results);
-    for (size_t i = 0; i < results.bench_count; ++i) {
-        struct bench *bench = results.benches + i;
-        struct bench_analysis *analysis = results.bench_analyses + i;
+    struct analysis al = {0};
+    init_analysis(meas_list, bench_count, NULL, &al);
+    for (size_t i = 0; i < al.bench_count; ++i) {
+        struct bench *bench = al.benches + i;
+        struct bench_analysis *analysis = al.bench_analyses + i;
         const char *file = file_list[i];
         if (!attempt_rename(settings->rename_list, i, analysis))
             strlcpy(analysis->name, file, sizeof(analysis->name));
@@ -3555,13 +3534,12 @@ static bool run_app_load(const struct cli_settings *settings) {
         analyze_benchmark(analysis, meas_count);
     }
     struct run_info info = {0};
-    analyze_benches(&info, &results);
-    if (!make_report(&results))
+    analyze_benches(&info, &al);
+    if (!make_report(&al))
         goto err;
-    free_bench_results(&results);
     result = true;
 err:
-    free_bench_results(&results);
+    free_analysis(&al);
     if (file_list && file_list != settings->args) {
         for (size_t i = 0; i < sb_len(file_list); ++i)
             free((char *)file_list[i]);

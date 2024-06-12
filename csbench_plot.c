@@ -130,8 +130,8 @@ static void prettify_plot(const struct units *units, double min, double max,
     }
 }
 
-void bar_plot(const struct bench_meas_analysis *analysis,
-              const char *output_filename, FILE *f) {
+void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
+              FILE *f) {
     size_t count = analysis->base->bench_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
@@ -512,7 +512,7 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot) {
     free(plot->b_data);
 }
 
-void group_bar_plot(const struct bench_meas_analysis *analysis,
+void group_bar_plot(const struct meas_analysis *analysis,
                     const char *output_filename, FILE *f) {
     const struct bench_var *var = analysis->base->var;
     size_t count = analysis->base->group_count;
