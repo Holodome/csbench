@@ -1127,4 +1127,3 @@ bool make_report(const struct analysis *al) {
         return false;
     return true;
 }
-

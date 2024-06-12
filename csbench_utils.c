@@ -58,7 +58,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -632,3 +637,13 @@ size_t csstrlcpy(char *dst, const char *src, size_t size) {
     }
     return ret;
 }
+
+#if defined(__APPLE__)
+double get_time(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9; }
+#else
+double get_time(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+#endif

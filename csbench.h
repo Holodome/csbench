@@ -316,6 +316,33 @@ struct export_policy {
     const char *filename;
 };
 
+struct bench_params {
+    char *str;
+    char *exec;
+    char **argv;
+    struct input_policy input;
+    enum output_kind output;
+    size_t meas_count;
+    const struct meas *meas;
+};
+
+// Align this structure as attempt to avoid false sharing and make inconsistent
+// data reads less probable.
+struct progress_bar_bench {
+    int bar;
+    int finished;
+    int aborted;
+    union {
+        uint64_t u;
+        double d;
+    } start_time;
+    union {
+        uint64_t u;
+        double d;
+    } metric;
+    pthread_t id;
+} __attribute__((aligned(64)));
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -398,6 +425,9 @@ extern double g_warmup_time;
 extern const char *g_prepare;
 extern const char *g_out_dir;
 extern bool g_python_output;
+extern bool g_use_perf;
+extern bool g_has_custom_meas;
+extern bool g_progress_bar;
 
 //
 // csbench_analyze.c
@@ -408,6 +438,12 @@ void init_analysis(const struct meas *meas_list, size_t bench_count,
 void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
 void analyze_benches(const struct run_info *info, struct analysis *al);
 void free_analysis(struct analysis *al);
+
+//
+// csbench_run.c
+//
+
+bool run_bench(const struct bench_params *params, struct bench_analysis *al);
 
 //
 // csbench_report.c
@@ -454,6 +490,8 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
 //
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
+
+double get_time(void);
 
 bool units_is_time(const struct units *units);
 const char *units_str(const struct units *units);
