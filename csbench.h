@@ -149,7 +149,7 @@ struct bench_var {
 
 struct bench_var_group {
     char name[1024];
-    size_t *cmd_idxs; // [var->value_count]
+    size_t *cmd_idxs; // var->value_count
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -310,7 +310,7 @@ struct bench_params {
     char *str;
     char *exec;
     char **argv;
-    struct input_policy input;
+    const char *input_file;
     enum output_kind output;
     size_t meas_count;
     const struct meas *meas;

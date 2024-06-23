@@ -1272,7 +1272,14 @@ static void init_bench_params(const struct input_policy *input,
                               enum output_kind output, const struct meas *meas,
                               char *exec, char **argv, char *cmd_str,
                               struct bench_params *params) {
-    params->input = *input;
+    switch (input->kind) {
+    case INPUT_POLICY_NULL:
+        params->input_file = NULL;
+        break;
+    case INPUT_POLICY_FILE:
+        params->input_file = input->file;
+        break;
+    }
     params->output = output;
     params->meas = meas;
     params->meas_count = sb_len(meas);
@@ -1297,8 +1304,8 @@ static bool init_run_info(const struct cli_settings *cli,
     info->meas = cli->meas;
     info->var = cli->var;
     // Silently disable progress bar if output is inherit. The reasoning for
-    // this is that inheriting output should only be used when debugging, and
-    // user will not care about not having progress bar
+    // this is that inheriting output should only be used when debugging,
+    // and user will not care about not having progress bar
     if (cli->output == OUTPUT_POLICY_INHERIT) {
         g_progress_bar = false;
     }
@@ -1377,7 +1384,8 @@ static bool init_run_info(const struct cli_settings *cli,
         size_t grp_count = sb_len(info->groups);
         size_t cmd_count = sb_len(info->params);
         if (grp_count <= 1) {
-            // No parameterized benchmarks specified, just select the command
+            // No parameterized benchmarks specified, just select the
+            // command
             if (baseline >= cmd_count) {
                 error("baseline number is too big");
                 goto err_free_settings;
@@ -1545,22 +1553,24 @@ static void free_progress_bar(struct progress_bar *bar) {
 }
 
 // Execute benchmarks, possibly in parallel using worker threads.
-// When parallel execution is used, thread pool is created, threads from which
-// select a benchmark to run in random order. We shuffle the benchmarks here
-// in orderd to get asymptotically OK runtime, as incorrect order of
-// tasks in parallel execution can degrade performance (queueing theory).
+// When parallel execution is used, thread pool is created, threads from
+// which select a benchmark to run in random order. We shuffle the
+// benchmarks here in orderd to get asymptotically OK runtime, as incorrect
+// order of tasks in parallel execution can degrade performance (queueing
+// theory).
 //
 // Parallel execution is controlled using 'g_threads' global
 // variable.
 //
-// This function also optionally spawns the thread printing interactive progress
-// bar. Logic conserning progress bar may be cumbersome:
+// This function also optionally spawns the thread printing interactive
+// progress bar. Logic conserning progress bar may be cumbersome:
 // 1. A new thread is spawned, which wakes ones in a while and checks atomic
 //  variables storing states of benchmarks
 // 2. Each of benchmarks updates its state in corresponding atomic varibales
-// 3. Output of benchmarks when progress bar is used is captured (anchored), see
-//  'error' and 'csperror' functions. This is done in order to not corrupt the
-//  output in case such message is printed.
+// 3. Output of benchmarks when progress bar is used is captured (anchored),
+// see
+//  'error' and 'csperror' functions. This is done in order to not corrupt
+//  the output in case such message is printed.
 static bool run_benches(const struct bench_params *params,
                         struct bench_analysis *als, size_t count) {
     bool success = false;
@@ -1576,8 +1586,8 @@ static bool run_benches(const struct bench_params *params,
         }
     }
 
-    // Consider the cases where there is either no point in execution benchmarks
-    // in parallel, or settings explicitly forbid this.
+    // Consider the cases where there is either no point in execution
+    // benchmarks in parallel, or settings explicitly forbid this.
     if (g_threads <= 1 || count == 1) {
         if (g_progress_bar) {
             sb_resize(g_output_anchors, 1);
@@ -1586,8 +1596,8 @@ static bool run_benches(const struct bench_params *params,
         for (size_t i = 0; i < count; ++i) {
             if (!run_bench(params + i, als + i)) {
                 // In case of benchmark abort we have to explicitly tell
-                // progress bar that all benchmarks have finished, otherwise it
-                // will spin continiously waiting for it
+                // progress bar that all benchmarks have finished, otherwise
+                // it will spin continiously waiting for it
                 if (g_progress_bar)
                     for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
                         progress_bar.benches[bench_idx].finished = true;
@@ -1623,8 +1633,8 @@ static bool run_benches(const struct bench_params *params,
     if (g_progress_bar)
         sb_resize(g_output_anchors, thread_count);
     for (size_t i = 0; i < thread_count; ++i) {
-        // HACK: save thread id to output anchors first. If we do not do it here
-        // we would need additional synchronization
+        // HACK: save thread id to output anchors first. If we do not do it
+        // here we would need additional synchronization
         pthread_t *id = &thread_data[i].id;
         if (g_progress_bar)
             id = &g_output_anchors[i].id;

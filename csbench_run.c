@@ -63,9 +63,8 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-static void apply_input_policy(const struct input_policy *policy) {
-    switch (policy->kind) {
-    case INPUT_POLICY_NULL: {
+static void apply_input_policy(const char *file) {
+    if (file == NULL) {
         int fd = open("/dev/null", O_RDWR);
         if (fd == -1)
             _exit(-1);
@@ -73,18 +72,14 @@ static void apply_input_policy(const struct input_policy *policy) {
         if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
         close(fd);
-        break;
-    }
-    case INPUT_POLICY_FILE: {
-        int fd = open(policy->file, O_RDONLY);
+    } else {
+        int fd = open(file, O_RDONLY);
         if (fd == -1)
             _exit(-1);
         close(STDIN_FILENO);
         if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
         close(fd);
-        break;
-    }
     }
 }
 
@@ -116,7 +111,7 @@ static int exec_cmd(const struct bench_params *params, int stdout_fd,
     }
 
     if (pid == 0) {
-        apply_input_policy(&params->input);
+        apply_input_policy(params->input_file);
         // special handling when stdout needs to be piped
         if (stdout_fd != -1) {
             int fd = open("/dev/null", O_RDWR);
