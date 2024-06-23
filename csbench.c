@@ -154,7 +154,7 @@ int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 static struct output_anchor *g_output_anchors = NULL;
-struct export_policy g_export = {0};
+const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
 const char *g_prepare = NULL;
 
@@ -378,8 +378,7 @@ static void print_help_and_exit(int rc) {
         "be used in reports instead of default one, which is command name. \n"
         "   -s, --simple\n"
         "          Preset to run benchmarks in parallel for one second without "
-        "warmup. Useful "
-        "for quickly checking something.\n"
+        "warmup. Useful for quickly checking something.\n"
         "  --help\n"
         "          Print help.\n"
         "  --version\n"
@@ -875,8 +874,7 @@ static void parse_cli_args(int argc, char **argv,
             }
             g_threads = value;
         } else if (opt_arg(argv, &cursor, "--export-json", &str)) {
-            g_export.kind = EXPORT_JSON;
-            g_export.filename = str;
+            g_json_export_filename = str;
         } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
                    opt_arg(argv, &cursor, "-o", &str)) {
             g_out_dir = str;

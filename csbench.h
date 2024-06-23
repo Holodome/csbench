@@ -306,16 +306,6 @@ struct bench_stop_policy {
     int max_runs;
 };
 
-enum export_kind {
-    DONT_EXPORT,
-    EXPORT_JSON
-};
-
-struct export_policy {
-    enum export_kind kind;
-    const char *filename;
-};
-
 struct bench_params {
     char *str;
     char *exec;
@@ -419,7 +409,7 @@ extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
 extern bool g_plot_src;
-extern struct export_policy g_export;
+extern const char *g_json_export_filename;
 extern struct bench_stop_policy g_bench_stop;
 extern double g_warmup_time;
 extern const char *g_prepare;

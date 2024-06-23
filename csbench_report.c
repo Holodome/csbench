@@ -175,13 +175,10 @@ static bool export_json(const struct analysis *al, const char *filename) {
 }
 
 static bool do_export(const struct analysis *al) {
-    switch (g_export.kind) {
-    case EXPORT_JSON:
-        return export_json(al, g_export.filename);
-    case DONT_EXPORT:
-        break;
-    }
-    return true;
+    if (g_json_export_filename == NULL)
+        return true;
+
+    return export_json(al, g_json_export_filename);
 }
 
 static bool python_found(void) {
