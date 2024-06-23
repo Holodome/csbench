@@ -1227,11 +1227,10 @@ static bool extract_exec_and_argv(const char *cmd_str, char **exec,
         return false;
     }
     *exec = strdup(words[0]);
-    for (size_t i = 0; i < sb_len(words); ++i)
+    for (size_t i = 0; i < sb_len(words); ++i) {
         sb_push(*argv, strdup(words[i]));
-
-    for (size_t i = 0; i < sb_len(words); ++i)
         sb_free(words[i]);
+    }
     sb_free(words);
     return true;
 }
@@ -1891,18 +1890,10 @@ static char **find_loada_filenames(void) {
     return list;
 }
 
-static bool run_app_load(const struct cli_settings *settings) {
+static bool load_measurements_from_files(const struct cli_settings *settings,
+                                         const char **file_list,
+                                         struct meas **meas_list) {
     bool result = false;
-    const char **file_list = settings->args;
-    struct meas *meas_list = NULL;
-    if (g_loada) {
-        file_list = (const char **)find_loada_filenames();
-        if (!file_list) {
-            error("failed to find files as required for --loada argument");
-            return false;
-        }
-    }
-
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
         char **file_meas_names = NULL;
@@ -1928,7 +1919,7 @@ static bool run_app_load(const struct cli_settings *settings) {
             bool is_found = false;
             for (size_t test_idx = 0; test_idx < sb_len(meas_list) && !is_found;
                  ++test_idx) {
-                if (strcmp(file_meas, meas_list[test_idx].name) == 0)
+                if (strcmp(file_meas, (*meas_list)[test_idx].name) == 0)
                     is_found = true;
             }
             // We have to add new measurement
@@ -1943,7 +1934,7 @@ static bool run_app_load(const struct cli_settings *settings) {
                 if (strcmp(file_meas, settings->meas[test_idx].name) == 0)
                     meas_from_settings = settings->meas + test_idx;
             if (meas_from_settings) {
-                sb_push(meas_list, *meas_from_settings);
+                sb_push(*meas_list, *meas_from_settings);
                 continue;
             }
 
@@ -1953,10 +1944,30 @@ static bool run_app_load(const struct cli_settings *settings) {
             // measurement
             if (meas_idx == 0)
                 meas.units.kind = MU_S;
-            sb_push(meas_list, meas);
+            sb_push(*meas_list, meas);
         }
         sb_free(file_meas_names);
     }
+
+    result = true;
+err:
+    return result;
+}
+
+static bool run_app_load(const struct cli_settings *settings) {
+    bool result = false;
+    const char **file_list = settings->args;
+    if (g_loada) {
+        file_list = (const char **)find_loada_filenames();
+        if (!file_list) {
+            error("failed to find files as required for --loada argument");
+            return false;
+        }
+    }
+
+    struct meas *meas_list = NULL;
+    if (!load_measurements_from_files(settings, file_list, &meas_list))
+        goto err;
 
     size_t bench_count = sb_len(file_list);
     if (!validate_rename_list(settings->rename_list, bench_count, NULL))
@@ -2042,11 +2053,9 @@ int main(int argc, char **argv) {
     struct cli_settings cli = {0};
     parse_cli_args(argc, argv, &cli);
 
-    if (!run(&cli))
-        goto err_free_cli;
+    if (run(&cli))
+        rc = EXIT_SUCCESS;
 
-    rc = EXIT_SUCCESS;
-err_free_cli:
     deinit_perf();
     free_cli_settings(&cli);
     return rc;
