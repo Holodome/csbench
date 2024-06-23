@@ -267,7 +267,7 @@ static bool exec_and_measure(const struct bench_params *params,
                              struct bench *bench) {
     bool success = false;
     int stdout_fd = -1;
-    if (g_has_custom_meas) {
+    if (params->has_custom_meas) {
         stdout_fd = tmpfile_fd();
         if (stdout_fd == -1)
             goto out;

@@ -148,7 +148,6 @@ bool g_use_perf = false;
 bool g_progress_bar = false;
 bool g_regr = false;
 bool g_python_output = false;
-bool g_has_custom_meas = false;
 static bool g_loada = false;
 int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
@@ -1286,6 +1285,12 @@ static void init_bench_params(const struct input_policy *input,
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
+    for (size_t i = 0; i < sb_len(meas); ++i) {
+        if (meas[i].kind == MEAS_CUSTOM) {
+            params->has_custom_meas = true;
+            break;
+        }
+    }
 }
 
 static bool attempt_group_rename(const struct rename_entry *rename_list,
@@ -1297,6 +1302,97 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
         }
     }
     return false;
+}
+
+static bool init_command_parameterized(const struct cli_settings *cli,
+                                       const char *cmd_str,
+                                       struct run_info *info) {
+    const struct bench_var *var = cli->var;
+    size_t value_count = var->value_count;
+    struct bench_var_group group;
+    memset(&group, 0, sizeof(group));
+    group.cmd_idxs = calloc(value_count, sizeof(*group.cmd_idxs));
+    for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+        const char *var_value = var->values[val_idx];
+        char *exec = NULL, **argv = NULL;
+        bool replaced = false;
+        char buf[4096];
+        if (!replace_var_str(buf, sizeof(buf), cmd_str, var->name, var_value,
+                             &replaced) ||
+            !replaced || !init_cmd_exec(cli->shell, buf, &exec, &argv)) {
+            if (replaced) {
+                error("failed to initialize command '%s'", buf);
+            } else {
+                error("command string '%s' does not contain variable "
+                      "substitutions",
+                      buf);
+            }
+            goto err;
+        }
+
+        struct bench_params bench_params = {0};
+        init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
+                          strdup(buf), &bench_params);
+        group.cmd_idxs[val_idx] = sb_len(info->params);
+        sb_push(info->params, bench_params);
+    }
+    if (!attempt_group_rename(cli->rename_list, sb_len(info->groups), &group))
+        strlcpy(group.name, cmd_str, sizeof(group.name));
+    sb_push(info->groups, group);
+    return true;
+err:
+    free(group.cmd_idxs);
+    return false;
+}
+
+static bool init_command(const struct cli_settings *cli, const char *cmd_str,
+                         struct run_info *info) {
+    char *exec = NULL, **argv = NULL;
+    if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
+        error("failed to initialize command '%s'", cmd_str);
+        return false;
+    }
+    struct bench_params bench_params = {0};
+    init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
+                      strdup(cmd_str), &bench_params);
+    sb_push(info->params, bench_params);
+    return true;
+}
+
+static bool validate_input_policy(const struct input_policy *policy) {
+    if (policy->kind == INPUT_POLICY_FILE) {
+        if (access(policy->file, R_OK) == -1) {
+            error("failed to open file '%s' (specified for input)",
+                  policy->file);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool validate_set_baseline(int baseline, const struct run_info *info) {
+    if (baseline > 0) {
+        // Adjust number from human-readable to indexable
+        size_t b = baseline - 1;
+        size_t grp_count = sb_len(info->groups);
+        size_t cmd_count = sb_len(info->params);
+        if (grp_count <= 1) {
+            // No parameterized benchmarks specified, just select the
+            // command
+            if (b >= cmd_count) {
+                error("baseline number is too big");
+                return false;
+            }
+        } else {
+            // Multiple parameterized benchmarks
+            if (b >= grp_count) {
+                error("baseline number is too big");
+                return false;
+            }
+        }
+        g_baseline = b;
+    }
+    return true;
 }
 
 static bool init_run_info(const struct cli_settings *cli,
@@ -1320,92 +1416,25 @@ static bool init_run_info(const struct cli_settings *cli,
         return false;
     }
 
-    struct input_policy input_policy = cli->input;
-    if (input_policy.kind == INPUT_POLICY_FILE) {
-        if (access(input_policy.file, R_OK) == -1) {
-            error("failed to open file '%s' (specified for input)",
-                  input_policy.file);
-            return false;
-        }
-    }
+    if (!validate_input_policy(&cli->input))
+        return false;
 
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->args[i];
         if (cli->var != NULL) {
-            const struct bench_var *var = cli->var;
-            char buf[4096];
-            size_t value_count = var->value_count;
-            struct bench_var_group group;
-            memset(&group, 0, sizeof(group));
-            group.cmd_idxs = calloc(value_count, sizeof(*group.cmd_idxs));
-            for (size_t k = 0; k < value_count; ++k) {
-                const char *var_value = var->values[k];
-                char *exec = NULL, **argv = NULL;
-                bool replaced = false;
-                if (!replace_var_str(buf, sizeof(buf), cmd_str, var->name,
-                                     var_value, &replaced) ||
-                    !replaced ||
-                    !init_cmd_exec(cli->shell, buf, &exec, &argv)) {
-                    if (replaced) {
-                        error("failed to initialize command '%s'", buf);
-                    } else {
-                        error("command string '%s' does not contain variable "
-                              "substitutions",
-                              buf);
-                    }
-                    free(group.cmd_idxs);
-                    goto err_free_settings;
-                }
+            if (!init_command_parameterized(cli, cmd_str, info))
+                goto err_free_settings;
+        } else {
+            if (!init_command(cli, cmd_str, info))
+                goto err_free_settings;
+        }
+    }
 
-                struct bench_params bench_params = {0};
-                init_bench_params(&input_policy, cli->output, info->meas, exec,
-                                  argv, strdup(buf), &bench_params);
-                group.cmd_idxs[k] = sb_len(info->params);
-                sb_push(info->params, bench_params);
-            }
-            if (!attempt_group_rename(cli->rename_list, sb_len(info->groups),
-                                      &group))
-                strlcpy(group.name, cmd_str, sizeof(group.name));
-            sb_push(info->groups, group);
-        } else {
-            char *exec = NULL, **argv = NULL;
-            if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
-                error("failed to initialize command '%s'", cmd_str);
-                goto err_free_settings;
-            }
-            struct bench_params bench_params = {0};
-            init_bench_params(&input_policy, cli->output, info->meas, exec,
-                              argv, strdup(cmd_str), &bench_params);
-            sb_push(info->params, bench_params);
-        }
-    }
-    if (cli->baseline > 0) {
-        size_t baseline = cli->baseline - 1;
-        size_t grp_count = sb_len(info->groups);
-        size_t cmd_count = sb_len(info->params);
-        if (grp_count <= 1) {
-            // No parameterized benchmarks specified, just select the
-            // command
-            if (baseline >= cmd_count) {
-                error("baseline number is too big");
-                goto err_free_settings;
-            }
-            g_baseline = baseline;
-        } else {
-            // Multiple parameterized benchmarks
-            if (baseline >= grp_count) {
-                error("baseline number is too big");
-                goto err_free_settings;
-            }
-            g_baseline = baseline;
-        }
-    }
-    for (size_t i = 0; i < sb_len(cli->meas); ++i) {
-        if (cli->meas[i].kind == MEAS_CUSTOM) {
-            g_has_custom_meas = 1;
-            break;
-        }
-    }
+    // Validate that baseline number (if specified) is not greater than command
+    // count
+    if (!validate_set_baseline(cli->baseline, info))
+        goto err_free_settings;
+
     return true;
 err_free_settings:
     free_run_info(info);

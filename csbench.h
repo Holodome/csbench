@@ -306,18 +306,33 @@ struct bench_stop_policy {
     int max_runs;
 };
 
+// Description of one benchmark, read-only information that is
+// used to run it and choose what information to collect.
 struct bench_params {
+    // Command string that is executed
     char *str;
+    // 'exec' argument to execve
     char *exec;
+    // 'argv' argument to execve
     char **argv;
+    // NULL if /dev/null should be used as input, otherwise file specified
     const char *input_file;
     enum output_kind output;
+    // List of measurements to record
     size_t meas_count;
     const struct meas *meas;
+    // The behavior of benchmark running changes when there are custom
+    // measurements present, so record this information up front.
+    bool has_custom_meas;
 };
 
-// Align this structure as attempt to avoid false sharing and make inconsistent
-// data reads less probable.
+// This structure contains information that is continiously updated by working
+// threads when running a benchmark when progress bar is enabled.
+// It is used to track completion status. This structure is read by progress bar
+// thread to update display in console. Reads are not synchronized with writes,
+// so there may be inconsistences. But they would not lead to any erroneous
+// behaviour, and only affect consistency of information displayed. Either way,
+// this is not critical.
 struct progress_bar_bench {
     int bar;
     int finished;
@@ -416,7 +431,6 @@ extern const char *g_prepare;
 extern const char *g_out_dir;
 extern bool g_python_output;
 extern bool g_use_perf;
-extern bool g_has_custom_meas;
 extern bool g_progress_bar;
 
 //
