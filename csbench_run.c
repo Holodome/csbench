@@ -193,17 +193,6 @@ static bool parse_custom_output(int fd, double *valuep) {
     return true;
 }
 
-static int tmpfile_fd(void) {
-    char path[] = "/tmp/csbench_XXXXXX";
-    int fd = mkstemp(path);
-    if (fd == -1) {
-        csperror("mkstemp");
-        return -1;
-    }
-    unlink(path);
-    return fd;
-}
-
 static bool do_custom_measurement(const struct meas *custom, int input_fd,
                                   double *valuep) {
     bool success = false;

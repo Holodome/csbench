@@ -668,3 +668,14 @@ int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...) {
     va_end(args);
     return open(buf, flags, mode);
 }
+
+int tmpfile_fd(void) {
+    char path[] = "/tmp/csbench_XXXXXX";
+    int fd = mkstemp(path);
+    if (fd == -1) {
+        csperror("mkstemp");
+        return -1;
+    }
+    unlink(path);
+    return fd;
+}

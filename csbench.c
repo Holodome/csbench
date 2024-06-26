@@ -155,7 +155,6 @@ struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 static struct output_anchor *g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
-const char *g_temp_dir = "/tmp/csbench_run";
 const char *g_prepare = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -318,11 +317,7 @@ static void print_help_and_exit(int rc) {
            "  -o, --out-dir <d>\n"
            "          Specify directory where plots, html report and other "
            "analysis results will be placed. Default is '.csbench' in current "
-           "directory.\n"
-           "  --temp-dir <d>\n"
-           "          Specify directory where temporary files will be put. "
-           "Default is /tmp/csbench_run. After run all temporary data is "
-           "deleted.\n");
+           "directory.\n");
     printf(
         "  --plot\n"
         "          Generate plots. For each benchmark KDE is generated in two "
@@ -882,8 +877,6 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
                    opt_arg(argv, &cursor, "-o", &str)) {
             g_out_dir = str;
-        } else if (opt_arg(argv, &cursor, "--temp-dir", &str)) {
-            g_temp_dir = str;
         } else if (strcmp(argv[cursor], "--html") == 0) {
             ++cursor;
             g_plot = g_html = true;
@@ -1297,11 +1290,12 @@ static void init_bench_params(const struct input_policy *input,
     params->stdout_fd = -1;
 }
 
-static bool init_bench_stdout(size_t index, struct bench_params *params) {
-    int fd = open_fd_fmt(O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600, "%s/%zu",
-                         g_temp_dir, index);
-    if (fd == -1) {
-        csperror("open");
+static bool init_bench_stdout(struct bench_params *params) {
+    int fd = tmpfile_fd();
+    if (fd == -1)
+        return false;
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        csperror("fcntl");
         return false;
     }
     params->stdout_fd = fd;
@@ -1410,17 +1404,6 @@ static bool validate_set_baseline(int baseline, const struct run_info *info) {
     return true;
 }
 
-static bool create_temp_directory(void) {
-    if (mkdir(g_temp_dir, 0766) == -1) {
-        if (errno == EEXIST) {
-        } else {
-            csperror("mkdir");
-            return false;
-        }
-    }
-    return true;
-}
-
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
@@ -1445,9 +1428,6 @@ static bool init_run_info(const struct cli_settings *cli,
     if (!validate_input_policy(&cli->input))
         return false;
 
-    if (!create_temp_directory())
-        return false;
-
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->args[i];
         if (cli->var != NULL) {
@@ -1468,7 +1448,7 @@ static bool init_run_info(const struct cli_settings *cli,
     }
     if (has_custom_meas) {
         for (size_t i = 0; i < sb_len(info->params); ++i) {
-            if (!init_bench_stdout(i, info->params + i))
+            if (!init_bench_stdout(info->params + i))
                 goto err_free_settings;
         }
     }
