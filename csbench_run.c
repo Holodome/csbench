@@ -194,35 +194,31 @@ static bool parse_custom_output(int fd, double *valuep) {
 }
 
 static bool do_custom_measurement(const struct meas *custom, int input_fd,
-                                  double *valuep) {
-    bool success = false;
-    int custom_output_fd = tmpfile_fd();
-    if (custom_output_fd == -1)
-        return false;
-
-    if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+                                  int output_fd, double *valuep) {
+    if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
         csperror("lseek");
-        goto out;
+        return false;
     }
 
-    if (!execute_in_shell(custom->cmd, input_fd, custom_output_fd, -1))
-        goto out;
+    if (ftruncate(output_fd, 0) == -1) {
+        csperror("ftruncate");
+        return false;
+    }
 
-    if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+    if (!execute_in_shell(custom->cmd, input_fd, output_fd, -1))
+        return false;
+
+    if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
         csperror("lseek");
-        goto out;
+        return false;
     }
 
     double value;
-    if (!parse_custom_output(custom_output_fd, &value))
-        goto out;
+    if (!parse_custom_output(output_fd, &value))
+        return false;
 
     *valuep = value;
-    success = true;
-out:
-    assert(custom_output_fd != -1);
-    close(custom_output_fd);
-    return success;
+    return true;
 }
 
 static bool warmup(const struct bench_params *cmd) {
@@ -487,9 +483,14 @@ static bool run_custom_measurements(const struct bench_params *params,
             max_stdout_size = d;
     }
 
-    int tmp_fd = tmpfile_fd();
-    if (tmp_fd == -1)
+    int input_fd = tmpfile_fd();
+    if (input_fd == -1)
         return false;
+    int output_fd = tmpfile_fd();
+    if (output_fd == -1) {
+        close(input_fd);
+        return false;
+    }
 
     const struct meas **custom_meas_list = NULL;
     for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
@@ -515,12 +516,12 @@ static bool run_custom_measurements(const struct bench_params *params,
             csperror("read");
             goto err;
         }
-        ssize_t nw = write(tmp_fd, copy_buffer, count);
+        ssize_t nw = write(input_fd, copy_buffer, count);
         if (nw != (ssize_t)count) {
             csperror("write");
             goto err;
         }
-        if (ftruncate(tmp_fd, count) == -1) {
+        if (ftruncate(input_fd, count) == -1) {
             csperror("ftruncate");
             goto err;
         }
@@ -528,17 +529,17 @@ static bool run_custom_measurements(const struct bench_params *params,
         for (size_t m = 0; m < sb_len(custom_meas_list); ++m) {
             const struct meas *meas = custom_meas_list[m];
             double value;
-            if (lseek(tmp_fd, 0, SEEK_SET) == -1) {
+            if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
             }
-            if (!do_custom_measurement(meas, tmp_fd, &value))
+            if (!do_custom_measurement(meas, input_fd, output_fd, &value))
                 goto err;
             sb_push(bench->meas[meas - params->meas], value);
         }
         // Reset write cursor before the next loop cycle
         if (run_idx != bench->run_count - 1) {
-            if (lseek(tmp_fd, 0, SEEK_SET) == -1) {
+            if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
             }
@@ -547,7 +548,8 @@ static bool run_custom_measurements(const struct bench_params *params,
 
     success = true;
 err:
-    close(tmp_fd);
+    close(input_fd);
+    close(output_fd);
     free(copy_buffer);
     sb_free(custom_meas_list);
     return success;
