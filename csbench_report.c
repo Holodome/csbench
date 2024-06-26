@@ -1011,12 +1011,13 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
     } else {
         for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
             printf("%c = ", (int)('A' + grp_idx));
-            printf_colored(ANSI_BOLD, "%s\n",
+            printf_colored(ANSI_BOLD, "%s",
                            al->group_analyses[grp_idx].group->name);
+            if (g_baseline == (int)grp_idx) 
+                printf(" (baseline)");
+            printf("\n");
         }
 
-        if (g_baseline != -1)
-            printf("baseline is %c\n", (int)('A' + g_baseline));
         const struct bench_var *var = al->base->var;
         size_t value_count = var->value_count;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
@@ -1067,7 +1068,7 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
                            big_o_str(grp->regress.complexity), grp->regress.a);
                 }
             }
-        } else if (g_baseline != -1) {
+        } else if (g_baseline != -1 && al->base->group_count > 1) {
             printf("on average ");
             const char *ident = "";
             if (al->base->group_count > 2) {
