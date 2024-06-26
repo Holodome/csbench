@@ -427,6 +427,7 @@ void free_analysis(struct analysis *al) {
             for (size_t i = 0; i < al->meas_count; ++i)
                 sb_free(bench->meas[i]);
             free(bench->meas);
+            sb_free(bench->stdout_offsets);
         }
         free(al->benches);
     }

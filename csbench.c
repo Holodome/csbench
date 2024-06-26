@@ -155,6 +155,7 @@ struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 static struct output_anchor *g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
+const char *g_temp_dir = "/tmp/csbench_run";
 const char *g_prepare = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -317,7 +318,11 @@ static void print_help_and_exit(int rc) {
            "  -o, --out-dir <d>\n"
            "          Specify directory where plots, html report and other "
            "analysis results will be placed. Default is '.csbench' in current "
-           "directory.\n");
+           "directory.\n"
+           "  --temp-dir <d>\n"
+           "          Specify directory where temporary files will be put. "
+           "Default is /tmp/csbench_run. After run all temporary data is "
+           "deleted.\n");
     printf(
         "  --plot\n"
         "          Generate plots. For each benchmark KDE is generated in two "
@@ -877,6 +882,8 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
                    opt_arg(argv, &cursor, "-o", &str)) {
             g_out_dir = str;
+        } else if (opt_arg(argv, &cursor, "--temp-dir", &str)) {
+            g_temp_dir = str;
         } else if (strcmp(argv[cursor], "--html") == 0) {
             ++cursor;
             g_plot = g_html = true;
@@ -1253,6 +1260,8 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
 static void free_run_info(struct run_info *run_info) {
     for (size_t i = 0; i < sb_len(run_info->params); ++i) {
         struct bench_params *params = run_info->params + i;
+        if (params->stdout_fd != -1)
+            close(params->stdout_fd);
         free(params->exec);
         for (char **word = params->argv; *word; ++word)
             free(*word);
@@ -1285,12 +1294,18 @@ static void init_bench_params(const struct input_policy *input,
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
-    for (size_t i = 0; i < sb_len(meas); ++i) {
-        if (meas[i].kind == MEAS_CUSTOM) {
-            params->has_custom_meas = true;
-            break;
-        }
+    params->stdout_fd = -1;
+}
+
+static bool init_bench_stdout(size_t index, struct bench_params *params) {
+    int fd = open_fd_fmt(O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600, "%s/%zu",
+                         g_temp_dir, index);
+    if (fd == -1) {
+        csperror("open");
+        return false;
     }
+    params->stdout_fd = fd;
+    return true;
 }
 
 static bool attempt_group_rename(const struct rename_entry *rename_list,
@@ -1395,6 +1410,17 @@ static bool validate_set_baseline(int baseline, const struct run_info *info) {
     return true;
 }
 
+static bool create_temp_directory(void) {
+    if (mkdir(g_temp_dir, 0766) == -1) {
+        if (errno == EEXIST) {
+        } else {
+            csperror("mkdir");
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
@@ -1419,6 +1445,9 @@ static bool init_run_info(const struct cli_settings *cli,
     if (!validate_input_policy(&cli->input))
         return false;
 
+    if (!create_temp_directory())
+        return false;
+
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->args[i];
         if (cli->var != NULL) {
@@ -1426,6 +1455,20 @@ static bool init_run_info(const struct cli_settings *cli,
                 goto err_free_settings;
         } else {
             if (!init_command(cli, cmd_str, info))
+                goto err_free_settings;
+        }
+    }
+
+    bool has_custom_meas = false;
+    for (size_t i = 0; i < sb_len(cli->meas); ++i) {
+        if (cli->meas[i].kind == MEAS_CUSTOM) {
+            has_custom_meas = true;
+            break;
+        }
+    }
+    if (has_custom_meas) {
+        for (size_t i = 0; i < sb_len(info->params); ++i) {
+            if (!init_bench_stdout(i, info->params + i))
                 goto err_free_settings;
         }
     }

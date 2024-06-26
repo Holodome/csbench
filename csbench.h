@@ -198,6 +198,7 @@ struct bench {
     int *exit_codes;
     double **meas; // [meas_count]
     struct progress_bar_bench *progress;
+    size_t *stdout_offsets;
 };
 
 struct bench_analysis {
@@ -323,7 +324,8 @@ struct bench_params {
     const struct meas *meas;
     // The behavior of benchmark running changes when there are custom
     // measurements present, so record this information up front.
-    bool has_custom_meas;
+    // bool has_custom_meas;
+    int stdout_fd;
 };
 
 // This structure contains information that is continiously updated by working
@@ -528,5 +530,10 @@ size_t csstrlcpy(char *dst, const char *src, size_t size);
 #undef strlcpy
 #endif
 #define strlcpy csstrlcpy
+
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
+                                                          const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
+                                                      const char *fmt, ...);
 
 #endif // CSBENCH_H

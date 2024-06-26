@@ -210,7 +210,6 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     }
     if (pid == 0) {
         close(pipe_fds[1]);
-        close(STDIN_FILENO);
         if (dup2(pipe_fds[0], STDIN_FILENO) == -1)
             _exit(-1);
         if (!g_python_output) {
@@ -227,7 +226,12 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
         // Not a very nice way of handling errors, but it seems correct.
         close(pipe_fds[1]);
         kill(pid, SIGKILL);
-        waitpid(pid, NULL, 0);
+        for (;;) {
+            int err = waitpid(pid, NULL, 0);
+            if (err == -1 && errno == EINTR)
+                continue;
+            break;
+        }
         return false;
     }
     *pidp = pid;
@@ -449,16 +453,6 @@ static bool make_plots(const struct analysis *al) {
     }
     sb_free(args.pids);
     return success;
-}
-
-__attribute__((format(printf, 2, 3))) static FILE *
-open_file_fmt(const char *mode, const char *fmt, ...) {
-    char buf[4096];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    return fopen(buf, mode);
 }
 
 static bool make_plots_readme(const struct analysis *al) {
@@ -968,6 +962,11 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
     if (al->base->bench_count == 1)
         return;
 
+    if (al->base->primary_meas_count != 1) {
+        printf("measurement ");
+        printf_colored(ANSI_YELLOW, "%s\n", al->meas->name);
+    }
+
     if (al->base->group_count <= 1) {
         const struct bench_analysis *reference;
         if (g_baseline != -1) {
@@ -1110,10 +1109,6 @@ static void print_analysis(const struct analysis *al) {
         const struct meas *meas = al->meas + i;
         if (meas->is_secondary)
             continue;
-        if (al->primary_meas_count != 1) {
-            printf("measurement ");
-            printf_colored(ANSI_YELLOW, "%s\n", meas->name);
-        }
         print_cmd_comparison(al->meas_analyses + i);
     }
 }

@@ -53,6 +53,7 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <math.h>
 #include <stdlib.h>
@@ -579,10 +580,15 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
 bool process_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            csperror("waitpid");
-        return false;
+    for (;;) {
+        if ((wpid = waitpid(pid, &status, 0)) != pid) {
+            if (wpid == -1 && errno == EINTR)
+                continue;
+            if (wpid == -1)
+                csperror("waitpid");
+            return false;
+        }
+        break;
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         return true;
@@ -613,9 +619,6 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
             if (stderr_fd == -1)
                 stderr_fd = fd;
         }
-        close(STDIN_FILENO);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
         if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
             dup2(stdout_fd, STDOUT_FILENO) == -1 ||
             dup2(stderr_fd, STDERR_FILENO) == -1)
@@ -647,3 +650,21 @@ double get_time(void) {
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 #endif
+
+FILE *open_file_fmt(const char *mode, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return fopen(buf, mode);
+}
+
+int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return open(buf, flags, mode);
+}

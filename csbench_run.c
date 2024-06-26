@@ -54,6 +54,7 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
@@ -68,7 +69,6 @@ static void apply_input_policy(const char *file) {
         int fd = open("/dev/null", O_RDWR);
         if (fd == -1)
             _exit(-1);
-        close(STDIN_FILENO);
         if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
         close(fd);
@@ -76,7 +76,6 @@ static void apply_input_policy(const char *file) {
         int fd = open(file, O_RDONLY);
         if (fd == -1)
             _exit(-1);
-        close(STDIN_FILENO);
         if (dup2(fd, STDIN_FILENO) == -1)
             _exit(-1);
         close(fd);
@@ -89,8 +88,6 @@ static void apply_output_policy(enum output_kind policy) {
         int fd = open("/dev/null", O_RDWR);
         if (fd == -1)
             _exit(-1);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
         if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
             _exit(-1);
         close(fd);
@@ -101,8 +98,8 @@ static void apply_output_policy(enum output_kind policy) {
     }
 }
 
-static int exec_cmd(const struct bench_params *params, int stdout_fd,
-                    struct rusage *rusage, struct perf_cnt *pmc) {
+static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
+                    struct perf_cnt *pmc, bool is_warmup) {
     bool success = true;
     pid_t pid = fork();
     if (pid == -1) {
@@ -112,15 +109,16 @@ static int exec_cmd(const struct bench_params *params, int stdout_fd,
 
     if (pid == 0) {
         apply_input_policy(params->input_file);
-        // special handling when stdout needs to be piped
-        if (stdout_fd != -1) {
+        if (is_warmup) {
+            apply_output_policy(OUTPUT_POLICY_NULL);
+        } else if (params->stdout_fd != -1) {
+            // special handling when stdout needs to be piped
             int fd = open("/dev/null", O_RDWR);
             if (fd == -1)
                 _exit(-1);
-            close(STDERR_FILENO);
             if (dup2(fd, STDERR_FILENO) == -1)
                 _exit(-1);
-            if (dup2(stdout_fd, STDOUT_FILENO) == -1)
+            if (dup2(params->stdout_fd, STDOUT_FILENO) == -1)
                 _exit(-1);
             close(fd);
         } else {
@@ -144,10 +142,15 @@ static int exec_cmd(const struct bench_params *params, int stdout_fd,
 
     int status = 0;
     pid_t wpid;
-    if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
-        if (wpid == -1)
-            csperror("wait4");
-        return -1;
+    for (;;) {
+        if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
+            if (wpid == -1 && errno == EINTR)
+                continue;
+            if (wpid == -1)
+                csperror("wait4");
+            return -1;
+        }
+        break;
     }
 
     int ret = -1;
@@ -201,21 +204,19 @@ static int tmpfile_fd(void) {
     return fd;
 }
 
-static bool do_custom_measurement(const struct meas *custom, int stdout_fd,
+static bool do_custom_measurement(const struct meas *custom, int input_fd,
                                   double *valuep) {
-    assert(stdout_fd > 0);
     bool success = false;
     int custom_output_fd = tmpfile_fd();
     if (custom_output_fd == -1)
         return false;
 
-    if (lseek(stdout_fd, 0, SEEK_SET) == (off_t)-1 ||
-        lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
+    if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
         csperror("lseek");
         goto out;
     }
 
-    if (!execute_in_shell(custom->cmd, stdout_fd, custom_output_fd, -1))
+    if (!execute_in_shell(custom->cmd, input_fd, custom_output_fd, -1))
         goto out;
 
     if (lseek(custom_output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -241,7 +242,7 @@ static bool warmup(const struct bench_params *cmd) {
         return true;
     double start_time = get_time();
     do {
-        if (exec_cmd(cmd, -1, NULL, NULL) == -1) {
+        if (exec_cmd(cmd, NULL, NULL, true) == -1) {
             error("failed to execute warmup command");
             return false;
         }
@@ -265,14 +266,6 @@ static bool warmup(const struct bench_params *cmd) {
 // 6. Save measurements specified in benchmark settings
 static bool exec_and_measure(const struct bench_params *params,
                              struct bench *bench) {
-    bool success = false;
-    int stdout_fd = -1;
-    if (params->has_custom_meas) {
-        stdout_fd = tmpfile_fd();
-        if (stdout_fd == -1)
-            goto out;
-    }
-
     struct rusage rusage;
     memset(&rusage, 0, sizeof(rusage));
     struct perf_cnt pmc_ = {0};
@@ -280,22 +273,36 @@ static bool exec_and_measure(const struct bench_params *params,
     if (g_use_perf)
         pmc = &pmc_;
     volatile double wall_clock_start = get_time();
-    volatile int rc = exec_cmd(params, stdout_fd, &rusage, pmc);
+    volatile int rc = exec_cmd(params, &rusage, pmc, false);
     volatile double wall_clock_end = get_time();
 
+    // Some internal error
     if (rc == -1)
-        goto out;
+        return false;
 
     if (!g_allow_nonzero && rc != 0) {
         error("command '%s' finished with non-zero exit code (%d)", params->str,
               rc);
-        goto out;
+        return false;
     }
 
     ++bench->run_count;
     sb_push(bench->exit_codes, rc);
+    // If we have stdout means we have to save stdout ouput. To do that store
+    // offsets and write outputs to one file.
+    if (params->stdout_fd != -1) {
+        off_t position = lseek(params->stdout_fd, 0, SEEK_CUR);
+        if (position == -1) {
+            csperror("lseek");
+            return false;
+        }
+        sb_push(bench->stdout_offsets, position);
+    }
     for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
         const struct meas *meas = params->meas + meas_idx;
+        // Handled separately
+        if (meas->kind == MEAS_CUSTOM)
+            continue;
         double val = 0.0;
         switch (meas->kind) {
         case MEAS_WALL:
@@ -341,22 +348,14 @@ static bool exec_and_measure(const struct bench_params *params,
             val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
-            assert(stdout_fd > 0);
-            if (!do_custom_measurement(params->meas + meas_idx, stdout_fd,
-                                       &val))
-                goto out;
+            assert(0);
             break;
         case MEAS_LOADED:
             assert(0);
         }
         sb_push(bench->meas[meas_idx], val);
     }
-
-    success = true;
-out:
-    if (stdout_fd != -1)
-        close(stdout_fd);
-    return success;
+    return true;
 }
 
 static void progress_bar_start(struct progress_bar_bench *bench, double time) {
@@ -479,10 +478,98 @@ static bool run_benchmark(const struct bench_params *params,
     return true;
 }
 
+static bool run_custom_measurements(const struct bench_params *params,
+                                    struct bench *bench) {
+    bool success = false;
+    int all_stdout_fd = params->stdout_fd;
+    // If stdout_fd is not set means we have no custom measurements
+    if (all_stdout_fd == -1)
+        return true;
+
+    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
+        csperror("lseek");
+        return false;
+    }
+
+    size_t max_stdout_size = bench->stdout_offsets[0];
+    for (size_t i = 1; i < bench->run_count; ++i) {
+        size_t d = bench->stdout_offsets[i] - bench->stdout_offsets[i - 1];
+        if (d > max_stdout_size)
+            max_stdout_size = d;
+    }
+
+    int tmp_fd = tmpfile_fd();
+    if (tmp_fd == -1)
+        return false;
+
+    const struct meas **custom_meas_list = NULL;
+    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
+        const struct meas *meas = params->meas + meas_idx;
+        if (meas->kind == MEAS_CUSTOM)
+            sb_push(custom_meas_list, meas);
+    }
+    assert(custom_meas_list);
+    void *copy_buffer = malloc(max_stdout_size);
+
+    for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
+        size_t count;
+        if (run_idx == 0) {
+            count = bench->stdout_offsets[run_idx];
+        } else {
+            count = bench->stdout_offsets[run_idx] -
+                    bench->stdout_offsets[run_idx - 1];
+        }
+        assert(count <= max_stdout_size);
+
+        ssize_t nr = read(all_stdout_fd, copy_buffer, count);
+        if (nr != (ssize_t)count) {
+            csperror("read");
+            goto err;
+        }
+        ssize_t nw = write(tmp_fd, copy_buffer, count);
+        if (nw != (ssize_t)count) {
+            csperror("write");
+            goto err;
+        }
+        if (ftruncate(tmp_fd, count) == -1) {
+            csperror("ftruncate");
+            goto err;
+        }
+
+        for (size_t m = 0; m < sb_len(custom_meas_list); ++m) {
+            const struct meas *meas = custom_meas_list[m];
+            double value;
+            if (lseek(tmp_fd, 0, SEEK_SET) == -1) {
+                csperror("lseek");
+                goto err;
+            }
+            if (!do_custom_measurement(meas, tmp_fd, &value))
+                goto err;
+            sb_push(bench->meas[meas - params->meas], value);
+        }
+        // Reset write cursor before the next loop cycle
+        if (run_idx != bench->run_count - 1) {
+            if (lseek(tmp_fd, 0, SEEK_SET) == -1) {
+                csperror("lseek");
+                goto err;
+            }
+        }
+    }
+
+    success = true;
+err:
+    close(tmp_fd);
+    free(copy_buffer);
+    sb_free(custom_meas_list);
+    return success;
+}
+
 bool run_bench(const struct bench_params *params, struct bench_analysis *al) {
     if (!warmup(params))
         return false;
     if (!run_benchmark(params, al->bench))
+        return false;
+    if (!run_custom_measurements(params, al->bench))
         return false;
     analyze_benchmark(al, params->meas_count);
     return true;
