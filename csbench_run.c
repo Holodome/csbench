@@ -242,13 +242,14 @@ static bool warmup(const struct bench_params *cmd) {
 //  a. Using specified shell
 //  b. Optionally setting stdin
 //  c. Setting stdout and stderr, or saving stdout to file in case custom
-//   measurements are used
+//       measurements are used
 // 2. Collect wall clock time duration of execution
 // 2. Collect struct rusage of executed process
 // 3. Optionally collect performance counters
 // 4. Optionally check that command exit code is not zero
-// 5. Execute custom measurements if specified
-// 6. Save measurements specified in benchmark settings
+// 5. Collect all stdout outputs to a single file if custom measurements are
+//      used and store indexes to be able to identify each run
+// 6. Collect all measurements specified
 static bool exec_and_measure(const struct bench_params *params,
                              struct bench *bench) {
     struct rusage rusage;
