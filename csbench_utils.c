@@ -676,6 +676,10 @@ int tmpfile_fd(void) {
         csperror("mkstemp");
         return -1;
     }
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        csperror("fcntl");
+        return false;
+    }
     unlink(path);
     return fd;
 }

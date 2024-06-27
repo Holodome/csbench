@@ -287,6 +287,9 @@ static void print_help_and_exit(int rc) {
         "          Specify how each command should receive its input. <where> "
         "can be a file name, or none. In the latter case /dev/null is piped to "
         "stdin.\n"
+        "  --inputs <str>\n"
+        "          Use <str> as input for each benchmark (it is piped to "
+        "stdin).\n"
         "  --custom <name>\n"
         "          Add custom measurement with <name>. Attempts to parse real "
         "value from each command's stdout and interprets it in seconds.\n"
@@ -377,11 +380,11 @@ static void print_help_and_exit(int rc) {
         "be used in reports instead of default one, which is command name. \n"
         "   -s, --simple\n"
         "          Preset to run benchmarks in parallel for one second without "
-        "warmup. Useful for quickly checking something.\n"
-        "  --help\n"
-        "          Print help.\n"
-        "  --version\n"
-        "          Print version.\n");
+        "warmup. Useful for quickly checking something.\n");
+    printf("  --help\n"
+           "          Print help.\n"
+           "  --version\n"
+           "          Print version.\n");
     exit(rc);
 }
 
@@ -761,6 +764,9 @@ static void parse_cli_args(int argc, char **argv,
                 settings->input.kind = INPUT_POLICY_FILE;
                 settings->input.file = str;
             }
+        } else if (opt_arg(argv, &cursor, "--inputs", &str)) {
+            settings->input.kind = INPUT_POLICY_STRING;
+            settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
@@ -1271,20 +1277,6 @@ static void free_run_info(struct run_info *run_info) {
     sb_free(run_info->groups);
 }
 
-static void init_bench_params(const struct input_policy *input,
-                              enum output_kind output, const struct meas *meas,
-                              char *exec, char **argv, char *cmd_str,
-                              struct bench_params *params) {
-    params->output = output;
-    params->meas = meas;
-    params->meas_count = sb_len(meas);
-    params->exec = exec;
-    params->argv = argv;
-    params->str = cmd_str;
-    params->stdin_fd = -1;
-    params->stdout_fd = -1;
-}
-
 static bool init_bench_stdin(const struct input_policy *input,
                              struct bench_params *params) {
     switch (input->kind) {
@@ -1300,18 +1292,46 @@ static bool init_bench_stdin(const struct input_policy *input,
         params->stdin_fd = fd;
         break;
     }
+    case INPUT_POLICY_STRING: {
+        int fd = tmpfile_fd();
+        if (fd == -1)
+            return false;
+
+        int len = strlen(input->string);
+        int nw = write(fd, input->string, len);
+        if (nw != len) {
+            csperror("write");
+            return false;
+        }
+        if (lseek(fd, 0, SEEK_SET) == -1) {
+            csperror("lseek");
+            return false;
+        }
+        params->stdin_fd = fd;
+        break;
+    }
     }
     return true;
+}
+
+static bool init_bench_params(const struct input_policy *input,
+                              enum output_kind output, const struct meas *meas,
+                              char *exec, char **argv, char *cmd_str,
+                              struct bench_params *params) {
+    params->output = output;
+    params->meas = meas;
+    params->meas_count = sb_len(meas);
+    params->exec = exec;
+    params->argv = argv;
+    params->str = cmd_str;
+    params->stdout_fd = -1;
+    return init_bench_stdin(input, params);
 }
 
 static bool init_bench_stdout(struct bench_params *params) {
     int fd = tmpfile_fd();
     if (fd == -1)
         return false;
-    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-        csperror("fcntl");
-        return false;
-    }
     params->stdout_fd = fd;
     return true;
 }
@@ -1354,8 +1374,9 @@ static bool init_command_parameterized(const struct cli_settings *cli,
         }
 
         struct bench_params bench_params = {0};
-        init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
-                          strdup(buf), &bench_params);
+        if (!init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
+                               strdup(buf), &bench_params))
+            goto err;
         group.cmd_idxs[val_idx] = sb_len(info->params);
         sb_push(info->params, bench_params);
     }
@@ -1376,8 +1397,9 @@ static bool init_command(const struct cli_settings *cli, const char *cmd_str,
         return false;
     }
     struct bench_params bench_params = {0};
-    init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
-                      strdup(cmd_str), &bench_params);
+    if (!init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
+                           strdup(cmd_str), &bench_params))
+        return false;
     sb_push(info->params, bench_params);
     return true;
 }

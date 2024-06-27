@@ -66,7 +66,7 @@
 
 static void apply_input_policy(int stdin_fd) {
     if (stdin_fd == -1) {
-        int fd = open("/dev/null", O_RDWR);
+        int fd = open("/dev/null", O_RDONLY);
         if (fd == -1)
             _exit(-1);
         if (dup2(fd, STDIN_FILENO) == -1)
@@ -83,7 +83,7 @@ static void apply_input_policy(int stdin_fd) {
 static void apply_output_policy(enum output_kind policy) {
     switch (policy) {
     case OUTPUT_POLICY_NULL: {
-        int fd = open("/dev/null", O_RDWR);
+        int fd = open("/dev/null", O_WRONLY);
         if (fd == -1)
             _exit(-1);
         if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
@@ -111,7 +111,7 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
             apply_output_policy(OUTPUT_POLICY_NULL);
         } else if (params->stdout_fd != -1) {
             // special handling when stdout needs to be piped
-            int fd = open("/dev/null", O_RDWR);
+            int fd = open("/dev/null", O_WRONLY);
             if (fd == -1)
                 _exit(-1);
             if (dup2(fd, STDERR_FILENO) == -1)

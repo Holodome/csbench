@@ -74,13 +74,15 @@ struct sb_header {
 
 enum input_kind {
     INPUT_POLICY_NULL,
-    INPUT_POLICY_FILE
+    INPUT_POLICY_FILE,
+    INPUT_POLICY_STRING
 };
 
 // How to handle input of command?
 struct input_policy {
     enum input_kind kind;
     const char *file;
+    const char *string;
 };
 
 enum output_kind {
