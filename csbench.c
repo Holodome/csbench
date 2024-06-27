@@ -1255,6 +1255,8 @@ static void free_run_info(struct run_info *run_info) {
         struct bench_params *params = run_info->params + i;
         if (params->stdout_fd != -1)
             close(params->stdout_fd);
+        if (params->stdin_fd != -1)
+            close(params->stdin_fd);
         free(params->exec);
         for (char **word = params->argv; *word; ++word)
             free(*word);
@@ -1273,21 +1275,33 @@ static void init_bench_params(const struct input_policy *input,
                               enum output_kind output, const struct meas *meas,
                               char *exec, char **argv, char *cmd_str,
                               struct bench_params *params) {
-    switch (input->kind) {
-    case INPUT_POLICY_NULL:
-        params->input_file = NULL;
-        break;
-    case INPUT_POLICY_FILE:
-        params->input_file = input->file;
-        break;
-    }
     params->output = output;
     params->meas = meas;
     params->meas_count = sb_len(meas);
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
+    params->stdin_fd = -1;
     params->stdout_fd = -1;
+}
+
+static bool init_bench_stdin(const struct input_policy *input,
+                             struct bench_params *params) {
+    switch (input->kind) {
+    case INPUT_POLICY_NULL:
+        params->stdin_fd = -1;
+        break;
+    case INPUT_POLICY_FILE: {
+        int fd = open(input->file, O_RDONLY | O_CLOEXEC);
+        if (fd == -1) {
+            csperror("open");
+            return false;
+        }
+        params->stdin_fd = fd;
+        break;
+    }
+    }
+    return true;
 }
 
 static bool init_bench_stdout(struct bench_params *params) {

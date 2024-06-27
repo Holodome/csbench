@@ -250,3 +250,11 @@ distclean
 out=$($b 'echo {n} | python3 tests/quicksort.py' --scan n/100/500/100 --rename-all quick)
 echo "$out" | grep -qv 'quicksort.py' || die 
 echo "$out" | grep -q quick || die 
+
+#
+# check --input option
+#
+echo 100 > /tmp/csbench_test
+distclean
+$b 'python3 tests/quicksort.py' --input /tmp/csbench_test --scan n/100/500/100 --rename-all quick || die
+

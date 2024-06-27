@@ -316,15 +316,13 @@ struct bench_params {
     char *exec;
     // 'argv' argument to execve
     char **argv;
-    // NULL if /dev/null should be used as input, otherwise file specified
-    const char *input_file;
     enum output_kind output;
     // List of measurements to record
     size_t meas_count;
     const struct meas *meas;
-    // The behavior of benchmark running changes when there are custom
-    // measurements present, so record this information up front.
-    // bool has_custom_meas;
+    // If not -1, use this file as stdin, otherwise /dev/null
+    int stdin_fd;
+    // If not -1, pipe stoud to this file
     int stdout_fd;
 };
 

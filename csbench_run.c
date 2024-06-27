@@ -64,8 +64,8 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-static void apply_input_policy(const char *file) {
-    if (file == NULL) {
+static void apply_input_policy(int stdin_fd) {
+    if (stdin_fd == -1) {
         int fd = open("/dev/null", O_RDWR);
         if (fd == -1)
             _exit(-1);
@@ -73,12 +73,10 @@ static void apply_input_policy(const char *file) {
             _exit(-1);
         close(fd);
     } else {
-        int fd = open(file, O_RDONLY);
-        if (fd == -1)
+        if (lseek(stdin_fd, 0, SEEK_SET) == -1)
             _exit(-1);
-        if (dup2(fd, STDIN_FILENO) == -1)
+        if (dup2(stdin_fd, STDIN_FILENO) == -1)
             _exit(-1);
-        close(fd);
     }
 }
 
@@ -108,7 +106,7 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
     }
 
     if (pid == 0) {
-        apply_input_policy(params->input_file);
+        apply_input_policy(params->stdin_fd);
         if (is_warmup) {
             apply_output_policy(OUTPUT_POLICY_NULL);
         } else if (params->stdout_fd != -1) {
