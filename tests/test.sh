@@ -256,5 +256,11 @@ echo "$out" | grep -q quick || die
 #
 echo 100 > /tmp/csbench_test
 distclean
-$b 'python3 tests/quicksort.py' --input /tmp/csbench_test --scan n/100/500/100 --rename-all quick || die
+$b 'python3 tests/quicksort.py' --input /tmp/csbench_test > /dev/null || die
+
+#
+# check --inputs option
+#
+distclean
+$b 'python3 tests/quicksort.py' --inputs 100 > /dev/null || die
 
