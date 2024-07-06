@@ -26,7 +26,6 @@ distclean() {
 #
 # check --help and --version
 #
-$b > /dev/null || die
 $b --help > /dev/null || die
 $b --version > /dev/null || die
 
@@ -240,14 +239,14 @@ echo "$out" | grep -qv ls || die
 # check that loading results from csv produces the same report
 #
 
-# FIXME: Due to floating-point rounding this does not always work
-# distclean 
-# $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-# $b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
+distclean 
+$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
+$b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
+# FIXME: Due to floating-point rounding diff does not always work
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
-# distclean 
-# $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-# $b --loada --rename-all=one,two > /tmp/csbench_2
+distclean 
+$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
+$b --loada --rename-all=one,two > /tmp/csbench_2
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
 
 #

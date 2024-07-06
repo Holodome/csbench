@@ -2076,68 +2076,79 @@ static char **find_loada_filenames(void) {
     return list;
 }
 
-static bool load_measurements_from_files(const struct cli_settings *settings,
-                                         const char **file_list,
-                                         struct meas **meas_list) {
+static bool load_measurements_from_file(const struct cli_settings *settings,
+                                        const char *file,
+                                        struct meas **meas_list) {
     bool result = false;
-    for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
-        const char *file = file_list[file_idx];
-        char **file_meas_names = NULL;
-        if (!load_meas_names(file, &file_meas_names)) {
-            error("failed to load measurement names from file '%s'", file);
-            goto err;
+    char **file_meas_names = NULL;
+    if (!load_meas_names(file, &file_meas_names)) {
+        error("failed to load measurement names from file '%s'", file);
+        goto out;
+    }
+    // Check if this is the first file. We only load measurements from the first
+    // file, but all others should have the same measurement number.
+    if (sb_len(*meas_list) != 0) {
+        if (sb_len(file_meas_names) != sb_len(*meas_list)) {
+            error("measurement number in different files does not match "
+                  "(current file '%s'): %zu vs expected %zu",
+                  file, sb_len(file_meas_names), sb_len(*meas_list));
+            goto out;
         }
-        if (file_idx != 0) {
-            if (sb_len(file_meas_names) != sb_len(meas_list)) {
-                error("measurement number in different files does not match "
-                      "(current file '%s')",
-                      file);
-                sb_free(file_meas_names);
-                goto err;
-            }
+        result = true;
+        goto out;
+    }
+
+    for (size_t meas_idx = 0; meas_idx < sb_len(file_meas_names); ++meas_idx) {
+        char *file_meas = file_meas_names[meas_idx];
+        // First check if measurement with same name exists
+        bool is_found = false;
+        for (size_t test_idx = 0; test_idx < sb_len(*meas_list) && !is_found;
+             ++test_idx) {
+            if (strcmp(file_meas, (*meas_list)[test_idx].name) == 0)
+                is_found = true;
+        }
+        // We have to add new measurement
+        if (is_found)
+            continue;
+
+        // Scan measurements from user input
+        const struct meas *meas_from_settings = NULL;
+        for (size_t test_idx = 0;
+             test_idx < sb_len(settings->meas) && meas_from_settings == NULL;
+             ++test_idx)
+            if (strcmp(file_meas, settings->meas[test_idx].name) == 0)
+                meas_from_settings = settings->meas + test_idx;
+        if (meas_from_settings) {
+            sb_push(*meas_list, *meas_from_settings);
             continue;
         }
 
-        for (size_t meas_idx = 0; meas_idx < sb_len(file_meas_names);
-             ++meas_idx) {
-            char *file_meas = file_meas_names[meas_idx];
-            // First check if measurement with same name exists
-            bool is_found = false;
-            for (size_t test_idx = 0; test_idx < sb_len(meas_list) && !is_found;
-                 ++test_idx) {
-                if (strcmp(file_meas, (*meas_list)[test_idx].name) == 0)
-                    is_found = true;
-            }
-            // We have to add new measurement
-            if (is_found)
-                continue;
+        struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
+        strlcpy(meas.name, file_meas, sizeof(meas.name));
+        // Try to guess and use seconds as measurement unit for first
+        // measurement
+        if (meas_idx == 0)
+            meas.units.kind = MU_S;
+        sb_push(*meas_list, meas);
+    }
+    result = true;
+out:
+    for (size_t i = 0; i < sb_len(file_meas_names); ++i)
+        free(file_meas_names[i]);
+    sb_free(file_meas_names);
+    return result;
+}
 
-            // Scan measurements from user input
-            const struct meas *meas_from_settings = NULL;
-            for (size_t test_idx = 0; test_idx < sb_len(settings->meas) &&
-                                      meas_from_settings == NULL;
-                 ++test_idx)
-                if (strcmp(file_meas, settings->meas[test_idx].name) == 0)
-                    meas_from_settings = settings->meas + test_idx;
-            if (meas_from_settings) {
-                sb_push(*meas_list, *meas_from_settings);
-                continue;
-            }
-
-            struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
-            strlcpy(meas.name, file_meas, sizeof(meas.name));
-            // Try to guess and use seconds as measurement unit for first
-            // measurement
-            if (meas_idx == 0)
-                meas.units.kind = MU_S;
-            sb_push(*meas_list, meas);
-        }
-        sb_free(file_meas_names);
+static bool load_measurements_from_files(const struct cli_settings *settings,
+                                         const char **file_list,
+                                         struct meas **meas_list) {
+    for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
+        const char *file = file_list[file_idx];
+        if (!load_measurements_from_file(settings, file, meas_list))
+            return false;
     }
 
-    result = true;
-err:
-    return result;
+    return true;
 }
 
 static bool run_app_load(const struct cli_settings *settings) {
