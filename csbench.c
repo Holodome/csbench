@@ -107,7 +107,6 @@ struct command_info {
 __thread uint64_t g_rng_state;
 static bool g_colored_output = false;
 bool g_allow_nonzero = false;
-struct bench_stop_policy g_warmup_stop = {0.1, 0, 0, 0};
 int g_threads = 1;
 bool g_plot = false;
 bool g_html = false;
@@ -121,7 +120,9 @@ bool g_python_output = false;
 static bool g_loada = false;
 int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
+struct bench_stop_policy g_warmup_stop = {0.1, 0, 0, 0};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
+struct bench_stop_policy g_round_stop = {5.0, 0, 0, 0};
 struct output_anchor *g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
@@ -661,6 +662,18 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
             g_bench_stop.time_limit = value;
+        } else if (opt_arg(argv, &cursor, "--round-time", &str)) {
+            char *str_end;
+            double value = strtod(str, &str_end);
+            if (str_end == str) {
+                error("invalid --round-time argument");
+                exit(EXIT_FAILURE);
+            }
+            if (value <= 0.0) {
+                error("time limit must be positive number");
+                exit(EXIT_FAILURE);
+            }
+            g_round_stop.time_limit = value;
         } else if (opt_arg(argv, &cursor, "--runs", &str) ||
                    opt_arg(argv, &cursor, "-R", &str)) {
             char *str_end;

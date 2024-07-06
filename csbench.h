@@ -201,6 +201,9 @@ struct bench {
     double **meas; // [meas_count]
     struct progress_bar_bench *progress;
     size_t *stdout_offsets;
+    // In case of suspension we save the state of running so it can be restored
+    // later
+    double time_run;
 };
 
 struct bench_analysis {
@@ -413,6 +416,7 @@ extern bool g_plot_src;
 extern const char *g_json_export_filename;
 extern struct bench_stop_policy g_bench_stop;
 extern struct bench_stop_policy g_warmup_stop;
+extern struct bench_stop_policy g_round_stop;
 extern const char *g_prepare;
 extern const char *g_out_dir;
 extern bool g_python_output;
@@ -521,5 +525,13 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);
 __attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
                                                       const char *fmt, ...);
+
+static inline uint32_t pcg32_fast(uint64_t *state) {
+    uint64_t x = *state;
+    unsigned count = (unsigned)(x >> 61);
+    *state = x * UINT64_C(6364136223846793005);
+    x ^= x >> 22;
+    return (uint32_t)(x >> (22 + count));
+}
 
 #endif // CSBENCH_H

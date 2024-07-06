@@ -66,8 +66,9 @@
 
 struct run_state {
     double start_time;
-    struct bench_stop_policy *stop;
+    const struct bench_stop_policy *stop;
     int current_run;
+    double time_run;
 };
 
 enum bench_run_result {
@@ -91,6 +92,10 @@ struct progress_bar_bench {
         uint64_t u;
         double d;
     } start_time;
+    union {
+        uint64_t u;
+        double d;
+    } time_passed;
     union {
         uint64_t u;
         double d;
@@ -201,9 +206,11 @@ static struct run_task *get_run_task(struct task_queue *q) {
     lock_mutex(&q->mutex);
 
     if (q->remaining_task_count != 0) {
+        size_t initial = pcg32_fast(&g_rng_state);
         for (size_t i = 0; i < q->task_count && !task; ++i) {
-            if (!q->finished[i] && !q->taken[i])
-                task = q->tasks + i;
+            size_t idx = (initial + i) % q->task_count;
+            if (!q->finished[idx] && !q->taken[idx])
+                task = q->tasks + idx;
         }
         // If vacant task is not found means that all tasks are already taken by
         // some other worker. Even if these tasks to suspend, threads that are
@@ -385,6 +392,15 @@ static bool should_run(const struct bench_stop_policy *policy) {
     return true;
 }
 
+static void init_run_state(double time, const struct bench_stop_policy *policy,
+                           size_t run, double time_already_run,
+                           struct run_state *state) {
+    state->current_run = run;
+    state->start_time = time;
+    state->stop = policy;
+    state->time_run = time_already_run;
+}
+
 static bool should_finish_running(struct run_state *state) {
     ++state->current_run;
 
@@ -405,7 +421,7 @@ static bool should_finish_running(struct run_state *state) {
 
     double current = get_time();
     double diff = current - state->start_time;
-    if (diff > state->stop->time_limit)
+    if (diff > state->stop->time_limit - state->time_run)
         return true;
 
     return false;
@@ -416,9 +432,7 @@ static bool warmup(const struct bench_params *cmd) {
         return true;
 
     struct run_state state;
-    memset(&state, 0, sizeof(state));
-    state.start_time = get_time();
-    state.stop = &g_warmup_stop;
+    init_run_state(get_time(), &g_warmup_stop, 0, 0, &state);
     for (;;) {
         if (exec_cmd(cmd, NULL, NULL, true) == -1) {
             error("failed to execute warmup command");
@@ -539,12 +553,15 @@ static bool exec_and_measure(const struct bench_params *params,
     return true;
 }
 
-static void progress_bar_start(struct progress_bar_bench *bench, double time) {
+static void progress_bar_start(struct progress_bar_bench *bench, double time,
+                               double time_passed) {
     if (!g_progress_bar)
         return;
     uint64_t u;
     memcpy(&u, &time, sizeof(u));
     atomic_store(&bench->start_time.u, u);
+    memcpy(&u, &time_passed, sizeof(u));
+    atomic_store(&bench->time_passed.u, u);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench) {
@@ -584,8 +601,12 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
 static enum bench_run_result
 run_benchmark_exact_runs(const struct bench_params *params,
                          struct bench *bench) {
-    progress_bar_start(bench->progress, get_time());
-    for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
+    struct run_state round_state;
+    init_run_state(get_time(), &g_round_stop, 0, 0, &round_state);
+    progress_bar_start(bench->progress, round_state.start_time,
+                       bench->time_run);
+    for (int run_idx = bench->run_count; run_idx < g_bench_stop.runs;
+         ++run_idx) {
         if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
             error("failed to execute prepare command");
             progress_bar_abort(bench->progress);
@@ -597,6 +618,10 @@ run_benchmark_exact_runs(const struct bench_params *params,
         }
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
         progress_bar_update_runs(bench->progress, percent, run_idx + 1);
+        if (should_finish_running(&round_state)) {
+            bench->time_run += get_time() - round_state.start_time;
+            return BENCH_RUN_SUSPENDED;
+        }
     }
     progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
     progress_bar_finished(bench->progress);
@@ -608,11 +633,12 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
                             struct bench *bench) {
     double niter_accum = 1;
     size_t niter = 1;
-    struct run_state state;
-    memset(&state, 0, sizeof(state));
-    double start_time = state.start_time = get_time();
-    state.stop = &g_bench_stop;
-    progress_bar_start(bench->progress, start_time);
+    double start_time = get_time();
+    struct run_state state, round_state;
+    init_run_state(start_time, &g_bench_stop, bench->run_count, bench->time_run,
+                   &state);
+    init_run_state(start_time, &g_round_stop, 0, 0, &round_state);
+    progress_bar_start(bench->progress, start_time, bench->time_run);
     for (;;) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
@@ -625,9 +651,15 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
                 return BENCH_RUN_ERROR;
             }
             double current = get_time();
-            double diff = current - start_time;
-            int progress = diff / g_bench_stop.time_limit * 100;
-            progress_bar_update_time(bench->progress, progress, diff);
+            double time_in_round_passed = current - start_time;
+            double bench_time_passed = time_in_round_passed + bench->time_run;
+            int progress = bench_time_passed / g_bench_stop.time_limit * 100;
+            progress_bar_update_time(bench->progress, progress,
+                                     bench_time_passed);
+            if (should_finish_running(&round_state)) {
+                bench->time_run = bench_time_passed;
+                return BENCH_RUN_SUSPENDED;
+            }
         }
 
         if (should_finish_running(&state))
@@ -641,7 +673,7 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
         }
     }
     double passed = get_time() - start_time;
-    progress_bar_update_time(bench->progress, 100, passed);
+    progress_bar_update_time(bench->progress, 100, passed + bench->time_run);
     progress_bar_finished(bench->progress);
     return BENCH_RUN_FINISHED;
 }
@@ -833,6 +865,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         data.aborted = atomic_load(&bar->benches[i].aborted);
         data.metric.u = atomic_load(&bar->benches[i].metric.u);
         data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
+        data.time_passed.u = atomic_load(&bar->benches[i].time_passed.u);
         if (abbr_names)
             printf("%c ", (int)('A' + i));
         else
@@ -863,7 +896,8 @@ static void redraw_progress_bar(struct progress_bar *bar) {
             if (g_bench_stop.runs != 0) {
                 char eta_buf[256] = "N/A";
                 if (data.start_time.d != 0.0) {
-                    double passed_time = current_time - data.start_time.d;
+                    double passed_time =
+                        current_time - data.start_time.d + data.time_passed.d;
                     if (bar->states[i].runs != data.metric.u) {
                         bar->states[i].eta =
                             (g_bench_stop.runs - data.metric.u) * passed_time /

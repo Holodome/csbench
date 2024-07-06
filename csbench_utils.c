@@ -367,14 +367,6 @@ double ols_approx(const struct ols_regress *regress, double n) {
     return regress->a * f + regress->b;
 }
 
-static uint32_t pcg32_fast(uint64_t *state) {
-    uint64_t x = *state;
-    unsigned count = (unsigned)(x >> 61);
-    *state = x * UINT64_C(6364136223846793005);
-    x ^= x >> 22;
-    return (uint32_t)(x >> (22 + count));
-}
-
 static int compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
