@@ -134,6 +134,14 @@ enum app_mode {
     APP_LOAD
 };
 
+struct command_info {
+    char cmd[4096];
+    struct input_policy input;
+    enum output_kind output;
+    size_t grp_idx;
+    const char *grp_name;
+};
+
 __thread uint64_t g_rng_state;
 static bool g_colored_output = false;
 bool g_allow_nonzero = false;
@@ -1347,60 +1355,125 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
     return false;
 }
 
-static bool init_command_parameterized(const struct cli_settings *cli,
-                                       const char *cmd_str,
-                                       struct run_info *info) {
-    const struct bench_var *var = cli->var;
-    size_t value_count = var->value_count;
-    struct bench_var_group group;
-    memset(&group, 0, sizeof(group));
-    group.cmd_idxs = calloc(value_count, sizeof(*group.cmd_idxs));
-    for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-        const char *var_value = var->values[val_idx];
-        char *exec = NULL, **argv = NULL;
-        bool replaced = false;
-        char buf[4096];
-        if (!replace_var_str(buf, sizeof(buf), cmd_str, var->name, var_value,
-                             &replaced) ||
-            !replaced || !init_cmd_exec(cli->shell, buf, &exec, &argv)) {
-            if (replaced) {
-                error("failed to initialize command '%s'", buf);
-            } else {
-                error("command string '%s' does not contain variable "
-                      "substitutions",
-                      buf);
-            }
-            goto err;
-        }
-
-        struct bench_params bench_params = {0};
-        if (!init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
-                               strdup(buf), &bench_params))
-            goto err;
-        group.cmd_idxs[val_idx] = sb_len(info->params);
-        sb_push(info->params, bench_params);
-    }
-    if (!attempt_group_rename(cli->rename_list, sb_len(info->groups), &group))
-        strlcpy(group.name, cmd_str, sizeof(group.name));
-    sb_push(info->groups, group);
-    return true;
-err:
-    free(group.cmd_idxs);
-    return false;
-}
-
-static bool init_command(const struct cli_settings *cli, const char *cmd_str,
-                         struct run_info *info) {
+static bool init_command(const char *shell, const struct command_info *cmd,
+                         struct run_info *info, size_t *idx) {
     char *exec = NULL, **argv = NULL;
-    if (!init_cmd_exec(cli->shell, cmd_str, &exec, &argv)) {
-        error("failed to initialize command '%s'", cmd_str);
+    if (!init_cmd_exec(shell, cmd->cmd, &exec, &argv)) {
+        error("failed to initialize command '%s'", cmd->cmd);
         return false;
     }
     struct bench_params bench_params = {0};
-    if (!init_bench_params(&cli->input, cli->output, info->meas, exec, argv,
-                           strdup(cmd_str), &bench_params))
+    if (!init_bench_params(&cmd->input, cmd->output, info->meas, exec, argv,
+                           strdup(cmd->cmd), &bench_params)) {
+        free(exec);
+        for (char **word = argv; *word; ++word)
+            free(*word);
+        sb_free(argv);
         return false;
+    }
     sb_push(info->params, bench_params);
+    if (idx)
+        *idx = sb_len(info->params) - 1;
+    return true;
+}
+
+static bool init_raw_command_infos(const struct cli_settings *cli,
+                                   struct command_info **infos) {
+    size_t cmd_count = sb_len(cli->args);
+    if (cmd_count == 0) {
+        error("no commands specified");
+        return false;
+    }
+    for (size_t i = 0; i < cmd_count; ++i) {
+        const char *cmd_str = cli->args[i];
+        struct command_info info;
+        memset(&info, 0, sizeof(info));
+        strlcpy(info.cmd, cmd_str, sizeof(info.cmd));
+        info.output = cli->output;
+        info.input = cli->input;
+        sb_push(*infos, info);
+    }
+    return true;
+}
+
+static bool multiplex_command_infos(const struct cli_settings *cli,
+                                    struct command_info **infos,
+                                    bool *has_groups) {
+    *has_groups = false;
+    if (cli->var == NULL)
+        return true;
+
+    const struct bench_var *var = cli->var;
+    struct command_info *multiplexed = NULL;
+    for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
+        const struct command_info *src_info = *infos + src_idx;
+        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+            const char *var_value = var->values[val_idx];
+            bool replaced = false;
+            char buf[4096];
+            if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
+                                 var_value, &replaced) ||
+                !replaced) {
+                error("command string '%s' does not contain variable "
+                      "substitutions",
+                      buf);
+                sb_free(multiplexed);
+                return false;
+            }
+            struct command_info info;
+            memcpy(&info, &src_info, sizeof(info));
+            strlcpy(info.cmd, buf, sizeof(info.cmd));
+            info.grp_idx = src_idx;
+            info.grp_name = src_info->cmd;
+            sb_push(multiplexed, info);
+        }
+    }
+
+    sb_free(*infos);
+    *infos = multiplexed;
+    *has_groups = true;
+
+    return true;
+}
+
+static bool init_benches(const struct cli_settings *cli,
+                         const struct command_info *cmd_infos, bool has_groups,
+                         struct run_info *info) {
+    if (!has_groups) {
+        for (size_t cmd_idx = 0; cmd_idx < sb_len(cmd_infos); ++cmd_idx) {
+            const struct command_info *cmd = cmd_infos + cmd_idx;
+            if (!init_command(cli->shell, cmd, info, NULL))
+                return false;
+        }
+        return true;
+    }
+
+    size_t group_count = sb_last(cmd_infos).grp_idx + 1;
+    const struct bench_var *var = cli->var;
+    const struct command_info *cmd_cursor = cmd_infos;
+    for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
+        assert(cmd_cursor->grp_idx == grp_idx);
+
+        struct bench_var_group group;
+        memset(&group, 0, sizeof(group));
+        if (!attempt_group_rename(cli->rename_list, sb_len(info->groups),
+                                  &group))
+            strlcpy(group.name, cmd_cursor->grp_name, sizeof(group.name));
+        group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
+
+        for (size_t val_idx = 0; val_idx < var->value_count;
+             ++val_idx, ++cmd_cursor) {
+            assert(cmd_cursor->grp_idx == grp_idx);
+            if (!init_command(cli->shell, cmd_cursor, info,
+                              group.cmd_idxs + val_idx)) {
+                sb_free(group.cmd_idxs);
+                return false;
+            }
+        }
+
+        sb_push(info->groups, group);
+    }
+
     return true;
 }
 
@@ -1440,6 +1513,26 @@ static bool validate_set_baseline(int baseline, const struct run_info *info) {
     return true;
 }
 
+static bool init_commands(const struct cli_settings *cli,
+                          struct run_info *info) {
+    bool result = false;
+    struct command_info *command_infos = NULL;
+    if (!init_raw_command_infos(cli, &command_infos))
+        return false;
+
+    bool has_groups = false;
+    if (!multiplex_command_infos(cli, &command_infos, &has_groups))
+        goto err;
+
+    if (!init_benches(cli, command_infos, has_groups, info))
+        goto err;
+
+    result = true;
+err:
+    sb_free(command_infos);
+    return result;
+}
+
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
@@ -1451,29 +1544,16 @@ static bool init_run_info(const struct cli_settings *cli,
         g_progress_bar = false;
     }
 
-    size_t cmd_count = sb_len(cli->args);
-    if (cmd_count == 0) {
-        error("no commands specified");
-        return false;
-    }
     if (sb_len(cli->meas) == 0) {
         error("no measurements specified");
         return false;
     }
 
-    if (!validate_input_policy(&cli->input))
+    if (!init_commands(cli, info))
         return false;
 
-    for (size_t i = 0; i < cmd_count; ++i) {
-        const char *cmd_str = cli->args[i];
-        if (cli->var != NULL) {
-            if (!init_command_parameterized(cli, cmd_str, info))
-                goto err_free_settings;
-        } else {
-            if (!init_command(cli, cmd_str, info))
-                goto err_free_settings;
-        }
-    }
+    if (!validate_input_policy(&cli->input))
+        return false;
 
     bool has_custom_meas = false;
     for (size_t i = 0; i < sb_len(cli->meas); ++i) {
@@ -1485,17 +1565,17 @@ static bool init_run_info(const struct cli_settings *cli,
     if (has_custom_meas) {
         for (size_t i = 0; i < sb_len(info->params); ++i) {
             if (!init_bench_stdout(info->params + i))
-                goto err_free_settings;
+                goto err;
         }
     }
 
-    // Validate that baseline number (if specified) is not greater than command
-    // count
+    // Validate that baseline number (if specified) is not greater than
+    // command count
     if (!validate_set_baseline(cli->baseline, info))
-        goto err_free_settings;
+        goto err;
 
     return true;
-err_free_settings:
+err:
     free_run_info(info);
     return false;
 }
