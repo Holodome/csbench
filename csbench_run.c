@@ -69,6 +69,7 @@ struct run_state {
     const struct bench_stop_policy *stop;
     int current_run;
     double time_run;
+    bool ignore_suspend;
 };
 
 enum bench_run_result {
@@ -127,12 +128,15 @@ struct run_task {
 struct task_queue {
     size_t task_count;
     struct run_task *tasks;
+    size_t worker_count;
 
     pthread_mutex_t mutex;
     bool *finished;
     bool *taken;
     size_t remaining_task_count;
 };
+
+static __thread struct task_queue *g_q;
 
 #define lock_mutex(_mutex)                                                     \
     do {                                                                       \
@@ -154,7 +158,8 @@ struct task_queue {
 
 static bool init_task_queue(const struct bench_params *params,
                             struct bench_analysis *als, size_t count,
-                            struct task_queue *q) {
+                            size_t worker_count, struct task_queue *q) {
+    assert(worker_count <= count);
     int ret = pthread_mutex_init(&q->mutex, NULL);
     if (ret != 0) {
         errno = ret;
@@ -166,6 +171,7 @@ static bool init_task_queue(const struct bench_params *params,
     q->tasks = calloc(count, sizeof(*q->tasks));
     q->finished = calloc(count, sizeof(*q->finished));
     q->taken = calloc(count, sizeof(*q->taken));
+    q->worker_count = worker_count;
     for (size_t i = 0; i < count; ++i) {
         q->tasks[i].q = q;
         q->tasks[i].param = params + i;
@@ -212,10 +218,8 @@ static struct run_task *get_run_task(struct task_queue *q) {
             if (!q->finished[idx] && !q->taken[idx])
                 task = q->tasks + idx;
         }
-        // If vacant task is not found means that all tasks are already taken by
-        // some other worker. Even if these tasks to suspend, threads that are
-        // already busy them can handle it, so this thread can exit.
-        if (task != NULL) {
+        assert(task || (q->worker_count > q->remaining_task_count));
+        if (task) {
             q->taken[task - q->tasks] = true;
             assert(!q->finished[task - q->tasks]);
         }
@@ -223,6 +227,17 @@ static struct run_task *get_run_task(struct task_queue *q) {
 
     unlock_mutex(&q->mutex);
     return task;
+}
+
+// There is no point suspending when all tasks are already assigned to workers,
+// that would just waste time. Worker threads should call this function when
+// they want to suspend.
+static bool should_i_suspend(void) {
+    struct task_queue *q = g_q;
+    lock_mutex(&q->mutex);
+    bool result = q->worker_count < q->remaining_task_count;
+    unlock_mutex(&q->mutex);
+    return result;
 }
 
 static void apply_input_policy(int stdin_fd) {
@@ -427,6 +442,22 @@ static bool should_finish_running(struct run_state *state) {
     return false;
 }
 
+static bool should_suspend_round(struct run_state *state) {
+    assert(state->stop == &g_round_stop);
+    if (state->ignore_suspend)
+        return true;
+
+    bool result = should_finish_running(state);
+    if (result) {
+        if (!should_i_suspend()) {
+            state->ignore_suspend = true;
+            result = false;
+        }
+    }
+
+    return result;
+}
+
 static bool warmup(const struct bench_params *cmd) {
     if (!should_run(&g_warmup_stop))
         return true;
@@ -618,7 +649,7 @@ run_benchmark_exact_runs(const struct bench_params *params,
         }
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
         progress_bar_update_runs(bench->progress, percent, run_idx + 1);
-        if (should_finish_running(&round_state)) {
+        if (should_suspend_round(&round_state)) {
             bench->time_run += get_time() - round_state.start_time;
             return BENCH_RUN_SUSPENDED;
         }
@@ -656,7 +687,7 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
             int progress = bench_time_passed / g_bench_stop.time_limit * 100;
             progress_bar_update_time(bench->progress, progress,
                                      bench_time_passed);
-            if (should_finish_running(&round_state)) {
+            if (should_suspend_round(&round_state)) {
                 bench->time_run = bench_time_passed;
                 return BENCH_RUN_SUSPENDED;
             }
@@ -812,6 +843,7 @@ static enum bench_run_result run_bench(const struct bench_params *params,
 }
 
 static bool run_benches_single_threaded(struct task_queue *q) {
+    g_q = q;
     for (;;) {
         struct run_task *task = get_run_task(q);
         if (task == NULL)
@@ -1033,14 +1065,16 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         }
     }
 
+    size_t thread_count = g_threads;
+    if (count < thread_count)
+        thread_count = count;
+    assert(thread_count > 0);
+
     struct task_queue q;
-    if (!init_task_queue(params, als, count, &q))
+    if (!init_task_queue(params, als, count, thread_count, &q))
         goto out;
 
-    // Consider the cases where there is either no point in execution
-    // benchmarks in parallel, or settings explicitly forbid this.
-    // Otherwise execute using worker threads.
-    if (g_threads <= 1 || count == 1) {
+    if (thread_count == 1) {
         if (g_progress_bar) {
             sb_resize(g_output_anchors, 1);
             g_output_anchors[0].id = pthread_self();
@@ -1048,11 +1082,6 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         if (run_benches_single_threaded(&q))
             success = true;
     } else {
-        size_t thread_count = g_threads;
-        if (q.task_count < thread_count)
-            thread_count = q.task_count;
-        assert(thread_count > 1);
-
         if (g_progress_bar)
             sb_resize(g_output_anchors, thread_count);
 
