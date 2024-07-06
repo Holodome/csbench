@@ -428,7 +428,7 @@ extern bool g_csv;
 extern bool g_plot_src;
 extern const char *g_json_export_filename;
 extern struct bench_stop_policy g_bench_stop;
-extern double g_warmup_time;
+extern struct bench_stop_policy g_warmup_stop;
 extern const char *g_prepare;
 extern const char *g_out_dir;
 extern bool g_python_output;

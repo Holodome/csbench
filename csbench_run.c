@@ -64,6 +64,12 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+struct run_state {
+    double start_time;
+    struct bench_stop_policy *stop;
+    int current_run;
+};
+
 static void apply_input_policy(int stdin_fd) {
     if (stdin_fd == -1) {
         int fd = open("/dev/null", O_RDONLY);
@@ -219,17 +225,49 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     return true;
 }
 
-static bool warmup(const struct bench_params *cmd) {
-    double time_limit = g_warmup_time;
-    if (time_limit <= 0.0)
+static bool should_finish_running(struct run_state *state) {
+    ++state->current_run;
+
+    if (state->stop->runs > 0) {
+        if (state->current_run >= state->stop->runs)
+            return true;
+    }
+
+    if (state->stop->min_runs > 0) {
+        if (state->current_run < state->stop->min_runs)
+            return false;
+    }
+
+    if (state->stop->max_runs > 0) {
+        if (state->current_run >= state->stop->max_runs)
+            return true;
+    }
+
+    double current = get_time();
+    double diff = current - state->start_time;
+    if (diff > state->stop->time_limit)
         return true;
-    double start_time = get_time();
-    do {
+
+    return false;
+}
+
+static bool warmup(const struct bench_params *cmd) {
+    // FIXME: There are other cases
+    if (g_warmup_stop.time_limit <= 0.0)
+        return true;
+
+    struct run_state state;
+    memset(&state, 0, sizeof(state));
+    state.start_time = get_time();
+    state.stop = &g_warmup_stop;
+    for (;;) {
         if (exec_cmd(cmd, NULL, NULL, true) == -1) {
             error("failed to execute warmup command");
             return false;
         }
-    } while (get_time() - start_time < time_limit);
+        if (should_finish_running(&state))
+            break;
+    }
     return true;
 }
 
@@ -400,7 +438,8 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
 // If the progress bar is disabled nothing concerning it shall be done.
 static bool run_benchmark(const struct bench_params *params,
                           struct bench *bench) {
-    // Check if we should run fixed number of times.
+    // Check if we should run fixed number of times. We can't unify these cases
+    // because they have different logic of handling progress bar status.
     if (g_bench_stop.runs != 0) {
         progress_bar_start(bench->progress, get_time());
         for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
@@ -422,12 +461,12 @@ static bool run_benchmark(const struct bench_params *params,
     }
     double niter_accum = 1;
     size_t niter = 1;
-    double start_time = get_time();
-    double time_limit = g_bench_stop.time_limit;
-    size_t min_runs = g_bench_stop.min_runs;
-    size_t max_runs = g_bench_stop.max_runs;
+    struct run_state state;
+    memset(&state, 0, sizeof(state));
+    double start_time = state.start_time = get_time();
+    state.stop = &g_bench_stop;
     progress_bar_start(bench->progress, start_time);
-    for (size_t count = 1;; ++count) {
+    for (;;) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
                 error("failed to execute prepare command");
@@ -440,13 +479,11 @@ static bool run_benchmark(const struct bench_params *params,
             }
             double current = get_time();
             double diff = current - start_time;
-            int progress = diff / time_limit * 100;
+            int progress = diff / g_bench_stop.time_limit * 100;
             progress_bar_update_time(bench->progress, progress, diff);
         }
-        double current = get_time();
-        double diff = current - start_time;
-        if (((max_runs != 0 ? count >= max_runs : 0) || (diff > time_limit)) &&
-            (min_runs != 0 ? count >= min_runs : 1))
+
+        if (should_finish_running(&state))
             break;
 
         for (;;) {

@@ -145,7 +145,7 @@ struct command_info {
 __thread uint64_t g_rng_state;
 static bool g_colored_output = false;
 bool g_allow_nonzero = false;
-double g_warmup_time = 0.1;
+struct bench_stop_policy g_warmup_stop = {0.1, 0, 0, 0};
 static int g_threads = 1;
 bool g_plot = false;
 bool g_html = false;
@@ -685,7 +685,7 @@ static void parse_cli_args(int argc, char **argv,
                 error("time limit must be positive number or zero");
                 exit(EXIT_FAILURE);
             }
-            g_warmup_time = value;
+            g_warmup_stop.time_limit = value;
         } else if (opt_arg(argv, &cursor, "--time-limit", &str) ||
                    opt_arg(argv, &cursor, "-T", &str)) {
             char *str_end;
@@ -932,7 +932,7 @@ static void parse_cli_args(int argc, char **argv,
                    strcmp(argv[cursor], "-s") == 0) {
             ++cursor;
             g_threads = simple_get_thread_count();
-            g_warmup_time = 0.0;
+            g_warmup_stop.time_limit = 0.0;
             g_bench_stop.time_limit = 1.0;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);

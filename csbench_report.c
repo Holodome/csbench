@@ -128,7 +128,7 @@ static bool export_json(const struct analysis *al, const char *filename) {
             "\"max_runs\": %d, \"warmup_time\": %f, \"nresamp\": %d "
             "}, \"benches\": [",
             g_bench_stop.time_limit, g_bench_stop.runs, g_bench_stop.min_runs,
-            g_bench_stop.max_runs, g_warmup_time, g_nresamp);
+            g_bench_stop.max_runs, g_warmup_stop.time_limit, g_nresamp);
     for (size_t i = 0; i < bench_count; ++i) {
         const struct bench_analysis *analysis = bench_analyses + i;
         const struct bench *bench = analysis->bench;
@@ -1013,7 +1013,7 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
             printf("%c = ", (int)('A' + grp_idx));
             printf_colored(ANSI_BOLD, "%s",
                            al->group_analyses[grp_idx].group->name);
-            if (g_baseline == (int)grp_idx) 
+            if (g_baseline == (int)grp_idx)
                 printf(" (baseline)");
             printf("\n");
         }
