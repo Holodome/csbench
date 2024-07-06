@@ -70,6 +70,55 @@ struct run_state {
     int current_run;
 };
 
+// This structure contains information that is continiously updated by working
+// threads when running a benchmark when progress bar is enabled.
+// It is used to track completion status. This structure is read by progress bar
+// thread to update display in console. Reads are not synchronized with writes,
+// so there may be inconsistences. But they would not lead to any erroneous
+// behaviour, and only affect consistency of information displayed. Either way,
+// this is not critical.
+struct progress_bar_bench {
+    int bar;
+    int finished;
+    int aborted;
+    union {
+        uint64_t u;
+        double d;
+    } start_time;
+    union {
+        uint64_t u;
+        double d;
+    } metric;
+    pthread_t id;
+} __attribute__((aligned(64)));
+
+struct progress_bar_state {
+    size_t runs;
+    double eta;
+    double time;
+};
+
+struct progress_bar {
+    bool was_drawn;
+    struct progress_bar_bench *benches;
+    size_t count;
+    struct bench_analysis *analyses;
+    size_t max_name_len;
+    struct progress_bar_state *states;
+};
+
+
+// Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
+// noninclusive, calling 'fn' for each memory block.
+struct bench_runner_thread_data {
+    pthread_t id;
+    struct bench_analysis *analyses;
+    const struct bench_params *params;
+    const size_t *indexes;
+    volatile size_t *cursor;
+    size_t max;
+};
+
 static void apply_input_policy(int stdin_fd) {
     if (stdin_fd == -1) {
         int fd = open("/dev/null", O_RDONLY);
@@ -617,7 +666,7 @@ err:
     return success;
 }
 
-bool run_bench(const struct bench_params *params, struct bench_analysis *al) {
+static bool run_bench(const struct bench_params *params, struct bench_analysis *al) {
     if (!warmup(params))
         return false;
     if (!run_benchmark(params, al->bench))
@@ -626,4 +675,282 @@ bool run_bench(const struct bench_params *params, struct bench_analysis *al) {
         return false;
     analyze_benchmark(al, params->meas_count);
     return true;
+}
+
+static void *bench_runner_worker(void *raw) {
+    struct bench_runner_thread_data *data = raw;
+    g_rng_state = time(NULL) * 2 + 1;
+    for (;;) {
+        size_t task_idx = atomic_fetch_inc(data->cursor);
+        if (task_idx >= data->max)
+            break;
+
+        size_t bench_idx = data->indexes[task_idx];
+        if (!run_bench(data->params + bench_idx, data->analyses + bench_idx))
+            return (void *)-1;
+    }
+    return NULL;
+}
+
+static void redraw_progress_bar(struct progress_bar *bar) {
+    bool abbr_names = bar->max_name_len > 40;
+    int length = 40;
+    if (!bar->was_drawn) {
+        bar->was_drawn = true;
+        if (abbr_names) {
+            for (size_t i = 0; i < bar->count; ++i) {
+                printf("%c = ", (int)('A' + i));
+                printf_colored(ANSI_BOLD, "%s\n", bar->analyses[i].name);
+            }
+        }
+    } else {
+        printf("\x1b[%zuA\r", bar->count);
+    }
+
+    double current_time = get_time();
+    for (size_t i = 0; i < bar->count; ++i) {
+        struct progress_bar_bench data = {0};
+        // explicitly load all atomics to avoid UB (tsan)
+        atomic_fence();
+        data.bar = atomic_load(&bar->benches[i].bar);
+        data.finished = atomic_load(&bar->benches[i].finished);
+        data.aborted = atomic_load(&bar->benches[i].aborted);
+        data.metric.u = atomic_load(&bar->benches[i].metric.u);
+        data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
+        if (abbr_names)
+            printf("%c ", (int)('A' + i));
+        else
+            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len,
+                           bar->analyses[i].name);
+        char buf[41] = {0};
+        int c = data.bar * length / 100;
+        if (c > length)
+            c = length;
+        for (int j = 0; j < c; ++j)
+            buf[j] = '#';
+        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
+        for (int j = 0; j < 40 - c; ++j)
+            buf[j] = '-';
+        buf[40 - c] = '\0';
+        printf_colored(ANSI_BLUE, "%s", buf);
+        if (data.aborted) {
+            memcpy(&data.id, &bar->benches[i].id, sizeof(data.id));
+            for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
+                if (pthread_equal(g_output_anchors[i].id, data.id)) {
+                    assert(g_output_anchors[i].has_message);
+                    printf_colored(ANSI_RED, " error: ");
+                    printf("%s", g_output_anchors[i].buffer);
+                    break;
+                }
+            }
+        } else {
+            if (g_bench_stop.runs != 0) {
+                char eta_buf[256] = "N/A";
+                if (data.start_time.d != 0.0) {
+                    double passed_time = current_time - data.start_time.d;
+                    if (bar->states[i].runs != data.metric.u) {
+                        bar->states[i].eta =
+                            (g_bench_stop.runs - data.metric.u) * passed_time /
+                            data.metric.u;
+                        bar->states[i].runs = data.metric.u;
+                        bar->states[i].time = current_time;
+                    }
+                    double eta = bar->states[i].eta;
+                    if (!data.finished)
+                        eta -= current_time - bar->states[i].time;
+                    // Sometimes we would get -inf here
+                    if (eta < 0.0)
+                        eta = -eta;
+                    if (eta != INFINITY)
+                        format_time(eta_buf, sizeof(eta_buf), eta);
+                }
+                char total_buf[256];
+                snprintf(total_buf, sizeof(total_buf), "%zu",
+                         (size_t)g_bench_stop.runs);
+                printf(" %*zu/%s eta %s", (int)strlen(total_buf),
+                       (size_t)data.metric.u, total_buf, eta_buf);
+            } else {
+                char buf1[256], buf2[256];
+                format_time(buf1, sizeof(buf1), data.metric.d);
+                format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
+                printf(" %s/ %s", buf1, buf2);
+            }
+        }
+        printf("\n");
+    }
+}
+
+static void *progress_bar_thread_worker(void *arg) {
+    assert(g_progress_bar);
+    struct progress_bar *bar = arg;
+    bool is_finished = false;
+    redraw_progress_bar(bar);
+    do {
+        usleep(100000);
+        redraw_progress_bar(bar);
+        is_finished = true;
+        for (size_t i = 0; i < bar->count && is_finished; ++i)
+            if (!atomic_load(&bar->benches[i].finished))
+                is_finished = false;
+    } while (!is_finished);
+    redraw_progress_bar(bar);
+    return NULL;
+}
+
+static void init_progress_bar(struct bench_analysis *als, size_t count,
+                              struct progress_bar *bar) {
+    bar->count = count;
+    bar->benches = calloc(count, sizeof(*bar->benches));
+    bar->states = calloc(count, sizeof(*bar->states));
+    bar->analyses = als;
+    for (size_t i = 0; i < count; ++i) {
+        bar->states[i].runs = -1;
+        als[i].bench->progress = bar->benches + i;
+        size_t name_len = strlen(als[i].name);
+        if (name_len > bar->max_name_len)
+            bar->max_name_len = name_len;
+    }
+}
+
+static void free_progress_bar(struct progress_bar *bar) {
+    free(bar->benches);
+    free(bar->states);
+}
+
+static bool run_benches_single_threaded(struct progress_bar *progress_bar,
+                                        const struct bench_params *params,
+                                        struct bench_analysis *als,
+                                        size_t count) {
+    if (g_progress_bar) {
+        sb_resize(g_output_anchors, 1);
+        g_output_anchors[0].id = pthread_self();
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (!run_bench(params + i, als + i)) {
+            // HACK: In case of benchmark abort we have to explicitly tell
+            // progress bar that all benchmarks have finished, otherwise
+            // it will spin continiously waiting for it. This is not needed in
+            // multithreaded case because threads do this before exiting.
+            if (g_progress_bar)
+                for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
+                    progress_bar->benches[bench_idx].finished = true;
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool run_benches_multi_threaded(const struct bench_params *params,
+                                       struct bench_analysis *als,
+                                       size_t count) {
+    bool success = false;
+    size_t thread_count = g_threads;
+    if (count < thread_count)
+        thread_count = count;
+    assert(thread_count > 1);
+    size_t *task_indexes = calloc(count, sizeof(*task_indexes));
+    for (size_t i = 0; i < count; ++i)
+        task_indexes[i] = i;
+    shuffle(task_indexes, count);
+
+    // This variable is shared across threads and acts as a counter used to
+    // select the task from 'task_indexes' array.
+    volatile size_t cursor = 0;
+    struct bench_runner_thread_data *thread_data =
+        calloc(thread_count, sizeof(*thread_data));
+    for (size_t i = 0; i < thread_count; ++i) {
+        thread_data[i].params = params;
+        thread_data[i].analyses = als;
+        thread_data[i].indexes = task_indexes;
+        thread_data[i].cursor = &cursor;
+        thread_data[i].max = count;
+    }
+    if (g_progress_bar)
+        sb_resize(g_output_anchors, thread_count);
+
+    // Create worker threads that do running.
+    for (size_t i = 0; i < thread_count; ++i) {
+        // HACK: save thread id to output anchors first. If we do not do it
+        // here we would need additional synchronization
+        pthread_t *id = &thread_data[i].id;
+        if (g_progress_bar)
+            id = &g_output_anchors[i].id;
+        if (pthread_create(id, NULL, bench_runner_worker, thread_data + i) !=
+            0) {
+            for (size_t j = 0; j < i; ++j)
+                pthread_join(thread_data[j].id, NULL);
+            error("failed to spawn thread");
+            goto out;
+        }
+        thread_data[i].id = *id;
+    }
+
+    success = true;
+    for (size_t i = 0; i < thread_count; ++i) {
+        void *thread_retval;
+        pthread_join(thread_data[i].id, &thread_retval);
+        if (thread_retval == (void *)-1)
+            success = false;
+    }
+
+out:
+    free(thread_data);
+    free(task_indexes);
+    return success;
+}
+
+// Execute benchmarks, possibly in parallel using worker threads.
+// When parallel execution is used, thread pool is created, threads from
+// which select a benchmark to run in random order. We shuffle the
+// benchmarks here in orderd to get asymptotically OK runtime, as incorrect
+// order of tasks in parallel execution can degrade performance (queueing
+// theory).
+//
+// Parallel execution is controlled using 'g_threads' global
+// variable.
+//
+// This function also optionally spawns the thread printing interactive
+// progress bar. Logic conserning progress bar may be cumbersome:
+// 1. A new thread is spawned, which wakes ones in a while and checks atomic
+//  variables storing states of benchmarks
+// 2. Each of benchmarks updates its state in corresponding atomic varibales
+// 3. Output of benchmarks when progress bar is used is captured (anchored),
+//   see 'error' and 'csperror' functions. This is done in order to not corrupt
+//   the output in case such message is printed.
+bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+                 size_t count) {
+    bool success = false;
+    struct progress_bar progress_bar = {0};
+    pthread_t progress_bar_thread;
+    if (g_progress_bar) {
+        init_progress_bar(als, count, &progress_bar);
+        if (pthread_create(&progress_bar_thread, NULL,
+                           progress_bar_thread_worker, &progress_bar) != 0) {
+            error("failed to spawn thread");
+            free_progress_bar(&progress_bar);
+            return false;
+        }
+    }
+
+    if (g_threads <= 1 || count == 1) {
+        // Consider the cases where there is either no point in execution
+        // benchmarks in parallel, or settings explicitly forbid this.
+        if (!run_benches_single_threaded(&progress_bar, params, als, count))
+            goto out;
+    } else {
+        if (!run_benches_multi_threaded(params, als, count))
+            goto out;
+    }
+
+    success = true;
+out:
+    if (g_progress_bar) {
+        pthread_join(progress_bar_thread, NULL);
+        free_progress_bar(&progress_bar);
+    }
+    // Clean up anchors after execution
+    struct output_anchor *anchors = g_output_anchors;
+    g_output_anchors = NULL;
+    sb_free(anchors);
+    return success;
 }

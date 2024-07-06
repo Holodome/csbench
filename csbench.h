@@ -328,27 +328,11 @@ struct bench_params {
     int stdout_fd;
 };
 
-// This structure contains information that is continiously updated by working
-// threads when running a benchmark when progress bar is enabled.
-// It is used to track completion status. This structure is read by progress bar
-// thread to update display in console. Reads are not synchronized with writes,
-// so there may be inconsistences. But they would not lead to any erroneous
-// behaviour, and only affect consistency of information displayed. Either way,
-// this is not critical.
-struct progress_bar_bench {
-    int bar;
-    int finished;
-    int aborted;
-    union {
-        uint64_t u;
-        double d;
-    } start_time;
-    union {
-        uint64_t u;
-        double d;
-    } metric;
+struct output_anchor {
     pthread_t id;
-} __attribute__((aligned(64)));
+    char buffer[4096];
+    bool has_message;
+};
 
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
@@ -420,7 +404,7 @@ extern int g_nresamp;
 extern bool g_regr;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
-
+extern int g_threads;
 extern bool g_allow_nonzero;
 extern bool g_plot;
 extern bool g_html;
@@ -434,6 +418,7 @@ extern const char *g_out_dir;
 extern bool g_python_output;
 extern bool g_use_perf;
 extern bool g_progress_bar;
+extern struct output_anchor *g_output_anchors;
 
 //
 // csbench_analyze.c
@@ -449,7 +434,8 @@ void free_analysis(struct analysis *al);
 // csbench_run.c
 //
 
-bool run_bench(const struct bench_params *params, struct bench_analysis *al);
+bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+                 size_t count);
 
 //
 // csbench_report.c
