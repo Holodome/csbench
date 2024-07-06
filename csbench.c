@@ -543,7 +543,8 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
     sb_free(list);
 }
 
-static bool opt_arg(char **argv, int *cursor, const char *opt, char **arg) {
+static bool opt_arg(char **argv, int *cursor, const char *opt,
+                    const char **arg) {
     if (strcmp(argv[*cursor], opt) == 0) {
         ++(*cursor);
         if (argv[*cursor] == NULL) {
@@ -612,6 +613,69 @@ static size_t simple_get_thread_count(void) {
     return value;
 }
 
+static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
+                              const char *name, double *valuep) {
+    const char *str;
+    const char *opt_str = NULL;
+    for (;;) {
+        opt_str = *opt_strs++;
+        if (opt_str == NULL)
+            return false;
+        if (opt_arg(argv, cursorp, opt_str, &str))
+            break;
+    }
+    char *str_end;
+    double value = strtod(str, &str_end);
+    if (str_end == str) {
+        error("invalid %s argument", opt_str);
+        exit(EXIT_FAILURE);
+    }
+    if (value < 0.0) {
+        error("%s must be positive number or zero", name);
+        exit(EXIT_FAILURE);
+    }
+    *valuep = value;
+    return true;
+}
+
+static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs,
+                        const char *name, int *valuep) {
+    const char *str;
+    const char *opt_str = NULL;
+    for (;;) {
+        opt_str = *opt_strs++;
+        if (opt_str == NULL)
+            return false;
+        if (opt_arg(argv, cursorp, opt_str, &str))
+            break;
+    }
+    char *str_end;
+    long value = strtol(str, &str_end, 10);
+    if (str_end == str) {
+        error("invalid %s argument", opt_str);
+        exit(EXIT_FAILURE);
+    }
+    if (value <= 0) {
+        error("%s must be positive number", name);
+        exit(EXIT_FAILURE);
+    }
+    *valuep = value;
+    return true;
+}
+
+static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
+                     bool *valuep) {
+    if (strcmp(argv[*cursorp], opt_str) == 0) {
+        *valuep = true;
+        ++(*cursorp);
+        return true;
+    }
+    return false;
+}
+
+#define OPT_ARR(...)                                                           \
+    (const char *[]) { __VA_ARGS__, NULL }
+
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
     settings->shell = "/bin/sh";
@@ -623,114 +687,41 @@ static void parse_cli_args(int argc, char **argv,
     if (argc == 1)
         print_help_and_exit(EXIT_SUCCESS);
 
-    char *str;
     int cursor = 1;
     if (strcmp(argv[cursor], "load") == 0) {
         g_mode = APP_LOAD;
         ++cursor;
     }
 
+    const char *str;
     while (cursor < argc) {
         if (strcmp(argv[cursor], "--help") == 0 ||
             strcmp(argv[cursor], "-h") == 0) {
             print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(argv[cursor], "--version") == 0) {
             print_version_and_exit();
-        } else if (opt_arg(argv, &cursor, "--warmup", &str) ||
-                   opt_arg(argv, &cursor, "-W", &str)) {
-            char *str_end;
-            double value = strtod(str, &str_end);
-            if (str_end == str) {
-                error("invalid --warmup argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value < 0.0) {
-                error("time limit must be positive number or zero");
-                exit(EXIT_FAILURE);
-            }
-            g_warmup_stop.time_limit = value;
-        } else if (opt_arg(argv, &cursor, "--time-limit", &str) ||
-                   opt_arg(argv, &cursor, "-T", &str)) {
-            char *str_end;
-            double value = strtod(str, &str_end);
-            if (str_end == str) {
-                error("invalid --time-limit argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0.0) {
-                error("time limit must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_bench_stop.time_limit = value;
-        } else if (opt_arg(argv, &cursor, "--round-time", &str)) {
-            char *str_end;
-            double value = strtod(str, &str_end);
-            if (str_end == str) {
-                error("invalid --round-time argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0.0) {
-                error("time limit must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_round_stop.time_limit = value;
-        } else if (opt_arg(argv, &cursor, "--runs", &str) ||
-                   opt_arg(argv, &cursor, "-R", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --runs argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0) {
-                error("run count must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_bench_stop.runs = value;
-        } else if (opt_arg(argv, &cursor, "--min-runs", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --min-runs argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0) {
-                error("resamples count must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_bench_stop.min_runs = value;
-        } else if (opt_arg(argv, &cursor, "--max-runs", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --max-runs argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0) {
-                error("resamples count must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_bench_stop.max_runs = value;
-        } else if (opt_arg(argv, &cursor, "--prepare", &str)) {
-            g_prepare = str;
-        } else if (opt_arg(argv, &cursor, "--nrs", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --nrs argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0) {
-                error("resamples count must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_nresamp = value;
-        } else if (opt_arg(argv, &cursor, "--shell", &str) ||
-                   opt_arg(argv, &cursor, "-S", &str)) {
-            if (strcmp(str, "none") == 0)
+        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--warmup", "-W"),
+                                     "warmup time limit",
+                                     &g_warmup_stop.time_limit)) {
+        } else if (opt_double_nonneg(argv, &cursor,
+                                     OPT_ARR("--time-limit", "-T"),
+                                     "time limit", &g_bench_stop.time_limit)) {
+        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--round-time"),
+                                     "round time limit",
+                                     &g_round_stop.time_limit)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--runs", "-R"),
+                               "run count", &g_bench_stop.runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-runs"),
+                               "minimal run count", &g_bench_stop.min_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-runs"),
+                               "maximum run count", &g_bench_stop.max_runs)) {
+        } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"),
+                               "resamples count", &g_nresamp)) {
+        } else if (opt_arg(argv, &cursor, "--shell", &settings->shell) ||
+                   opt_arg(argv, &cursor, "-S", &settings->shell)) {
+            if (strcmp(settings->shell, "none") == 0)
                 settings->shell = NULL;
-            else
-                settings->shell = str;
         } else if (opt_arg(argv, &cursor, "--output", &str)) {
             if (strcmp(str, "null") == 0) {
                 settings->output = OUTPUT_POLICY_NULL;
@@ -854,48 +845,23 @@ static void parse_cli_args(int argc, char **argv,
             if (settings->var)
                 free(settings->var);
             settings->var = var;
-        } else if (opt_arg(argv, &cursor, "--jobs", &str) ||
-                   opt_arg(argv, &cursor, "-j", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --jobs argument");
-                exit(EXIT_FAILURE);
-            }
-            if (value <= 0) {
-                error("jobs count must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            g_threads = value;
-        } else if (opt_arg(argv, &cursor, "--export-json", &str)) {
-            g_json_export_filename = str;
-        } else if (opt_arg(argv, &cursor, "--out-dir", &str) ||
-                   opt_arg(argv, &cursor, "-o", &str)) {
-            g_out_dir = str;
-        } else if (strcmp(argv[cursor], "--html") == 0) {
-            ++cursor;
-            g_plot = g_html = true;
-        } else if (strcmp(argv[cursor], "--plot") == 0) {
-            ++cursor;
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
+                               "job count", &g_threads)) {
+        } else if (opt_arg(argv, &cursor, "--export-json",
+                           &g_json_export_filename)) {
+        } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
+                   opt_arg(argv, &cursor, "-o", &g_out_dir)) {
+        } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
-        } else if (strcmp(argv[cursor], "--plot-src") == 0) {
-            ++cursor;
-            g_plot_src = true;
-        } else if (strcmp(argv[cursor], "--no-wall") == 0) {
-            ++cursor;
-            no_wall = true;
-        } else if (strcmp(argv[cursor], "--allow-nonzero") == 0) {
-            ++cursor;
-            g_allow_nonzero = true;
-        } else if (strcmp(argv[cursor], "--csv") == 0) {
-            ++cursor;
-            g_csv = true;
-        } else if (strcmp(argv[cursor], "--regr") == 0) {
-            ++cursor;
-            g_regr = true;
-        } else if (strcmp(argv[cursor], "--python-output") == 0) {
-            ++cursor;
-            g_python_output = true;
+        } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
+        } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
+        } else if (opt_bool(argv, &cursor, "--no-wall", &no_wall)) {
+        } else if (opt_bool(argv, &cursor, "--allow-nonzero",
+                            &g_allow_nonzero)) {
+        } else if (opt_bool(argv, &cursor, "--csv", &g_csv)) {
+        } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
+        } else if (opt_bool(argv, &cursor, "--python-output",
+                            &g_python_output)) {
         } else if (strcmp(argv[cursor], "--load") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
@@ -911,20 +877,8 @@ static void parse_cli_args(int argc, char **argv,
             g_bench_stop.time_limit = 1.0;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
-        } else if (opt_arg(argv, &cursor, "--baseline", &str)) {
-            char *str_end;
-            long value = strtol(str, &str_end, 10);
-            if (str_end == str) {
-                error("invalid --baseline argument");
-                exit(EXIT_FAILURE);
-            }
-            // Filter out negative values as we treat this as unsigned number
-            // later.
-            if (value <= 0) {
-                error("baseline number must be positive number");
-                exit(EXIT_FAILURE);
-            }
-            settings->baseline = value;
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--baseline"),
+                               "baseline number", &settings->baseline)) {
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
             if (strcmp(str, "auto") == 0) {
                 if (isatty(STDIN_FILENO))
