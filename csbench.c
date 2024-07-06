@@ -2076,9 +2076,8 @@ static char **find_loada_filenames(void) {
     return list;
 }
 
-static bool load_measurements_from_file(const struct cli_settings *settings,
-                                        const char *file,
-                                        struct meas **meas_list) {
+static bool load_meas_from_file(const struct cli_settings *settings,
+                                const char *file, struct meas **meas_list) {
     bool result = false;
     char **file_meas_names = NULL;
     if (!load_meas_names(file, &file_meas_names)) {
@@ -2139,12 +2138,12 @@ out:
     return result;
 }
 
-static bool load_measurements_from_files(const struct cli_settings *settings,
-                                         const char **file_list,
-                                         struct meas **meas_list) {
+static bool load_meas_from_files(const struct cli_settings *settings,
+                                 const char **file_list,
+                                 struct meas **meas_list) {
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
-        if (!load_measurements_from_file(settings, file, meas_list))
+        if (!load_meas_from_file(settings, file, meas_list))
             return false;
     }
 
@@ -2163,7 +2162,7 @@ static bool run_app_load(const struct cli_settings *settings) {
     }
 
     struct meas *meas_list = NULL;
-    if (!load_measurements_from_files(settings, file_list, &meas_list))
+    if (!load_meas_from_files(settings, file_list, &meas_list))
         goto err;
 
     size_t bench_count = sb_len(file_list);
