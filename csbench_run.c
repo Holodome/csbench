@@ -773,20 +773,25 @@ static bool run_bench(const struct bench_params *params,
     return true;
 }
 
-static void *bench_runner_worker(void *raw) {
-    struct task_queue *q = raw;
-    g_rng_state = time(NULL) * 2 + 1;
+static bool run_benches_single_threaded(struct task_queue *q) {
     for (;;) {
         struct run_task *task = get_run_task(q);
         if (task == NULL)
             break;
 
-        bool success = run_bench(task->param, task->al);
-        run_task_finish(task);
+        if (!run_bench(task->param, task->al))
+            return false;
 
-        if (!success)
-            return (void *)-1;
+        run_task_finish(task);
     }
+    return true;
+}
+
+static void *bench_runner_worker(void *raw) {
+    struct task_queue *q = raw;
+    g_rng_state = time(NULL) * 2 + 1;
+    if (!run_benches_single_threaded(q))
+        return (void *)-1;
     return NULL;
 }
 
@@ -915,34 +920,9 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
-static bool run_benches_single_threaded(struct task_queue *q) {
-    if (g_progress_bar) {
-        sb_resize(g_output_anchors, 1);
-        g_output_anchors[0].id = pthread_self();
-    }
-    for (;;) {
-        struct run_task *task = get_run_task(q);
-        if (task == NULL)
-            break;
-
-        if (!run_bench(task->param, task->al))
-            return false;
-
-        run_task_finish(task);
-    }
-    return true;
-}
-
-static bool run_benches_multi_threaded(struct task_queue *q) {
+static bool run_benches_multi_threaded(struct task_queue *q,
+                                       size_t thread_count) {
     bool success = false;
-    size_t thread_count = g_threads;
-    if (q->task_count < thread_count)
-        thread_count = q->task_count;
-    assert(thread_count > 1);
-
-    if (g_progress_bar)
-        sb_resize(g_output_anchors, thread_count);
-
     pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
     // Create worker threads that do running.
     for (size_t i = 0; i < thread_count; ++i) {
@@ -1011,23 +991,26 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         goto out;
 
     if (g_threads <= 1 || count == 1) {
+        if (g_progress_bar) {
+            sb_resize(g_output_anchors, 1);
+            g_output_anchors[0].id = pthread_self();
+        }
         // Consider the cases where there is either no point in execution
         // benchmarks in parallel, or settings explicitly forbid this.
         if (run_benches_single_threaded(&q))
             success = true;
     } else {
-        if (run_benches_multi_threaded(&q))
+        size_t thread_count = g_threads;
+        if (q.task_count < thread_count)
+            thread_count = q.task_count;
+        assert(thread_count > 1);
+
+        if (g_progress_bar)
+            sb_resize(g_output_anchors, thread_count);
+
+        if (run_benches_multi_threaded(&q, thread_count))
             success = true;
     }
-
-    // FIXME: Cleanup this
-    // HACK: In case of benchmark abort we have to explicitly tell
-    // progress bar that all benchmarks have finished, otherwise
-    // it will spin continiously waiting for it. This is not needed in
-    // multithreaded case because threads do this before exiting.
-    if (g_progress_bar)
-        for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
-            progress_bar.benches[bench_idx].finished = true;
 
     free_task_queue(&q);
 out:
