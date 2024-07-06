@@ -853,6 +853,7 @@ static void parse_cli_args(int argc, char **argv,
             char **value_list = range_to_var_value_list(low, high, step);
             struct bench_var *var = calloc(1, sizeof(*var));
             strlcpy(var->name, name, sizeof(var->name));
+            free(name);
             var->values = value_list;
             var->value_count = sb_len(value_list);
             if (settings->var)
@@ -1397,6 +1398,7 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
         strlcpy(info.cmd, cmd_str, sizeof(info.cmd));
         info.output = cli->output;
         info.input = cli->input;
+        info.grp_name = cmd_str;
         sb_push(*infos, info);
     }
     return true;
@@ -1427,10 +1429,10 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
                 return false;
             }
             struct command_info info;
-            memcpy(&info, &src_info, sizeof(info));
+            memcpy(&info, src_info, sizeof(info));
             strlcpy(info.cmd, buf, sizeof(info.cmd));
             info.grp_idx = src_idx;
-            info.grp_name = src_info->cmd;
+            info.grp_name = src_info->grp_name;
             sb_push(multiplexed, info);
         }
     }
