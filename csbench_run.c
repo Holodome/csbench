@@ -70,6 +70,12 @@ struct run_state {
     int current_run;
 };
 
+enum bench_run_result {
+    BENCH_RUN_FINISHED,
+    BENCH_RUN_ERROR,
+    BENCH_RUN_SUSPENDED
+};
+
 // This structure contains information that is continiously updated by working
 // threads when running a benchmark when progress bar is enabled.
 // It is used to track completion status. This structure is read by progress bar
@@ -170,7 +176,6 @@ static void free_task_queue(struct task_queue *q) {
     pthread_mutex_destroy(&q->mutex);
 }
 
-#if 0
 static void run_task_yield(struct run_task *task) {
     struct task_queue *q = task->q;
     size_t task_idx = task - q->tasks;
@@ -179,7 +184,6 @@ static void run_task_yield(struct run_task *task) {
     q->taken[task_idx] = false;
     unlock_mutex(&q->mutex);
 }
-#endif
 
 static void run_task_finish(struct run_task *task) {
     struct task_queue *q = task->q;
@@ -577,29 +581,31 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
     atomic_store(&bench->metric.u, runs);
 }
 
-static bool run_benchmark_exact_runs(const struct bench_params *params,
-                                     struct bench *bench) {
+static enum bench_run_result
+run_benchmark_exact_runs(const struct bench_params *params,
+                         struct bench *bench) {
     progress_bar_start(bench->progress, get_time());
     for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
         if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
             error("failed to execute prepare command");
             progress_bar_abort(bench->progress);
-            return false;
+            return BENCH_RUN_ERROR;
         }
         if (!exec_and_measure(params, bench)) {
             progress_bar_abort(bench->progress);
-            return false;
+            return BENCH_RUN_ERROR;
         }
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
         progress_bar_update_runs(bench->progress, percent, run_idx + 1);
     }
     progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
     progress_bar_finished(bench->progress);
-    return true;
+    return BENCH_RUN_FINISHED;
 }
 
-static bool run_benchmark_adaptive_runs(const struct bench_params *params,
-                                        struct bench *bench) {
+static enum bench_run_result
+run_benchmark_adaptive_runs(const struct bench_params *params,
+                            struct bench *bench) {
     double niter_accum = 1;
     size_t niter = 1;
     struct run_state state;
@@ -612,11 +618,11 @@ static bool run_benchmark_adaptive_runs(const struct bench_params *params,
             if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
                 error("failed to execute prepare command");
                 progress_bar_abort(bench->progress);
-                return false;
+                return BENCH_RUN_ERROR;
             }
             if (!exec_and_measure(params, bench)) {
                 progress_bar_abort(bench->progress);
-                return false;
+                return BENCH_RUN_ERROR;
             }
             double current = get_time();
             double diff = current - start_time;
@@ -637,7 +643,7 @@ static bool run_benchmark_adaptive_runs(const struct bench_params *params,
     double passed = get_time() - start_time;
     progress_bar_update_time(bench->progress, 100, passed);
     progress_bar_finished(bench->progress);
-    return true;
+    return BENCH_RUN_FINISHED;
 }
 
 // This function is entry point to benchmark running. Accepting description of
@@ -654,19 +660,18 @@ static bool run_benchmark_adaptive_runs(const struct bench_params *params,
 // During the benchmark run, progress bar is notified about current state
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
-static bool run_benchmark(const struct bench_params *params,
-                          struct bench *bench) {
+static enum bench_run_result run_benchmark(const struct bench_params *params,
+                                           struct bench *bench) {
     assert(should_run(&g_bench_stop));
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
+    enum bench_run_result result;
     if (g_bench_stop.runs != 0) {
-        if (!run_benchmark_exact_runs(params, bench))
-            return false;
+        result = run_benchmark_exact_runs(params, bench);
     } else {
-        if (!run_benchmark_adaptive_runs(params, bench))
-            return false;
+        result = run_benchmark_adaptive_runs(params, bench);
     }
-    return true;
+    return result;
 }
 
 static bool run_custom_measurements(const struct bench_params *params,
@@ -761,16 +766,17 @@ err:
     return success;
 }
 
-static bool run_bench(const struct bench_params *params,
-                      struct bench_analysis *al) {
+static enum bench_run_result run_bench(const struct bench_params *params,
+                                       struct bench_analysis *al) {
     if (!warmup(params))
-        return false;
-    if (!run_benchmark(params, al->bench))
-        return false;
+        return BENCH_RUN_ERROR;
+    enum bench_run_result result = run_benchmark(params, al->bench);
+    if (result != BENCH_RUN_FINISHED)
+        return result;
     if (!run_custom_measurements(params, al->bench))
-        return false;
+        return BENCH_RUN_ERROR;
     analyze_benchmark(al, params->meas_count);
-    return true;
+    return BENCH_RUN_FINISHED;
 }
 
 static bool run_benches_single_threaded(struct task_queue *q) {
@@ -779,10 +785,17 @@ static bool run_benches_single_threaded(struct task_queue *q) {
         if (task == NULL)
             break;
 
-        if (!run_bench(task->param, task->al))
+        enum bench_run_result result = run_bench(task->param, task->al);
+        switch (result) {
+        case BENCH_RUN_FINISHED:
+            run_task_finish(task);
+            break;
+        case BENCH_RUN_ERROR:
             return false;
-
-        run_task_finish(task);
+        case BENCH_RUN_SUSPENDED:
+            run_task_yield(task);
+            break;
+        }
     }
     return true;
 }
@@ -990,13 +1003,14 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
     if (!init_task_queue(params, als, count, &q))
         goto out;
 
+    // Consider the cases where there is either no point in execution
+    // benchmarks in parallel, or settings explicitly forbid this.
+    // Otherwise execute using worker threads.
     if (g_threads <= 1 || count == 1) {
         if (g_progress_bar) {
             sb_resize(g_output_anchors, 1);
             g_output_anchors[0].id = pthread_self();
         }
-        // Consider the cases where there is either no point in execution
-        // benchmarks in parallel, or settings explicitly forbid this.
         if (run_benches_single_threaded(&q))
             success = true;
     } else {
