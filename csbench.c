@@ -855,6 +855,8 @@ static void parse_cli_args(int argc, char **argv,
             strlcpy(var->name, name, sizeof(var->name));
             var->values = value_list;
             var->value_count = sb_len(value_list);
+            if (settings->var)
+                free(settings->var);
             settings->var = var;
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
             char *name, *scan_list;
@@ -870,8 +872,11 @@ static void parse_cli_args(int argc, char **argv,
             free(scan_list);
             struct bench_var *var = calloc(1, sizeof(*var));
             strlcpy(var->name, name, sizeof(var->name));
+            free(name);
             var->values = value_list;
             var->value_count = sb_len(value_list);
+            if (settings->var)
+                free(settings->var);
             settings->var = var;
         } else if (opt_arg(argv, &cursor, "--jobs", &str) ||
                    opt_arg(argv, &cursor, "-j", &str)) {
@@ -1008,6 +1013,7 @@ static void parse_cli_args(int argc, char **argv,
 static void free_cli_settings(struct cli_settings *settings) {
     if (settings->var) {
         struct bench_var *var = settings->var;
+        assert(sb_len(var->values) == var->value_count);
         for (size_t j = 0; j < sb_len(var->values); ++j)
             free(var->values[j]);
         sb_free(var->values);

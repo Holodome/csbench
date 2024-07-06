@@ -396,24 +396,25 @@ void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count) {
 
 static void free_bench_meas_analysis(struct meas_analysis *al) {
     free(al->fastest);
-    free(al->fastest_val);
-    free(al->p_values);
-    free(al->speedup);
-    free(al->group_baseline_speedup);
-    if (al->var_p_values) {
-        for (size_t i = 0; i < al->base->var->value_count; ++i)
-            free(al->var_p_values[i]);
-        free(al->var_p_values);
-    }
+    free(al->benches);
     if (al->group_analyses) {
         for (size_t i = 0; i < al->base->group_count; ++i)
             free(al->group_analyses[i].data);
         free(al->group_analyses);
     }
+    free(al->speedup);
+    free(al->group_baseline_speedup);
+    free(al->p_values);
+    free(al->fastest_val);
     if (al->var_speedup) {
         for (size_t i = 0; i < al->base->var->value_count; ++i)
             free(al->var_speedup[i]);
         free(al->var_speedup);
+    }
+    if (al->var_p_values) {
+        for (size_t i = 0; i < al->base->var->value_count; ++i)
+            free(al->var_p_values[i]);
+        free(al->var_p_values);
     }
 }
 
