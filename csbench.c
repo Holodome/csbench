@@ -354,7 +354,7 @@ static void print_help_and_exit(int rc) {
         "          List of 'struct rusage' fields or performance counters "
         "(PMC) to "
         "include to analysis. Default (if --no-wall is not specified) are cpu "
-        "time (ru_stime and ru_utime). Possible rusage values are 'stime', "
+        "time (stime and utime). Possible rusage values are 'stime', "
         "'utime', 'maxrss', 'minflt', 'majflt', 'nvcsw', 'nivcsw'. See your "
         "system's 'man 2 getrusage' for additional information. Possible PMC "
         "values are 'cycles', 'instructions', 'branches', 'branch-misses'.\n"

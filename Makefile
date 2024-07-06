@@ -9,6 +9,9 @@ ifdef DEBUG_THREAD
 	CFLAGS += -O0 -g -fsanitize=thread
 	LDFLAGS += -fsanitize=thread
 endif
+ifdef COV
+	CFLAGS += --coverage -fprofile-arcs -ftest-coverage
+endif
 
 all: csbench
 

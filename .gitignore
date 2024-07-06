@@ -3,3 +3,5 @@ csbench
 *.d
 .csbench
 csbench_amalgamated.c
+*.gcda
+*.gcno

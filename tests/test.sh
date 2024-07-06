@@ -24,6 +24,13 @@ distclean() {
 }
 
 #
+# check --help and --version
+#
+$b > /dev/null || die
+$b --help > /dev/null || die
+$b --version > /dev/null || die
+
+#
 # check that plots are generated for one command
 # 
 
@@ -264,3 +271,22 @@ $b 'python3 tests/quicksort.py' --input /tmp/csbench_test > /dev/null || die
 distclean
 $b 'python3 tests/quicksort.py' --inputs 100 > /dev/null || die
 
+#
+# measurement with time units specified
+#
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --scan n/100/500/100 > /dev/null || die
+
+#
+# measurement with utime and stime measurements hand-specified
+#
+$b ls --no-wall --meas stime,utime > /dev/null || die
+
+#
+# custom measurement units
+#
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --scan n/100/500/100 > /dev/null || die
+
+#
+# check --python-output option
+#
+$b ls --plot --python-output > /dev/null || die 
