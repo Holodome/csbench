@@ -527,11 +527,9 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
 
 int tmpfile_fd(void);
 
+// Hand-writte strlcpy. Even if strlcpy is available on given platform,
+// we resort to this for portability.
 size_t csstrlcpy(char *dst, const char *src, size_t size);
-#ifdef strlcpy
-#undef strlcpy
-#endif
-#define strlcpy csstrlcpy
 
 __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);

@@ -538,7 +538,7 @@ static void parse_units_str(const char *str, struct units *units) {
         units->kind = MU_NONE;
     } else {
         units->kind = MU_CUSTOM;
-        strlcpy(units->str, str, sizeof(units->str));
+        csstrlcpy(units->str, str, sizeof(units->str));
     }
 }
 
@@ -778,7 +778,7 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            strlcpy(meas.name, str, sizeof(meas.name));
+            csstrlcpy(meas.name, str, sizeof(meas.name));
             meas.cmd = "cat";
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
@@ -791,7 +791,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            strlcpy(meas.name, name, sizeof(meas.name));
+            csstrlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
@@ -805,7 +805,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            strlcpy(meas.name, name, sizeof(meas.name));
+            csstrlcpy(meas.name, name, sizeof(meas.name));
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
@@ -829,13 +829,13 @@ static void parse_cli_args(int argc, char **argv,
             }
             struct rename_entry *entry = sb_new(settings->rename_list);
             entry->n = value - 1;
-            strlcpy(entry->name, name, sizeof(entry->name));
+            csstrlcpy(entry->name, name, sizeof(entry->name));
         } else if (opt_arg(argv, &cursor, "--rename-all", &str)) {
             char **list = parse_comma_separated_list(str);
             for (size_t i = 0; i < sb_len(list); ++i) {
                 struct rename_entry *entry = sb_new(settings->rename_list);
                 entry->n = i;
-                strlcpy(entry->name, list[i], sizeof(entry->name));
+                csstrlcpy(entry->name, list[i], sizeof(entry->name));
                 free(list[i]);
             }
             sb_free(list);
@@ -852,7 +852,7 @@ static void parse_cli_args(int argc, char **argv,
             }
             char **value_list = range_to_var_value_list(low, high, step);
             struct bench_var *var = calloc(1, sizeof(*var));
-            strlcpy(var->name, name, sizeof(var->name));
+            csstrlcpy(var->name, name, sizeof(var->name));
             free(name);
             var->values = value_list;
             var->value_count = sb_len(value_list);
@@ -872,7 +872,7 @@ static void parse_cli_args(int argc, char **argv,
             char **value_list = parse_comma_separated_list(scan_list);
             free(scan_list);
             struct bench_var *var = calloc(1, sizeof(*var));
-            strlcpy(var->name, name, sizeof(var->name));
+            csstrlcpy(var->name, name, sizeof(var->name));
             free(name);
             var->values = value_list;
             var->value_count = sb_len(value_list);
@@ -1355,7 +1355,7 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
                                  size_t grp_idx, struct bench_var_group *grp) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == grp_idx) {
-            strlcpy(grp->name, rename_list[i].name, sizeof(grp->name));
+            csstrlcpy(grp->name, rename_list[i].name, sizeof(grp->name));
             return true;
         }
     }
@@ -1395,7 +1395,7 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
         const char *cmd_str = cli->args[i];
         struct command_info info;
         memset(&info, 0, sizeof(info));
-        strlcpy(info.cmd, cmd_str, sizeof(info.cmd));
+        csstrlcpy(info.cmd, cmd_str, sizeof(info.cmd));
         info.output = cli->output;
         info.input = cli->input;
         info.grp_name = cmd_str;
@@ -1430,7 +1430,7 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
             }
             struct command_info info;
             memcpy(&info, src_info, sizeof(info));
-            strlcpy(info.cmd, buf, sizeof(info.cmd));
+            csstrlcpy(info.cmd, buf, sizeof(info.cmd));
             info.grp_idx = src_idx;
             info.grp_name = src_info->grp_name;
             sb_push(multiplexed, info);
@@ -1873,7 +1873,7 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
                            struct bench_analysis *al) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == idx) {
-            strlcpy(al->name, rename_list[i].name, sizeof(al->name));
+            csstrlcpy(al->name, rename_list[i].name, sizeof(al->name));
             return true;
         }
     }
@@ -2123,7 +2123,7 @@ static bool load_meas_from_file(const struct cli_settings *settings,
         }
 
         struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
-        strlcpy(meas.name, file_meas, sizeof(meas.name));
+        csstrlcpy(meas.name, file_meas, sizeof(meas.name));
         // Try to guess and use seconds as measurement unit for first
         // measurement
         if (meas_idx == 0)
@@ -2177,7 +2177,7 @@ static bool run_app_load(const struct cli_settings *settings) {
         struct bench_analysis *analysis = al.bench_analyses + i;
         const char *file = file_list[i];
         if (!attempt_rename(settings->rename_list, i, analysis))
-            strlcpy(analysis->name, file, sizeof(analysis->name));
+            csstrlcpy(analysis->name, file, sizeof(analysis->name));
         if (!load_bench_result(file, bench, meas_count))
             goto err;
         analyze_benchmark(analysis, meas_count);
