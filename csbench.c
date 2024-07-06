@@ -119,7 +119,7 @@ struct bench_runner_thread_data {
     struct bench_analysis *analyses;
     const struct bench_params *params;
     const size_t *indexes;
-    size_t *cursor;
+    volatile size_t *cursor;
     size_t max;
 };
 
@@ -1759,9 +1759,6 @@ static bool run_benches_multi_threaded(const struct bench_params *params,
     if (count < thread_count)
         thread_count = count;
     assert(thread_count > 1);
-    struct bench_runner_thread_data *thread_data =
-        calloc(thread_count, sizeof(*thread_data));
-
     size_t *task_indexes = calloc(count, sizeof(*task_indexes));
     for (size_t i = 0; i < count; ++i)
         task_indexes[i] = i;
@@ -1769,7 +1766,9 @@ static bool run_benches_multi_threaded(const struct bench_params *params,
 
     // This variable is shared across threads and acts as a counter used to
     // select the task from 'task_indexes' array.
-    size_t cursor = 0;
+    volatile size_t cursor = 0;
+    struct bench_runner_thread_data *thread_data =
+        calloc(thread_count, sizeof(*thread_data));
     for (size_t i = 0; i < thread_count; ++i) {
         thread_data[i].params = params;
         thread_data[i].analyses = als;
@@ -1779,6 +1778,8 @@ static bool run_benches_multi_threaded(const struct bench_params *params,
     }
     if (g_progress_bar)
         sb_resize(g_output_anchors, thread_count);
+
+    // Create worker threads that do running.
     for (size_t i = 0; i < thread_count; ++i) {
         // HACK: save thread id to output anchors first. If we do not do it
         // here we would need additional synchronization
@@ -1794,6 +1795,7 @@ static bool run_benches_multi_threaded(const struct bench_params *params,
         }
         thread_data[i].id = *id;
     }
+
     success = true;
     for (size_t i = 0; i < thread_count; ++i) {
         void *thread_retval;
@@ -1801,6 +1803,7 @@ static bool run_benches_multi_threaded(const struct bench_params *params,
         if (thread_retval == (void *)-1)
             success = false;
     }
+
 out:
     free(thread_data);
     free(task_indexes);
@@ -1823,9 +1826,8 @@ out:
 //  variables storing states of benchmarks
 // 2. Each of benchmarks updates its state in corresponding atomic varibales
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
-// see
-//  'error' and 'csperror' functions. This is done in order to not corrupt
-//  the output in case such message is printed.
+//   see 'error' and 'csperror' functions. This is done in order to not corrupt
+//   the output in case such message is printed.
 static bool run_benches(const struct bench_params *params,
                         struct bench_analysis *als, size_t count) {
     bool success = false;

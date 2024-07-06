@@ -137,11 +137,13 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
         }
         if (execvp(params->exec, params->argv) == -1)
             _exit(-1);
-    } else {
-        if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
-            success = false;
-            kill(pid, SIGKILL);
-        }
+
+        __builtin_unreachable();
+    }
+
+    if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
+        success = false;
+        kill(pid, SIGKILL);
     }
 
     int status = 0;
@@ -166,7 +168,7 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
             ret = 128 + WTERMSIG(status);
     }
     if (ret == -1 && success)
-        error("process finished with unexpected status");
+        error("process finished with unexpected status (%d)", status);
 
     return ret;
 }
@@ -225,6 +227,16 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     return true;
 }
 
+static bool should_run(const struct bench_stop_policy *policy) {
+    if (policy->time_limit <= 0.0)
+        return false;
+
+    if (policy->runs == 0 && policy->min_runs == 0)
+        return false;
+
+    return true;
+}
+
 static bool should_finish_running(struct run_state *state) {
     ++state->current_run;
 
@@ -252,8 +264,7 @@ static bool should_finish_running(struct run_state *state) {
 }
 
 static bool warmup(const struct bench_params *cmd) {
-    // FIXME: There are other cases
-    if (g_warmup_stop.time_limit <= 0.0)
+    if (!should_run(&g_warmup_stop))
         return true;
 
     struct run_state state;
@@ -422,43 +433,29 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
     atomic_store(&bench->metric.u, runs);
 }
 
-// This function is entry point to benchmark running. Accepting description of
-// benchmark, it runs it according to 'g_bench_stop' policy, saving timing
-// results.
-//
-// There are two main ways to execute benchmark: by time and by run count.
-// In the first case benchmark is run until certain wall clock time has passed
-// since benchmark start, optionally constrained bu minimum and maximum run
-// count. In the second case we run benchmark exactly for specified number of
-// runs.
-//
-// This function also handles progress bar (see 'run_benchmark').
-// During the benchmark run, progress bar is notified about current state
-// of run using atomic variables (lock free and wait free).
-// If the progress bar is disabled nothing concerning it shall be done.
-static bool run_benchmark(const struct bench_params *params,
-                          struct bench *bench) {
-    // Check if we should run fixed number of times. We can't unify these cases
-    // because they have different logic of handling progress bar status.
-    if (g_bench_stop.runs != 0) {
-        progress_bar_start(bench->progress, get_time());
-        for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
-            if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
-                error("failed to execute prepare command");
-                progress_bar_abort(bench->progress);
-                return false;
-            }
-            if (!exec_and_measure(params, bench)) {
-                progress_bar_abort(bench->progress);
-                return false;
-            }
-            int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
-            progress_bar_update_runs(bench->progress, percent, run_idx + 1);
+static bool run_benchmark_exact_runs(const struct bench_params *params,
+                                     struct bench *bench) {
+    progress_bar_start(bench->progress, get_time());
+    for (int run_idx = 0; run_idx < g_bench_stop.runs; ++run_idx) {
+        if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
+            error("failed to execute prepare command");
+            progress_bar_abort(bench->progress);
+            return false;
         }
-        progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
-        progress_bar_finished(bench->progress);
-        return true;
+        if (!exec_and_measure(params, bench)) {
+            progress_bar_abort(bench->progress);
+            return false;
+        }
+        int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
+        progress_bar_update_runs(bench->progress, percent, run_idx + 1);
     }
+    progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
+    progress_bar_finished(bench->progress);
+    return true;
+}
+
+static bool run_benchmark_adaptive_runs(const struct bench_params *params,
+                                        struct bench *bench) {
     double niter_accum = 1;
     size_t niter = 1;
     struct run_state state;
@@ -496,6 +493,35 @@ static bool run_benchmark(const struct bench_params *params,
     double passed = get_time() - start_time;
     progress_bar_update_time(bench->progress, 100, passed);
     progress_bar_finished(bench->progress);
+    return true;
+}
+
+// This function is entry point to benchmark running. Accepting description of
+// benchmark, it runs it according to 'g_bench_stop' policy, saving timing
+// results.
+//
+// There are two main ways to execute benchmark: by time and by run count.
+// In the first case benchmark is run until certain wall clock time has passed
+// since benchmark start, optionally constrained bu minimum and maximum run
+// count. In the second case we run benchmark exactly for specified number of
+// runs.
+//
+// This function also handles progress bar (see 'run_benchmark').
+// During the benchmark run, progress bar is notified about current state
+// of run using atomic variables (lock free and wait free).
+// If the progress bar is disabled nothing concerning it shall be done.
+static bool run_benchmark(const struct bench_params *params,
+                          struct bench *bench) {
+    assert(should_run(&g_bench_stop));
+    // Check if we should run fixed number of times. We can't unify these cases
+    // because they have different logic of handling progress bar status.
+    if (g_bench_stop.runs != 0) {
+        if (!run_benchmark_exact_runs(params, bench))
+            return false;
+    } else {
+        if (!run_benchmark_adaptive_runs(params, bench))
+            return false;
+    }
     return true;
 }
 
@@ -538,26 +564,26 @@ static bool run_custom_measurements(const struct bench_params *params,
     void *copy_buffer = malloc(max_stdout_size);
 
     for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
-        size_t count;
+        size_t run_stdout_len;
         if (run_idx == 0) {
-            count = bench->stdout_offsets[run_idx];
+            run_stdout_len = bench->stdout_offsets[run_idx];
         } else {
-            count = bench->stdout_offsets[run_idx] -
-                    bench->stdout_offsets[run_idx - 1];
+            run_stdout_len = bench->stdout_offsets[run_idx] -
+                             bench->stdout_offsets[run_idx - 1];
         }
-        assert(count <= max_stdout_size);
+        assert(run_stdout_len <= max_stdout_size);
 
-        ssize_t nr = read(all_stdout_fd, copy_buffer, count);
-        if (nr != (ssize_t)count) {
+        ssize_t nr = read(all_stdout_fd, copy_buffer, run_stdout_len);
+        if (nr != (ssize_t)run_stdout_len) {
             csperror("read");
             goto err;
         }
-        ssize_t nw = write(input_fd, copy_buffer, count);
-        if (nw != (ssize_t)count) {
+        ssize_t nw = write(input_fd, copy_buffer, run_stdout_len);
+        if (nw != (ssize_t)run_stdout_len) {
             csperror("write");
             goto err;
         }
-        if (ftruncate(input_fd, count) == -1) {
+        if (ftruncate(input_fd, run_stdout_len) == -1) {
             csperror("ftruncate");
             goto err;
         }
