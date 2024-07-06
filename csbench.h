@@ -324,7 +324,7 @@ struct bench_params {
     const struct meas *meas;
     // If not -1, use this file as stdin, otherwise /dev/null
     int stdin_fd;
-    // If not -1, pipe stoud to this file
+    // If not -1, pipe stdout to this file
     int stdout_fd;
 };
 

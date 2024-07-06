@@ -1728,62 +1728,33 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
-// Execute benchmarks, possibly in parallel using worker threads.
-// When parallel execution is used, thread pool is created, threads from
-// which select a benchmark to run in random order. We shuffle the
-// benchmarks here in orderd to get asymptotically OK runtime, as incorrect
-// order of tasks in parallel execution can degrade performance (queueing
-// theory).
-//
-// Parallel execution is controlled using 'g_threads' global
-// variable.
-//
-// This function also optionally spawns the thread printing interactive
-// progress bar. Logic conserning progress bar may be cumbersome:
-// 1. A new thread is spawned, which wakes ones in a while and checks atomic
-//  variables storing states of benchmarks
-// 2. Each of benchmarks updates its state in corresponding atomic varibales
-// 3. Output of benchmarks when progress bar is used is captured (anchored),
-// see
-//  'error' and 'csperror' functions. This is done in order to not corrupt
-//  the output in case such message is printed.
-static bool run_benches(const struct bench_params *params,
-                        struct bench_analysis *als, size_t count) {
-    bool success = false;
-    struct progress_bar progress_bar = {0};
-    pthread_t progress_bar_thread;
+static bool run_benches_single_threaded(struct progress_bar *progress_bar,
+                                        const struct bench_params *params,
+                                        struct bench_analysis *als,
+                                        size_t count) {
     if (g_progress_bar) {
-        init_progress_bar(als, count, &progress_bar);
-        if (pthread_create(&progress_bar_thread, NULL,
-                           progress_bar_thread_worker, &progress_bar) != 0) {
-            error("failed to spawn thread");
-            free_progress_bar(&progress_bar);
+        sb_resize(g_output_anchors, 1);
+        g_output_anchors[0].id = pthread_self();
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (!run_bench(params + i, als + i)) {
+            // HACK: In case of benchmark abort we have to explicitly tell
+            // progress bar that all benchmarks have finished, otherwise
+            // it will spin continiously waiting for it. This is not needed in
+            // multithreaded case because threads do this before exiting.
+            if (g_progress_bar)
+                for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
+                    progress_bar->benches[bench_idx].finished = true;
             return false;
         }
     }
+    return true;
+}
 
-    // Consider the cases where there is either no point in execution
-    // benchmarks in parallel, or settings explicitly forbid this.
-    if (g_threads <= 1 || count == 1) {
-        if (g_progress_bar) {
-            sb_resize(g_output_anchors, 1);
-            g_output_anchors[0].id = pthread_self();
-        }
-        for (size_t i = 0; i < count; ++i) {
-            if (!run_bench(params + i, als + i)) {
-                // In case of benchmark abort we have to explicitly tell
-                // progress bar that all benchmarks have finished, otherwise
-                // it will spin continiously waiting for it
-                if (g_progress_bar)
-                    for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
-                        progress_bar.benches[bench_idx].finished = true;
-                goto free_progress_bar;
-            }
-        }
-        success = true;
-        goto free_progress_bar;
-    }
-
+static bool run_benches_multi_threaded(const struct bench_params *params,
+                                       struct bench_analysis *als,
+                                       size_t count) {
+    bool success = false;
     size_t thread_count = g_threads;
     if (count < thread_count)
         thread_count = count;
@@ -1819,7 +1790,7 @@ static bool run_benches(const struct bench_params *params,
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_data[j].id, NULL);
             error("failed to spawn thread");
-            goto err;
+            goto out;
         }
         thread_data[i].id = *id;
     }
@@ -1830,14 +1801,63 @@ static bool run_benches(const struct bench_params *params,
         if (thread_retval == (void *)-1)
             success = false;
     }
-err:
+out:
     free(thread_data);
     free(task_indexes);
-free_progress_bar:
+    return success;
+}
+
+// Execute benchmarks, possibly in parallel using worker threads.
+// When parallel execution is used, thread pool is created, threads from
+// which select a benchmark to run in random order. We shuffle the
+// benchmarks here in orderd to get asymptotically OK runtime, as incorrect
+// order of tasks in parallel execution can degrade performance (queueing
+// theory).
+//
+// Parallel execution is controlled using 'g_threads' global
+// variable.
+//
+// This function also optionally spawns the thread printing interactive
+// progress bar. Logic conserning progress bar may be cumbersome:
+// 1. A new thread is spawned, which wakes ones in a while and checks atomic
+//  variables storing states of benchmarks
+// 2. Each of benchmarks updates its state in corresponding atomic varibales
+// 3. Output of benchmarks when progress bar is used is captured (anchored),
+// see
+//  'error' and 'csperror' functions. This is done in order to not corrupt
+//  the output in case such message is printed.
+static bool run_benches(const struct bench_params *params,
+                        struct bench_analysis *als, size_t count) {
+    bool success = false;
+    struct progress_bar progress_bar = {0};
+    pthread_t progress_bar_thread;
+    if (g_progress_bar) {
+        init_progress_bar(als, count, &progress_bar);
+        if (pthread_create(&progress_bar_thread, NULL,
+                           progress_bar_thread_worker, &progress_bar) != 0) {
+            error("failed to spawn thread");
+            free_progress_bar(&progress_bar);
+            return false;
+        }
+    }
+
+    if (g_threads <= 1 || count == 1) {
+        // Consider the cases where there is either no point in execution
+        // benchmarks in parallel, or settings explicitly forbid this.
+        if (!run_benches_single_threaded(&progress_bar, params, als, count))
+            goto out;
+    } else {
+        if (!run_benches_multi_threaded(params, als, count))
+            goto out;
+    }
+
+    success = true;
+out:
     if (g_progress_bar) {
         pthread_join(progress_bar_thread, NULL);
         free_progress_bar(&progress_bar);
     }
+    // Clean up anchors after execution
     struct output_anchor *anchors = g_output_anchors;
     g_output_anchors = NULL;
     sb_free(anchors);
