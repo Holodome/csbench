@@ -107,17 +107,112 @@ struct progress_bar {
     struct progress_bar_state *states;
 };
 
-
-// Worker thread in parallel for group. It iterates 'arr' from 'low' to 'high'
-// noninclusive, calling 'fn' for each memory block.
-struct bench_runner_thread_data {
-    pthread_t id;
-    struct bench_analysis *analyses;
-    const struct bench_params *params;
-    const size_t *indexes;
-    volatile size_t *cursor;
-    size_t max;
+struct run_task {
+    struct task_queue *q;
+    const struct bench_params *param;
+    struct bench_analysis *al;
 };
+
+struct task_queue {
+    size_t task_count;
+    struct run_task *tasks;
+
+    pthread_mutex_t mutex;
+    bool *finished;
+    bool *taken;
+    size_t remaining_task_count;
+};
+
+#define lock_mutex(_mutex)                                                     \
+    do {                                                                       \
+        /* Mutex would not fail in normal circumstances, we can just use       \
+         * assert */                                                           \
+        int ret = pthread_mutex_lock(&q->mutex);                               \
+        (void)ret;                                                             \
+        assert(ret == 0);                                                      \
+    } while (0)
+
+#define unlock_mutex(_mutex)                                                   \
+    do {                                                                       \
+        /* Mutex would not fail in normal circumstances, we can just use       \
+         * assert */                                                           \
+        int ret = pthread_mutex_unlock(&q->mutex);                             \
+        (void)ret;                                                             \
+        assert(ret == 0);                                                      \
+    } while (0)
+
+static bool init_task_queue(const struct bench_params *params,
+                            struct bench_analysis *als, size_t count,
+                            struct task_queue *q) {
+    int ret = pthread_mutex_init(&q->mutex, NULL);
+    if (ret != 0) {
+        errno = ret;
+        csperror("pthread_mutex_init");
+        return false;
+    }
+
+    q->task_count = q->remaining_task_count = count;
+    q->tasks = calloc(count, sizeof(*q->tasks));
+    q->finished = calloc(count, sizeof(*q->finished));
+    q->taken = calloc(count, sizeof(*q->taken));
+    for (size_t i = 0; i < count; ++i) {
+        q->tasks[i].q = q;
+        q->tasks[i].param = params + i;
+        q->tasks[i].al = als + i;
+    }
+    return true;
+}
+
+static void free_task_queue(struct task_queue *q) {
+    free(q->tasks);
+    free(q->finished);
+    free(q->taken);
+    pthread_mutex_destroy(&q->mutex);
+}
+
+#if 0
+static void run_task_yield(struct run_task *task) {
+    struct task_queue *q = task->q;
+    size_t task_idx = task - q->tasks;
+    lock_mutex(&q->mutex);
+    assert(q->taken[task_idx] && !q->finished[task_idx]);
+    q->taken[task_idx] = false;
+    unlock_mutex(&q->mutex);
+}
+#endif
+
+static void run_task_finish(struct run_task *task) {
+    struct task_queue *q = task->q;
+    size_t task_idx = task - q->tasks;
+    lock_mutex(&q->mutex);
+    assert(q->taken[task_idx] && !q->finished[task_idx]);
+    q->taken[task_idx] = false;
+    q->finished[task_idx] = true;
+    --q->remaining_task_count;
+    unlock_mutex(&q->mutex);
+}
+
+static struct run_task *get_run_task(struct task_queue *q) {
+    struct run_task *task = NULL;
+    lock_mutex(&q->mutex);
+
+    if (q->remaining_task_count != 0) {
+        for (size_t i = 0; i < q->task_count && !task; ++i) {
+            if (!q->finished[i] && !q->taken[i])
+                task = q->tasks + i;
+        }
+        // If vacant task is not found means that all tasks are already taken by
+        // some other worker. Even if these tasks to suspend, threads that are
+        // already busy them can handle it, so this thread can exit.
+        if (task != NULL) {
+            q->taken[task - q->tasks] = true;
+            assert(!q->finished[task - q->tasks]);
+        }
+    }
+
+    unlock_mutex(&q->mutex);
+    return task;
+}
 
 static void apply_input_policy(int stdin_fd) {
     if (stdin_fd == -1) {
@@ -666,7 +761,8 @@ err:
     return success;
 }
 
-static bool run_bench(const struct bench_params *params, struct bench_analysis *al) {
+static bool run_bench(const struct bench_params *params,
+                      struct bench_analysis *al) {
     if (!warmup(params))
         return false;
     if (!run_benchmark(params, al->bench))
@@ -678,15 +774,17 @@ static bool run_bench(const struct bench_params *params, struct bench_analysis *
 }
 
 static void *bench_runner_worker(void *raw) {
-    struct bench_runner_thread_data *data = raw;
+    struct task_queue *q = raw;
     g_rng_state = time(NULL) * 2 + 1;
     for (;;) {
-        size_t task_idx = atomic_fetch_inc(data->cursor);
-        if (task_idx >= data->max)
+        struct run_task *task = get_run_task(q);
+        if (task == NULL)
             break;
 
-        size_t bench_idx = data->indexes[task_idx];
-        if (!run_bench(data->params + bench_idx, data->analyses + bench_idx))
+        bool success = run_bench(task->param, task->al);
+        run_task_finish(task);
+
+        if (!success)
             return (void *)-1;
     }
     return NULL;
@@ -817,85 +915,61 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
-static bool run_benches_single_threaded(struct progress_bar *progress_bar,
-                                        const struct bench_params *params,
-                                        struct bench_analysis *als,
-                                        size_t count) {
+static bool run_benches_single_threaded(struct task_queue *q) {
     if (g_progress_bar) {
         sb_resize(g_output_anchors, 1);
         g_output_anchors[0].id = pthread_self();
     }
-    for (size_t i = 0; i < count; ++i) {
-        if (!run_bench(params + i, als + i)) {
-            // HACK: In case of benchmark abort we have to explicitly tell
-            // progress bar that all benchmarks have finished, otherwise
-            // it will spin continiously waiting for it. This is not needed in
-            // multithreaded case because threads do this before exiting.
-            if (g_progress_bar)
-                for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
-                    progress_bar->benches[bench_idx].finished = true;
+    for (;;) {
+        struct run_task *task = get_run_task(q);
+        if (task == NULL)
+            break;
+
+        if (!run_bench(task->param, task->al))
             return false;
-        }
+
+        run_task_finish(task);
     }
     return true;
 }
 
-static bool run_benches_multi_threaded(const struct bench_params *params,
-                                       struct bench_analysis *als,
-                                       size_t count) {
+static bool run_benches_multi_threaded(struct task_queue *q) {
     bool success = false;
     size_t thread_count = g_threads;
-    if (count < thread_count)
-        thread_count = count;
+    if (q->task_count < thread_count)
+        thread_count = q->task_count;
     assert(thread_count > 1);
-    size_t *task_indexes = calloc(count, sizeof(*task_indexes));
-    for (size_t i = 0; i < count; ++i)
-        task_indexes[i] = i;
-    shuffle(task_indexes, count);
 
-    // This variable is shared across threads and acts as a counter used to
-    // select the task from 'task_indexes' array.
-    volatile size_t cursor = 0;
-    struct bench_runner_thread_data *thread_data =
-        calloc(thread_count, sizeof(*thread_data));
-    for (size_t i = 0; i < thread_count; ++i) {
-        thread_data[i].params = params;
-        thread_data[i].analyses = als;
-        thread_data[i].indexes = task_indexes;
-        thread_data[i].cursor = &cursor;
-        thread_data[i].max = count;
-    }
     if (g_progress_bar)
         sb_resize(g_output_anchors, thread_count);
 
+    pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
     // Create worker threads that do running.
     for (size_t i = 0; i < thread_count; ++i) {
         // HACK: save thread id to output anchors first. If we do not do it
         // here we would need additional synchronization
-        pthread_t *id = &thread_data[i].id;
+        pthread_t *id = thread_ids + i;
         if (g_progress_bar)
             id = &g_output_anchors[i].id;
-        if (pthread_create(id, NULL, bench_runner_worker, thread_data + i) !=
-            0) {
+        if (pthread_create(id, NULL, bench_runner_worker, q) != 0) {
             for (size_t j = 0; j < i; ++j)
-                pthread_join(thread_data[j].id, NULL);
+                pthread_join(thread_ids[j], NULL);
             error("failed to spawn thread");
             goto out;
         }
-        thread_data[i].id = *id;
+        thread_ids[i] = *id;
     }
 
     success = true;
     for (size_t i = 0; i < thread_count; ++i) {
         void *thread_retval;
-        pthread_join(thread_data[i].id, &thread_retval);
+        pthread_join(thread_ids[i], &thread_retval);
         if (thread_retval == (void *)-1)
             success = false;
     }
 
 out:
-    free(thread_data);
-    free(task_indexes);
+    free(thread_ids);
     return success;
 }
 
@@ -932,17 +1006,30 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         }
     }
 
+    struct task_queue q;
+    if (!init_task_queue(params, als, count, &q))
+        goto out;
+
     if (g_threads <= 1 || count == 1) {
         // Consider the cases where there is either no point in execution
         // benchmarks in parallel, or settings explicitly forbid this.
-        if (!run_benches_single_threaded(&progress_bar, params, als, count))
-            goto out;
+        if (run_benches_single_threaded(&q))
+            success = true;
     } else {
-        if (!run_benches_multi_threaded(params, als, count))
-            goto out;
+        if (run_benches_multi_threaded(&q))
+            success = true;
     }
 
-    success = true;
+    // FIXME: Cleanup this
+    // HACK: In case of benchmark abort we have to explicitly tell
+    // progress bar that all benchmarks have finished, otherwise
+    // it will spin continiously waiting for it. This is not needed in
+    // multithreaded case because threads do this before exiting.
+    if (g_progress_bar)
+        for (size_t bench_idx = 0; bench_idx < count; ++bench_idx)
+            progress_bar.benches[bench_idx].finished = true;
+
+    free_task_queue(&q);
 out:
     if (g_progress_bar) {
         pthread_join(progress_bar_thread, NULL);
