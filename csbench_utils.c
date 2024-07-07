@@ -61,6 +61,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
@@ -674,4 +675,37 @@ int tmpfile_fd(void) {
     }
     unlink(path);
     return fd;
+}
+
+bool spawn_threads(void *(*worker_fn)(void *), void *param,
+                   size_t thread_count) {
+    bool success = false;
+    pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
+    // Create worker threads that do running.
+    for (size_t i = 0; i < thread_count; ++i) {
+        // HACK: save thread id to output anchors first. If we do not do it
+        // here we would need additional synchronization
+        pthread_t *id = thread_ids + i;
+        if (g_progress_bar)
+            id = &g_output_anchors[i].id;
+        if (pthread_create(id, NULL, worker_fn, param) != 0) {
+            for (size_t j = 0; j < i; ++j)
+                pthread_join(thread_ids[j], NULL);
+            error("failed to spawn thread");
+            goto out;
+        }
+        thread_ids[i] = *id;
+    }
+
+    success = true;
+    for (size_t i = 0; i < thread_count; ++i) {
+        void *thread_retval;
+        pthread_join(thread_ids[i], &thread_retval);
+        if (thread_retval == (void *)-1)
+            success = false;
+    }
+
+out:
+    free(thread_ids);
+    return success;
 }

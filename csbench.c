@@ -1627,7 +1627,8 @@ static bool run_app_bench(const struct cli_settings *cli) {
     }
     if (!run_benches(info.params, al.bench_analyses, bench_count))
         goto err_free_analysis;
-    analyze_benches(&info, &al);
+    if (!analyze_benches(&info, &al))
+        goto err_free_analysis;
     if (!make_report(&al))
         goto err_free_analysis;
     success = true;
@@ -1876,7 +1877,8 @@ static bool run_app_load(const struct cli_settings *settings) {
         analyze_benchmark(analysis, meas_count);
     }
     struct run_info info = {0};
-    analyze_benches(&info, &al);
+    if (!analyze_benches(&info, &al))
+        goto err;
     if (!make_report(&al))
         goto err;
     result = true;

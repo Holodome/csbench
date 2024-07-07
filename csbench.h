@@ -452,7 +452,7 @@ extern struct output_anchor *volatile g_output_anchors;
 void init_analysis(const struct meas *meas_list, size_t bench_count,
                    const struct bench_var *var, struct analysis *al);
 void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
-void analyze_benches(const struct run_info *info, struct analysis *al);
+bool analyze_benches(const struct run_info *info, struct analysis *al);
 void free_analysis(struct analysis *al);
 
 //
@@ -546,6 +546,9 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);
 __attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
                                                       const char *fmt, ...);
+
+bool spawn_threads(void *(*worker_fn)(void *), void *param,
+                   size_t thread_count);
 
 static inline uint32_t pcg32_fast(uint64_t *state) {
     uint64_t x = *state;
