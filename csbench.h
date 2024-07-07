@@ -110,7 +110,7 @@ enum units_kind {
 struct units {
     enum units_kind kind;
     // If kind is MU_CUSTOM, contains units name
-    char str[32];
+    const char *str;
 };
 
 enum meas_kind {
@@ -132,7 +132,7 @@ enum meas_kind {
 
 struct meas {
     // Measurement name that will be used in reports
-    char name[64];
+    const char *name;
     // If measurement is MEAS_CUSTOM, cotains command string to be exucted in
     // shell to do custom measurement.
     const char *cmd;
@@ -144,13 +144,13 @@ struct meas {
 
 // Variable which can be substitued in command string.
 struct bench_var {
-    char name[64];
-    char **values;
+    const char *name;
+    const char **values;
     size_t value_count;
 };
 
 struct bench_var_group {
-    char name[1024];
+    const char *name;
     size_t *cmd_idxs; // [var->value_count]
 };
 
@@ -220,7 +220,7 @@ struct bench {
 struct bench_analysis {
     struct bench *bench;
     struct distr *meas; // [meas_count]
-    char name[1024];
+    const char *name;
 };
 
 enum big_o {
@@ -336,11 +336,11 @@ struct bench_stop_policy {
 // used to run it and choose what information to collect.
 struct bench_params {
     // Command string that is executed
-    char *str;
+    const char *str;
     // 'exec' argument to execve
-    char *exec;
+    const char *exec;
     // 'argv' argument to execve
-    char **argv;
+    const char **argv;
     enum output_kind output;
     // List of measurements to record
     size_t meas_count;
@@ -557,5 +557,26 @@ static inline uint32_t pcg32_fast(uint64_t *state) {
     x ^= x >> 22;
     return (uint32_t)(x >> (22 + count));
 }
+
+// This is global interface for allocating and deallocating strings.
+// This program is not string-heavy, most of the times they arise during
+// configuration parsing and benchmark initialization.
+//
+// But **** this stupid ****, memory management is too hard. Just allocate all
+// strings in global arena and then free at once. This way all strings are treated 
+// as read-only, so we can safely assign them without copying.
+//
+// XXX: Marked as const to force the behaviour we want. User should not modify
+// strings directly and instead work using this interface.
+void cs_free_strings(void);
+const char *csstrdup(const char *str);
+const char *csmkstr(const char *str, size_t len);
+const char *csstripend(const char *str);
+__attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
+#if 0
+size_t len = strlen(new_str);
+while (len && new_str[len - 1] == '\n')
+    new_str[len-- - 1] = '\0';
+#endif
 
 #endif // CSBENCH_H

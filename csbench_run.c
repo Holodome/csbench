@@ -307,7 +307,7 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
             int sig;
             sigwait(&set, &sig);
         }
-        if (execvp(params->exec, params->argv) == -1)
+        if (execvp(params->exec, (char **)params->argv) == -1)
             _exit(-1);
 
         __builtin_unreachable();

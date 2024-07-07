@@ -72,7 +72,7 @@
 // when variable is not used, otherwise it refers to benchmark group.
 struct rename_entry {
     size_t n;
-    char name[256];
+    const char *name;
 };
 
 // This structure contains all information
@@ -97,7 +97,7 @@ enum app_mode {
 };
 
 struct command_info {
-    char cmd[4096];
+    const char *cmd;
     struct input_policy input;
     enum output_kind output;
     size_t grp_idx;
@@ -368,10 +368,9 @@ static void print_version_and_exit(void) {
     exit(EXIT_SUCCESS);
 }
 
-static bool parse_range_scan_settings(const char *settings, char **namep,
+static bool parse_range_scan_settings(const char *settings, const char **namep,
                                       double *lowp, double *highp,
                                       double *stepp) {
-    char *name = NULL;
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
     char *i_end = strchr(cursor, '/');
@@ -379,26 +378,24 @@ static bool parse_range_scan_settings(const char *settings, char **namep,
         return false;
 
     size_t name_len = i_end - cursor;
-    name = malloc(name_len + 1);
-    memcpy(name, cursor, name_len);
-    name[name_len] = '\0';
+    const char *name = csmkstr(cursor, name_len);
 
     cursor = i_end + 1;
     char *n_end = strchr(cursor, '/');
     if (n_end == NULL)
-        goto err_free_name;
+        return false;
 
     char *low_str_end = NULL;
     double low = strtod(cursor, &low_str_end);
     if (low_str_end != n_end)
-        goto err_free_name;
+        return false;
 
     cursor = n_end + 1;
     char *m_end = strchr(cursor, '/');
     char *high_str_end = NULL;
     double high = strtod(cursor, &high_str_end);
     if (m_end == NULL ? 0 : high_str_end != m_end)
-        goto err_free_name;
+        return false;
 
     double step = 1.0;
     if (high_str_end != settings_end) {
@@ -406,7 +403,7 @@ static bool parse_range_scan_settings(const char *settings, char **namep,
         char *step_str_end = NULL;
         step = strtod(cursor, &step_str_end);
         if (step_str_end != settings_end)
-            goto err_free_name;
+            return false;
     }
 
     *namep = name;
@@ -414,27 +411,21 @@ static bool parse_range_scan_settings(const char *settings, char **namep,
     *highp = high;
     *stepp = step;
     return true;
-err_free_name:
-    free(name);
-    return false;
 }
 
-static char **range_to_var_value_list(double low, double high, double step) {
+static const char **range_to_var_value_list(double low, double high,
+                                            double step) {
     assert(high > low);
-    char **result = NULL;
+    const char **result = NULL;
     for (double cursor = low; cursor <= high + 0.000001; cursor += step) {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "%g", cursor);
-        sb_push(result, strdup(buf));
+        const char *str = csfmt("%g", cursor);
+        sb_push(result, str);
     }
     return result;
 }
 
-static bool parse_comma_separated_settings(const char *str, char **namep,
-                                           char **scan_listp) {
-    char *name = NULL;
-    char *scan_list = NULL;
-
+static bool parse_comma_separated_settings(const char *str, const char **namep,
+                                           const char **scan_listp) {
     const char *cursor = str;
     const char *str_end = str + strlen(str);
     char *i_end = strchr(cursor, '/');
@@ -442,42 +433,32 @@ static bool parse_comma_separated_settings(const char *str, char **namep,
         return false;
 
     size_t name_len = i_end - cursor;
-    name = malloc(name_len + 1);
-    memcpy(name, cursor, name_len);
-    name[name_len] = '\0';
+    const char *name = csmkstr(cursor, name_len);
 
     cursor = i_end + 1;
     if (cursor == str_end)
-        goto err_free_name;
+        return false;
 
-    scan_list = strdup(cursor);
+    const char *scan_list = cursor;
 
     *namep = name;
     *scan_listp = scan_list;
     return true;
-err_free_name:
-    free(name);
-    return false;
 }
 
-static char **parse_comma_separated_list(const char *str) {
-    char **value_list = NULL;
+static const char **parse_comma_separated_list(const char *str) {
+    const char **value_list = NULL;
     const char *cursor = str;
     const char *end = str + strlen(str);
     while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
-            char *new_str = strdup(cursor);
-            size_t len = strlen(new_str);
-            while (len && new_str[len - 1] == '\n')
-                new_str[len-- - 1] = '\0';
+            const char *new_str = csstripend(cursor);
             sb_push(value_list, new_str);
             break;
         }
         size_t value_len = next - cursor;
-        char *value = malloc(value_len + 1);
-        memcpy(value, cursor, value_len);
-        value[value_len] = '\0';
+        const char *value = csmkstr(cursor, value_len);
         sb_push(value_list, value);
         cursor = next + 1;
     }
@@ -505,12 +486,12 @@ static void parse_units_str(const char *str, struct units *units) {
         units->kind = MU_NONE;
     } else {
         units->kind = MU_CUSTOM;
-        csstrlcpy(units->str, str, sizeof(units->str));
+        units->str = str;
     }
 }
 
 static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
-    char **list = parse_comma_separated_list(opts);
+    const char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
@@ -542,8 +523,6 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
         }
         sb_push(*meas_list, kind);
     }
-    for (size_t i = 0; i < sb_len(list); ++i)
-        free(list[i]);
     sb_free(list);
 }
 
@@ -764,7 +743,7 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            csstrlcpy(meas.name, str, sizeof(meas.name));
+            meas.name = str;
             meas.cmd = "cat";
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
@@ -777,7 +756,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            csstrlcpy(meas.name, name, sizeof(meas.name));
+            meas.name = name;
             meas.cmd = cmd;
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
@@ -791,7 +770,7 @@ static void parse_cli_args(int argc, char **argv,
             const char *cmd = argv[cursor++];
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
-            csstrlcpy(meas.name, name, sizeof(meas.name));
+            meas.name = name;
             meas.cmd = cmd;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
@@ -815,19 +794,18 @@ static void parse_cli_args(int argc, char **argv,
             }
             struct rename_entry *entry = sb_new(settings->rename_list);
             entry->n = value - 1;
-            csstrlcpy(entry->name, name, sizeof(entry->name));
+            entry->name = name;
         } else if (opt_arg(argv, &cursor, "--rename-all", &str)) {
-            char **list = parse_comma_separated_list(str);
+            const char **list = parse_comma_separated_list(str);
             for (size_t i = 0; i < sb_len(list); ++i) {
                 struct rename_entry *entry = sb_new(settings->rename_list);
                 entry->n = i;
-                csstrlcpy(entry->name, list[i], sizeof(entry->name));
-                free(list[i]);
+                entry->name = list[i];
             }
             sb_free(list);
         } else if (opt_arg(argv, &cursor, "--scan", &str)) {
             double low, high, step;
-            char *name;
+            const char *name;
             if (!parse_range_scan_settings(str, &name, &low, &high, &step)) {
                 error("invalid --scan argument");
                 exit(EXIT_FAILURE);
@@ -836,17 +814,16 @@ static void parse_cli_args(int argc, char **argv,
                 error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
-            char **value_list = range_to_var_value_list(low, high, step);
+            const char **value_list = range_to_var_value_list(low, high, step);
             struct bench_var *var = calloc(1, sizeof(*var));
-            csstrlcpy(var->name, name, sizeof(var->name));
-            free(name);
+            var->name = name;
             var->values = value_list;
             var->value_count = sb_len(value_list);
             if (settings->var)
                 free(settings->var);
             settings->var = var;
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
-            char *name, *scan_list;
+            const char *name, *scan_list;
             if (!parse_comma_separated_settings(str, &name, &scan_list)) {
                 error("invalid --scanl argument");
                 exit(EXIT_FAILURE);
@@ -855,11 +832,9 @@ static void parse_cli_args(int argc, char **argv,
                 error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
-            char **value_list = parse_comma_separated_list(scan_list);
-            free(scan_list);
+            const char **value_list = parse_comma_separated_list(scan_list);
             struct bench_var *var = calloc(1, sizeof(*var));
-            csstrlcpy(var->name, name, sizeof(var->name));
-            free(name);
+            var->name = name;
             var->values = value_list;
             var->value_count = sb_len(value_list);
             if (settings->var)
@@ -964,8 +939,6 @@ static void free_cli_settings(struct cli_settings *settings) {
     if (settings->var) {
         struct bench_var *var = settings->var;
         assert(sb_len(var->values) == var->value_count);
-        for (size_t j = 0; j < sb_len(var->values); ++j)
-            free(var->values[j]);
         sb_free(var->values);
         free(settings->var);
     }
@@ -1188,29 +1161,29 @@ out:
     return words;
 }
 
-static bool extract_exec_and_argv(const char *cmd_str, char **exec,
-                                  char ***argv) {
+static bool extract_exec_and_argv(const char *cmd_str, const char **exec,
+                                  const char ***argv) {
     char **words = split_shell_words(cmd_str);
     if (words == NULL) {
         error("invalid command syntax");
         return false;
     }
-    *exec = strdup(words[0]);
+    *exec = csstrdup(words[0]);
     for (size_t i = 0; i < sb_len(words); ++i) {
-        sb_push(*argv, strdup(words[i]));
+        sb_push(*argv, csstrdup(words[i]));
         sb_free(words[i]);
     }
     sb_free(words);
     return true;
 }
 
-static bool init_cmd_exec(const char *shell, const char *cmd_str, char **exec,
-                          char ***argv) {
+static bool init_cmd_exec(const char *shell, const char *cmd_str,
+                          const char **exec, const char ***argv) {
     if (shell != NULL) {
         if (!extract_exec_and_argv(shell, exec, argv))
             return false;
-        sb_push(*argv, strdup("-c"));
-        sb_push(*argv, strdup(cmd_str));
+        sb_push(*argv, "-c");
+        sb_push(*argv, (char *)cmd_str);
         sb_push(*argv, NULL);
     } else {
         if (!extract_exec_and_argv(cmd_str, exec, argv))
@@ -1227,11 +1200,7 @@ static void free_run_info(struct run_info *run_info) {
             close(params->stdout_fd);
         if (params->stdin_fd != -1)
             close(params->stdin_fd);
-        free(params->exec);
-        for (char **word = params->argv; *word; ++word)
-            free(*word);
         sb_free(params->argv);
-        free(params->str);
     }
     sb_free(run_info->params);
     for (size_t i = 0; i < sb_len(run_info->groups); ++i) {
@@ -1280,7 +1249,8 @@ static bool init_bench_stdin(const struct input_policy *input,
 
 static bool init_bench_params(const struct input_policy *input,
                               enum output_kind output, const struct meas *meas,
-                              char *exec, char **argv, char *cmd_str,
+                              const char *exec, const char **argv,
+                              const char *cmd_str,
                               struct bench_params *params) {
     params->output = output;
     params->meas = meas;
@@ -1304,7 +1274,7 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
                                  size_t grp_idx, struct bench_var_group *grp) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == grp_idx) {
-            csstrlcpy(grp->name, rename_list[i].name, sizeof(grp->name));
+            grp->name = rename_list[i].name;
             return true;
         }
     }
@@ -1313,17 +1283,14 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
 
 static bool init_command(const char *shell, const struct command_info *cmd,
                          struct run_info *info, size_t *idx) {
-    char *exec = NULL, **argv = NULL;
+    const char *exec = NULL, **argv = NULL;
     if (!init_cmd_exec(shell, cmd->cmd, &exec, &argv)) {
         error("failed to initialize command '%s'", cmd->cmd);
         return false;
     }
     struct bench_params bench_params = {0};
     if (!init_bench_params(&cmd->input, cmd->output, info->meas, exec, argv,
-                           strdup(cmd->cmd), &bench_params)) {
-        free(exec);
-        for (char **word = argv; *word; ++word)
-            free(*word);
+                           (char *)cmd->cmd, &bench_params)) {
         sb_free(argv);
         return false;
     }
@@ -1344,7 +1311,7 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
         const char *cmd_str = cli->args[i];
         struct command_info info;
         memset(&info, 0, sizeof(info));
-        csstrlcpy(info.cmd, cmd_str, sizeof(info.cmd));
+        info.cmd = cmd_str;
         info.output = cli->output;
         info.input = cli->input;
         info.grp_name = cmd_str;
@@ -1379,7 +1346,7 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
             }
             struct command_info info;
             memcpy(&info, src_info, sizeof(info));
-            csstrlcpy(info.cmd, buf, sizeof(info.cmd));
+            info.cmd = csstrdup(buf);
             info.grp_idx = src_idx;
             info.grp_name = src_info->grp_name;
             sb_push(multiplexed, info);
@@ -1410,14 +1377,12 @@ static bool init_benches(const struct cli_settings *cli,
     const struct command_info *cmd_cursor = cmd_infos;
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
-
         struct bench_var_group group;
         memset(&group, 0, sizeof(group));
         if (!attempt_group_rename(cli->rename_list, sb_len(info->groups),
                                   &group))
-            strlcpy(group.name, cmd_cursor->grp_name, sizeof(group.name));
+            group.name = cmd_cursor->grp_name;
         group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
-
         for (size_t val_idx = 0; val_idx < var->value_count;
              ++val_idx, ++cmd_cursor) {
             assert(cmd_cursor->grp_idx == grp_idx);
@@ -1427,10 +1392,8 @@ static bool init_benches(const struct cli_settings *cli,
                 return false;
             }
         }
-
         sb_push(info->groups, group);
     }
-
     return true;
 }
 
@@ -1566,7 +1529,7 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
                            struct bench_analysis *al) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == idx) {
-            csstrlcpy(al->name, rename_list[i].name, sizeof(al->name));
+            al->name = rename_list[i].name;
             return true;
         }
     }
@@ -1590,9 +1553,8 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
                  ++rename_idx) {
                 if (rename_list[rename_idx].n != grp_idx)
                     continue;
-                snprintf(al->name, sizeof(al->name), "%s %s=%s",
-                         rename_list[rename_idx].name, var->name,
-                         var->values[val_idx]);
+                al->name = csfmt("%s %s=%s", rename_list[rename_idx].name,
+                                 var->name, var->values[val_idx]);
                 return true;
             }
         }
@@ -1623,7 +1585,7 @@ static bool run_app_bench(const struct cli_settings *cli) {
                                               info.groups, cli->var, analysis);
         }
         if (!renamed)
-            strlcpy(analysis->name, params->str, sizeof(analysis->name));
+            analysis->name = params->str;
     }
     if (!run_benches(info.params, al.bench_analyses, bench_count))
         goto err_free_analysis;
@@ -1642,7 +1604,7 @@ err_free_run_info:
     return success;
 }
 
-static bool load_meas_names(const char *file, char ***meas_names) {
+static bool load_meas_names(const char *file, const char ***meas_names) {
     bool success = false;
     FILE *f = fopen(file, "r");
     if (f == NULL)
@@ -1725,20 +1687,18 @@ out:
     return success;
 }
 
-static char **find_loada_filenames(void) {
+static const char **find_loada_filenames(void) {
     DIR *dir = opendir(g_out_dir);
     if (dir == NULL) {
         csperror("opendir");
         return NULL;
     }
-    char **list = NULL;
+    const char **list = NULL;
     for (;;) {
         errno = 0;
         struct dirent *dirent = readdir(dir);
         if (dirent == NULL && errno != 0) {
             csperror("readdir");
-            for (size_t i = 0; i < sb_len(list); ++i)
-                free(list[i]);
             sb_free(list);
             list = NULL;
             break;
@@ -1758,11 +1718,8 @@ static char **find_loada_filenames(void) {
                 ++name;
             } while (isdigit(*name));
             if (strcmp(name, ".csv") == 0) {
-                char buffer[4096];
-                snprintf(buffer, sizeof(buffer), "%s/%s", g_out_dir,
-                         dirent->d_name);
                 sb_ensure(list, n + 1);
-                list[n] = strdup(buffer);
+                list[n] = csfmt("%s/%s", g_out_dir, dirent->d_name);
             }
         }
     }
@@ -1773,7 +1730,7 @@ static char **find_loada_filenames(void) {
 static bool load_meas_from_file(const struct cli_settings *settings,
                                 const char *file, struct meas **meas_list) {
     bool result = false;
-    char **file_meas_names = NULL;
+    const char **file_meas_names = NULL;
     if (!load_meas_names(file, &file_meas_names)) {
         error("failed to load measurement names from file '%s'", file);
         goto out;
@@ -1792,7 +1749,7 @@ static bool load_meas_from_file(const struct cli_settings *settings,
     }
 
     for (size_t meas_idx = 0; meas_idx < sb_len(file_meas_names); ++meas_idx) {
-        char *file_meas = file_meas_names[meas_idx];
+        const char *file_meas = file_meas_names[meas_idx];
         // First check if measurement with same name exists
         bool is_found = false;
         for (size_t test_idx = 0; test_idx < sb_len(*meas_list) && !is_found;
@@ -1817,7 +1774,7 @@ static bool load_meas_from_file(const struct cli_settings *settings,
         }
 
         struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
-        csstrlcpy(meas.name, file_meas, sizeof(meas.name));
+        meas.name = file_meas;
         // Try to guess and use seconds as measurement unit for first
         // measurement
         if (meas_idx == 0)
@@ -1826,8 +1783,6 @@ static bool load_meas_from_file(const struct cli_settings *settings,
     }
     result = true;
 out:
-    for (size_t i = 0; i < sb_len(file_meas_names); ++i)
-        free(file_meas_names[i]);
     sb_free(file_meas_names);
     return result;
 }
@@ -1871,12 +1826,19 @@ static bool run_app_load(const struct cli_settings *settings) {
         struct bench_analysis *analysis = al.bench_analyses + i;
         const char *file = file_list[i];
         if (!attempt_rename(settings->rename_list, i, analysis))
-            csstrlcpy(analysis->name, file, sizeof(analysis->name));
+            analysis->name = file;
         if (!load_bench_result(file, bench, meas_count))
             goto err;
         analyze_bench(analysis, meas_count);
     }
     struct run_info info = {0};
+    // XXX: Allocate array just so we don't crash. This is more of a hack,
+    // since analysis code tries to run custom measurements.
+    info.params = calloc(al.bench_count, sizeof(*info.params));
+    for (size_t i = 0; i < al.bench_count; ++i) {
+        info.params[i].stdin_fd = -1;
+        info.params[i].stdout_fd = -1;
+    }
     if (!analyze_benches(&info, &al))
         goto err;
     if (!make_report(&al))
@@ -1885,8 +1847,6 @@ static bool run_app_load(const struct cli_settings *settings) {
 err:
     free_analysis(&al);
     if (file_list && file_list != settings->args) {
-        for (size_t i = 0; i < sb_len(file_list); ++i)
-            free((char *)file_list[i]);
         sb_free(file_list);
     }
     if (meas_list)
@@ -1949,5 +1909,6 @@ int main(int argc, char **argv) {
 
     deinit_perf();
     free_cli_settings(&cli);
+    cs_free_strings();
     return rc;
 }

@@ -56,16 +56,23 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
 #endif
+
+struct string_ll {
+    char *str;
+    struct string_ll *next;
+};
+
+static struct string_ll *string_ll = NULL;
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -686,7 +693,7 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param,
         // HACK: save thread id to output anchors first. If we do not do it
         // here we would need additional synchronization
         pthread_t *id = thread_ids + i;
-        if (g_progress_bar)
+        if (g_progress_bar && g_output_anchors)
             id = &g_output_anchors[i].id;
         if (pthread_create(id, NULL, worker_fn, param) != 0) {
             for (size_t j = 0; j < i; ++j)
@@ -708,4 +715,44 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param,
 out:
     free(thread_ids);
     return success;
+}
+
+void cs_free_strings(void) {
+    for (struct string_ll *lc = string_ll; lc;) {
+        free(lc->str);
+        struct string_ll *next = lc->next;
+        free(lc);
+        lc = next;
+    }
+}
+
+const char *csmkstr(const char *src, size_t len) {
+    struct string_ll *lc = calloc(1, sizeof(*lc));
+    char *str = malloc(len + 1);
+    memcpy(str, src, len);
+    str[len] = '\0';
+    lc->str = str;
+    lc->next = string_ll;
+    string_ll = lc;
+    return str;
+}
+
+const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
+
+const char *csstripend(const char *src) {
+    size_t len = strlen(src);
+    char *str = (char *)csmkstr(src, len);
+    // XXX: I don't remember why this exists...
+    while (len && str[len - 1] == '\n')
+        str[len-- - 1] = '\0';
+    return str;
+}
+
+const char *csfmt(const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return csstrdup(buf);
 }
