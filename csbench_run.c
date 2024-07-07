@@ -409,6 +409,21 @@ static bool parse_custom_output(int fd, double *valuep) {
 
 static bool do_custom_measurement(const struct meas *custom, int input_fd,
                                   int output_fd, double *valuep) {
+    // XXX: This is optimization to not spawn separate process when custom
+    // command just forwards input. We could create separate entry in 'enum
+    // meas_kind', but this is really not that important case to design against.
+    // Going furhter, we could avoid using file descriptors at all, but this
+    // would require noticeable code changes, and I am too lazy for that.
+    // Most of the time is spent in spawning processes anyway, so we cut it down
+    // significantly either way.
+    if (strcmp(custom->cmd, "cat") == 0) {
+        double value;
+        if (!parse_custom_output(input_fd, &value))
+            return false;
+        *valuep = value;
+        return true;
+    }
+
     if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
         csperror("lseek");
         return false;
