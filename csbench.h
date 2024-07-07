@@ -451,7 +451,7 @@ extern struct output_anchor *volatile g_output_anchors;
 
 void init_analysis(const struct meas *meas_list, size_t bench_count,
                    const struct bench_var *var, struct analysis *al);
-void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count);
+void analyze_bench(struct bench_analysis *analysis, size_t meas_count);
 bool analyze_benches(const struct run_info *info, struct analysis *al);
 void free_analysis(struct analysis *al);
 

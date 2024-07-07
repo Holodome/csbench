@@ -1874,7 +1874,7 @@ static bool run_app_load(const struct cli_settings *settings) {
             csstrlcpy(analysis->name, file, sizeof(analysis->name));
         if (!load_bench_result(file, bench, meas_count))
             goto err;
-        analyze_benchmark(analysis, meas_count);
+        analyze_bench(analysis, meas_count);
     }
     struct run_info info = {0};
     if (!analyze_benches(&info, &al))

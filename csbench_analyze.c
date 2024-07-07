@@ -552,7 +552,7 @@ static void *analyze_bench_worker(void *raw) {
 
         if (!run_custom_measurements(task->param, task->al->bench))
             return (void *)-1;
-        analyze_benchmark(task->al, task->param->meas_count);
+        analyze_bench(task->al, task->param->meas_count);
     }
     return NULL;
 }
@@ -632,7 +632,7 @@ void init_analysis(const struct meas *meas_list, size_t bench_count,
     }
 }
 
-void analyze_benchmark(struct bench_analysis *analysis, size_t meas_count) {
+void analyze_bench(struct bench_analysis *analysis, size_t meas_count) {
     const struct bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count != 0);
