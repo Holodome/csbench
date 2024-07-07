@@ -1109,7 +1109,17 @@ static bool execute_analyze_tasks(const struct bench_params *params,
                                   size_t thread_count) {
     struct analyze_task_queue q;
     init_analyze_task_queue(params, als, count, &q);
-    bool success = spawn_threads(analyze_bench_worker, &q, thread_count);
+    bool success;
+    if (thread_count == 1) {
+        // XXX: Too lazy to create wrapper function for getting result as bool
+        void *result = analyze_bench_worker(&q);
+        if (result == (void *)-1)
+            success = false;
+        else
+            success = true;
+    } else {
+        success = spawn_threads(analyze_bench_worker, &q, thread_count);
+    }
     free_analyze_task_queue(&q);
     return success;
 }
