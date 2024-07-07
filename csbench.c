@@ -709,12 +709,28 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--round-time"),
                                      "round time limit",
                                      &g_round_stop.time_limit)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--warmup-runs"),
+                               "warmup run count", &g_warmup_stop.runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--runs", "-R"),
                                "run count", &g_bench_stop.runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--round-runs"),
+                               "round run count", &g_round_stop.runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-warmup-runs"),
+                               "minimal warmup run count",
+                               &g_warmup_stop.min_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-runs"),
                                "minimal run count", &g_bench_stop.min_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-round-runs"),
+                               "minimal round run count",
+                               &g_round_stop.min_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-warmup-runs"),
+                               "maximum warmup run count",
+                               &g_warmup_stop.max_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-runs"),
                                "maximum run count", &g_bench_stop.max_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-round-runs"),
+                               "maximum round run count",
+                               &g_round_stop.max_runs)) {
         } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"),
                                "resamples count", &g_nresamp)) {
