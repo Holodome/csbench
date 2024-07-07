@@ -391,9 +391,6 @@ struct output_anchor {
 // csbench.c
 //
 
-// These output functions contain some heavy logic connected to threading which
-// is tightly coupled with main execution logic, so they are best kept in main
-// file until we decide to split all multithreading elsewhere.
 #define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
 __attribute__((format(printf, 3, 4))) void
 fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
