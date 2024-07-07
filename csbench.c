@@ -1928,7 +1928,7 @@ static void prepare(void) {
     // --progress-bar=auto
     g_progress_bar = isatty(STDOUT_FILENO) ? true : false;
 
-    g_rng_state = time(NULL) * 2 + 1;
+    init_rng_state();
 }
 
 int main(int argc, char **argv) {

@@ -136,6 +136,19 @@ struct run_task_queue {
     size_t remaining_task_count;
 };
 
+struct analyze_task {
+    struct analyze_task_queue *q;
+    const struct bench_params *param;
+    struct bench_analysis *al;
+};
+
+struct analyze_task_queue {
+    size_t task_count;
+    struct analyze_task *tasks;
+    volatile size_t cursor;
+};
+
+// Used by 'should_i_suspend'
 static __thread struct run_task_queue *g_q;
 
 #define lock_mutex(_mutex)                                                     \
@@ -156,9 +169,9 @@ static __thread struct run_task_queue *g_q;
         assert(ret == 0);                                                      \
     } while (0)
 
-static bool init_task_queue(const struct bench_params *params,
-                            struct bench_analysis *als, size_t count,
-                            size_t worker_count, struct run_task_queue *q) {
+static bool init_run_task_queue(const struct bench_params *params,
+                                struct bench_analysis *als, size_t count,
+                                size_t worker_count, struct run_task_queue *q) {
     assert(worker_count <= count);
     memset(q, 0, sizeof(*q));
     int ret = pthread_mutex_init(&q->mutex, NULL);
@@ -181,7 +194,7 @@ static bool init_task_queue(const struct bench_params *params,
     return true;
 }
 
-static void free_task_queue(struct run_task_queue *q) {
+static void free_run_task_queue(struct run_task_queue *q) {
     free(q->tasks);
     free(q->finished);
     free(q->taken);
@@ -228,6 +241,30 @@ static struct run_task *get_run_task(struct run_task_queue *q) {
 
     unlock_mutex(&q->mutex);
     return task;
+}
+
+static void init_analyze_task_queue(const struct bench_params *params,
+                                    struct bench_analysis *als, size_t count,
+                                    struct analyze_task_queue *q) {
+    memset(q, 0, sizeof(*q));
+    q->task_count = count;
+    q->tasks = calloc(count, sizeof(*q->tasks));
+    for (size_t i = 0; i < count; ++i) {
+        q->tasks[i].q = q;
+        q->tasks[i].param = params + i;
+        q->tasks[i].al = als + i;
+    }
+}
+
+static void free_analyze_task_queue(struct analyze_task_queue *q) {
+    free(q->tasks);
+}
+
+static struct analyze_task *get_analyze_task(struct analyze_task_queue *q) {
+    size_t idx = atomic_fetch_inc(&q->cursor);
+    if (idx >= q->task_count)
+        return NULL;
+    return q->tasks + idx;
 }
 
 // There is no point suspending when all tasks are already assigned to workers,
@@ -836,13 +873,7 @@ static enum bench_run_result run_bench(const struct bench_params *params,
                                        struct bench_analysis *al) {
     if (!warmup(params))
         return BENCH_RUN_ERROR;
-    enum bench_run_result result = run_benchmark(params, al->bench);
-    if (result != BENCH_RUN_FINISHED)
-        return result;
-    if (!run_custom_measurements(params, al->bench))
-        return BENCH_RUN_ERROR;
-    analyze_benchmark(al, params->meas_count);
-    return BENCH_RUN_FINISHED;
+    return run_benchmark(params, al->bench);
 }
 
 static bool run_benches_single_threaded(struct run_task_queue *q) {
@@ -867,11 +898,26 @@ static bool run_benches_single_threaded(struct run_task_queue *q) {
     return true;
 }
 
-static void *bench_runner_worker(void *raw) {
+static void *run_bench_worker(void *raw) {
     struct run_task_queue *q = raw;
-    g_rng_state = time(NULL) * 2 + 1;
+    init_rng_state();
     if (!run_benches_single_threaded(q))
         return (void *)-1;
+    return NULL;
+}
+
+static void *analyze_bench_worker(void *raw) {
+    struct analyze_task_queue *q = raw;
+    init_rng_state();
+    for (;;) {
+        struct analyze_task *task = get_analyze_task(q);
+        if (task == NULL)
+            break;
+
+        if (!run_custom_measurements(task->param, task->al->bench))
+            return (void *)-1;
+        analyze_benchmark(task->al, task->param->meas_count);
+    }
     return NULL;
 }
 
@@ -1002,8 +1048,8 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
-static bool run_benches_multi_threaded(struct run_task_queue *q,
-                                       size_t thread_count) {
+static bool spawn_threads(void *(*worker_fn)(void *), void *param,
+                          size_t thread_count) {
     bool success = false;
     pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
     // Create worker threads that do running.
@@ -1013,7 +1059,7 @@ static bool run_benches_multi_threaded(struct run_task_queue *q,
         pthread_t *id = thread_ids + i;
         if (g_progress_bar)
             id = &g_output_anchors[i].id;
-        if (pthread_create(id, NULL, bench_runner_worker, q) != 0) {
+        if (pthread_create(id, NULL, worker_fn, param) != 0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_ids[j], NULL);
             error("failed to spawn thread");
@@ -1032,6 +1078,39 @@ static bool run_benches_multi_threaded(struct run_task_queue *q,
 
 out:
     free(thread_ids);
+    return success;
+}
+
+static bool run_benches_multi_threaded(struct run_task_queue *q,
+                                       size_t thread_count) {
+    return spawn_threads(run_bench_worker, q, thread_count);
+}
+
+static bool execute_run_tasks(const struct bench_params *params,
+                              struct bench_analysis *als, size_t count,
+                              size_t thread_count) {
+    struct run_task_queue q;
+    if (!init_run_task_queue(params, als, count, thread_count, &q))
+        return false;
+
+    bool success;
+    if (thread_count == 1) {
+        success = run_benches_single_threaded(&q);
+    } else {
+        success = run_benches_multi_threaded(&q, thread_count);
+    }
+
+    free_run_task_queue(&q);
+    return success;
+}
+
+static bool execute_analyze_tasks(const struct bench_params *params,
+                                  struct bench_analysis *als, size_t count,
+                                  size_t thread_count) {
+    struct analyze_task_queue q;
+    init_analyze_task_queue(params, als, count, &q);
+    bool success = spawn_threads(analyze_bench_worker, &q, thread_count);
+    free_analyze_task_queue(&q);
     return success;
 }
 
@@ -1073,26 +1152,19 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         thread_count = count;
     assert(thread_count > 0);
 
-    struct run_task_queue q;
-    if (!init_task_queue(params, als, count, thread_count, &q))
-        goto out;
-
-    if (thread_count == 1) {
-        if (g_progress_bar) {
-            sb_resize(g_output_anchors, 1);
+    if (g_progress_bar) {
+        sb_resize(g_output_anchors, thread_count);
+        if (thread_count == 1)
             g_output_anchors[0].id = pthread_self();
-        }
-        if (run_benches_single_threaded(&q))
-            success = true;
-    } else {
-        if (g_progress_bar)
-            sb_resize(g_output_anchors, thread_count);
-
-        if (run_benches_multi_threaded(&q, thread_count))
-            success = true;
     }
 
-    free_task_queue(&q);
+    if (!execute_run_tasks(params, als, count, thread_count))
+        goto out;
+
+    if (!execute_analyze_tasks(params, als, count, thread_count))
+        goto out;
+
+    success = true;
 out:
     if (g_progress_bar) {
         pthread_join(progress_bar_thread, NULL);

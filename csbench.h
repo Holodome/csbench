@@ -397,6 +397,10 @@ fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void csperror(const char *fmt);
 
+#define init_rng_state()                                                       \
+    do {                                                                       \
+        g_rng_state = time(NULL) * 2 + 1;                                      \
+    } while (0)
 extern __thread uint64_t g_rng_state;
 // Number of resamples to use in bootstrapping when estimating distributions.
 extern int g_nresamp;
