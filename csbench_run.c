@@ -112,10 +112,10 @@ struct progress_bar_state {
 
 struct progress_bar {
     bool was_drawn;
-    struct progress_bar_bench *benches;
-    size_t count;
-    struct bench_analysis *analyses;
     size_t max_name_len;
+    size_t count;
+    struct progress_bar_bench *benches;
+    struct bench_analysis *analyses;
     struct progress_bar_state *states;
 };
 

@@ -151,7 +151,7 @@ struct bench_var {
 
 struct bench_var_group {
     char name[1024];
-    size_t *cmd_idxs; // var->value_count
+    size_t *cmd_idxs; // [var->value_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -179,6 +179,8 @@ struct outliers {
 // Describes distribution and is useful for passing benchmark data and analysis
 // around.
 struct distr {
+    // This pointer is const, because memory is owned by respective 'struct
+    // bench' instance.
     const double *data;
     size_t count;
     struct est mean;
@@ -186,15 +188,24 @@ struct distr {
     double min;
     double max;
     double median;
+    // First quartile
     double q1;
+    // Third quartile
     double q3;
+    // First percentile
     double p1;
+    // Fifth percentile
     double p5;
+    // 95-th percentile
     double p95;
+    // 99-th percentile
     double p99;
     struct outliers outliers;
 };
 
+// Runtime information about benchmark. When running, this structure is being
+// filled accordinly with results of execution and, in particular, measurement
+// values. This is later passed down for analysis.
 struct bench {
     size_t run_count;
     int *exit_codes;
@@ -241,9 +252,11 @@ struct ols_regress {
 
 struct group_analysis {
     const struct bench_var_group *group;
-    struct cmd_in_group_data *data;
+    struct cmd_in_group_data *data; // [var->value_count]
+    // Pointers to 'data' elements
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
+    // Linear regression can only be performed when values are numbers
     bool values_are_doubles;
     struct ols_regress regress;
 };
@@ -285,8 +298,15 @@ struct meas_analysis {
     double **var_p_values; // [val_count][group_count]
 };
 
+// This structure hold results of benchmarking across all measurements and
+// commands. Basically, it is the output of the program. Once filled via
+// machinery in csbench_analyze.c, this structure can be passed down to
+// different visualization paths, like plots, html report or command line
+// report.
 struct analysis {
-    const struct bench_var_group *var_groups;
+    // This pointer is const because respective memory is owned by 'struct
+    // run_info' instance'
+    const struct bench_var_group *var_groups; // [group_count]
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
@@ -324,7 +344,7 @@ struct bench_params {
     enum output_kind output;
     // List of measurements to record
     size_t meas_count;
-    const struct meas *meas;
+    const struct meas *meas; // [meas_count]
     // If not -1, use this file as stdin, otherwise /dev/null
     int stdin_fd;
     // If not -1, pipe stdout to this file
