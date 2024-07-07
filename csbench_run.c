@@ -416,8 +416,8 @@ static void init_run_state(double time, const struct bench_stop_policy *policy,
     state->time_run = time_already_run;
 }
 
-static bool should_finish_running(struct run_state *state) {
-    ++state->current_run;
+static bool should_finish_running(struct run_state *state, int advance) {
+    state->current_run += advance;
 
     if (state->stop->runs > 0) {
         if (state->current_run >= state->stop->runs)
@@ -435,8 +435,8 @@ static bool should_finish_running(struct run_state *state) {
     }
 
     double current = get_time();
-    double diff = current - state->start_time;
-    if (diff > state->stop->time_limit - state->time_run)
+    double passed = current - state->start_time;
+    if (passed > state->stop->time_limit - state->time_run)
         return true;
 
     return false;
@@ -445,9 +445,9 @@ static bool should_finish_running(struct run_state *state) {
 static bool should_suspend_round(struct run_state *state) {
     assert(state->stop == &g_round_stop);
     if (state->ignore_suspend)
-        return true;
+        return false;
 
-    bool result = should_finish_running(state);
+    bool result = should_finish_running(state, 1);
     if (result) {
         if (!should_i_suspend()) {
             state->ignore_suspend = true;
@@ -469,7 +469,7 @@ static bool warmup(const struct bench_params *cmd) {
             error("failed to execute warmup command");
             return false;
         }
-        if (should_finish_running(&state))
+        if (should_finish_running(&state, 1))
             break;
     }
     return true;
@@ -688,12 +688,13 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
             progress_bar_update_time(bench->progress, progress,
                                      bench_time_passed);
             if (should_suspend_round(&round_state)) {
+                fprintf(stderr, "suspended\n");
                 bench->time_run = bench_time_passed;
                 return BENCH_RUN_SUSPENDED;
             }
         }
 
-        if (should_finish_running(&state))
+        if (should_finish_running(&state, niter))
             break;
 
         for (;;) {
