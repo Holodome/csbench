@@ -120,12 +120,12 @@ struct progress_bar {
 };
 
 struct run_task {
-    struct task_queue *q;
+    struct run_task_queue *q;
     const struct bench_params *param;
     struct bench_analysis *al;
 };
 
-struct task_queue {
+struct run_task_queue {
     size_t task_count;
     struct run_task *tasks;
     size_t worker_count;
@@ -136,7 +136,7 @@ struct task_queue {
     size_t remaining_task_count;
 };
 
-static __thread struct task_queue *g_q;
+static __thread struct run_task_queue *g_q;
 
 #define lock_mutex(_mutex)                                                     \
     do {                                                                       \
@@ -158,7 +158,7 @@ static __thread struct task_queue *g_q;
 
 static bool init_task_queue(const struct bench_params *params,
                             struct bench_analysis *als, size_t count,
-                            size_t worker_count, struct task_queue *q) {
+                            size_t worker_count, struct run_task_queue *q) {
     assert(worker_count <= count);
     memset(q, 0, sizeof(*q));
     int ret = pthread_mutex_init(&q->mutex, NULL);
@@ -181,7 +181,7 @@ static bool init_task_queue(const struct bench_params *params,
     return true;
 }
 
-static void free_task_queue(struct task_queue *q) {
+static void free_task_queue(struct run_task_queue *q) {
     free(q->tasks);
     free(q->finished);
     free(q->taken);
@@ -189,7 +189,7 @@ static void free_task_queue(struct task_queue *q) {
 }
 
 static void run_task_yield(struct run_task *task) {
-    struct task_queue *q = task->q;
+    struct run_task_queue *q = task->q;
     size_t task_idx = task - q->tasks;
     lock_mutex(&q->mutex);
     assert(q->taken[task_idx] && !q->finished[task_idx]);
@@ -198,7 +198,7 @@ static void run_task_yield(struct run_task *task) {
 }
 
 static void run_task_finish(struct run_task *task) {
-    struct task_queue *q = task->q;
+    struct run_task_queue *q = task->q;
     size_t task_idx = task - q->tasks;
     lock_mutex(&q->mutex);
     assert(q->taken[task_idx] && !q->finished[task_idx]);
@@ -208,7 +208,7 @@ static void run_task_finish(struct run_task *task) {
     unlock_mutex(&q->mutex);
 }
 
-static struct run_task *get_run_task(struct task_queue *q) {
+static struct run_task *get_run_task(struct run_task_queue *q) {
     struct run_task *task = NULL;
     lock_mutex(&q->mutex);
 
@@ -234,7 +234,7 @@ static struct run_task *get_run_task(struct task_queue *q) {
 // that would just waste time. Worker threads should call this function when
 // they want to suspend.
 static bool should_i_suspend(void) {
-    struct task_queue *q = g_q;
+    struct run_task_queue *q = g_q;
     lock_mutex(&q->mutex);
     bool result = q->worker_count < q->remaining_task_count;
     unlock_mutex(&q->mutex);
@@ -845,7 +845,7 @@ static enum bench_run_result run_bench(const struct bench_params *params,
     return BENCH_RUN_FINISHED;
 }
 
-static bool run_benches_single_threaded(struct task_queue *q) {
+static bool run_benches_single_threaded(struct run_task_queue *q) {
     g_q = q;
     for (;;) {
         struct run_task *task = get_run_task(q);
@@ -868,7 +868,7 @@ static bool run_benches_single_threaded(struct task_queue *q) {
 }
 
 static void *bench_runner_worker(void *raw) {
-    struct task_queue *q = raw;
+    struct run_task_queue *q = raw;
     g_rng_state = time(NULL) * 2 + 1;
     if (!run_benches_single_threaded(q))
         return (void *)-1;
@@ -1002,7 +1002,7 @@ static void free_progress_bar(struct progress_bar *bar) {
     free(bar->states);
 }
 
-static bool run_benches_multi_threaded(struct task_queue *q,
+static bool run_benches_multi_threaded(struct run_task_queue *q,
                                        size_t thread_count) {
     bool success = false;
     pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
@@ -1073,7 +1073,7 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
         thread_count = count;
     assert(thread_count > 0);
 
-    struct task_queue q;
+    struct run_task_queue q;
     if (!init_task_queue(params, als, count, thread_count, &q))
         goto out;
 
