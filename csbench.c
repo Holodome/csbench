@@ -123,7 +123,11 @@ static enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 struct bench_stop_policy g_round_stop = {5.0, 0, 2, 0};
-struct output_anchor *g_output_anchors = NULL;
+// XXX: Mark this as volatile because we rely that this variable is changed
+// atomically when creating and destorying threads. Elements of this array could
+// only be written by a single thread, and reads are synchronized, so the data
+// itself does not need to be volatile.
+struct output_anchor *volatile g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
 const char *g_prepare = NULL;

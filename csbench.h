@@ -423,7 +423,7 @@ extern const char *g_out_dir;
 extern bool g_python_output;
 extern bool g_use_perf;
 extern bool g_progress_bar;
-extern struct output_anchor *g_output_anchors;
+extern struct output_anchor *volatile g_output_anchors;
 
 //
 // csbench_analyze.c
