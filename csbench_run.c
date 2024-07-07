@@ -160,6 +160,7 @@ static bool init_task_queue(const struct bench_params *params,
                             struct bench_analysis *als, size_t count,
                             size_t worker_count, struct task_queue *q) {
     assert(worker_count <= count);
+    memset(q, 0, sizeof(*q));
     int ret = pthread_mutex_init(&q->mutex, NULL);
     if (ret != 0) {
         errno = ret;
@@ -410,10 +411,12 @@ static bool should_run(const struct bench_stop_policy *policy) {
 static void init_run_state(double time, const struct bench_stop_policy *policy,
                            size_t run, double time_already_run,
                            struct run_state *state) {
+    memset(state, 0, sizeof(*state));
     state->current_run = run;
     state->start_time = time;
     state->stop = policy;
     state->time_run = time_already_run;
+    state->ignore_suspend = false;
 }
 
 static bool should_finish_running(struct run_state *state, int advance) {
@@ -688,7 +691,6 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
             progress_bar_update_time(bench->progress, progress,
                                      bench_time_passed);
             if (should_suspend_round(&round_state)) {
-                fprintf(stderr, "suspended\n");
                 bench->time_run = bench_time_passed;
                 return BENCH_RUN_SUSPENDED;
             }
