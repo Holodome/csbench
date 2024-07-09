@@ -97,6 +97,7 @@ enum app_mode {
 };
 
 struct command_info {
+    const char *name;
     const char *cmd;
     struct input_policy input;
     enum output_kind output;
@@ -1247,11 +1248,13 @@ static bool init_bench_stdin(const struct input_policy *input,
     return true;
 }
 
-static bool init_bench_params(const struct input_policy *input,
+static bool init_bench_params(const char *name,
+                              const struct input_policy *input,
                               enum output_kind output, const struct meas *meas,
                               const char *exec, const char **argv,
                               const char *cmd_str,
                               struct bench_params *params) {
+    params->name = name;
     params->output = output;
     params->meas = meas;
     params->meas_count = sb_len(meas);
@@ -1289,8 +1292,8 @@ static bool init_command(const char *shell, const struct command_info *cmd,
         return false;
     }
     struct bench_params bench_params = {0};
-    if (!init_bench_params(&cmd->input, cmd->output, info->meas, exec, argv,
-                           (char *)cmd->cmd, &bench_params)) {
+    if (!init_bench_params(cmd->name, &cmd->input, cmd->output, info->meas,
+                           exec, argv, (char *)cmd->cmd, &bench_params)) {
         sb_free(argv);
         return false;
     }
@@ -1311,7 +1314,7 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
         const char *cmd_str = cli->args[i];
         struct command_info info;
         memset(&info, 0, sizeof(info));
-        info.cmd = cmd_str;
+        info.name = info.cmd = cmd_str;
         info.output = cli->output;
         info.input = cli->input;
         info.grp_name = cmd_str;
@@ -1331,26 +1334,86 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
         const struct command_info *src_info = *infos + src_idx;
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-            const char *var_value = var->values[val_idx];
-            bool replaced = false;
-            char buf[4096];
-            if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
-                                 var_value, &replaced) ||
-                !replaced) {
-                error("command string '%s' does not contain variable "
-                      "substitutions",
-                      buf);
-                sb_free(multiplexed);
-                return false;
-            }
-            struct command_info info;
-            memcpy(&info, src_info, sizeof(info));
-            info.cmd = csstrdup(buf);
-            info.grp_idx = src_idx;
-            info.grp_name = src_info->grp_name;
-            sb_push(multiplexed, info);
+        // Take first value and try to replace it in the command string
+        char buf[4096];
+        bool replaced = false;
+        if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
+                             var->values[0], &replaced)) {
+            error("Failed to substitute variable");
+            goto err;
         }
+
+        // If we succeeded, continue replacing in command string
+        if (replaced) {
+            // We could reuse the string that is contained in buffer right now,
+            // but it is a bit unecessary.
+            for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+                const char *var_value = var->values[val_idx];
+                if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
+                                     var_value, &replaced)) {
+                    error("Failed to substitute variable");
+                    goto err;
+                }
+                assert(replaced);
+                struct command_info info;
+                memcpy(&info, src_info, sizeof(info));
+                info.name = info.cmd = csstrdup(buf);
+                info.grp_idx = src_idx;
+                info.grp_name = src_info->grp_name;
+                sb_push(multiplexed, info);
+            }
+            continue;
+        }
+
+        // If we get here that means command string does not contain variable
+        // substitutions. Search them elsewhere
+        if (src_info->input.kind == INPUT_POLICY_FILE ||
+            src_info->input.kind == INPUT_POLICY_STRING) {
+            const char *src_string;
+            if (src_info->input.kind == INPUT_POLICY_FILE)
+                src_string = src_info->input.file;
+            else if (src_info->input.kind == INPUT_POLICY_STRING)
+                src_string = src_info->input.string;
+
+            if (!replace_var_str(buf, sizeof(buf), src_string, var->name,
+                                 var->values[0], &replaced)) {
+                error("Failed to substitute variable");
+                goto err;
+            }
+            if (replaced) {
+                for (size_t val_idx = 0; val_idx < var->value_count;
+                     ++val_idx) {
+                    const char *var_value = var->values[val_idx];
+                    if (!replace_var_str(buf, sizeof(buf), src_string,
+                                         var->name, var_value, &replaced)) {
+                        error("Failed to substitute variable");
+                        goto err;
+                    }
+                    assert(replaced);
+                    struct command_info info;
+                    memcpy(&info, src_info, sizeof(info));
+                    info.cmd = src_info->cmd;
+                    info.grp_idx = src_idx;
+                    info.grp_name = src_info->grp_name;
+                    if (src_info->input.kind == INPUT_POLICY_FILE) {
+                        info.input.file = csstrdup(buf);
+                        snprintf(buf, sizeof(buf), "%s < %s", info.cmd,
+                                 info.input.file);
+                        info.name = csstrdup(buf);
+                    } else if (src_info->input.kind == INPUT_POLICY_STRING) {
+                        info.input.string = csstrdup(buf);
+                        snprintf(buf, sizeof(buf), "echo '%s' | %s",
+                                 info.input.string, info.cmd);
+                        info.name = csstrdup(buf);
+                    }
+                    sb_push(multiplexed, info);
+                }
+                continue;
+            }
+        }
+
+        error("command '%s' does not contain variable substitutions",
+              src_info->cmd);
     }
 
     sb_free(*infos);
@@ -1358,6 +1421,9 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
     *has_groups = true;
 
     return true;
+err:
+    sb_free(multiplexed);
+    return false;
 }
 
 static bool init_benches(const struct cli_settings *cli,
@@ -1562,6 +1628,25 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
     return false;
 }
 
+static void set_benchmark_names(const struct cli_settings *cli,
+                                const struct run_info *info,
+                                struct analysis *al) {
+    for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
+        const struct bench_params *params = info->params + bench_idx;
+        struct bench_analysis *analysis = al->bench_analyses + bench_idx;
+        bool renamed = false;
+        if (sb_len(info->groups) == 0) {
+            renamed = attempt_rename(cli->rename_list, bench_idx, analysis);
+        } else {
+            renamed = attempt_groupped_rename(cli->rename_list, bench_idx,
+                                              info->groups, cli->var, analysis);
+        }
+        if (!renamed)
+            analysis->name = params->name;
+        assert(analysis->name);
+    }
+}
+
 static bool run_app_bench(const struct cli_settings *cli) {
     bool success = false;
     struct run_info info = {0};
@@ -1574,19 +1659,7 @@ static bool run_app_bench(const struct cli_settings *cli) {
         goto err_deinit_perf;
     struct analysis al = {0};
     init_analysis(cli->meas, bench_count, info.var, &al);
-    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
-        const struct bench_params *params = info.params + bench_idx;
-        struct bench_analysis *analysis = al.bench_analyses + bench_idx;
-        bool renamed = false;
-        if (sb_len(info.groups) == 0) {
-            renamed = attempt_rename(cli->rename_list, bench_idx, analysis);
-        } else {
-            renamed = attempt_groupped_rename(cli->rename_list, bench_idx,
-                                              info.groups, cli->var, analysis);
-        }
-        if (!renamed)
-            analysis->name = params->str;
-    }
+    set_benchmark_names(cli, &info, &al);
     if (!run_benches(info.params, al.bench_analyses, bench_count))
         goto err_free_analysis;
     if (!analyze_benches(&info, &al))

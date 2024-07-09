@@ -335,6 +335,7 @@ struct bench_stop_policy {
 // Description of one benchmark, read-only information that is
 // used to run it and choose what information to collect.
 struct bench_params {
+    const char *name;
     // Command string that is executed
     const char *str;
     // 'exec' argument to execve
@@ -573,10 +574,5 @@ const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);
 const char *csstripend(const char *str);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
-#if 0
-size_t len = strlen(new_str);
-while (len && new_str[len - 1] == '\n')
-    new_str[len-- - 1] = '\0';
-#endif
 
 #endif // CSBENCH_H
