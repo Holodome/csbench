@@ -289,3 +289,10 @@ $b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --scan n/100/500
 # check --python-output option
 #
 $b ls --plot --python-output > /dev/null || die 
+
+#
+# check input string multiplexing
+#
+distclean
+$b cat --inputs 'hello {t}' --scanl t/1,2,3 --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 7 ]

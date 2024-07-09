@@ -1402,8 +1402,8 @@ static bool multiplex_command_infos(const struct cli_settings *cli,
                         info.name = csstrdup(buf);
                     } else if (src_info->input.kind == INPUT_POLICY_STRING) {
                         info.input.string = csstrdup(buf);
-                        snprintf(buf, sizeof(buf), "echo '%s' | %s",
-                                 info.input.string, info.cmd);
+                        snprintf(buf, sizeof(buf), "%s <<< \"%s\"", info.cmd,
+                                 info.input.string);
                         info.name = csstrdup(buf);
                     }
                     sb_push(multiplexed, info);

@@ -513,7 +513,7 @@ static void export_csv_raw_bench(const struct bench *bench,
 }
 
 static void export_csv_group_results(const struct meas_analysis *al, FILE *f) {
-    assert(al->base->group_count > 1 && al->base->var);
+    assert(al->base->group_count > 0 && al->base->var);
     fprintf(f, "%s,", al->base->var->name);
     for (size_t i = 0; i < al->base->group_count; ++i) {
         char buf[4096];
