@@ -640,7 +640,7 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
             progress_bar_update_time(bench->progress, progress,
                                      bench_time_passed);
 
-            if (should_finish_running(&state, niter))
+            if (should_finish_running(&state, 1))
                 goto out;
 
             if (should_suspend_round(&round_state)) {
