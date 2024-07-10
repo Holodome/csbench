@@ -55,11 +55,11 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <limits.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 #include <time.h>
 
 #include <dirent.h>
@@ -258,7 +258,9 @@ static void print_help_and_exit(int rc) {
         "with --warmup and --max-warmup-runs.\n"
         "  --max-warmup-runs <n>\n"
         "          During warmup run command at most <n> times. Can be used "
-        "with --warmup and --min-warmup-runs.\n");
+        "with --warmup and --min-warmup-runs.\n"
+        "  --no-warmup\n"
+        "          Disable warmup.\n");
     printf( //
         "  --round-time <t>\n"
         "          Benchmark will be run at last <t> seconds in a row. After "
@@ -273,7 +275,9 @@ static void print_help_and_exit(int rc) {
         "with --round-time and --max-round-time.\n"
         "  --max-round-runs <n>\n"
         "          In a single round perform at most <n> runs. Can be used "
-        "with --round-time and --min-round-time.\n");
+        "with --round-time and --min-round-time.\n"
+        "  --no-rounds\n"
+        "          Do not split execution into rounds.\n");
     printf( //
         "  -P, --prepare <cmd>\n"
         "          Execute <cmd> in default shell before each benchmark run.\n"
