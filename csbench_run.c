@@ -639,14 +639,15 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
             int progress = bench_time_passed / g_bench_stop.time_limit * 100;
             progress_bar_update_time(bench->progress, progress,
                                      bench_time_passed);
+
+            if (should_finish_running(&state, niter))
+                goto out;
+
             if (should_suspend_round(&round_state)) {
                 bench->time_run = bench_time_passed;
                 return BENCH_RUN_SUSPENDED;
             }
         }
-
-        if (should_finish_running(&state, niter))
-            break;
 
         for (;;) {
             niter_accum *= 1.05;
@@ -655,7 +656,9 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
                 break;
         }
     }
-    double passed = get_time() - start_time;
+    double passed;
+out:
+    passed = get_time() - start_time;
     progress_bar_update_time(bench->progress, 100, passed + bench->time_run);
     progress_bar_finished(bench->progress);
     return BENCH_RUN_FINISHED;

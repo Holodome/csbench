@@ -59,6 +59,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <time.h>
 
 #include <dirent.h>
@@ -895,6 +896,16 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
         } else if (opt_bool(argv, &cursor, "--python-output",
                             &g_python_output)) {
+        } else if (strcmp(argv[cursor], "--no-warmup") == 0) {
+            ++cursor;
+            // XXX: This is kind of a hack, but whatever
+            // Checked in `should_run`
+            g_warmup_stop.time_limit = -1;
+        } else if (strcmp(argv[cursor], "--no-rounds") == 0) {
+            ++cursor;
+            // XXX: This is kind of a hack, but whatever
+            // Checked in `should_finish_running`
+            g_round_stop.min_runs = INT_MAX;
         } else if (strcmp(argv[cursor], "--load") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
