@@ -130,7 +130,6 @@ struct run_task_queue {
     size_t task_count;
     struct run_task *tasks;
     size_t worker_count;
-
     pthread_mutex_t mutex;
     bool *finished;
     bool *taken;
@@ -210,20 +209,22 @@ static void run_task_finish(struct run_task *task) {
     unlock_mutex(&q->mutex);
 }
 
-static struct run_task *get_run_task(struct run_task_queue *q) {
+static struct run_task *get_run_task(struct run_task_queue *q,
+                                     size_t *task_cursor) {
     struct run_task *task = NULL;
     lock_mutex(&q->mutex);
 
     if (q->remaining_task_count != 0) {
-        size_t initial = pcg32_fast(&g_rng_state);
         for (size_t i = 0; i < q->task_count && !task; ++i) {
-            size_t idx = (initial + i) % q->task_count;
+            size_t idx = (*task_cursor + i) % q->task_count;
             if (!q->finished[idx] && !q->taken[idx])
                 task = q->tasks + idx;
         }
         assert(task || (q->worker_count > q->remaining_task_count));
         if (task) {
-            q->taken[task - q->tasks] = true;
+            size_t idx = task - q->tasks;
+            *task_cursor = (idx + 1) % q->task_count;
+            q->taken[idx] = true;
             assert(!q->finished[task - q->tasks]);
         }
     }
@@ -697,8 +698,11 @@ static enum bench_run_result run_bench(const struct bench_params *params,
 
 static bool run_benches_single_threaded(struct run_task_queue *q) {
     g_q = q;
+    // Tasks are switched round-robin. For this, store in each runner index of
+    // next task that should be processed.
+    size_t task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
     for (;;) {
-        struct run_task *task = get_run_task(q);
+        struct run_task *task = get_run_task(q, &task_cursor);
         if (task == NULL)
             break;
 

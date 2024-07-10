@@ -418,10 +418,6 @@ fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void csperror(const char *fmt);
 
-#define init_rng_state()                                                       \
-    do {                                                                       \
-        g_rng_state = time(NULL) * 2 + 1;                                      \
-    } while (0)
 extern __thread uint64_t g_rng_state;
 // Number of resamples to use in bootstrapping when estimating distributions.
 extern int g_nresamp;
@@ -551,6 +547,8 @@ __attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
 bool spawn_threads(void *(*worker_fn)(void *), void *param,
                    size_t thread_count);
 
+void init_rng_state(void);
+
 static inline uint32_t pcg32_fast(uint64_t *state) {
     uint64_t x = *state;
     unsigned count = (unsigned)(x >> 61);
@@ -564,8 +562,8 @@ static inline uint32_t pcg32_fast(uint64_t *state) {
 // configuration parsing and benchmark initialization.
 //
 // But **** this stupid ****, memory management is too hard. Just allocate all
-// strings in global arena and then free at once. This way all strings are treated 
-// as read-only, so we can safely assign them without copying.
+// strings in global arena and then free at once. This way all strings are
+// treated as read-only, so we can safely assign them without copying.
 //
 // XXX: Marked as const to force the behaviour we want. User should not modify
 // strings directly and instead work using this interface.

@@ -277,7 +277,7 @@ static void print_help_and_exit(int rc) {
         "          Execute <cmd> in default shell before each benchmark run.\n"
         "  --nrs <n>\n"
         "          Specify number of resamples used in bootstrapping. Default "
-        "value is 100000\n");
+        "value is 10000.\n");
     printf( //
         "  -S, --shell <cmd>\n"
         "          Specify shell used for executing commands. Can be both "

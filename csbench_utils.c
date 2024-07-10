@@ -57,10 +57,10 @@
 #include <fcntl.h>
 #include <math.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
-#include <stdarg.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -756,4 +756,15 @@ const char *csfmt(const char *fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     return csstrdup(buf);
+}
+
+void init_rng_state(void) {
+    pthread_t pt = pthread_self();
+    if (sizeof(pt) >= sizeof(uint64_t)) {
+        uint64_t entropy;
+        memcpy(&entropy, &pt, sizeof(uint64_t));
+        g_rng_state = time(NULL) * 2 + *(uint64_t *)&pt;
+    } else {
+        g_rng_state = time(NULL) * 2 + 1;
+    }
 }
