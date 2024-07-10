@@ -136,9 +136,8 @@ static void compare_benches(struct analysis *al) {
         for (size_t j = 0; j < bench_count; ++j)
             al->meas_analyses[i].fastest[j] = j;
 #ifdef __linux__
-        qsort_r(results->meas_analyses[i].fastest, bench_count,
-                sizeof(*results->meas_analyses[i].fastest), bench_sort_cmp,
-                &state);
+        qsort_r(al->meas_analyses[i].fastest, bench_count,
+                sizeof(*al->meas_analyses[i].fastest), bench_sort_cmp, &state);
 #elif defined(__APPLE__)
         qsort_r(al->meas_analyses[i].fastest, bench_count,
                 sizeof(*al->meas_analyses[i].fastest), &state, bench_sort_cmp);

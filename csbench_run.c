@@ -62,6 +62,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 struct run_state {
