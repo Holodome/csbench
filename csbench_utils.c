@@ -763,7 +763,7 @@ void init_rng_state(void) {
     if (sizeof(pt) >= sizeof(uint64_t)) {
         uint64_t entropy;
         memcpy(&entropy, &pt, sizeof(uint64_t));
-        g_rng_state = time(NULL) * 2 + *(uint64_t *)&pt;
+        g_rng_state = time(NULL) * 2 + entropy;
     } else {
         g_rng_state = time(NULL) * 2 + 1;
     }
