@@ -79,7 +79,6 @@ struct rename_entry {
 // supplied by user prior to benchmark start.
 struct cli_settings {
     const char **args;
-    const char *shell;
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
@@ -131,6 +130,7 @@ struct bench_stop_policy g_round_stop = {5.0, 0, 2, 0};
 struct output_anchor *volatile g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
+static const char *g_shell = "/bin/sh";
 const char *g_prepare = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -694,7 +694,6 @@ static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
 
 static void parse_cli_args(int argc, char **argv,
                            struct cli_settings *settings) {
-    settings->shell = "/bin/sh";
     settings->baseline = -1;
     bool no_wall = false;
     struct meas *meas_list = NULL;
@@ -750,10 +749,10 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"),
                                "resamples count", &g_nresamp)) {
-        } else if (opt_arg(argv, &cursor, "--shell", &settings->shell) ||
-                   opt_arg(argv, &cursor, "-S", &settings->shell)) {
-            if (strcmp(settings->shell, "none") == 0)
-                settings->shell = NULL;
+        } else if (opt_arg(argv, &cursor, "--shell", &g_shell) ||
+                   opt_arg(argv, &cursor, "-S", &g_shell)) {
+            if (strcmp(g_shell, "none") == 0)
+                g_shell = NULL;
         } else if (opt_arg(argv, &cursor, "--output", &str)) {
             if (strcmp(str, "null") == 0) {
                 settings->output = OUTPUT_POLICY_NULL;
@@ -1316,10 +1315,10 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
     return false;
 }
 
-static bool init_command(const char *shell, const struct command_info *cmd,
-                         struct run_info *info, size_t *idx) {
+static bool init_command(const struct command_info *cmd, struct run_info *info,
+                         size_t *idx) {
     const char *exec = NULL, **argv = NULL;
-    if (!init_cmd_exec(shell, cmd->cmd, &exec, &argv)) {
+    if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv)) {
         error("failed to initialize command '%s'", cmd->cmd);
         return false;
     }
@@ -1464,7 +1463,7 @@ static bool init_benches(const struct cli_settings *cli,
     if (!has_groups) {
         for (size_t cmd_idx = 0; cmd_idx < sb_len(cmd_infos); ++cmd_idx) {
             const struct command_info *cmd = cmd_infos + cmd_idx;
-            if (!init_command(cli->shell, cmd, info, NULL))
+            if (!init_command(cmd, info, NULL))
                 return false;
         }
         return true;
@@ -1484,8 +1483,7 @@ static bool init_benches(const struct cli_settings *cli,
         for (size_t val_idx = 0; val_idx < var->value_count;
              ++val_idx, ++cmd_cursor) {
             assert(cmd_cursor->grp_idx == grp_idx);
-            if (!init_command(cli->shell, cmd_cursor, info,
-                              group.cmd_idxs + val_idx)) {
+            if (!init_command(cmd_cursor, info, group.cmd_idxs + val_idx)) {
                 sb_free(group.cmd_idxs);
                 return false;
             }
