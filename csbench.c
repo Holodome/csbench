@@ -131,6 +131,7 @@ struct output_anchor *volatile g_output_anchors = NULL;
 const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
 static const char *g_shell = "/bin/sh";
+static const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -277,7 +278,10 @@ static void print_help_and_exit(int rc) {
         "          Execute <cmd> in default shell before each benchmark run.\n"
         "  --nrs <n>\n"
         "          Specify number of resamples used in bootstrapping. Default "
-        "value is 10000.\n");
+        "value is 10000.\n"
+        "  --common-args <s>\n"
+        "          Append string <s> to each command. Useful when executing "
+        "different versions of same executable with same flags.\n");
     printf( //
         "  -S, --shell <cmd>\n"
         "          Specify shell used for executing commands. Can be both "
@@ -747,6 +751,8 @@ static void parse_cli_args(int argc, char **argv,
                                "maximum round run count",
                                &g_round_stop.max_runs)) {
         } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
+        } else if (opt_arg(argv, &cursor, "--common-args",
+                           &g_common_argstring)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"),
                                "resamples count", &g_nresamp)) {
         } else if (opt_arg(argv, &cursor, "--shell", &g_shell) ||
@@ -1343,6 +1349,10 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
     }
     for (size_t i = 0; i < cmd_count; ++i) {
         const char *cmd_str = cli->args[i];
+        if (g_common_argstring) {
+            cmd_str = csfmt("%s %s", cmd_str, g_common_argstring);
+        }
+
         struct command_info info;
         memset(&info, 0, sizeof(info));
         info.name = info.cmd = cmd_str;
