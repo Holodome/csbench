@@ -600,9 +600,8 @@ run_benchmark_exact_runs(const struct bench_params *params,
             error("failed to execute prepare command");
             return BENCH_RUN_ERROR;
         }
-        if (!exec_and_measure(params, bench)) {
+        if (!exec_and_measure(params, bench))
             return BENCH_RUN_ERROR;
-        }
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
         progress_bar_update_runs(bench->progress, percent, run_idx + 1);
         if (should_suspend_round(&round_state)) {
@@ -630,9 +629,9 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
                 error("failed to execute prepare command");
                 return BENCH_RUN_ERROR;
             }
-            if (!exec_and_measure(params, bench)) {
+            if (!exec_and_measure(params, bench))
                 return BENCH_RUN_ERROR;
-            }
+
             double current = get_time();
             double time_in_round_passed = current - start_time;
             double bench_time_passed = time_in_round_passed + bench->time_run;

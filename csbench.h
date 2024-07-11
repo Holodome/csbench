@@ -62,6 +62,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <sys/types.h>
 
@@ -416,7 +417,9 @@ struct output_anchor {
 __attribute__((format(printf, 3, 4))) void
 fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
-void csperror(const char *fmt);
+void errorv(const char *fmt, va_list args);
+void csperror(const char *msg);
+void csfmterror(const char *fmt, ...);
 
 extern __thread uint64_t g_rng_state;
 // Number of resamples to use in bootstrapping when estimating distributions.

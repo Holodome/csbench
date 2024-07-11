@@ -168,7 +168,7 @@ void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
     }
 }
 
-void error(const char *fmt, ...) {
+void errorv(const char *fmt, va_list args) {
     pthread_t tid = pthread_self();
     for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
         // Implicitly discard all messages but the first. This should not be an
@@ -176,8 +176,6 @@ void error(const char *fmt, ...) {
         // should) is always a single one
         if (pthread_equal(tid, g_output_anchors[i].id) &&
             !atomic_load(&g_output_anchors[i].has_message)) {
-            va_list args;
-            va_start(args, fmt);
             vsnprintf(g_output_anchors[i].buffer,
                       sizeof(g_output_anchors[i].buffer), fmt, args);
             atomic_fence();
@@ -187,14 +185,18 @@ void error(const char *fmt, ...) {
         }
     }
     fprintf_colored(stderr, ANSI_RED, "error: ");
-    va_list args;
-    va_start(args, fmt);
     vfprintf(stderr, fmt, args);
-    va_end(args);
     putc('\n', stderr);
 }
 
-void csperror(const char *fmt) {
+void error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    errorv(fmt, args);
+    va_end(args);
+}
+
+void csperror(const char *msg) {
     int err = errno;
     char errbuf[4096];
     char *err_msg;
@@ -204,7 +206,26 @@ void csperror(const char *fmt) {
     strerror_r(err, errbuf, sizeof(errbuf));
     err_msg = errbuf;
 #endif
-    error("%s: %s", fmt, err_msg);
+    error("%s: %s", msg, err_msg);
+}
+
+void csfmterror(const char *fmt, ...) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg;
+#ifdef _GNU_SOURCE
+    err_msg = strerror_r(err, errbuf, sizeof(errbuf));
+#else
+    strerror_r(err, errbuf, sizeof(errbuf));
+    err_msg = errbuf;
+#endif
+
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    error("%s: %s", buf, err_msg);
 }
 
 static void print_help_and_exit(int rc) {
@@ -1272,7 +1293,9 @@ static bool init_bench_stdin(const struct input_policy *input,
     case INPUT_POLICY_FILE: {
         int fd = open(input->file, O_RDONLY | O_CLOEXEC);
         if (fd == -1) {
-            csperror("open");
+            csfmterror(
+                "failed to open file '%s' (designated for benchmark input)",
+                input->file);
             return false;
         }
         params->stdin_fd = fd;
@@ -1339,10 +1362,9 @@ static bool attempt_group_rename(const struct rename_entry *rename_list,
 static bool init_command(const struct command_info *cmd, struct run_info *info,
                          size_t *idx) {
     const char *exec = NULL, **argv = NULL;
-    if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv)) {
-        error("failed to initialize command '%s'", cmd->cmd);
+    if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv))
         return false;
-    }
+
     struct bench_params bench_params = {0};
     if (!init_bench_params(cmd->name, &cmd->input, cmd->output, info->meas,
                            exec, argv, (char *)cmd->cmd, &bench_params)) {
@@ -1818,7 +1840,8 @@ out:
 static const char **find_loada_filenames(void) {
     DIR *dir = opendir(g_out_dir);
     if (dir == NULL) {
-        csperror("opendir");
+        csfmterror("failed to open direcory '%s' (designated for output)",
+                   g_out_dir);
         return NULL;
     }
     const char **list = NULL;
