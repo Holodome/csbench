@@ -5,21 +5,21 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch
+      - name: fetch
         uses: actions/checkout@master
-      - name: Test
+      - name: test
         run: |
           make
           ./tests/test.sh
   amalgamation:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch
+      - name: fetch
         uses: actions/checkout@master
-      - amalgamation:
+      - name: amalgamation
         run: |
           ./scripts/amalgamated.py
-      - check_compiles:
+      - name: check_compile
         run: |
           gcc csbench_amalgamated.c
       - name: upload artifact
