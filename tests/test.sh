@@ -56,7 +56,7 @@ $b ls pwd --plot > /dev/null || die
 #
 
 distclean
-$b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die 
+$b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_0_3.svg" ] && [ -f "$dist_dir/kde_ext_0_3.svg" ] && \
