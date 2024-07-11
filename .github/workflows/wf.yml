@@ -20,7 +20,7 @@ jobs:
         run: |
           ./scripts/amalgamated.py
       - check_compiles:
-        runs: |
+        run: |
           gcc csbench_amalgamated.c
       - name: upload artifact
         uses: actions/upload-artifact@v3
