@@ -1,0 +1,29 @@
+name: Build and Test
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch
+        uses: actions/checkout@master
+      - name: Test
+        run: |
+          make
+          ./tests/test.sh
+  amalgamation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch
+        uses: actions/checkout@master
+      - amalgamation:
+        run: |
+          ./scripts/amalgamated.py
+      - check_compiles:
+        runs: |
+          gcc csbench_amalgamated.c
+      - name: upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: csbench_amalgamated.c
+          path: csbench_amalgamated.c
