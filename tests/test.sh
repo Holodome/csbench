@@ -154,18 +154,18 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["settings"]["warmup_time"]' > /dev/null || die
     cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
     cat $j | jq -e '.["benches"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["prepare"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["command"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["run_count"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["exit_codes"].[]' > /dev/null || die
+    cat $j | jq -e '.["benches"][]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["prepare"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["command"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["run_count"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["exit_codes"][]' > /dev/null || die
 
     $b ls --export-json $j --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["name"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["units"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["cmd"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["val"].[]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["name"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["units"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["cmd"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["val"][]' > /dev/null || die
 fi
 
 #
