@@ -7,6 +7,9 @@ jobs:
     steps:
       - name: fetch
         uses: actions/checkout@master
+      - name: install stuff
+        run: |
+          python3 -m pip install matplotlib
       - name: test
         run: |
           make
@@ -19,9 +22,9 @@ jobs:
       - name: amalgamation
         run: |
           ./scripts/amalgamated.py
-      - name: check_compile
+      - name: check compiles
         run: |
-          gcc csbench_amalgamated.c
+          gcc csbench_amalgamated.c -lm -lpthread
       - name: upload artifact
         uses: actions/upload-artifact@v3
         with:
