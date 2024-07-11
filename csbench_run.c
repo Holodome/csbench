@@ -678,13 +678,13 @@ out:
 // If the progress bar is disabled nothing concerning it shall be done.
 static enum bench_run_result run_bench(const struct bench_params *params,
                                        struct bench_analysis *al) {
-    struct bench *bench = al->bench;
-    progress_bar_start(bench->progress, get_time(), bench->time_run);
-
     if (!warmup(params))
         return BENCH_RUN_ERROR;
 
     assert(should_run(&g_bench_stop));
+
+    struct bench *bench = al->bench;
+    progress_bar_start(bench->progress, get_time(), bench->time_run);
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
     enum bench_run_result result;
