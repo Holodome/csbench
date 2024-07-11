@@ -85,7 +85,7 @@ distclean
 $b ls pwd --html > /dev/null || die 
 [ -f "$dist_dir/index.html" ] || die
 distclean
-$b ls --html --custom-t aaa 'echo $RANDOM' > /dev/null || die 
+$b ls --html --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ -f "$dist_dir/index.html" ] || die
 distclean 
 $b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
@@ -161,7 +161,7 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["benches"].[] | .["meas"].[]' > /dev/null || die
     cat $j | jq -e '.["benches"].[] | .["exit_codes"].[]' > /dev/null || die
 
-    $b ls --export-json $j --custom-t aaa 'echo $RANDOM' > /dev/null || die
+    $b ls --export-json $j --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
     cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["name"]' > /dev/null || die
     cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["units"]' > /dev/null || die
     cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["cmd"]' > /dev/null || die
