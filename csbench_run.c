@@ -90,6 +90,7 @@ struct progress_bar_bench {
     int bar;
     int finished;
     int aborted;
+    int suspended;
     union {
         uint64_t u;
         double d;
@@ -545,6 +546,7 @@ static void progress_bar_start(struct progress_bar_bench *bench, double time,
     atomic_store(&bench->start_time.u, u);
     memcpy(&u, &time_passed, sizeof(u));
     atomic_store(&bench->time_passed.u, u);
+    atomic_store(&bench->suspended, false);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench) {
@@ -581,22 +583,24 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
     atomic_store(&bench->metric.u, runs);
 }
 
+static void progress_bar_suspend(struct progress_bar_bench *bench) {
+    if (!g_progress_bar)
+        return;
+    atomic_store(&bench->suspended, true);
+}
+
 static enum bench_run_result
 run_benchmark_exact_runs(const struct bench_params *params,
                          struct bench *bench) {
     struct run_state round_state;
     init_run_state(get_time(), &g_round_stop, 0, 0, &round_state);
-    progress_bar_start(bench->progress, round_state.start_time,
-                       bench->time_run);
     for (int run_idx = bench->run_count; run_idx < g_bench_stop.runs;
          ++run_idx) {
         if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
             error("failed to execute prepare command");
-            progress_bar_abort(bench->progress);
             return BENCH_RUN_ERROR;
         }
         if (!exec_and_measure(params, bench)) {
-            progress_bar_abort(bench->progress);
             return BENCH_RUN_ERROR;
         }
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
@@ -607,7 +611,6 @@ run_benchmark_exact_runs(const struct bench_params *params,
         }
     }
     progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
-    progress_bar_finished(bench->progress);
     return BENCH_RUN_FINISHED;
 }
 
@@ -621,16 +624,13 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
     init_run_state(start_time, &g_bench_stop, bench->run_count, bench->time_run,
                    &state);
     init_run_state(start_time, &g_round_stop, 0, 0, &round_state);
-    progress_bar_start(bench->progress, start_time, bench->time_run);
     for (;;) {
         for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
             if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
                 error("failed to execute prepare command");
-                progress_bar_abort(bench->progress);
                 return BENCH_RUN_ERROR;
             }
             if (!exec_and_measure(params, bench)) {
-                progress_bar_abort(bench->progress);
                 return BENCH_RUN_ERROR;
             }
             double current = get_time();
@@ -660,7 +660,6 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
 out:
     passed = get_time() - start_time;
     progress_bar_update_time(bench->progress, 100, passed + bench->time_run);
-    progress_bar_finished(bench->progress);
     return BENCH_RUN_FINISHED;
 }
 
@@ -674,12 +673,18 @@ out:
 // count. In the second case we run benchmark exactly for specified number of
 // runs.
 //
-// This function also handles progress bar (see 'run_benchmark').
+// This function also handles progress bar.
 // During the benchmark run, progress bar is notified about current state
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
-static enum bench_run_result run_benchmark(const struct bench_params *params,
-                                           struct bench *bench) {
+static enum bench_run_result run_bench(const struct bench_params *params,
+                                       struct bench_analysis *al) {
+    struct bench *bench = al->bench;
+    progress_bar_start(bench->progress, get_time(), bench->time_run);
+
+    if (!warmup(params))
+        return BENCH_RUN_ERROR;
+
     assert(should_run(&g_bench_stop));
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
@@ -689,14 +694,19 @@ static enum bench_run_result run_benchmark(const struct bench_params *params,
     } else {
         result = run_benchmark_adaptive_runs(params, bench);
     }
-    return result;
-}
 
-static enum bench_run_result run_bench(const struct bench_params *params,
-                                       struct bench_analysis *al) {
-    if (!warmup(params))
-        return BENCH_RUN_ERROR;
-    return run_benchmark(params, al->bench);
+    switch (result) {
+    case BENCH_RUN_FINISHED:
+        progress_bar_finished(bench->progress);
+        break;
+    case BENCH_RUN_ERROR:
+        progress_bar_abort(bench->progress);
+        break;
+    case BENCH_RUN_SUSPENDED:
+        progress_bar_suspend(bench->progress);
+        break;
+    }
+    return result;
 }
 
 static bool run_benches_single_threaded(struct run_task_queue *q) {
@@ -755,6 +765,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         data.bar = atomic_load(&bar->benches[i].bar);
         data.finished = atomic_load(&bar->benches[i].finished);
         data.aborted = atomic_load(&bar->benches[i].aborted);
+        data.suspended = atomic_load(&bar->benches[i].suspended);
         data.metric.u = atomic_load(&bar->benches[i].metric.u);
         data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
         data.time_passed.u = atomic_load(&bar->benches[i].time_passed.u);
@@ -798,7 +809,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                         bar->states[i].time = current_time;
                     }
                     double eta = bar->states[i].eta;
-                    if (!data.finished)
+                    if (!data.finished && !data.suspended)
                         eta -= current_time - bar->states[i].time;
                     // Sometimes we would get -inf here
                     if (eta < 0.0)
@@ -816,6 +827,12 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                 format_time(buf1, sizeof(buf1), data.metric.d);
                 format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
                 printf(" %s/ %s", buf1, buf2);
+            }
+
+            if (data.suspended) {
+                printf_colored(ANSI_YELLOW, " S  ");
+            } else {
+                printf("    ");
             }
         }
         printf("\n");
