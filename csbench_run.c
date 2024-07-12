@@ -90,6 +90,7 @@ struct progress_bar_bench {
     int bar;
     int finished;
     int aborted;
+    int warmup;
     int suspended;
     union {
         uint64_t u;
@@ -541,6 +542,7 @@ static void progress_bar_at_warmup(struct progress_bar_bench *bench) {
     if (!g_progress_bar)
         return;
     atomic_store(&bench->suspended, false);
+    atomic_store(&bench->warmup, true);
 }
 
 static void progress_bar_start(struct progress_bar_bench *bench, double time,
@@ -552,6 +554,7 @@ static void progress_bar_start(struct progress_bar_bench *bench, double time,
     atomic_store(&bench->start_time.u, u);
     memcpy(&u, &time_passed, sizeof(u));
     atomic_store(&bench->time_passed.u, u);
+    atomic_store(&bench->warmup, false);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench) {
@@ -771,6 +774,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         data.finished = atomic_load(&bar->benches[i].finished);
         data.aborted = atomic_load(&bar->benches[i].aborted);
         data.suspended = atomic_load(&bar->benches[i].suspended);
+        data.warmup = atomic_load(&bar->benches[i].warmup);
         data.metric.u = atomic_load(&bar->benches[i].metric.u);
         data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
         data.time_passed.u = atomic_load(&bar->benches[i].time_passed.u);
@@ -802,7 +806,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
             }
         } else {
             if (g_bench_stop.runs != 0) {
-                char eta_buf[256] = "N/A";
+                char eta_buf[256] = "N/A     ";
                 if (data.start_time.d != 0.0) {
                     double passed_time =
                         current_time - data.start_time.d + data.time_passed.d;
@@ -814,7 +818,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                         bar->states[i].time = current_time;
                     }
                     double eta = bar->states[i].eta;
-                    if (!data.finished && !data.suspended)
+                    if (!data.finished && !data.suspended && !data.warmup)
                         eta -= current_time - bar->states[i].time;
                     // Sometimes we would get -inf here
                     if (eta < 0.0)
@@ -836,6 +840,8 @@ static void redraw_progress_bar(struct progress_bar *bar) {
 
             if (data.suspended) {
                 printf_colored(ANSI_YELLOW, " S  ");
+            } else if (data.warmup) {
+                printf_colored(ANSI_MAGENTA, " W  ");
             } else {
                 printf("    ");
             }
