@@ -537,6 +537,12 @@ static bool exec_and_measure(const struct bench_params *params,
     return true;
 }
 
+static void progress_bar_at_warmup(struct progress_bar_bench *bench) {
+    if (!g_progress_bar)
+        return;
+    atomic_store(&bench->suspended, false);
+}
+
 static void progress_bar_start(struct progress_bar_bench *bench, double time,
                                double time_passed) {
     if (!g_progress_bar)
@@ -546,7 +552,6 @@ static void progress_bar_start(struct progress_bar_bench *bench, double time,
     atomic_store(&bench->start_time.u, u);
     memcpy(&u, &time_passed, sizeof(u));
     atomic_store(&bench->time_passed.u, u);
-    atomic_store(&bench->suspended, false);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench) {
@@ -678,12 +683,13 @@ out:
 // If the progress bar is disabled nothing concerning it shall be done.
 static enum bench_run_result run_bench(const struct bench_params *params,
                                        struct bench_analysis *al) {
+    struct bench *bench = al->bench;
+    progress_bar_at_warmup(bench->progress);
+
     if (!warmup(params))
         return BENCH_RUN_ERROR;
 
     assert(should_run(&g_bench_stop));
-
-    struct bench *bench = al->bench;
     progress_bar_start(bench->progress, get_time(), bench->time_run);
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
