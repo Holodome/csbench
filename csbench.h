@@ -77,7 +77,6 @@ enum input_kind {
     INPUT_POLICY_NULL,
     INPUT_POLICY_FILE,
     INPUT_POLICY_STRING,
-    INPUT_POLICY_DIR
 };
 
 // How to handle input of command?

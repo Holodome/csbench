@@ -252,6 +252,7 @@ $b --loada --rename-all=one,two > /tmp/csbench_2
 #
 # check that renaming works for groups
 #
+
 distclean
 out=$($b 'echo {n} | python3 tests/quicksort.py' --scan n/100/500/100 --rename-all quick)
 echo "$out" | grep -qv 'quicksort.py' || die 
@@ -260,6 +261,7 @@ echo "$out" | grep -q quick || die
 #
 # check --input option
 #
+
 echo 100 > /tmp/csbench_test
 distclean
 $b 'python3 tests/quicksort.py' --input /tmp/csbench_test > /dev/null || die
@@ -267,32 +269,58 @@ $b 'python3 tests/quicksort.py' --input /tmp/csbench_test > /dev/null || die
 #
 # check --inputs option
 #
+
 distclean
 $b 'python3 tests/quicksort.py' --inputs 100 > /dev/null || die
 
 #
 # measurement with time units specified
 #
+
 $b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --scan n/100/500/100 > /dev/null || die
 
 #
 # measurement with utime and stime measurements hand-specified
 #
+
 $b ls --no-wall --meas stime,utime > /dev/null || die
 
 #
 # custom measurement units
 #
+
 $b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --scan n/100/500/100 > /dev/null || die
 
 #
 # check --python-output option
 #
+
 $b ls --plot --python-output > /dev/null || die 
 
 #
 # check input string multiplexing
 #
+
 distclean
 $b cat --inputs 'hello {t}' --scanl t/1,2,3 --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 7 ]
+
+#
+# check input file multiplexing 
+#
+
+distclean
+touch /tmp/a
+touch /tmp/b
+$b cat --input '/tmp/{t}' --scanl t/a,b --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 6 ]
+
+#
+# check input directory
+#
+distclean 
+mkdir -p /tmp/csbenchdir
+touch /tmp/csbenchdir/a
+touch /tmp/csbenchdir/b
+$b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 6 ]

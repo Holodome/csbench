@@ -589,6 +589,74 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
     sb_free(list);
 }
 
+static size_t simple_get_thread_count(void) {
+    int pipe_fd[2];
+    if (pipe(pipe_fd) == -1)
+        return 1;
+
+    if (!execute_in_shell("nproc", -1, pipe_fd[1], -1)) {
+        close(pipe_fd[0]);
+        close(pipe_fd[1]);
+        return 1;
+    }
+
+    char buffer[4096];
+    ssize_t nread = read(pipe_fd[0], buffer, sizeof(buffer));
+    close(pipe_fd[0]);
+    close(pipe_fd[1]);
+    if (nread < 0 || nread == 0 || nread == sizeof(buffer))
+        return 1;
+
+    buffer[nread] = '\0';
+
+    char *str_end;
+    long value = strtol(buffer, &str_end, 10);
+    if (str_end == buffer)
+        return 1;
+
+    return value;
+}
+
+static int string_cmp(const void *ap, const void *bp) {
+    const char *a = ap;
+    const char *b = bp;
+    return strcmp(a, b);
+}
+
+static bool get_input_files_from_dir(const char *dirname, const char ***files) {
+    DIR *dir = opendir(dirname);
+    if (dir == NULL) {
+        csfmterror("failed to open directory '%s' (designated for input)",
+                   dirname);
+        return false;
+    }
+
+    *files = NULL;
+    for (;;) {
+        errno = 0;
+        struct dirent *dirent = readdir(dir);
+        if (dirent == NULL && errno != 0) {
+            csperror("readdir");
+            sb_free(*files);
+            break;
+        } else if (dirent == NULL) {
+            break;
+        }
+
+        const char *name = dirent->d_name;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+            continue;
+
+        const char *path = csfmt("%s/%s", dirname, name);
+        sb_push(*files, path);
+    }
+
+    qsort(*files, sb_len(*files), sizeof(**files), string_cmp);
+
+    closedir(dir);
+    return true;
+}
+
 static bool opt_arg(char **argv, int *cursor, const char *opt,
                     const char **arg) {
     if (strcmp(argv[*cursor], opt) == 0) {
@@ -629,34 +697,6 @@ static bool opt_arg(char **argv, int *cursor, const char *opt,
         }
     }
     return false;
-}
-
-static size_t simple_get_thread_count(void) {
-    int pipe_fd[2];
-    if (pipe(pipe_fd) == -1)
-        return 1;
-
-    if (!execute_in_shell("nproc", -1, pipe_fd[1], -1)) {
-        close(pipe_fd[0]);
-        close(pipe_fd[1]);
-        return 1;
-    }
-
-    char buffer[4096];
-    ssize_t nread = read(pipe_fd[0], buffer, sizeof(buffer));
-    close(pipe_fd[0]);
-    close(pipe_fd[1]);
-    if (nread < 0 || nread == 0 || nread == sizeof(buffer))
-        return 1;
-
-    buffer[nread] = '\0';
-
-    char *str_end;
-    long value = strtol(buffer, &str_end, 10);
-    if (str_end == buffer)
-        return 1;
-
-    return value;
 }
 
 static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
@@ -805,8 +845,22 @@ static void parse_cli_args(int argc, char **argv,
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
-            settings->input.kind = INPUT_POLICY_DIR;
-            settings->input.dir = str;
+            // XXX: To reuse old code, --inputd is more like a macro to
+            // --input '{file}' with --scanl file/... having list of files.
+            const char **files;
+            if (!get_input_files_from_dir(str, &files))
+                exit(EXIT_FAILURE);
+
+            settings->input.kind = INPUT_POLICY_FILE;
+            settings->input.file = "{file}";
+
+            struct bench_var *var = calloc(1, sizeof(*var));
+            var->name = "file";
+            var->values = files;
+            var->value_count = sb_len(files);
+            if (settings->var)
+                free(settings->var);
+            settings->var = var;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
@@ -1321,10 +1375,6 @@ static bool init_bench_stdin(const struct input_policy *input,
         }
         params->stdin_fd = fd;
         break;
-    case INPUT_POLICY_DIR:
-        // handled in 'multiplex_command_infos'
-        assert(0);
-        break;
     }
     }
     return true;
@@ -1504,8 +1554,8 @@ multiplex_command_info_input(const struct command_info *src_info,
 }
 
 static enum cmd_multiplex_result
-multiplex_command_infos_var(const struct bench_var *var,
-                            struct command_info **infos) {
+multiplex_command_infos(const struct bench_var *var,
+                        struct command_info **infos) {
     int ret = CMD_MULTIPLEX_NO_GROUPS;
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
@@ -1543,86 +1593,6 @@ multiplex_command_infos_var(const struct bench_var *var,
 err:
     sb_free(multiplexed);
     return CMD_MULTIPLEX_ERROR;
-}
-
-static int string_cmp(const void *ap, const void *bp) {
-    const char *a = ap;
-    const char *b = bp;
-    return strcmp(a, b);
-}
-
-static const bool get_input_files_from_dir(const char *dirname,
-                                           const char ***files) {
-    DIR *dir = opendir(dirname);
-    if (dir == NULL) {
-        csfmterror("failed to open directory '%s' (designated for input)",
-                   dirname);
-        return false;
-    }
-
-    *files = NULL;
-    for (;;) {
-        errno = 0;
-        struct dirent *dirent = readdir(dir);
-        if (dirent == NULL && errno != 0) {
-            csperror("readdir");
-            sb_free(*files);
-            break;
-        } else if (dirent == NULL) {
-            break;
-        }
-
-        const char *name = dirent->d_name;
-        const char *path = csfmt("%s/%s", dirname, name);
-        sb_push(*files, path);
-    }
-
-    qsort(*files, sb_len(files), sizeof(*files), string_cmp);
-
-    closedir(dir);
-    return true;
-}
-
-static enum cmd_multiplex_result
-multiplex_command_infos_dir(const char *dirname, struct command_info **infos) {
-    const char **input_files;
-    if (!get_input_files_from_dir(dirname, &input_files))
-        return CMD_MULTIPLEX_ERROR;
-    if (sb_len(input_files) == 0) {
-        error("Directory '%s' is empty (designated for input)", dirname);
-        return CMD_MULTIPLEX_ERROR;
-    }
-
-    struct command_info *multiplexed = NULL;
-    for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
-        const struct command_info *src_info = *infos + src_idx;
-
-        for (size_t file_idx = 0; file_idx < sb_len(input_files); ++file_idx) {
-            const char *file = input_files[file_idx];
-
-            struct command_info info;
-            memcpy(&info, src_info, sizeof(info));
-            info.input.kind = INPUT_POLICY_FILE;
-            info.input.file = file;
-            sb_push(multiplexed, info);
-        }
-    }
-
-    sb_free(*infos);
-    *infos = multiplexed;
-    return CMD_MULTIPLEX_SUCCESS;
-}
-
-static enum cmd_multiplex_result
-multiplex_command_infos(const struct cli_settings *cli,
-                        struct command_info **infos) {
-    if (cli->var != NULL)
-        return multiplex_command_infos_var(cli->var, infos);
-
-    if (cli->input.kind != INPUT_POLICY_DIR)
-        return CMD_MULTIPLEX_NO_GROUPS;
-
-    return multiplex_command_infos_dir(cli->input.dir, infos);
 }
 
 static bool init_benches(const struct cli_settings *cli,
@@ -1668,15 +1638,18 @@ static bool init_commands(const struct cli_settings *cli,
     if (!init_raw_command_infos(cli, &command_infos))
         return false;
 
-    int ret = multiplex_command_infos(cli, &command_infos);
     bool has_groups = false;
-    switch (ret) {
-    case CMD_MULTIPLEX_ERROR:
-        goto err;
-    case CMD_MULTIPLEX_NO_GROUPS:
-        break;
-    case CMD_MULTIPLEX_SUCCESS:
-        has_groups = true;
+    struct bench_var *var = cli->var;
+    if (var != NULL) {
+        int ret = multiplex_command_infos(var, &command_infos);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            goto err;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
+        case CMD_MULTIPLEX_SUCCESS:
+            has_groups = true;
+        }
     }
 
     if (!init_benches(cli, command_infos, has_groups, info))
