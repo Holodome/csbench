@@ -134,6 +134,10 @@ const char *g_out_dir = ".csbench";
 static const char *g_shell = "/bin/sh";
 static const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
+// XXX: This is hack to use short names for files found in directory specified
+// with --inputd. When opening files and this variable is not null open it
+// relative to this directory.
+static const char *g_inputd = NULL;
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
     /* MEAS_CUSTOM */ {"", NULL, {0}, 0, false, 0},
@@ -647,7 +651,7 @@ static bool get_input_files_from_dir(const char *dirname, const char ***files) {
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
             continue;
 
-        const char *path = csfmt("%s/%s", dirname, name);
+        const char *path = csstrdup(name);
         sb_push(*files, path);
     }
 
@@ -835,6 +839,7 @@ static void parse_cli_args(int argc, char **argv,
                 exit(EXIT_FAILURE);
             }
         } else if (opt_arg(argv, &cursor, "--input", &str)) {
+            g_inputd = NULL;
             if (strcmp(str, "null") == 0) {
                 settings->input.kind = INPUT_POLICY_NULL;
             } else {
@@ -861,6 +866,7 @@ static void parse_cli_args(int argc, char **argv,
             if (settings->var)
                 free(settings->var);
             settings->var = var;
+            g_inputd = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
@@ -1348,7 +1354,14 @@ static bool init_bench_stdin(const struct input_policy *input,
         params->stdin_fd = -1;
         break;
     case INPUT_POLICY_FILE: {
-        int fd = open(input->file, O_RDONLY | O_CLOEXEC);
+        char buf[4096];
+        const char *file = input->file;
+        if (g_inputd) {
+            snprintf(buf, sizeof(buf), "%s/%s", g_inputd, input->file);
+            file = buf;
+        }
+
+        int fd = open(file, O_RDONLY | O_CLOEXEC);
         if (fd == -1) {
             csfmterror(
                 "failed to open file '%s' (designated for benchmark input)",
