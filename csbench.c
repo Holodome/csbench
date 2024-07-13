@@ -804,6 +804,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_arg(argv, &cursor, "--inputs", &str)) {
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
+        } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
+            settings->input.kind = INPUT_POLICY_DIR;
+            settings->input.dir = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
             memset(&meas, 0, sizeof(meas));
@@ -1318,6 +1321,10 @@ static bool init_bench_stdin(const struct input_policy *input,
         }
         params->stdin_fd = fd;
         break;
+    case INPUT_POLICY_DIR:
+        // handled in 'multiplex_command_infos'
+        assert(0);
+        break;
     }
     }
     return true;
@@ -1401,107 +1408,221 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
     return true;
 }
 
-static bool multiplex_command_infos(const struct cli_settings *cli,
-                                    struct command_info **infos,
-                                    bool *has_groups) {
-    *has_groups = false;
-    if (cli->var == NULL)
-        return true;
+enum cmd_multiplex_result {
+    CMD_MULTIPLEX_ERROR,
+    CMD_MULTIPLEX_NO_GROUPS,
+    CMD_MULTIPLEX_SUCCESS
+};
 
-    const struct bench_var *var = cli->var;
+static enum cmd_multiplex_result
+multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
+                           const struct bench_var *var,
+                           struct command_info **multiplexed) {
+    // Take first value and try to replace it in the command string
+    char buf[4096];
+    bool replaced = false;
+    if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
+                         var->values[0], &replaced)) {
+        error("Failed to substitute variable");
+        return CMD_MULTIPLEX_ERROR;
+    }
+
+    if (!replaced)
+        return CMD_MULTIPLEX_NO_GROUPS;
+
+    // We could reuse the string that is contained in buffer right now,
+    // but it is a bit unecessary.
+    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+        const char *var_value = var->values[val_idx];
+        if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
+                             var_value, &replaced)) {
+            error("Failed to substitute variable");
+            return CMD_MULTIPLEX_ERROR;
+        }
+        assert(replaced);
+        struct command_info info;
+        memcpy(&info, src_info, sizeof(info));
+        info.name = info.cmd = csstrdup(buf);
+        info.grp_idx = src_idx;
+        info.grp_name = src_info->grp_name;
+        sb_push(*multiplexed, info);
+    }
+    return CMD_MULTIPLEX_SUCCESS;
+}
+
+static enum cmd_multiplex_result
+multiplex_command_info_input(const struct command_info *src_info,
+                             size_t src_idx, const struct bench_var *var,
+                             struct command_info **multiplexed) {
+    if (src_info->input.kind != INPUT_POLICY_FILE &&
+        src_info->input.kind != INPUT_POLICY_STRING)
+        return CMD_MULTIPLEX_NO_GROUPS;
+
+    const char *src_string;
+    if (src_info->input.kind == INPUT_POLICY_FILE)
+        src_string = src_info->input.file;
+    else if (src_info->input.kind == INPUT_POLICY_STRING)
+        src_string = src_info->input.string;
+
+    char buf[4096];
+    bool replaced = false;
+    if (!replace_var_str(buf, sizeof(buf), src_string, var->name,
+                         var->values[0], &replaced)) {
+        error("Failed to substitute variable");
+        return CMD_MULTIPLEX_ERROR;
+    }
+
+    if (!replaced)
+        return CMD_MULTIPLEX_NO_GROUPS;
+
+    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+        const char *var_value = var->values[val_idx];
+        if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var_value,
+                             &replaced)) {
+            error("Failed to substitute variable");
+            return CMD_MULTIPLEX_ERROR;
+        }
+        assert(replaced);
+        struct command_info info;
+        memcpy(&info, src_info, sizeof(info));
+        info.cmd = src_info->cmd;
+        info.grp_idx = src_idx;
+        info.grp_name = src_info->grp_name;
+        if (src_info->input.kind == INPUT_POLICY_FILE) {
+            info.input.file = csstrdup(buf);
+            snprintf(buf, sizeof(buf), "%s < %s", info.cmd, info.input.file);
+            info.name = csstrdup(buf);
+        } else if (src_info->input.kind == INPUT_POLICY_STRING) {
+            info.input.string = csstrdup(buf);
+            snprintf(buf, sizeof(buf), "%s <<< \"%s\"", info.cmd,
+                     info.input.string);
+            info.name = csstrdup(buf);
+        }
+        sb_push(*multiplexed, info);
+    }
+    return CMD_MULTIPLEX_SUCCESS;
+}
+
+static enum cmd_multiplex_result
+multiplex_command_infos_var(const struct bench_var *var,
+                            struct command_info **infos) {
+    int ret = CMD_MULTIPLEX_NO_GROUPS;
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
         const struct command_info *src_info = *infos + src_idx;
-        // Take first value and try to replace it in the command string
-        char buf[4096];
-        bool replaced = false;
-        if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
-                             var->values[0], &replaced)) {
-            error("Failed to substitute variable");
+
+        ret = multiplex_command_info_cmd(src_info, src_idx, var, &multiplexed);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
             goto err;
-        }
-
-        // If we succeeded, continue replacing in command string
-        if (replaced) {
-            // We could reuse the string that is contained in buffer right now,
-            // but it is a bit unecessary.
-            for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-                const char *var_value = var->values[val_idx];
-                if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
-                                     var_value, &replaced)) {
-                    error("Failed to substitute variable");
-                    goto err;
-                }
-                assert(replaced);
-                struct command_info info;
-                memcpy(&info, src_info, sizeof(info));
-                info.name = info.cmd = csstrdup(buf);
-                info.grp_idx = src_idx;
-                info.grp_name = src_info->grp_name;
-                sb_push(multiplexed, info);
-            }
+        case CMD_MULTIPLEX_SUCCESS:
             continue;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
         }
 
-        // If we get here that means command string does not contain variable
-        // substitutions. Search them elsewhere
-        if (src_info->input.kind == INPUT_POLICY_FILE ||
-            src_info->input.kind == INPUT_POLICY_STRING) {
-            const char *src_string;
-            if (src_info->input.kind == INPUT_POLICY_FILE)
-                src_string = src_info->input.file;
-            else if (src_info->input.kind == INPUT_POLICY_STRING)
-                src_string = src_info->input.string;
-
-            if (!replace_var_str(buf, sizeof(buf), src_string, var->name,
-                                 var->values[0], &replaced)) {
-                error("Failed to substitute variable");
-                goto err;
-            }
-            if (replaced) {
-                for (size_t val_idx = 0; val_idx < var->value_count;
-                     ++val_idx) {
-                    const char *var_value = var->values[val_idx];
-                    if (!replace_var_str(buf, sizeof(buf), src_string,
-                                         var->name, var_value, &replaced)) {
-                        error("Failed to substitute variable");
-                        goto err;
-                    }
-                    assert(replaced);
-                    struct command_info info;
-                    memcpy(&info, src_info, sizeof(info));
-                    info.cmd = src_info->cmd;
-                    info.grp_idx = src_idx;
-                    info.grp_name = src_info->grp_name;
-                    if (src_info->input.kind == INPUT_POLICY_FILE) {
-                        info.input.file = csstrdup(buf);
-                        snprintf(buf, sizeof(buf), "%s < %s", info.cmd,
-                                 info.input.file);
-                        info.name = csstrdup(buf);
-                    } else if (src_info->input.kind == INPUT_POLICY_STRING) {
-                        info.input.string = csstrdup(buf);
-                        snprintf(buf, sizeof(buf), "%s <<< \"%s\"", info.cmd,
-                                 info.input.string);
-                        info.name = csstrdup(buf);
-                    }
-                    sb_push(multiplexed, info);
-                }
-                continue;
-            }
+        ret =
+            multiplex_command_info_input(src_info, src_idx, var, &multiplexed);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            goto err;
+        case CMD_MULTIPLEX_SUCCESS:
+            continue;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
         }
 
         error("command '%s' does not contain variable substitutions",
               src_info->cmd);
+        goto err;
     }
 
     sb_free(*infos);
     *infos = multiplexed;
-    *has_groups = true;
-
-    return true;
+    return CMD_MULTIPLEX_SUCCESS;
 err:
     sb_free(multiplexed);
-    return false;
+    return CMD_MULTIPLEX_ERROR;
+}
+
+static int string_cmp(const void *ap, const void *bp) {
+    const char *a = ap;
+    const char *b = bp;
+    return strcmp(a, b);
+}
+
+static const bool get_input_files_from_dir(const char *dirname,
+                                           const char ***files) {
+    DIR *dir = opendir(dirname);
+    if (dir == NULL) {
+        csfmterror("failed to open directory '%s' (designated for input)",
+                   dirname);
+        return false;
+    }
+
+    *files = NULL;
+    for (;;) {
+        errno = 0;
+        struct dirent *dirent = readdir(dir);
+        if (dirent == NULL && errno != 0) {
+            csperror("readdir");
+            sb_free(*files);
+            break;
+        } else if (dirent == NULL) {
+            break;
+        }
+
+        const char *name = dirent->d_name;
+        const char *path = csfmt("%s/%s", dirname, name);
+        sb_push(*files, path);
+    }
+
+    qsort(*files, sb_len(files), sizeof(*files), string_cmp);
+
+    closedir(dir);
+    return true;
+}
+
+static enum cmd_multiplex_result
+multiplex_command_infos_dir(const char *dirname, struct command_info **infos) {
+    const char **input_files;
+    if (!get_input_files_from_dir(dirname, &input_files))
+        return CMD_MULTIPLEX_ERROR;
+    if (sb_len(input_files) == 0) {
+        error("Directory '%s' is empty (designated for input)", dirname);
+        return CMD_MULTIPLEX_ERROR;
+    }
+
+    struct command_info *multiplexed = NULL;
+    for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
+        const struct command_info *src_info = *infos + src_idx;
+
+        for (size_t file_idx = 0; file_idx < sb_len(input_files); ++file_idx) {
+            const char *file = input_files[file_idx];
+
+            struct command_info info;
+            memcpy(&info, src_info, sizeof(info));
+            info.input.kind = INPUT_POLICY_FILE;
+            info.input.file = file;
+            sb_push(multiplexed, info);
+        }
+    }
+
+    sb_free(*infos);
+    *infos = multiplexed;
+    return CMD_MULTIPLEX_SUCCESS;
+}
+
+static enum cmd_multiplex_result
+multiplex_command_infos(const struct cli_settings *cli,
+                        struct command_info **infos) {
+    if (cli->var != NULL)
+        return multiplex_command_infos_var(cli->var, infos);
+
+    if (cli->input.kind != INPUT_POLICY_DIR)
+        return CMD_MULTIPLEX_NO_GROUPS;
+
+    return multiplex_command_infos_dir(cli->input.dir, infos);
 }
 
 static bool init_benches(const struct cli_settings *cli,
@@ -1540,18 +1661,35 @@ static bool init_benches(const struct cli_settings *cli,
     return true;
 }
 
-static bool validate_input_policy(const struct input_policy *policy) {
-    if (policy->kind == INPUT_POLICY_FILE) {
-        if (access(policy->file, R_OK) == -1) {
-            error("failed to open file '%s' (specified for input)",
-                  policy->file);
-            return false;
-        }
+static bool init_commands(const struct cli_settings *cli,
+                          struct run_info *info) {
+    bool result = false;
+    struct command_info *command_infos = NULL;
+    if (!init_raw_command_infos(cli, &command_infos))
+        return false;
+
+    int ret = multiplex_command_infos(cli, &command_infos);
+    bool has_groups = false;
+    switch (ret) {
+    case CMD_MULTIPLEX_ERROR:
+        goto err;
+    case CMD_MULTIPLEX_NO_GROUPS:
+        break;
+    case CMD_MULTIPLEX_SUCCESS:
+        has_groups = true;
     }
-    return true;
+
+    if (!init_benches(cli, command_infos, has_groups, info))
+        goto err;
+
+    result = true;
+err:
+    sb_free(command_infos);
+    return result;
 }
 
-static bool validate_set_baseline(int baseline, const struct run_info *info) {
+static bool validate_and_set_baseline(int baseline,
+                                      const struct run_info *info) {
     if (baseline > 0) {
         // Adjust number from human-readable to indexable
         size_t b = baseline - 1;
@@ -1576,30 +1714,11 @@ static bool validate_set_baseline(int baseline, const struct run_info *info) {
     return true;
 }
 
-static bool init_commands(const struct cli_settings *cli,
-                          struct run_info *info) {
-    bool result = false;
-    struct command_info *command_infos = NULL;
-    if (!init_raw_command_infos(cli, &command_infos))
-        return false;
-
-    bool has_groups = false;
-    if (!multiplex_command_infos(cli, &command_infos, &has_groups))
-        goto err;
-
-    if (!init_benches(cli, command_infos, has_groups, info))
-        goto err;
-
-    result = true;
-err:
-    sb_free(command_infos);
-    return result;
-}
-
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
     info->var = cli->var;
+
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging,
     // and user will not care about not having progress bar
@@ -1613,9 +1732,6 @@ static bool init_run_info(const struct cli_settings *cli,
     }
 
     if (!init_commands(cli, info))
-        return false;
-
-    if (!validate_input_policy(&cli->input))
         return false;
 
     bool has_custom_meas = false;
@@ -1634,7 +1750,7 @@ static bool init_run_info(const struct cli_settings *cli,
 
     // Validate that baseline number (if specified) is not greater than
     // command count
-    if (!validate_set_baseline(cli->baseline, info))
+    if (!validate_and_set_baseline(cli->baseline, info))
         goto err;
 
     return true;

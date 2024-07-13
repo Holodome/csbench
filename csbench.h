@@ -59,10 +59,10 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <sys/types.h>
 
@@ -76,7 +76,8 @@ struct sb_header {
 enum input_kind {
     INPUT_POLICY_NULL,
     INPUT_POLICY_FILE,
-    INPUT_POLICY_STRING
+    INPUT_POLICY_STRING,
+    INPUT_POLICY_DIR
 };
 
 // How to handle input of command?
@@ -84,6 +85,7 @@ struct input_policy {
     enum input_kind kind;
     const char *file;
     const char *string;
+    const char *dir;
 };
 
 enum output_kind {
