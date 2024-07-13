@@ -220,12 +220,12 @@ err_free_counters:
 
 #elif defined(__APPLE__)
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <signal.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <dlfcn.h>
 #include <sys/kdebug.h>
 #include <sys/sysctl.h>
 #include <unistd.h>

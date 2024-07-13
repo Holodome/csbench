@@ -1,0 +1,32 @@
+name: Build and Test
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch
+        uses: actions/checkout@master
+      - name: install stuff
+        run: |
+          python3 -m pip install matplotlib
+      - name: test
+        run: |
+          make
+          ./tests/test.sh
+  amalgamation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch
+        uses: actions/checkout@master
+      - name: amalgamation
+        run: |
+          ./scripts/amalgamated.py
+      - name: check compiles
+        run: |
+          gcc csbench_amalgamated.c -lm -lpthread
+      - name: upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: csbench_amalgamated.c
+          path: csbench_amalgamated.c

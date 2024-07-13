@@ -24,6 +24,12 @@ distclean() {
 }
 
 #
+# check --help and --version
+#
+$b --help > /dev/null || die
+$b --version > /dev/null || die
+
+#
 # check that plots are generated for one command
 # 
 
@@ -50,7 +56,7 @@ $b ls pwd --plot > /dev/null || die
 #
 
 distclean
-$b ls --plot --custom-t aaa 'echo $RANDOM' > /dev/null || die 
+$b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_0_3.svg" ] && [ -f "$dist_dir/kde_ext_0_3.svg" ] && \
@@ -79,7 +85,7 @@ distclean
 $b ls pwd --html > /dev/null || die 
 [ -f "$dist_dir/index.html" ] || die
 distclean
-$b ls --html --custom-t aaa 'echo $RANDOM' > /dev/null || die 
+$b ls --html --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ -f "$dist_dir/index.html" ] || die
 distclean 
 $b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
@@ -148,18 +154,18 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["settings"]["warmup_time"]' > /dev/null || die
     cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
     cat $j | jq -e '.["benches"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["prepare"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["command"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["run_count"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["exit_codes"].[]' > /dev/null || die
+    cat $j | jq -e '.["benches"][]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["prepare"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["command"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["run_count"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["exit_codes"][]' > /dev/null || die
 
-    $b ls --export-json $j --custom-t aaa 'echo $RANDOM' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["name"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["units"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["cmd"]' > /dev/null || die
-    cat $j | jq -e '.["benches"].[] | .["meas"].[] | .["val"].[]' > /dev/null || die
+    $b ls --export-json $j --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["name"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["units"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["cmd"]' > /dev/null || die
+    cat $j | jq -e '.["benches"][] | .["meas"][] | .["val"][]' > /dev/null || die
 fi
 
 #
@@ -233,20 +239,88 @@ echo "$out" | grep -qv ls || die
 # check that loading results from csv produces the same report
 #
 
-# FIXME: Due to floating-point rounding this does not always work
-# distclean 
-# $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-# $b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
+distclean 
+$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
+$b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
+# FIXME: Due to floating-point rounding diff does not always work
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
-# distclean 
-# $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-# $b --loada --rename-all=one,two > /tmp/csbench_2
+distclean 
+$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
+$b --loada --rename-all=one,two > /tmp/csbench_2
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
 
 #
 # check that renaming works for groups
 #
+
 distclean
 out=$($b 'echo {n} | python3 tests/quicksort.py' --scan n/100/500/100 --rename-all quick)
 echo "$out" | grep -qv 'quicksort.py' || die 
 echo "$out" | grep -q quick || die 
+
+#
+# check --input option
+#
+
+echo 100 > /tmp/csbench_test
+distclean
+$b 'python3 tests/quicksort.py' --input /tmp/csbench_test > /dev/null || die
+
+#
+# check --inputs option
+#
+
+distclean
+$b 'python3 tests/quicksort.py' --inputs 100 > /dev/null || die
+
+#
+# measurement with time units specified
+#
+
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --scan n/100/500/100 > /dev/null || die
+
+#
+# measurement with utime and stime measurements hand-specified
+#
+
+$b ls --no-wall --meas stime,utime > /dev/null || die
+
+#
+# custom measurement units
+#
+
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --scan n/100/500/100 > /dev/null || die
+
+#
+# check --python-output option
+#
+
+$b ls --plot --python-output > /dev/null || die 
+
+#
+# check input string multiplexing
+#
+
+distclean
+$b cat --inputs 'hello {t}' --scanl t/1,2,3 --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 7 ]
+
+#
+# check input file multiplexing 
+#
+
+distclean
+touch /tmp/a
+touch /tmp/b
+$b cat --input '/tmp/{t}' --scanl t/a,b --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 6 ]
+
+#
+# check input directory
+#
+distclean 
+mkdir -p /tmp/csbenchdir
+touch /tmp/csbenchdir/a
+touch /tmp/csbenchdir/b
+$b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 6 ]

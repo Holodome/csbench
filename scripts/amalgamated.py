@@ -3,7 +3,8 @@
 import itertools
 
 file_names = ["csbench.h", "csbench.c", "csbench_plot.c", "csbench_perf.c",
-              "csbench_utils.c"]
+              "csbench_utils.c", "csbench_run.c", "csbench_report.c",
+              "csbench_analyze.c"]
 files = {}
 for name in file_names:
     with open(name, encoding="utf8") as f:
@@ -25,6 +26,12 @@ def make_core_contents(lines):
 
 amalgamated_source = preample \
         + make_core_contents(files["csbench.h"]) \
+        + ["\n"] \
+        + make_core_contents(files["csbench_run.c"]) \
+        + ["\n"] \
+        + make_core_contents(files["csbench_analyze.c"]) \
+        + ["\n"] \
+        + make_core_contents(files["csbench_report.c"]) \
         + ["\n"] \
         + make_core_contents(files["csbench_utils.c"]) \
         + ["\n"] \

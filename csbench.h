@@ -59,6 +59,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -74,13 +75,16 @@ struct sb_header {
 
 enum input_kind {
     INPUT_POLICY_NULL,
-    INPUT_POLICY_FILE
+    INPUT_POLICY_FILE,
+    INPUT_POLICY_STRING,
 };
 
 // How to handle input of command?
 struct input_policy {
     enum input_kind kind;
     const char *file;
+    const char *string;
+    const char *dir;
 };
 
 enum output_kind {
@@ -108,7 +112,7 @@ enum units_kind {
 struct units {
     enum units_kind kind;
     // If kind is MU_CUSTOM, contains units name
-    char str[32];
+    const char *str;
 };
 
 enum meas_kind {
@@ -130,7 +134,7 @@ enum meas_kind {
 
 struct meas {
     // Measurement name that will be used in reports
-    char name[64];
+    const char *name;
     // If measurement is MEAS_CUSTOM, cotains command string to be exucted in
     // shell to do custom measurement.
     const char *cmd;
@@ -142,13 +146,13 @@ struct meas {
 
 // Variable which can be substitued in command string.
 struct bench_var {
-    char name[64];
-    char **values;
+    const char *name;
+    const char **values;
     size_t value_count;
 };
 
 struct bench_var_group {
-    char name[1024];
+    const char *name;
     size_t *cmd_idxs; // [var->value_count]
 };
 
@@ -177,6 +181,8 @@ struct outliers {
 // Describes distribution and is useful for passing benchmark data and analysis
 // around.
 struct distr {
+    // This pointer is const, because memory is owned by respective 'struct
+    // bench' instance.
     const double *data;
     size_t count;
     struct est mean;
@@ -184,26 +190,39 @@ struct distr {
     double min;
     double max;
     double median;
+    // First quartile
     double q1;
+    // Third quartile
     double q3;
+    // First percentile
     double p1;
+    // Fifth percentile
     double p5;
+    // 95-th percentile
     double p95;
+    // 99-th percentile
     double p99;
     struct outliers outliers;
 };
 
+// Runtime information about benchmark. When running, this structure is being
+// filled accordinly with results of execution and, in particular, measurement
+// values. This is later passed down for analysis.
 struct bench {
     size_t run_count;
     int *exit_codes;
     double **meas; // [meas_count]
     struct progress_bar_bench *progress;
+    size_t *stdout_offsets;
+    // In case of suspension we save the state of running so it can be restored
+    // later
+    double time_run;
 };
 
 struct bench_analysis {
     struct bench *bench;
     struct distr *meas; // [meas_count]
-    char name[1024];
+    const char *name;
 };
 
 enum big_o {
@@ -235,9 +254,11 @@ struct ols_regress {
 
 struct group_analysis {
     const struct bench_var_group *group;
-    struct cmd_in_group_data *data;
+    struct cmd_in_group_data *data; // [var->value_count]
+    // Pointers to 'data' elements
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
+    // Linear regression can only be performed when values are numbers
     bool values_are_doubles;
     struct ols_regress regress;
 };
@@ -257,9 +278,9 @@ struct point_err_est {
 
 // Analysis for a single measurement kind for all benchmarks. We don't do
 // inter-measurement analysis, so this is more or less self-contained.
-struct bench_meas_analysis {
+struct meas_analysis {
     // Make it easy to pass this structure around as base is always needed
-    struct bench_results *base;
+    struct analysis *base;
     const struct meas *meas;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
@@ -279,17 +300,64 @@ struct bench_meas_analysis {
     double **var_p_values; // [val_count][group_count]
 };
 
-struct bench_results {
-    const struct bench_var_group *var_groups;
+// This structure hold results of benchmarking across all measurements and
+// commands. Basically, it is the output of the program. Once filled via
+// machinery in csbench_analyze.c, this structure can be passed down to
+// different visualization paths, like plots, html report or command line
+// report.
+struct analysis {
+    // This pointer is const because respective memory is owned by 'struct
+    // run_info' instance'
+    const struct bench_var_group *var_groups; // [group_count]
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
-    struct bench *benches;                     // [bench_count]
-    struct bench_analysis *bench_analyses;     // [bench_count]
-    const struct meas *meas;                   // [meas_count]
-    struct bench_meas_analysis *meas_analyses; // [meas_count]
+    struct bench *benches;                 // [bench_count]
+    struct bench_analysis *bench_analyses; // [bench_count]
+    const struct meas *meas;               // [meas_count]
+    struct meas_analysis *meas_analyses;   // [meas_count]
+};
+
+struct run_info {
+    struct bench_params *params;
+    struct bench_var_group *groups;
+    const struct bench_var *var;
+    const struct meas *meas;
+};
+
+struct bench_stop_policy {
+    double time_limit;
+    int runs;
+    int min_runs;
+    int max_runs;
+};
+
+// Description of one benchmark, read-only information that is
+// used to run it and choose what information to collect.
+struct bench_params {
+    const char *name;
+    // Command string that is executed
+    const char *str;
+    // 'exec' argument to execve
+    const char *exec;
+    // 'argv' argument to execve
+    const char **argv;
+    enum output_kind output;
+    // List of measurements to record
+    size_t meas_count;
+    const struct meas *meas; // [meas_count]
+    // If not -1, use this file as stdin, otherwise /dev/null
+    int stdin_fd;
+    // If not -1, pipe stdout to this file
+    int stdout_fd;
+};
+
+struct output_anchor {
+    pthread_t id;
+    char buffer[4096];
+    bool has_message;
 };
 
 #define sb_header(_a)                                                          \
@@ -346,16 +414,60 @@ struct bench_results {
 // csbench.c
 //
 
-// These output functions contain some heavy logic connected to threading which
-// is tightly coupled with main execution logic, so they are best kept in main
-// file until we decide to split all multithreading elsewhere.
 #define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
 __attribute__((format(printf, 3, 4))) void
 fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
-void csperror(const char *fmt);
+void errorv(const char *fmt, va_list args);
+void csperror(const char *msg);
+void csfmterror(const char *fmt, ...);
 
 extern __thread uint64_t g_rng_state;
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
+// Use linear regression to estimate slope when doing parameterized benchmark.
+extern bool g_regr;
+// Index of benchmark that should be used as baseline or -1.
+extern int g_baseline;
+extern int g_threads;
+extern bool g_allow_nonzero;
+extern bool g_plot;
+extern bool g_html;
+extern bool g_csv;
+extern bool g_plot_src;
+extern const char *g_json_export_filename;
+extern struct bench_stop_policy g_bench_stop;
+extern struct bench_stop_policy g_warmup_stop;
+extern struct bench_stop_policy g_round_stop;
+extern const char *g_prepare;
+extern const char *g_out_dir;
+extern bool g_python_output;
+extern bool g_use_perf;
+extern bool g_progress_bar;
+extern struct output_anchor *volatile g_output_anchors;
+
+//
+// csbench_analyze.c
+//
+
+void init_analysis(const struct meas *meas_list, size_t bench_count,
+                   const struct bench_var *var, struct analysis *al);
+void analyze_bench(struct bench_analysis *analysis, size_t meas_count);
+bool analyze_benches(const struct run_info *info, struct analysis *al);
+void free_analysis(struct analysis *al);
+
+//
+// csbench_run.c
+//
+
+bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+                 size_t count);
+
+//
+// csbench_report.c
+//
+
+bool make_report(const struct analysis *al);
 
 //
 // csbench_perf.c
@@ -376,9 +488,9 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 // csbench_plot.c
 //
 
-void bar_plot(const struct bench_meas_analysis *analysis,
-              const char *output_filename, FILE *f);
-void group_bar_plot(const struct bench_meas_analysis *analysis,
+void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
+              FILE *f);
+void group_bar_plot(const struct meas_analysis *analysis,
                     const char *output_filename, FILE *f);
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const struct meas *meas, const struct bench_var *var,
@@ -396,6 +508,8 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
 //
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
+
+double get_time(void);
 
 bool units_is_time(const struct units *units);
 const char *units_str(const struct units *units);
@@ -423,10 +537,44 @@ bool process_finished_correctly(pid_t pid);
 bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
                       int stderr_fd);
 
+int tmpfile_fd(void);
+
+// Hand-writte strlcpy. Even if strlcpy is available on given platform,
+// we resort to this for portability.
 size_t csstrlcpy(char *dst, const char *src, size_t size);
-#ifdef strlcpy
-#undef strlcpy
-#endif
-#define strlcpy csstrlcpy
+
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
+                                                          const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
+                                                      const char *fmt, ...);
+
+bool spawn_threads(void *(*worker_fn)(void *), void *param,
+                   size_t thread_count);
+
+void init_rng_state(void);
+
+static inline uint32_t pcg32_fast(uint64_t *state) {
+    uint64_t x = *state;
+    unsigned count = (unsigned)(x >> 61);
+    *state = x * UINT64_C(6364136223846793005);
+    x ^= x >> 22;
+    return (uint32_t)(x >> (22 + count));
+}
+
+// This is global interface for allocating and deallocating strings.
+// This program is not string-heavy, most of the times they arise during
+// configuration parsing and benchmark initialization.
+//
+// But **** this stupid ****, memory management is too hard. Just allocate all
+// strings in global arena and then free at once. This way all strings are
+// treated as read-only, so we can safely assign them without copying.
+//
+// XXX: Marked as const to force the behaviour we want. User should not modify
+// strings directly and instead work using this interface.
+void cs_free_strings(void);
+const char *csstrdup(const char *str);
+const char *csmkstr(const char *str, size_t len);
+const char *csstripend(const char *str);
+__attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 
 #endif // CSBENCH_H

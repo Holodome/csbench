@@ -53,12 +53,27 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <pthread.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#endif
+
+struct string_ll {
+    char *str;
+    struct string_ll *next;
+};
+
+static struct string_ll *string_ll = NULL;
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     if (arr == NULL) {
@@ -361,14 +376,6 @@ double ols_approx(const struct ols_regress *regress, double n) {
     return regress->a * f + regress->b;
 }
 
-static uint32_t pcg32_fast(uint64_t *state) {
-    uint64_t x = *state;
-    unsigned count = (unsigned)(x >> 61);
-    *state = x * UINT64_C(6364136223846793005);
-    x ^= x >> 22;
-    return (uint32_t)(x >> (22 + count));
-}
-
 static int compare_doubles(const void *a, const void *b) {
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
@@ -574,10 +581,15 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
 bool process_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
-    if ((wpid = waitpid(pid, &status, 0)) != pid) {
-        if (wpid == -1)
-            csperror("waitpid");
-        return false;
+    for (;;) {
+        if ((wpid = waitpid(pid, &status, 0)) != pid) {
+            if (wpid == -1 && errno == EINTR)
+                continue;
+            if (wpid == -1)
+                csperror("waitpid");
+            return false;
+        }
+        break;
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         return true;
@@ -608,9 +620,6 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
             if (stderr_fd == -1)
                 stderr_fd = fd;
         }
-        close(STDIN_FILENO);
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
         if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
             dup2(stdout_fd, STDOUT_FILENO) == -1 ||
             dup2(stderr_fd, STDERR_FILENO) == -1)
@@ -631,4 +640,131 @@ size_t csstrlcpy(char *dst, const char *src, size_t size) {
         dst[len] = '\0';
     }
     return ret;
+}
+
+#if defined(__APPLE__)
+double get_time(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9; }
+#else
+double get_time(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+#endif
+
+FILE *open_file_fmt(const char *mode, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return fopen(buf, mode);
+}
+
+int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return open(buf, flags, mode);
+}
+
+int tmpfile_fd(void) {
+    char path[] = "/tmp/csbench_XXXXXX";
+    int fd = mkstemp(path);
+    if (fd == -1) {
+        csperror("mkstemp");
+        return -1;
+    }
+    if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
+        csperror("fcntl");
+        return false;
+    }
+    unlink(path);
+    return fd;
+}
+
+bool spawn_threads(void *(*worker_fn)(void *), void *param,
+                   size_t thread_count) {
+    bool success = false;
+    pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
+    // Create worker threads that do running.
+    for (size_t i = 0; i < thread_count; ++i) {
+        // HACK: save thread id to output anchors first. If we do not do it
+        // here we would need additional synchronization
+        pthread_t *id = thread_ids + i;
+        if (g_progress_bar && g_output_anchors)
+            id = &g_output_anchors[i].id;
+        if (pthread_create(id, NULL, worker_fn, param) != 0) {
+            for (size_t j = 0; j < i; ++j)
+                pthread_join(thread_ids[j], NULL);
+            error("failed to spawn thread");
+            goto out;
+        }
+        thread_ids[i] = *id;
+    }
+
+    success = true;
+    for (size_t i = 0; i < thread_count; ++i) {
+        void *thread_retval;
+        pthread_join(thread_ids[i], &thread_retval);
+        if (thread_retval == (void *)-1)
+            success = false;
+    }
+
+out:
+    free(thread_ids);
+    return success;
+}
+
+void cs_free_strings(void) {
+    for (struct string_ll *lc = string_ll; lc;) {
+        free(lc->str);
+        struct string_ll *next = lc->next;
+        free(lc);
+        lc = next;
+    }
+}
+
+const char *csmkstr(const char *src, size_t len) {
+    struct string_ll *lc = calloc(1, sizeof(*lc));
+    char *str = malloc(len + 1);
+    memcpy(str, src, len);
+    str[len] = '\0';
+    lc->str = str;
+    lc->next = string_ll;
+    string_ll = lc;
+    return str;
+}
+
+const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
+
+const char *csstripend(const char *src) {
+    size_t len = strlen(src);
+    char *str = (char *)csmkstr(src, len);
+    // XXX: I don't remember why this exists...
+    while (len && str[len - 1] == '\n')
+        str[len-- - 1] = '\0';
+    return str;
+}
+
+const char *csfmt(const char *fmt, ...) {
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    return csstrdup(buf);
+}
+
+void init_rng_state(void) {
+    pthread_t pt = pthread_self();
+    if (sizeof(pt) >= sizeof(uint64_t)) {
+        uint64_t entropy;
+        memcpy(&entropy, &pt, sizeof(uint64_t));
+        g_rng_state = time(NULL) * 2 + entropy;
+    } else {
+        g_rng_state = time(NULL) * 2 + 1;
+    }
 }
