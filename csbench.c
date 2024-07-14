@@ -770,11 +770,6 @@ static void parse_cli_args(int argc, char **argv,
         print_help_and_exit(EXIT_SUCCESS);
 
     int cursor = 1;
-    if (strcmp(argv[cursor], "load") == 0) {
-        g_mode = APP_LOAD;
-        ++cursor;
-    }
-
     const char *str;
     while (cursor < argc) {
         if (strcmp(argv[cursor], "--help") == 0 ||
@@ -991,10 +986,10 @@ static void parse_cli_args(int argc, char **argv,
             // XXX: This is kind of a hack, but whatever
             // Checked in `should_finish_running`
             g_round_stop.min_runs = INT_MAX;
-        } else if (strcmp(argv[cursor], "--load") == 0) {
+        } else if (strcmp(argv[cursor], "--load-csv") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
-        } else if (strcmp(argv[cursor], "--loada") == 0) {
+        } else if (strcmp(argv[cursor], "--load-csv-a") == 0) {
             ++cursor;
             g_mode = APP_LOAD;
             g_loada = true;
