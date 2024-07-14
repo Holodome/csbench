@@ -221,6 +221,7 @@ struct bench {
 
 struct bench_analysis {
     struct bench *bench;
+    size_t meas_count;
     struct distr *meas; // [meas_count]
     const char *name;
 };
@@ -451,9 +452,10 @@ extern struct output_anchor *volatile g_output_anchors;
 //
 
 void init_analysis(const struct meas *meas_list, size_t bench_count,
-                   const struct bench_var *var, struct analysis *al);
-void analyze_bench(struct bench_analysis *analysis, size_t meas_count);
-bool analyze_benches(const struct run_info *info, struct analysis *al);
+                   const struct bench_var *var,
+                   const struct bench_var_group *groups, struct analysis *al);
+void analyze_bench(struct bench_analysis *analysis);
+bool analyze_benches(struct analysis *al);
 void free_analysis(struct analysis *al);
 
 //

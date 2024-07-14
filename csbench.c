@@ -1828,11 +1828,11 @@ static bool run_app_bench(const struct cli_settings *cli) {
     if (!validate_rename_list(cli->rename_list, bench_count, info.groups))
         goto err_deinit_perf;
     struct analysis al;
-    init_analysis(cli->meas, bench_count, info.var, &al);
+    init_analysis(cli->meas, bench_count, info.var, info.groups, &al);
     set_benchmark_names(cli, &info, &al);
     if (!run_benches(info.params, al.bench_analyses, bench_count))
         goto err_free_analysis;
-    if (!analyze_benches(&info, &al))
+    if (!analyze_benches(&al))
         goto err_free_analysis;
     if (!make_report(&al))
         goto err_free_analysis;
@@ -2063,7 +2063,7 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
 
     size_t meas_count = sb_len(meas_list);
     struct analysis al;
-    init_analysis(meas_list, bench_count, NULL, &al);
+    init_analysis(meas_list, bench_count, NULL, NULL, &al);
     for (size_t i = 0; i < al.bench_count; ++i) {
         struct bench *bench = al.benches + i;
         struct bench_analysis *analysis = al.bench_analyses + i;
@@ -2072,23 +2072,13 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
             analysis->name = file;
         if (!load_bench_result(file, bench, meas_count))
             goto err_free_analysis;
-        analyze_bench(analysis, meas_count);
+        analyze_bench(analysis);
     }
-    struct run_info info = {0};
-    // XXX: Allocate array just so we don't crash. This is more of a hack,
-    // since analysis code tries to run custom measurements.
-    info.params = calloc(al.bench_count, sizeof(*info.params));
-    for (size_t i = 0; i < al.bench_count; ++i) {
-        info.params[i].stdin_fd = -1;
-        info.params[i].stdout_fd = -1;
-    }
-    if (!analyze_benches(&info, &al))
-        goto err_free_run_info;
+    if (!analyze_benches(&al))
+        goto err_free_analysis;
     if (!make_report(&al))
-        goto err_free_run_info;
+        goto err_free_analysis;
     result = true;
-err_free_run_info:
-    free_run_info(&info);
 err_free_analysis:
     free_analysis(&al);
 err_free_meas_list:

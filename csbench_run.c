@@ -138,6 +138,45 @@ struct run_task_queue {
     size_t remaining_task_count;
 };
 
+struct custom_measurement_task {
+    struct custom_measurement_task_queue *q;
+    const struct bench_params *param;
+    struct bench_analysis *al;
+};
+
+struct custom_measurement_task_queue {
+    size_t task_count;
+    struct custom_measurement_task *tasks;
+    volatile size_t cursor;
+};
+
+static void
+init_custom_measurement_task_queue(const struct bench_params *params,
+                                   struct bench_analysis *als, size_t count,
+                                   struct custom_measurement_task_queue *q) {
+    memset(q, 0, sizeof(*q));
+    q->task_count = count;
+    q->tasks = calloc(count, sizeof(*q->tasks));
+    for (size_t i = 0; i < count; ++i) {
+        q->tasks[i].q = q;
+        q->tasks[i].param = params + i;
+        q->tasks[i].al = als + i;
+    }
+}
+
+static void
+free_custom_measurement_task_queue(struct custom_measurement_task_queue *q) {
+    free(q->tasks);
+}
+
+static struct custom_measurement_task *
+get_custom_measurement_task(struct custom_measurement_task_queue *q) {
+    size_t idx = atomic_fetch_inc(&q->cursor);
+    if (idx >= q->task_count)
+        return NULL;
+    return q->tasks + idx;
+}
+
 // Used by 'should_i_suspend'
 static __thread struct run_task_queue *g_q;
 
@@ -869,6 +908,7 @@ static void *progress_bar_thread_worker(void *arg) {
 
 static void init_progress_bar(struct bench_analysis *als, size_t count,
                               struct progress_bar *bar) {
+    memset(bar, 0, sizeof(*bar));
     bar->count = count;
     bar->benches = calloc(count, sizeof(*bar->benches));
     bar->states = calloc(count, sizeof(*bar->states));
@@ -910,6 +950,201 @@ static bool execute_run_tasks(const struct bench_params *params,
     return success;
 }
 
+static bool parse_custom_output(int fd, double *valuep) {
+    char buf[4096];
+    ssize_t nread = read(fd, buf, sizeof(buf));
+    if (nread == -1) {
+        csperror("read");
+        return false;
+    }
+    if (nread == sizeof(buf)) {
+        error("custom measurement output is too large");
+        return false;
+    }
+    if (nread == 0) {
+        error("custom measurement output is empty");
+        return false;
+    }
+    buf[nread] = '\0';
+    char *end = NULL;
+    double value = strtod(buf, &end);
+    if (end == buf) {
+        error("invalid custom measurement output '%s'", buf);
+        return false;
+    }
+    *valuep = value;
+    return true;
+}
+
+static bool do_custom_measurement(const struct meas *custom, int input_fd,
+                                  int output_fd, double *valuep) {
+    // XXX: This is optimization to not spawn separate process when custom
+    // command just forwards input. We could create separate entry in 'enum
+    // meas_kind', but this is really not that important case to design against.
+    // Going furhter, we could avoid using file descriptors at all, but this
+    // would require noticeable code changes, and I am too lazy for that.
+    // Most of the time is spent in spawning processes anyway, so we cut it down
+    // significantly either way.
+    if (strcmp(custom->cmd, "cat") == 0) {
+        double value;
+        if (!parse_custom_output(input_fd, &value))
+            return false;
+        *valuep = value;
+        return true;
+    }
+
+    if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
+        csperror("lseek");
+        return false;
+    }
+
+    if (ftruncate(output_fd, 0) == -1) {
+        csperror("ftruncate");
+        return false;
+    }
+
+    if (!execute_in_shell(custom->cmd, input_fd, output_fd, -1))
+        return false;
+
+    if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
+        csperror("lseek");
+        return false;
+    }
+
+    double value;
+    if (!parse_custom_output(output_fd, &value))
+        return false;
+
+    *valuep = value;
+    return true;
+}
+
+static bool run_custom_measurements(const struct bench_params *params,
+                                    struct bench *bench) {
+    bool success = false;
+    int all_stdout_fd = params->stdout_fd;
+    // If stdout_fd is not set means we have no custom measurements
+    if (all_stdout_fd == -1)
+        return true;
+
+    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
+        csperror("lseek");
+        return false;
+    }
+
+    size_t max_stdout_size = bench->stdout_offsets[0];
+    for (size_t i = 1; i < bench->run_count; ++i) {
+        size_t d = bench->stdout_offsets[i] - bench->stdout_offsets[i - 1];
+        if (d > max_stdout_size)
+            max_stdout_size = d;
+    }
+
+    int input_fd = tmpfile_fd();
+    if (input_fd == -1)
+        return false;
+    int output_fd = tmpfile_fd();
+    if (output_fd == -1) {
+        close(input_fd);
+        return false;
+    }
+
+    const struct meas **custom_meas_list = NULL;
+    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
+        const struct meas *meas = params->meas + meas_idx;
+        if (meas->kind == MEAS_CUSTOM)
+            sb_push(custom_meas_list, meas);
+    }
+    assert(custom_meas_list);
+    void *copy_buffer = malloc(max_stdout_size);
+
+    for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
+        size_t run_stdout_len;
+        if (run_idx == 0) {
+            run_stdout_len = bench->stdout_offsets[run_idx];
+        } else {
+            run_stdout_len = bench->stdout_offsets[run_idx] -
+                             bench->stdout_offsets[run_idx - 1];
+        }
+        assert(run_stdout_len <= max_stdout_size);
+
+        ssize_t nr = read(all_stdout_fd, copy_buffer, run_stdout_len);
+        if (nr != (ssize_t)run_stdout_len) {
+            csperror("read");
+            goto err;
+        }
+        ssize_t nw = write(input_fd, copy_buffer, run_stdout_len);
+        if (nw != (ssize_t)run_stdout_len) {
+            csperror("write");
+            goto err;
+        }
+        if (ftruncate(input_fd, run_stdout_len) == -1) {
+            csperror("ftruncate");
+            goto err;
+        }
+
+        for (size_t m = 0; m < sb_len(custom_meas_list); ++m) {
+            const struct meas *meas = custom_meas_list[m];
+            double value;
+            if (lseek(input_fd, 0, SEEK_SET) == -1) {
+                csperror("lseek");
+                goto err;
+            }
+            if (!do_custom_measurement(meas, input_fd, output_fd, &value))
+                goto err;
+            sb_push(bench->meas[meas - params->meas], value);
+        }
+        // Reset write cursor before the next loop cycle
+        if (run_idx != bench->run_count - 1) {
+            if (lseek(input_fd, 0, SEEK_SET) == -1) {
+                csperror("lseek");
+                goto err;
+            }
+        }
+    }
+
+    success = true;
+err:
+    close(input_fd);
+    close(output_fd);
+    free(copy_buffer);
+    sb_free(custom_meas_list);
+    return success;
+}
+
+static void *custom_measurement_bench_worker(void *arg) {
+    struct custom_measurement_task_queue *q = arg;
+    init_rng_state();
+    for (;;) {
+        struct custom_measurement_task *task = get_custom_measurement_task(q);
+        if (!task)
+            break;
+        if (!run_custom_measurements(task->param, task->al->bench))
+            return (void *)-1;
+    }
+    return NULL;
+}
+
+static bool execute_custom_measurement_tasks(const struct bench_params *params,
+                                             struct bench_analysis *als,
+                                             size_t count,
+                                             size_t thread_count) {
+    struct custom_measurement_task_queue q;
+    init_custom_measurement_task_queue(params, als, count, &q);
+    bool success;
+    if (thread_count == 1) {
+        void *result = custom_measurement_bench_worker(&q);
+        if (result == NULL)
+            success = true;
+        else
+            success = false;
+    } else {
+        success =
+            spawn_threads(custom_measurement_bench_worker, &q, thread_count);
+    }
+    free_custom_measurement_task_queue(&q);
+    return success;
+}
+
 // Execute benchmarks, possibly in parallel using worker threads.
 // When parallel execution is used, thread pool is created, threads from
 // which select a benchmark to run in random order. We shuffle the
@@ -931,7 +1166,7 @@ static bool execute_run_tasks(const struct bench_params *params,
 bool run_benches(const struct bench_params *params, struct bench_analysis *als,
                  size_t count) {
     bool success = false;
-    struct progress_bar progress_bar = {0};
+    struct progress_bar progress_bar;
     pthread_t progress_bar_thread;
     if (g_progress_bar) {
         init_progress_bar(als, count, &progress_bar);
@@ -955,6 +1190,9 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
     }
 
     if (!execute_run_tasks(params, als, count, thread_count))
+        goto out;
+
+    if (!execute_custom_measurement_tasks(params, als, count, thread_count))
         goto out;
 
     success = true;
