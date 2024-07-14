@@ -16,10 +16,10 @@ Command\-line benchmarking tool which includes:
 * Statistical comparison between multiple benchmarks.
 .RE
 .RS
-* Support for arbitrary shell comamnds.
+* Support for arbitrary shell commands.
 .RE
 .RS
-* Benchmarks can be executed in rounds of several consequetive runs.
+* Benchmarks can be executed in rounds of several consecutive runs.
 .RE
 .RS 
 * Warmup runs can be executed before each benchmark or round.
@@ -166,7 +166,7 @@ Specify string, which will be piped to each benchmark command. \fISTR\fP can inc
 .HP
 \fB\-\-inputd\fR \fIDIR\fP
 .IP
-Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-scanl\fR file/...", where "\fB\-\-scanl\fR" option is paased a list of files contained in \fIDIR\fP.
+Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-scanl\fR file/...", where "\fB\-\-scanl\fR" option is passed a list of files contained in \fIDIR\fP.
 .HP
 .B \-\-no\-input
 .IP
@@ -198,7 +198,7 @@ kernel CPU time
 .IP utime 
 userspace CPU time
 .IP maxrss 
-maximum size of residient set size
+maximum size of resident set size
 .IP minflt 
 minor page fault count
 .IP majflt 
@@ -214,10 +214,10 @@ CPU instruction count
 .IP branches
 CPU taken branch count
 .IP branch-misses
-CPU branch misprediction count
+CPU branch misdirection count
 .RE
 .IP
-Measurements "stime", "utime", "maxrss", "minflt", "majflt", "nvcsw", "nivcsw" are obtained from "struct rusage" (see getrusage(2)). Measurements "cycles", "instructions", "branches", "branch-misses" are obtained using system performance counters (see perf_event_open(2) on linux). Default measurements are "wall", "stime", "utime".
+Measurements "stime", "utime", "maxrss", "minflt", "majflt", "nvcsw", "nivcsw" are obtained from "struct rusage" (see getrusage(2)). Measurements "cycles", "instructions", "branches", "branch-misses" are obtained using system performance counters (see perf_event_open(2) on Linux). Default measurements are "wall", "stime", "utime".
 .IP
 .RS
 Example:
@@ -266,7 +266,7 @@ Use <UNITS\-NAME> as name
 .IP
 Do not use default measurements (which are "wall", "stime", "utime").
 .SS Parameterization options
-\fB\-\-inputd\fR implictly creates parameter with name "file".
+\fB\-\-inputd\fR implicitly creates parameter with name "file".
 .HP
 \fB\-\-scan\fR \fISTR\fP
 .IP
@@ -293,7 +293,7 @@ Example:
 .HP
 \fB\-\-baseline\fR \fINUM\fP
 .IP
-Use benchark with number (starting from 1) \fINUM\fP as basline in comparisons.
+Use benchmark with number (starting from 1) \fINUM\fP as baseline in comparisons.
 .HP
 \fB\-\-nrs\fR \fINUM\fP
 .IP
@@ -351,6 +351,10 @@ Use colored output. Possible values for \fIWHEN\fP are "never", "auto", "always"
 \fB\-\-progress\-bar\fR \fIWHEN\fP
 .IP
 Display dynamically updated progress bar when running benchmarks. Possible values for \fIWHEN\fP are "never", "auto", "always".
+.HP
+.B \-\-python\-output
+.IP
+Do not silence python output. This can be used for debugging.
 .SH EXAMPLES
 .LP
 Basic benchmark of 'ls':
@@ -366,7 +370,6 @@ Comparison benchmark between 'ls' and 'exa':
 \fBcsbench\fR ls exa
 .fi
 .RE
-
 .SH AUTHOR
 .LP
 Vinogradov Ilya <holodmoose@gmail.com>

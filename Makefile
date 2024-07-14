@@ -15,11 +15,13 @@ endif
 
 all: csbench
 
-csbench: csbench.c csbench_perf.c csbench_plot.c csbench_utils.c csbench_analyze.c csbench_report.c csbench_run.c
+csbench: csbench.c csbench_perf.c csbench_plot.c csbench_utils.c \
+		 csbench_analyze.c csbench_report.c csbench_run.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 install: csbench
 	install csbench /usr/local/bin
+	install -g 0 -o 0 -m 0644 docs/csbench.1 /usr/local/share/man/man1
 
 clean:
 	rm -f csbench
@@ -27,4 +29,4 @@ clean:
 amalgamated:
 	./scripts/amalgamated.pl
 
-.PHONY: all csbench install clean
+.PHONY: all install clean amalgamated
