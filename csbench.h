@@ -461,7 +461,6 @@ bool load_bench_result_from_csv(const char *file, struct bench *bench,
 void init_analysis(const struct meas *meas_list, size_t bench_count,
                    const struct bench_var *var,
                    const struct bench_var_group *groups, struct analysis *al);
-void analyze_bench(struct bench_analysis *analysis);
 bool analyze_benches(struct analysis *al);
 void free_analysis(struct analysis *al);
 

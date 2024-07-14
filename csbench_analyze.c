@@ -374,6 +374,16 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
     }
 }
 
+static void analyze_bench(struct bench_analysis *analysis) {
+    const struct bench *bench = analysis->bench;
+    size_t count = bench->run_count;
+    assert(count != 0);
+    for (size_t i = 0; i < analysis->meas_count; ++i) {
+        assert(sb_len(bench->meas[i]) == count);
+        estimate_distr(bench->meas[i], count, g_nresamp, analysis->meas + i);
+    }
+}
+
 static void *analyze_bench_worker(void *raw) {
     struct analyze_task_queue *q = raw;
     init_rng_state();
@@ -454,16 +464,6 @@ void init_analysis(const struct meas *meas_list, size_t bench_count,
         analysis->meas = calloc(al->meas_count, sizeof(*analysis->meas));
         analysis->meas_count = al->meas_count;
         analysis->bench = bench;
-    }
-}
-
-void analyze_bench(struct bench_analysis *analysis) {
-    const struct bench *bench = analysis->bench;
-    size_t count = bench->run_count;
-    assert(count != 0);
-    for (size_t i = 0; i < analysis->meas_count; ++i) {
-        assert(sb_len(bench->meas[i]) == count);
-        estimate_distr(bench->meas[i], count, g_nresamp, analysis->meas + i);
     }
 }
 

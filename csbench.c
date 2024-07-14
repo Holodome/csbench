@@ -2015,7 +2015,6 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
             analysis->name = file;
         if (!load_bench_result_from_csv(file, bench, meas_count))
             goto err_free_analysis;
-        analyze_bench(analysis);
     }
     if (!analyze_benches(&al))
         goto err_free_analysis;
