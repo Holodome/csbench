@@ -76,7 +76,7 @@ In this example SQL script is run under `EXPLAIN ANALYZE`, which prints executio
 Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
 
 ```
-$ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' -R 100 --no-wall
+$ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' -R 100 --no-default-meas
 command psql postgres -f 8q.sql
 100 runs
 measurement exec
@@ -116,7 +116,7 @@ start = timer()
 quicksort(arr)
 end = timer()
 print(end - start)
-$ csbench 'python3 quicksort.py' --custom t --inputs '{n}' --scan n/100/10000/1000 --html --no-wall --regr
+$ csbench 'python3 quicksort.py' --custom t --inputs '{n}' --scan n/100/10000/1000 --html --no-default-meas --regr
 ...
 linearithmic (O(N*log(N))) complexity (1.12172e-07)
 ```
@@ -147,9 +147,9 @@ csbench 'python3 tests/quicksort.py' \
         'python3 tests/bubble.py' \
         --rename-all quicksort,bubble \
         --scanl n/64,128,256,512,1024,2048 \
-        --custom t --inputs '{n}' \
+        --no-default-meas --custom t --inputs '{n}' \
         -W 0.1 -j$(nproc) -R10 \
-        --plot --no-wall --csv --plot-src --python-output --regr 
+        --plot --plot-src --csv --regr 
 ```
 
 ## License 

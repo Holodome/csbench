@@ -325,9 +325,7 @@ static void print_help_and_exit(int rc) {
         "or 'none' - output will be piped to /dev/null. The latter is the "
         "default option.\n"
         "  --input <where>\n"
-        "          Specify how each command should receive its input. <where> "
-        "can be a file name, or none. In the latter case /dev/null is piped to "
-        "stdin.\n"
+        "          Specify how each command should receive its input.\n"
         "  --inputs <str>\n"
         "          Use <str> as input for each benchmark (it is piped to "
         "stdin).\n"
@@ -351,13 +349,13 @@ static void print_help_and_exit(int rc) {
         "          Add variable with name <i> running in range from <n> to <m> "
         "with step <s>. <s> is optional, default is 1. Can be used from "
         "command in the form '{<i>}'.\n"
-        "  --scan <i>/v[,...]\n"
+        "  --scanl <i>/v[,...]\n"
         "          Add variable with name <i> running values from "
         "comma-separated list <v>.\n"
         "  -j, --jobs <n>\n"
         "          Execute benchmarks in parallel with <n> threads. Default "
         "option is to execute all benchmarks sequentially.\n"
-        "  --export-json <f>\n"
+        "  --json <f>\n"
         "          Export benchmark results without analysis as json.\n"
         "  -o, --out-dir <d>\n"
         "          Specify directory where plots, html report and other "
@@ -376,16 +374,17 @@ static void print_help_and_exit(int rc) {
         "it. Can be used to quickly patch up plots for presentation.\n"
         "  --html\n"
         "          Generate html report. Implies --plot.\n"
-        "  --no-wall\n"
+        "  --no-default-meas\n"
         "          Exclude wall clock information from command line output, "
         "plots, html report. Commonly used with custom measurements (--custom "
         "and others) when wall clock information is excessive.\n"
-        "  --ignore-failure\n"
+        "  -i, --ignore-failure\n"
         "          Accept commands with non-zero exit code. Default behavior "
         "is to abort benchmarking.\n"
         "  --meas <opt>[,...]\n"
         "          List of 'struct rusage' fields or performance counters "
-        "(PMC) to include to analysis. Default (if --no-wall is not specified) "
+        "(PMC) to include to analysis. Default (if --no-default-meas is not "
+        "specified) "
         "are cpu time (stime and utime). Possible rusage values are 'stime', "
         "'utime', 'maxrss', 'minflt', 'majflt', 'nvcsw', 'nivcsw'. See your "
         "system's 'man 2 getrusage' for additional information. Possible PMC "
@@ -562,7 +561,9 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
-        if (strcmp(opt, "stime") == 0) {
+        if (strcmp(opt, "wall") == 0) {
+            kind = MEAS_WALL;
+        } else if (strcmp(opt, "stime") == 0) {
             kind = MEAS_RUSAGE_STIME;
         } else if (strcmp(opt, "utime") == 0) {
             kind = MEAS_RUSAGE_UTIME;
@@ -829,6 +830,9 @@ static void parse_cli_args(int argc, char **argv,
                    opt_arg(argv, &cursor, "-S", &g_shell)) {
             if (strcmp(g_shell, "none") == 0)
                 g_shell = NULL;
+        } else if (strcmp(argv[cursor], "-N") == 0) {
+            ++cursor;
+            g_shell = NULL;
         } else if (opt_arg(argv, &cursor, "--output", &str)) {
             if (strcmp(str, "null") == 0) {
                 settings->output = OUTPUT_POLICY_NULL;
@@ -838,14 +842,14 @@ static void parse_cli_args(int argc, char **argv,
                 error("invalid --output option");
                 exit(EXIT_FAILURE);
             }
+        } else if (strcmp(argv[cursor], "--no-input") == 0) {
+            ++cursor;
+            g_inputd = NULL;
+            settings->input.kind = INPUT_POLICY_NULL;
         } else if (opt_arg(argv, &cursor, "--input", &str)) {
             g_inputd = NULL;
-            if (strcmp(str, "null") == 0) {
-                settings->input.kind = INPUT_POLICY_NULL;
-            } else {
-                settings->input.kind = INPUT_POLICY_FILE;
-                settings->input.file = str;
-            }
+            settings->input.kind = INPUT_POLICY_FILE;
+            settings->input.file = str;
         } else if (opt_arg(argv, &cursor, "--inputs", &str)) {
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
@@ -969,7 +973,7 @@ static void parse_cli_args(int argc, char **argv,
             settings->var = var;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
-        } else if (opt_arg(argv, &cursor, "--export-json",
+        } else if (opt_arg(argv, &cursor, "--json",
                            &g_json_export_filename)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
@@ -977,7 +981,7 @@ static void parse_cli_args(int argc, char **argv,
             g_plot = true;
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
-        } else if (opt_bool(argv, &cursor, "--no-wall", &no_wall)) {
+        } else if (opt_bool(argv, &cursor, "--no-default-meas", &no_wall)) {
         } else if (opt_bool(argv, &cursor, "--ignore-failure",
                             &g_ignore_failure) ||
                    opt_bool(argv, &cursor, "-i", &g_ignore_failure)) {
