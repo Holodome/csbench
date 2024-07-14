@@ -616,6 +616,7 @@ bool analyze_benches(const struct run_info *info, struct analysis *al) {
 
 void init_analysis(const struct meas *meas_list, size_t bench_count,
                    const struct bench_var *var, struct analysis *al) {
+    memset(al, 0, sizeof(*al));
     al->meas = meas_list;
     al->meas_count = sb_len(meas_list);
     al->bench_count = bench_count;

@@ -93,7 +93,7 @@ struct cli_settings {
 
 enum app_mode {
     APP_BENCH,
-    APP_LOAD
+    APP_LOAD_CSV
 };
 
 struct command_info {
@@ -960,8 +960,7 @@ static void parse_cli_args(int argc, char **argv,
             settings->var = var;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
-        } else if (opt_arg(argv, &cursor, "--json",
-                           &g_json_export_filename)) {
+        } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
@@ -988,10 +987,10 @@ static void parse_cli_args(int argc, char **argv,
             g_round_stop.min_runs = INT_MAX;
         } else if (strcmp(argv[cursor], "--load-csv") == 0) {
             ++cursor;
-            g_mode = APP_LOAD;
+            g_mode = APP_LOAD_CSV;
         } else if (strcmp(argv[cursor], "--load-csv-a") == 0) {
             ++cursor;
-            g_mode = APP_LOAD;
+            g_mode = APP_LOAD_CSV;
             g_loada = true;
         } else if (strcmp(argv[cursor], "--simple") == 0 ||
                    strcmp(argv[cursor], "-s") == 0) {
@@ -1828,7 +1827,7 @@ static bool run_app_bench(const struct cli_settings *cli) {
     size_t bench_count = sb_len(info.params);
     if (!validate_rename_list(cli->rename_list, bench_count, info.groups))
         goto err_deinit_perf;
-    struct analysis al = {0};
+    struct analysis al;
     init_analysis(cli->meas, bench_count, info.var, &al);
     set_benchmark_names(cli, &info, &al);
     if (!run_benches(info.params, al.bench_analyses, bench_count))
@@ -1972,8 +1971,8 @@ static const char **find_loada_filenames(void) {
     return list;
 }
 
-static bool load_meas_from_file(const struct cli_settings *settings,
-                                const char *file, struct meas **meas_list) {
+static bool load_meas_from_csv_file(const struct cli_settings *settings,
+                                    const char *file, struct meas **meas_list) {
     bool result = false;
     const char **file_meas_names = NULL;
     if (!load_meas_names(file, &file_meas_names)) {
@@ -2032,19 +2031,18 @@ out:
     return result;
 }
 
-static bool load_meas_from_files(const struct cli_settings *settings,
-                                 const char **file_list,
-                                 struct meas **meas_list) {
+static bool load_meas_from_csv(const struct cli_settings *settings,
+                               const char **file_list,
+                               struct meas **meas_list) {
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
-        if (!load_meas_from_file(settings, file, meas_list))
+        if (!load_meas_from_csv_file(settings, file, meas_list))
             return false;
     }
-
     return true;
 }
 
-static bool run_app_load(const struct cli_settings *settings) {
+static bool run_app_load_csv(const struct cli_settings *settings) {
     bool result = false;
     const char **file_list = settings->args;
     if (g_loada) {
@@ -2056,15 +2054,15 @@ static bool run_app_load(const struct cli_settings *settings) {
     }
 
     struct meas *meas_list = NULL;
-    if (!load_meas_from_files(settings, file_list, &meas_list))
-        goto err;
+    if (!load_meas_from_csv(settings, file_list, &meas_list))
+        goto err_free_file_list;
 
     size_t bench_count = sb_len(file_list);
     if (!validate_rename_list(settings->rename_list, bench_count, NULL))
-        goto err;
+        goto err_free_meas_list;
 
     size_t meas_count = sb_len(meas_list);
-    struct analysis al = {0};
+    struct analysis al;
     init_analysis(meas_list, bench_count, NULL, &al);
     for (size_t i = 0; i < al.bench_count; ++i) {
         struct bench *bench = al.benches + i;
@@ -2073,7 +2071,7 @@ static bool run_app_load(const struct cli_settings *settings) {
         if (!attempt_rename(settings->rename_list, i, analysis))
             analysis->name = file;
         if (!load_bench_result(file, bench, meas_count))
-            goto err;
+            goto err_free_analysis;
         analyze_bench(analysis, meas_count);
     }
     struct run_info info = {0};
@@ -2085,17 +2083,19 @@ static bool run_app_load(const struct cli_settings *settings) {
         info.params[i].stdout_fd = -1;
     }
     if (!analyze_benches(&info, &al))
-        goto err;
+        goto err_free_run_info;
     if (!make_report(&al))
-        goto err;
+        goto err_free_run_info;
     result = true;
-err:
+err_free_run_info:
+    free_run_info(&info);
+err_free_analysis:
     free_analysis(&al);
-    if (file_list && file_list != settings->args) {
+err_free_meas_list:
+    sb_free(meas_list);
+err_free_file_list:
+    if (file_list && file_list != settings->args)
         sb_free(file_list);
-    }
-    if (meas_list)
-        sb_free(meas_list);
     return result;
 }
 
@@ -2103,8 +2103,8 @@ static bool run(const struct cli_settings *cli) {
     switch (g_mode) {
     case APP_BENCH:
         return run_app_bench(cli);
-    case APP_LOAD:
-        return run_app_load(cli);
+    case APP_LOAD_CSV:
+        return run_app_load_csv(cli);
     }
 
     return false;

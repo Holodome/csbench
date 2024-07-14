@@ -1113,7 +1113,5 @@ static void print_analysis(const struct analysis *al) {
 
 bool make_report(const struct analysis *al) {
     print_analysis(al);
-    if (!do_visualize(al))
-        return false;
-    return true;
+    return do_visualize(al);
 }
