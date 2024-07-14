@@ -244,10 +244,6 @@ $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
 $b --load-csv $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
 # FIXME: Due to floating-point rounding diff does not always work
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
-distclean 
-$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-$b --load-csv-a rename-all=one,two > /tmp/csbench_2
-# diff /tmp/csbench_1 /tmp/csbench_2 || die
 
 #
 # check that renaming works for groups

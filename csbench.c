@@ -118,7 +118,6 @@ bool g_use_perf = false;
 bool g_progress_bar = false;
 bool g_regr = false;
 bool g_python_output = false;
-static bool g_loada = false;
 int g_baseline = -1;
 static enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
@@ -988,10 +987,6 @@ static void parse_cli_args(int argc, char **argv,
         } else if (strcmp(argv[cursor], "--load-csv") == 0) {
             ++cursor;
             g_mode = APP_LOAD_CSV;
-        } else if (strcmp(argv[cursor], "--load-csv-a") == 0) {
-            ++cursor;
-            g_mode = APP_LOAD_CSV;
-            g_loada = true;
         } else if (strcmp(argv[cursor], "--simple") == 0 ||
                    strcmp(argv[cursor], "-s") == 0) {
             ++cursor;
@@ -1873,10 +1868,10 @@ static bool run_app_bench(const struct cli_settings *cli) {
     if (!make_report(&al))
         goto err_free_analysis;
     success = true;
-err_free_bench_data:
-    free_bench_data(&data);
 err_free_analysis:
     free_analysis(&al);
+err_free_bench_data:
+    free_bench_data(&data);
 err_deinit_perf:
     if (g_use_perf)
         deinit_perf();
@@ -1909,47 +1904,6 @@ static bool load_meas_names(const char *file, const char ***meas_names) {
 out:
     fclose(f);
     return success;
-}
-
-static const char **find_loada_filenames(void) {
-    DIR *dir = opendir(g_out_dir);
-    if (dir == NULL) {
-        csfmterror("failed to open direcory '%s' (designated for output)",
-                   g_out_dir);
-        return NULL;
-    }
-    const char **list = NULL;
-    for (;;) {
-        errno = 0;
-        struct dirent *dirent = readdir(dir);
-        if (dirent == NULL && errno != 0) {
-            csperror("readdir");
-            sb_free(list);
-            list = NULL;
-            break;
-        } else if (dirent == NULL) {
-            break;
-        }
-        const char *name = dirent->d_name;
-        const char *prefix = "bench_raw_";
-        size_t prefix_len = strlen(prefix);
-        if (strncmp(prefix, name, prefix_len) == 0) {
-            name += prefix_len;
-            if (!isdigit(*name))
-                continue;
-            size_t n = 0;
-            do {
-                n = n * 10 + (*name - '0');
-                ++name;
-            } while (isdigit(*name));
-            if (strcmp(name, ".csv") == 0) {
-                sb_ensure(list, n + 1);
-                list[n] = csfmt("%s/%s", g_out_dir, dirent->d_name);
-            }
-        }
-    }
-    closedir(dir);
-    return list;
 }
 
 static bool load_meas_from_csv_file(const struct cli_settings *settings,
@@ -2026,14 +1980,6 @@ static bool load_meas_from_csv(const struct cli_settings *settings,
 static bool run_app_load_csv(const struct cli_settings *settings) {
     bool result = false;
     const char **file_list = settings->args;
-    if (g_loada) {
-        file_list = (const char **)find_loada_filenames();
-        if (!file_list) {
-            error("failed to find files as required for --loada argument");
-            return false;
-        }
-    }
-
     struct meas *meas_list = NULL;
     if (!load_meas_from_csv(settings, file_list, &meas_list))
         goto err_free_file_list;
