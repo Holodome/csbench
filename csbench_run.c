@@ -117,15 +117,15 @@ struct progress_bar {
     bool was_drawn;
     size_t max_name_len;
     size_t count;
-    struct progress_bar_bench *benches;
-    struct bench_analysis *analyses;
+    struct progress_bar_bench *bar_benches;
+    const struct bench *benches;
     struct progress_bar_state *states;
 };
 
 struct run_task {
     struct run_task_queue *q;
     const struct bench_params *param;
-    struct bench_analysis *al;
+    struct bench *bench;
 };
 
 struct run_task_queue {
@@ -141,7 +141,7 @@ struct run_task_queue {
 struct custom_measurement_task {
     struct custom_measurement_task_queue *q;
     const struct bench_params *param;
-    struct bench_analysis *al;
+    struct bench *bench;
 };
 
 struct custom_measurement_task_queue {
@@ -152,7 +152,7 @@ struct custom_measurement_task_queue {
 
 static void
 init_custom_measurement_task_queue(const struct bench_params *params,
-                                   struct bench_analysis *als, size_t count,
+                                   struct bench *benches, size_t count,
                                    struct custom_measurement_task_queue *q) {
     memset(q, 0, sizeof(*q));
     q->task_count = count;
@@ -160,7 +160,7 @@ init_custom_measurement_task_queue(const struct bench_params *params,
     for (size_t i = 0; i < count; ++i) {
         q->tasks[i].q = q;
         q->tasks[i].param = params + i;
-        q->tasks[i].al = als + i;
+        q->tasks[i].bench = benches + i;
     }
 }
 
@@ -199,7 +199,7 @@ static __thread struct run_task_queue *g_q;
     } while (0)
 
 static bool init_run_task_queue(const struct bench_params *params,
-                                struct bench_analysis *als, size_t count,
+                                struct bench *benches, size_t count,
                                 size_t worker_count, struct run_task_queue *q) {
     assert(worker_count <= count);
     memset(q, 0, sizeof(*q));
@@ -218,7 +218,7 @@ static bool init_run_task_queue(const struct bench_params *params,
     for (size_t i = 0; i < count; ++i) {
         q->tasks[i].q = q;
         q->tasks[i].param = params + i;
-        q->tasks[i].al = als + i;
+        q->tasks[i].bench = benches + i;
     }
     return true;
 }
@@ -724,8 +724,7 @@ out:
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
 static enum bench_run_result run_bench(const struct bench_params *params,
-                                       struct bench_analysis *al) {
-    struct bench *bench = al->bench;
+                                       struct bench *bench) {
     progress_bar_at_warmup(bench->progress);
 
     if (!warmup(params))
@@ -766,7 +765,7 @@ static bool run_benches_single_threaded(struct run_task_queue *q) {
         if (task == NULL)
             break;
 
-        enum bench_run_result result = run_bench(task->param, task->al);
+        enum bench_run_result result = run_bench(task->param, task->bench);
         switch (result) {
         case BENCH_RUN_FINISHED:
             run_task_finish(task);
@@ -797,7 +796,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         if (abbr_names) {
             for (size_t i = 0; i < bar->count; ++i) {
                 printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n", bar->analyses[i].name);
+                printf_colored(ANSI_BOLD, "%s\n", bar->benches[i].name);
             }
         }
     } else {
@@ -809,19 +808,19 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         struct progress_bar_bench data = {0};
         // explicitly load all atomics to avoid UB (tsan)
         atomic_fence();
-        data.bar = atomic_load(&bar->benches[i].bar);
-        data.finished = atomic_load(&bar->benches[i].finished);
-        data.aborted = atomic_load(&bar->benches[i].aborted);
-        data.suspended = atomic_load(&bar->benches[i].suspended);
-        data.warmup = atomic_load(&bar->benches[i].warmup);
-        data.metric.u = atomic_load(&bar->benches[i].metric.u);
-        data.start_time.u = atomic_load(&bar->benches[i].start_time.u);
-        data.time_passed.u = atomic_load(&bar->benches[i].time_passed.u);
+        data.bar = atomic_load(&bar->bar_benches[i].bar);
+        data.finished = atomic_load(&bar->bar_benches[i].finished);
+        data.aborted = atomic_load(&bar->bar_benches[i].aborted);
+        data.suspended = atomic_load(&bar->bar_benches[i].suspended);
+        data.warmup = atomic_load(&bar->bar_benches[i].warmup);
+        data.metric.u = atomic_load(&bar->bar_benches[i].metric.u);
+        data.start_time.u = atomic_load(&bar->bar_benches[i].start_time.u);
+        data.time_passed.u = atomic_load(&bar->bar_benches[i].time_passed.u);
         if (abbr_names)
             printf("%c ", (int)('A' + i));
         else
             printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len,
-                           bar->analyses[i].name);
+                           bar->benches[i].name);
         char buf[41] = {0};
         int c = data.bar * length / 100;
         if (c > length)
@@ -834,7 +833,7 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         buf[40 - c] = '\0';
         printf_colored(ANSI_BLUE, "%s", buf);
         if (data.aborted) {
-            memcpy(&data.id, &bar->benches[i].id, sizeof(data.id));
+            memcpy(&data.id, &bar->bar_benches[i].id, sizeof(data.id));
             for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
                 if (pthread_equal(g_output_anchors[i].id, data.id)) {
                     assert(g_output_anchors[i].has_message);
@@ -899,31 +898,31 @@ static void *progress_bar_thread_worker(void *arg) {
         redraw_progress_bar(bar);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i)
-            if (!atomic_load(&bar->benches[i].finished))
+            if (!atomic_load(&bar->bar_benches[i].finished))
                 is_finished = false;
     } while (!is_finished);
     redraw_progress_bar(bar);
     return NULL;
 }
 
-static void init_progress_bar(struct bench_analysis *als, size_t count,
+static void init_progress_bar(struct bench *benches, size_t count,
                               struct progress_bar *bar) {
     memset(bar, 0, sizeof(*bar));
     bar->count = count;
-    bar->benches = calloc(count, sizeof(*bar->benches));
+    bar->bar_benches = calloc(count, sizeof(*bar->benches));
     bar->states = calloc(count, sizeof(*bar->states));
-    bar->analyses = als;
+    bar->benches = benches;
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
-        als[i].bench->progress = bar->benches + i;
-        size_t name_len = strlen(als[i].name);
+        benches[i].progress = bar->bar_benches + i;
+        size_t name_len = strlen(benches[i].name);
         if (name_len > bar->max_name_len)
             bar->max_name_len = name_len;
     }
 }
 
 static void free_progress_bar(struct progress_bar *bar) {
-    free(bar->benches);
+    free(bar->bar_benches);
     free(bar->states);
 }
 
@@ -933,10 +932,10 @@ static bool run_benches_multi_threaded(struct run_task_queue *q,
 }
 
 static bool execute_run_tasks(const struct bench_params *params,
-                              struct bench_analysis *als, size_t count,
+                              struct bench *benches, size_t count,
                               size_t thread_count) {
     struct run_task_queue q;
-    if (!init_run_task_queue(params, als, count, thread_count, &q))
+    if (!init_run_task_queue(params, benches, count, thread_count, &q))
         return false;
 
     bool success;
@@ -1118,18 +1117,18 @@ static void *custom_measurement_bench_worker(void *arg) {
         struct custom_measurement_task *task = get_custom_measurement_task(q);
         if (!task)
             break;
-        if (!run_custom_measurements(task->param, task->al->bench))
+        if (!run_custom_measurements(task->param, task->bench))
             return (void *)-1;
     }
     return NULL;
 }
 
 static bool execute_custom_measurement_tasks(const struct bench_params *params,
-                                             struct bench_analysis *als,
+                                             struct bench *benches,
                                              size_t count,
                                              size_t thread_count) {
     struct custom_measurement_task_queue q;
-    init_custom_measurement_task_queue(params, als, count, &q);
+    init_custom_measurement_task_queue(params, benches, count, &q);
     bool success;
     if (thread_count == 1) {
         void *result = custom_measurement_bench_worker(&q);
@@ -1163,13 +1162,13 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
-bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+bool run_benches(const struct bench_params *params, struct bench *benches,
                  size_t count) {
     bool success = false;
     struct progress_bar progress_bar;
     pthread_t progress_bar_thread;
     if (g_progress_bar) {
-        init_progress_bar(als, count, &progress_bar);
+        init_progress_bar(benches, count, &progress_bar);
         if (pthread_create(&progress_bar_thread, NULL,
                            progress_bar_thread_worker, &progress_bar) != 0) {
             error("failed to spawn thread");
@@ -1189,10 +1188,10 @@ bool run_benches(const struct bench_params *params, struct bench_analysis *als,
             g_output_anchors[0].id = pthread_self();
     }
 
-    if (!execute_run_tasks(params, als, count, thread_count))
+    if (!execute_run_tasks(params, benches, count, thread_count))
         goto out;
 
-    if (!execute_custom_measurement_tasks(params, als, count, thread_count))
+    if (!execute_custom_measurement_tasks(params, benches, count, thread_count))
         goto out;
 
     success = true;

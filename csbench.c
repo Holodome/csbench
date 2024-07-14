@@ -1762,10 +1762,10 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
 }
 
 static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
-                           struct bench_analysis *al) {
+                           const char **name) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         if (rename_list[i].n == idx) {
-            al->name = rename_list[i].name;
+            *name = rename_list[i].name;
             return true;
         }
     }
@@ -1776,7 +1776,7 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
                                     size_t bench_idx,
                                     const struct bench_var_group *groups,
                                     const struct bench_var *var,
-                                    struct bench_analysis *al) {
+                                    const char **name) {
     assert(var);
     assert(groups);
     size_t value_count = var->value_count;
@@ -1789,8 +1789,8 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
                  ++rename_idx) {
                 if (rename_list[rename_idx].n != grp_idx)
                     continue;
-                al->name = csfmt("%s %s=%s", rename_list[rename_idx].name,
-                                 var->name, var->values[val_idx]);
+                *name = csfmt("%s %s=%s", rename_list[rename_idx].name,
+                              var->name, var->values[val_idx]);
                 return true;
             }
         }
@@ -1800,21 +1800,54 @@ static bool attempt_groupped_rename(const struct rename_entry *rename_list,
 
 static void set_benchmark_names(const struct cli_settings *cli,
                                 const struct run_info *info,
-                                struct analysis *al) {
+                                struct bench *benches) {
     for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
         const struct bench_params *params = info->params + bench_idx;
-        struct bench_analysis *analysis = al->bench_analyses + bench_idx;
+        struct bench *bench = benches + bench_idx;
         bool renamed = false;
         if (sb_len(info->groups) == 0) {
-            renamed = attempt_rename(cli->rename_list, bench_idx, analysis);
+            renamed = attempt_rename(cli->rename_list, bench_idx, &bench->name);
         } else {
-            renamed = attempt_groupped_rename(cli->rename_list, bench_idx,
-                                              info->groups, cli->var, analysis);
+            renamed =
+                attempt_groupped_rename(cli->rename_list, bench_idx,
+                                        info->groups, cli->var, &bench->name);
         }
         if (!renamed)
-            analysis->name = params->name;
-        assert(analysis->name);
+            bench->name = params->name;
+        assert(bench->name);
     }
+}
+
+static void init_bench_data(size_t bench_count, const struct meas *meas,
+                            size_t meas_count,
+                            const struct bench_var_group *groups,
+                            size_t group_count, const struct bench_var *var,
+                            struct bench_data *data) {
+    memset(data, 0, sizeof(*data));
+    data->bench_count = bench_count;
+    data->benches = calloc(bench_count, sizeof(*data->benches));
+    data->meas_count = meas_count;
+    data->meas = meas;
+    data->group_count = group_count;
+    data->groups = groups;
+    data->var = var;
+    for (size_t i = 0; i < bench_count; ++i) {
+        struct bench *bench = data->benches + i;
+        bench->meas_count = meas_count;
+        bench->meas = calloc(meas_count, sizeof(*bench->meas));
+    }
+}
+
+static void free_bench_data(struct bench_data *data) {
+    for (size_t i = 0; i < data->bench_count; ++i) {
+        struct bench *bench = data->benches + i;
+        sb_free(bench->exit_codes);
+        for (size_t i = 0; i < data->meas_count; ++i)
+            sb_free(bench->meas[i]);
+        free(bench->meas);
+        sb_free(bench->stdout_offsets);
+    }
+    free(data->benches);
 }
 
 static bool run_app_bench(const struct cli_settings *cli) {
@@ -1827,16 +1860,21 @@ static bool run_app_bench(const struct cli_settings *cli) {
     size_t bench_count = sb_len(info.params);
     if (!validate_rename_list(cli->rename_list, bench_count, info.groups))
         goto err_deinit_perf;
+    struct bench_data data;
+    init_bench_data(bench_count, cli->meas, sb_len(cli->meas), info.groups,
+                    sb_len(info.groups), info.var, &data);
+    set_benchmark_names(cli, &info, data.benches);
+    if (!run_benches(info.params, data.benches, bench_count))
+        goto err_free_bench_data;
     struct analysis al;
-    init_analysis(cli->meas, bench_count, info.var, info.groups, &al);
-    set_benchmark_names(cli, &info, &al);
-    if (!run_benches(info.params, al.bench_analyses, bench_count))
-        goto err_free_analysis;
+    init_analysis(&data, &al);
     if (!analyze_benches(&al))
         goto err_free_analysis;
     if (!make_report(&al))
         goto err_free_analysis;
     success = true;
+err_free_bench_data:
+    free_bench_data(&data);
 err_free_analysis:
     free_analysis(&al);
 err_deinit_perf:
@@ -2004,23 +2042,26 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
     if (!validate_rename_list(settings->rename_list, bench_count, NULL))
         goto err_free_meas_list;
 
-    size_t meas_count = sb_len(meas_list);
-    struct analysis al;
-    init_analysis(meas_list, bench_count, NULL, NULL, &al);
-    for (size_t i = 0; i < al.bench_count; ++i) {
-        struct bench *bench = al.benches + i;
-        struct bench_analysis *analysis = al.bench_analyses + i;
+    struct bench_data data;
+    init_bench_data(bench_count, meas_list, sb_len(meas_list), NULL, 0, NULL,
+                    &data);
+    for (size_t i = 0; i < bench_count; ++i) {
+        struct bench *bench = data.benches + i;
         const char *file = file_list[i];
-        if (!attempt_rename(settings->rename_list, i, analysis))
-            analysis->name = file;
-        if (!load_bench_result_from_csv(file, bench, meas_count))
-            goto err_free_analysis;
+        if (!attempt_rename(settings->rename_list, i, &bench->name))
+            bench->name = file;
     }
+    if (!load_bench_data_from_csv(file_list, &data))
+        goto err_free_bench_data;
+    struct analysis al;
+    init_analysis(&data, &al);
     if (!analyze_benches(&al))
         goto err_free_analysis;
     if (!make_report(&al))
         goto err_free_analysis;
     result = true;
+err_free_bench_data:
+    free_bench_data(&data);
 err_free_analysis:
     free_analysis(&al);
 err_free_meas_list:

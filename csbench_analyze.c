@@ -445,25 +445,22 @@ bool analyze_benches(struct analysis *al) {
     return true;
 }
 
-void init_analysis(const struct meas *meas_list, size_t bench_count,
-                   const struct bench_var *var,
-                   const struct bench_var_group *groups, struct analysis *al) {
+void init_analysis(const struct bench_data *data, struct analysis *al) {
     memset(al, 0, sizeof(*al));
-    al->meas = meas_list;
-    al->meas_count = sb_len(meas_list);
-    al->bench_count = bench_count;
-    al->benches = calloc(bench_count, sizeof(*al->benches));
-    al->bench_analyses = calloc(bench_count, sizeof(*al->bench_analyses));
-    al->var = var;
-    al->group_count = sb_len(groups);
-    al->var_groups = groups;
+    al->meas = data->meas;
+    al->meas_count = data->meas_count;
+    al->bench_count = data->bench_count;
+    al->benches = data->benches;
+    al->bench_analyses = calloc(data->bench_count, sizeof(*al->bench_analyses));
+    al->var = data->var;
+    al->group_count = data->group_count;
+    al->var_groups = data->groups;
     for (size_t i = 0; i < al->bench_count; ++i) {
-        struct bench *bench = al->benches + i;
         struct bench_analysis *analysis = al->bench_analyses + i;
-        bench->meas = calloc(al->meas_count, sizeof(*bench->meas));
         analysis->meas = calloc(al->meas_count, sizeof(*analysis->meas));
         analysis->meas_count = al->meas_count;
-        analysis->bench = bench;
+        analysis->bench = data->benches + i;
+        analysis->name = analysis->bench->name;
     }
 }
 
@@ -492,17 +489,6 @@ static void free_bench_meas_analysis(struct meas_analysis *al) {
 }
 
 void free_analysis(struct analysis *al) {
-    if (al->benches) {
-        for (size_t i = 0; i < al->bench_count; ++i) {
-            struct bench *bench = al->benches + i;
-            sb_free(bench->exit_codes);
-            for (size_t i = 0; i < al->meas_count; ++i)
-                sb_free(bench->meas[i]);
-            free(bench->meas);
-            sb_free(bench->stdout_offsets);
-        }
-        free(al->benches);
-    }
     if (al->bench_analyses) {
         for (size_t i = 0; i < al->bench_count; ++i) {
             const struct bench_analysis *analysis = al->bench_analyses + i;

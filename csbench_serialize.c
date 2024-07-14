@@ -75,8 +75,7 @@ static bool load_bench_run_meas_from_csv_line(const char *str, double **meas,
     return cursor == meas_count ? true : false;
 }
 
-bool load_bench_result_from_csv(const char *file, struct bench *bench,
-                                       size_t meas_count) {
+static bool load_bench_result_from_csv(const char *file, struct bench *bench) {
     bool success = false;
     FILE *f = fopen(file, "r");
     if (f == NULL)
@@ -100,7 +99,7 @@ bool load_bench_result_from_csv(const char *file, struct bench *bench,
         }
         ++bench->run_count;
         if (!load_bench_run_meas_from_csv_line(line_buffer, bench->meas,
-                                               meas_count)) {
+                                               bench->meas_count)) {
             error("failed to parse file '%s'", file);
             goto out;
         }
@@ -111,4 +110,14 @@ out:
     fclose(f);
     free(line_buffer);
     return success;
+}
+
+bool load_bench_data_from_csv(const char **files, struct bench_data *data) {
+    for (size_t i = 0; i < data->bench_count; ++i) {
+        struct bench *bench = data->benches + i;
+        const char *file = files[i];
+        if (!load_bench_result_from_csv(file, bench))
+            return false;
+    }
+    return true;
 }

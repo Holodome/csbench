@@ -209,8 +209,10 @@ struct distr {
 // filled accordinly with results of execution and, in particular, measurement
 // values. This is later passed down for analysis.
 struct bench {
+    const char *name;
     size_t run_count;
     int *exit_codes;
+    size_t meas_count;
     double **meas; // [meas_count]
     struct progress_bar_bench *progress;
     size_t *stdout_offsets;
@@ -219,8 +221,18 @@ struct bench {
     double time_run;
 };
 
+struct bench_data {
+    size_t meas_count;
+    const struct meas *meas;
+    size_t bench_count;
+    struct bench *benches;
+    size_t group_count;
+    const struct bench_var_group *groups;
+    const struct bench_var *var;
+};
+
 struct bench_analysis {
-    struct bench *bench;
+    const struct bench *bench;
     size_t meas_count;
     struct distr *meas; // [meas_count]
     const char *name;
@@ -315,7 +327,7 @@ struct analysis {
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
-    struct bench *benches;                 // [bench_count]
+    const struct bench *benches;           // [bench_count]
     struct bench_analysis *bench_analyses; // [bench_count]
     const struct meas *meas;               // [meas_count]
     struct meas_analysis *meas_analyses;   // [meas_count]
@@ -451,16 +463,13 @@ extern struct output_anchor *volatile g_output_anchors;
 // csbench_serialize.c
 //
 
-bool load_bench_result_from_csv(const char *file, struct bench *bench,
-                                size_t meas_count);
+bool load_bench_data_from_csv(const char **files, struct bench_data *data);
 
 //
 // csbench_analyze.c
 //
 
-void init_analysis(const struct meas *meas_list, size_t bench_count,
-                   const struct bench_var *var,
-                   const struct bench_var_group *groups, struct analysis *al);
+void init_analysis(const struct bench_data *data, struct analysis *al);
 bool analyze_benches(struct analysis *al);
 void free_analysis(struct analysis *al);
 
@@ -468,7 +477,7 @@ void free_analysis(struct analysis *al);
 // csbench_run.c
 //
 
-bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+bool run_benches(const struct bench_params *params, struct bench *benches,
                  size_t count);
 
 //
