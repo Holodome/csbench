@@ -851,7 +851,7 @@ static void print_exit_code_info(const struct bench *bench) {
         if (bench->exit_codes[i] != 0)
             ++count_nonzero;
 
-    assert(g_allow_nonzero ? 1 : count_nonzero == 0);
+    assert(g_ignore_failure ? 1 : count_nonzero == 0);
     if (count_nonzero == bench->run_count) {
         printf("all commands have non-zero exit code: %d\n",
                bench->exit_codes[0]);

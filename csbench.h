@@ -430,7 +430,7 @@ extern bool g_regr;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
 extern int g_threads;
-extern bool g_allow_nonzero;
+extern bool g_ignore_failure;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;

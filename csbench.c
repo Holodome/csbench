@@ -107,7 +107,7 @@ struct command_info {
 
 __thread uint64_t g_rng_state;
 static bool g_colored_output = false;
-bool g_allow_nonzero = false;
+bool g_ignore_failure = false;
 int g_threads = 1;
 bool g_plot = false;
 bool g_html = false;
@@ -380,7 +380,7 @@ static void print_help_and_exit(int rc) {
         "          Exclude wall clock information from command line output, "
         "plots, html report. Commonly used with custom measurements (--custom "
         "and others) when wall clock information is excessive.\n"
-        "  --allow-nonzero\n"
+        "  --ignore-failure\n"
         "          Accept commands with non-zero exit code. Default behavior "
         "is to abort benchmarking.\n"
         "  --meas <opt>[,...]\n"
@@ -978,8 +978,9 @@ static void parse_cli_args(int argc, char **argv,
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
         } else if (opt_bool(argv, &cursor, "--no-wall", &no_wall)) {
-        } else if (opt_bool(argv, &cursor, "--allow-nonzero",
-                            &g_allow_nonzero)) {
+        } else if (opt_bool(argv, &cursor, "--ignore-failure",
+                            &g_ignore_failure) ||
+                   opt_bool(argv, &cursor, "-i", &g_ignore_failure)) {
         } else if (opt_bool(argv, &cursor, "--csv", &g_csv)) {
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
         } else if (opt_bool(argv, &cursor, "--python-output",

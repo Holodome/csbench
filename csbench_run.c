@@ -460,7 +460,7 @@ static bool exec_and_measure(const struct bench_params *params,
     if (rc == -1)
         return false;
 
-    if (!g_allow_nonzero && rc != 0) {
+    if (!g_ignore_failure && rc != 0) {
         error("command '%s' finished with non-zero exit code (%d)", params->str,
               rc);
         return false;
