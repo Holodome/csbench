@@ -53,4 +53,62 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <stdlib.h>
 
+static bool load_bench_run_meas_from_csv_line(const char *str, double **meas,
+                                              size_t meas_count) {
+    size_t cursor = 0;
+    while (cursor < meas_count) {
+        char *end = NULL;
+        double value = strtod(str, &end);
+        if (end == str)
+            return false;
+        sb_push(meas[cursor], value);
+        ++cursor;
+        str = end;
+        if (*str == '\n' || !*str)
+            break;
+        if (*str != ',')
+            return false;
+        ++str;
+    }
+    return cursor == meas_count ? true : false;
+}
+
+bool load_bench_result_from_csv(const char *file, struct bench *bench,
+                                       size_t meas_count) {
+    bool success = false;
+    FILE *f = fopen(file, "r");
+    if (f == NULL)
+        return false;
+
+    size_t n = 0;
+    char *line_buffer = NULL;
+    // Skip line with measurement names
+    if (getline(&line_buffer, &n, f) < 0) {
+        error("failed to parse file '%s'", file);
+        goto out;
+    }
+    for (;;) {
+        ssize_t read_result = getline(&line_buffer, &n, f);
+        if (read_result < 0) {
+            if (ferror(f)) {
+                error("failed to read line from file '%s'", file);
+                goto out;
+            }
+            break;
+        }
+        ++bench->run_count;
+        if (!load_bench_run_meas_from_csv_line(line_buffer, bench->meas,
+                                               meas_count)) {
+            error("failed to parse file '%s'", file);
+            goto out;
+        }
+    }
+
+    success = true;
+out:
+    fclose(f);
+    free(line_buffer);
+    return success;
+}

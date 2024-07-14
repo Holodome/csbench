@@ -1873,63 +1873,6 @@ out:
     return success;
 }
 
-static bool load_bench_run_meas(const char *str, double **meas,
-                                size_t meas_count) {
-    size_t cursor = 0;
-    while (cursor < meas_count) {
-        char *end = NULL;
-        double value = strtod(str, &end);
-        if (end == str)
-            return false;
-        sb_push(meas[cursor], value);
-        ++cursor;
-        str = end;
-        if (*str == '\n' || !*str)
-            break;
-        if (*str != ',')
-            return false;
-        ++str;
-    }
-    return cursor == meas_count ? true : false;
-}
-
-static bool load_bench_result(const char *file, struct bench *bench,
-                              size_t meas_count) {
-    bool success = false;
-    FILE *f = fopen(file, "r");
-    if (f == NULL)
-        return false;
-
-    size_t n = 0;
-    char *line_buffer = NULL;
-    // Skip line with measurement names
-    if (getline(&line_buffer, &n, f) < 0) {
-        error("failed to parse file '%s'", file);
-        goto out;
-    }
-    for (;;) {
-        ssize_t read_result = getline(&line_buffer, &n, f);
-        if (read_result < 0) {
-            if (ferror(f)) {
-                error("failed to read line from file '%s'", file);
-                goto out;
-            }
-            break;
-        }
-        ++bench->run_count;
-        if (!load_bench_run_meas(line_buffer, bench->meas, meas_count)) {
-            error("failed to parse file '%s'", file);
-            goto out;
-        }
-    }
-
-    success = true;
-out:
-    fclose(f);
-    free(line_buffer);
-    return success;
-}
-
 static const char **find_loada_filenames(void) {
     DIR *dir = opendir(g_out_dir);
     if (dir == NULL) {
@@ -2070,7 +2013,7 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
         const char *file = file_list[i];
         if (!attempt_rename(settings->rename_list, i, analysis))
             analysis->name = file;
-        if (!load_bench_result(file, bench, meas_count))
+        if (!load_bench_result_from_csv(file, bench, meas_count))
             goto err_free_analysis;
         analyze_bench(analysis);
     }

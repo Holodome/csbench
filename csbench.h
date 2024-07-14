@@ -448,6 +448,13 @@ extern bool g_progress_bar;
 extern struct output_anchor *volatile g_output_anchors;
 
 //
+// csbench_serialize.c
+//
+
+bool load_bench_result_from_csv(const char *file, struct bench *bench,
+                                size_t meas_count);
+
+//
 // csbench_analyze.c
 //
 
