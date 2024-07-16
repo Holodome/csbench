@@ -153,6 +153,7 @@ struct bench_var {
 
 struct bench_var_group {
     const char *name;
+    size_t cmd_count;
     size_t *cmd_idxs; // [var->value_count]
 };
 
@@ -209,16 +210,20 @@ struct distr {
 // filled accordinly with results of execution and, in particular, measurement
 // values. This is later passed down for analysis.
 struct bench {
-    const char *name;
     size_t run_count;
     int *exit_codes;
     size_t meas_count;
     double **meas; // [meas_count]
     struct progress_bar_bench *progress;
+    // This this is used when running custom measurements
     size_t *stdout_offsets;
     // In case of suspension we save the state of running so it can be restored
     // later
     double time_run;
+    // This is not strictly required for operation, but we keep it here for
+    // meta-information
+    const char *name;
+    const struct bench_params *params;
 };
 
 struct bench_data {

@@ -53,7 +53,9 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <assert.h>
 #include <stdlib.h>
+#include <string.h>
 
 static bool load_bench_run_meas_from_csv_line(const char *str, double **meas,
                                               size_t meas_count) {
@@ -120,4 +122,151 @@ bool load_bench_data_from_csv(const char **files, struct bench_data *data) {
             return false;
     }
     return true;
+}
+
+struct csbench_binary_header {
+    uint32_t magic;
+    uint32_t version;
+
+    uint64_t meas_count;
+    uint64_t bench_count;
+    uint64_t group_count;
+
+    uint8_t has_var;
+    uint8_t reserved0[7];
+
+    uint64_t var_offset;
+    uint64_t var_size;
+    uint64_t meas_offset;
+    uint64_t meas_size;
+    uint64_t bench_param_offset;
+    uint64_t bench_param_size;
+    uint64_t groups_offset;
+    uint64_t groups_size;
+    uint64_t bench_data_offset;
+    uint64_t bench_data_size;
+};
+
+#define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
+
+static void write_u32(uint32_t value, FILE *f) {
+    fwrite(&value, sizeof(value), 1, f);
+}
+
+static void write_u64(uint64_t value, FILE *f) {
+    fwrite(&value, sizeof(value), 1, f);
+}
+
+static void write_string(const char *str, FILE *f) {
+    if (str == NULL) {
+        uint32_t len = 0;
+        fwrite(&len, sizeof(len), 1, f);
+    } else {
+        uint32_t len = strlen(str) + 1;
+        fwrite(&len, sizeof(len), 1, f);
+        fwrite(str, len, 1, f);
+    }
+}
+
+void save_bench_data_binary(const struct bench_data *data, FILE *f) {
+    struct csbench_binary_header header = {0};
+    header.magic = CSBENCH_MAGIC;
+    header.version = 1;
+    header.meas_count = data->meas_count;
+    header.bench_count = data->bench_count;
+    header.group_count = data->group_count;
+
+    uint64_t cursor = sizeof(struct csbench_binary_header);
+    assert(!(cursor & 0x7));
+
+    if (data->var != NULL) {
+        header.has_var = 1;
+        header.var_offset = cursor;
+        fseek(f, cursor, SEEK_SET);
+        uint64_t var_start = (uint64_t)ftell(f);
+        write_string(data->var->name, f);
+        write_u64(data->var->value_count, f);
+        for (size_t i = 0; i < data->var->value_count; ++i)
+            write_string(data->var->values[i], f);
+
+        uint64_t at = ftell(f);
+        header.var_size = at - header.var_offset;
+        cursor = (ftell(f) + 0x7) & ~0x7;
+    }
+
+    {
+        fseek(f, cursor, SEEK_SET);
+        header.meas_offset = cursor;
+        for (size_t i = 0; i < data->meas_count; ++i) {
+            const struct meas *meas = data->meas + i;
+            write_string(meas->name, f);
+            write_string(meas->cmd, f);
+            write_u64(meas->units.kind, f);
+            write_string(meas->units.str, f);
+            write_u64(meas->kind, f);
+            write_u64(meas->is_secondary, f);
+            write_u64(meas->primary_idx, f);
+        }
+
+        uint64_t at = ftell(f);
+        header.meas_size = at - header.meas_offset;
+        cursor = (ftell(f) + 0x7) & ~0x7;
+    }
+
+    {
+        fseek(f, cursor, SEEK_SET);
+        header.bench_param_offset = cursor;
+        for (size_t i = 0; i < data->bench_count; ++i) {
+            const struct bench_params *param = data->benches[i].params;
+            write_string(param->name, f);
+            write_string(param->str, f);
+            write_string(param->exec, f);
+            const char **cursor = param->argv;
+            do {
+                write_string(*cursor, f);
+            } while (*cursor != NULL);
+            write_u64(param->output, f);
+        }
+
+        uint64_t at = ftell(f);
+        header.bench_param_size = at - header.bench_param_offset;
+        cursor = (ftell(f) + 0x7) & ~0x7;
+    }
+
+    {
+        fseek(f, cursor, SEEK_SET);
+        header.groups_offset = cursor;
+        for (size_t i = 0; i < data->group_count; ++i) {
+            const struct bench_var_group *grp = data->groups + i;
+            write_string(grp->name, f);
+            assert(grp->cmd_count == data->var->value_count);
+            write_u64(grp->cmd_count, f);
+            for (size_t j = 0; j < grp->cmd_count; ++j)
+                write_u64(grp->cmd_idxs[j], f);
+        }
+
+        uint64_t at = ftell(f);
+        header.groups_size = at - header.groups_offset;
+        cursor = (ftell(f) + 0x7) & ~0x7;
+    }
+
+    {
+        fseek(f, cursor, SEEK_SET);
+        header.bench_data_offset = cursor;
+
+        for (size_t i = 0; i < data->bench_count; ++i) {
+            const struct bench *bench = data->benches + i;
+            write_u64(bench->run_count, f);
+            fwrite(bench->exit_codes, sizeof(int), bench->run_count, f);
+            for (size_t j = 0; j < data->meas_count; ++j)
+                fwrite(bench->meas[j], sizeof(double), bench->run_count, f);
+        }
+
+        uint64_t at = ftell(f);
+        header.bench_data_size = at - header.bench_data_offset;
+        cursor = (ftell(f) + 0x7) & ~0x7;
+    }
+
+    fseek(f, 0, SEEK_SET);
+    fwrite(&header, sizeof(header), 1, f);
 }
