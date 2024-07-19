@@ -474,9 +474,7 @@ bool load_bench_data_csv(const char **files, struct bench_data *data);
 // csbench_analyze.c
 //
 
-void init_analysis(const struct bench_data *data, struct analysis *al);
-bool analyze_benches(struct analysis *al);
-void free_analysis(struct analysis *al);
+bool do_analysis(const struct bench_data *data);
 
 //
 // csbench_run.c

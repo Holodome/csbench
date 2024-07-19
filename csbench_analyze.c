@@ -416,7 +416,7 @@ static bool execute_analyze_tasks(struct bench_analysis *als, size_t count) {
     return success;
 }
 
-bool analyze_benches(struct analysis *al) {
+static bool analyze_benches(struct analysis *al) {
     if (!execute_analyze_tasks(al->bench_analyses, al->bench_count))
         return false;
 
@@ -445,7 +445,7 @@ bool analyze_benches(struct analysis *al) {
     return true;
 }
 
-void init_analysis(const struct bench_data *data, struct analysis *al) {
+static void init_analysis(const struct bench_data *data, struct analysis *al) {
     memset(al, 0, sizeof(*al));
     al->meas = data->meas;
     al->meas_count = data->meas_count;
@@ -488,7 +488,7 @@ static void free_bench_meas_analysis(struct meas_analysis *al) {
     }
 }
 
-void free_analysis(struct analysis *al) {
+static void free_analysis(struct analysis *al) {
     if (al->bench_analyses) {
         for (size_t i = 0; i < al->bench_count; ++i) {
             const struct bench_analysis *analysis = al->bench_analyses + i;
@@ -501,4 +501,18 @@ void free_analysis(struct analysis *al) {
             free_bench_meas_analysis(al->meas_analyses + i);
         free(al->meas_analyses);
     }
+}
+
+bool do_analysis(const struct bench_data *data) {
+    bool success = false;
+    struct analysis al;
+    init_analysis(data, &al);
+    if (!analyze_benches(&al))
+        goto err;
+    if (!make_report(&al))
+        goto err;
+    success = true;
+err:
+    free_analysis(&al);
+    return success;
 }

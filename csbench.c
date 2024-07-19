@@ -1864,15 +1864,9 @@ static bool run_app_bench(const struct cli_settings *cli) {
     init_bench_data(cli->meas, sb_len(cli->meas), &info, &data);
     if (!run_benches(info.params, data.benches, data.bench_count))
         goto err_free_bench_data;
-    struct analysis al;
-    init_analysis(&data, &al);
-    if (!analyze_benches(&al))
-        goto err_free_analysis;
-    if (!make_report(&al))
-        goto err_free_analysis;
+    if (!do_analysis(&data))
+        goto err_free_bench_data;
     success = true;
-err_free_analysis:
-    free_analysis(&al);
 err_free_bench_data:
     free_bench_data(&data);
     if (g_use_perf)
@@ -1910,7 +1904,7 @@ out:
 
 static bool load_meas_from_csv_file(const struct cli_settings *settings,
                                     const char *file, struct meas **meas_list) {
-    bool result = false;
+    bool success = false;
     const char **file_meas_names = NULL;
     if (!load_meas_names(file, &file_meas_names)) {
         error("failed to load measurement names from file '%s'", file);
@@ -1925,7 +1919,7 @@ static bool load_meas_from_csv_file(const struct cli_settings *settings,
                   file, sb_len(file_meas_names), sb_len(*meas_list));
             goto out;
         }
-        result = true;
+        success = true;
         goto out;
     }
 
@@ -1962,10 +1956,10 @@ static bool load_meas_from_csv_file(const struct cli_settings *settings,
             meas.units.kind = MU_S;
         sb_push(*meas_list, meas);
     }
-    result = true;
+    success = true;
 out:
     sb_free(file_meas_names);
-    return result;
+    return success;
 }
 
 static bool load_meas_from_csv(const struct cli_settings *settings,
@@ -1996,7 +1990,7 @@ static bool set_benchmark_names_csv(struct rename_entry *rename_list,
 }
 
 static bool run_app_load_csv(const struct cli_settings *settings) {
-    bool result = false;
+    bool success = false;
     const char **file_list = settings->args;
     struct meas *meas_list = NULL;
     if (!load_meas_from_csv(settings, file_list, &meas_list))
@@ -2005,24 +1999,16 @@ static bool run_app_load_csv(const struct cli_settings *settings) {
     struct bench_data data;
     init_bench_data_csv(meas_list, sb_len(meas_list), file_list, &data);
     if (!set_benchmark_names_csv(settings->rename_list, file_list, &data))
-        goto err_free_bench_data;
+        goto err;
     if (!load_bench_data_csv(file_list, &data))
-        goto err_free_bench_data;
-
-    struct analysis al;
-    init_analysis(&data, &al);
-    if (!analyze_benches(&al))
-        goto err_free_analysis;
-    if (!make_report(&al))
-        goto err_free_analysis;
-
-    result = true;
-err_free_analysis:
-    free_analysis(&al);
+        goto err;
+    if (!do_analysis(&data))
+        goto err;
+    success = true;
+err:
     sb_free(meas_list);
-err_free_bench_data:
     free_bench_data(&data);
-    return result;
+    return success;
 }
 
 static bool run(const struct cli_settings *cli) {
