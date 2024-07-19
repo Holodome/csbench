@@ -1162,8 +1162,8 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
-bool run_benches(const struct bench_params *params, struct bench *benches,
-                 size_t count) {
+static bool run_benches_internal(const struct bench_params *params,
+                                 struct bench *benches, size_t count) {
     bool success = false;
     struct progress_bar progress_bar;
     pthread_t progress_bar_thread;
@@ -1206,3 +1206,14 @@ out:
     sb_free(anchors);
     return success;
 }
+
+bool run_benches(const struct bench_params *params, struct bench *benches,
+                 size_t count) {
+    if (g_use_perf && !init_perf())
+        return false;
+    bool result = run_benches_internal(params, benches, count);
+    if (g_use_perf)
+        deinit_perf();
+    return result;
+}
+

@@ -503,7 +503,7 @@ static void free_analysis(struct analysis *al) {
     }
 }
 
-bool do_analysis(const struct bench_data *data) {
+bool do_analysis_and_make_report(const struct bench_data *data) {
     bool success = false;
     struct analysis al;
     init_analysis(data, &al);

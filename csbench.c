@@ -1826,6 +1826,7 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
 }
 
 static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
+                                const struct rename_entry *rename_list,
                                 const char **file_list,
                                 struct bench_data *data) {
     memset(data, 0, sizeof(*data));
@@ -1837,7 +1838,8 @@ static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
         struct bench *bench = data->benches + i;
         bench->meas_count = data->meas_count;
         bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
-        bench->name = file_list[i];
+        if (!attempt_rename(rename_list, i, &bench->name))
+            bench->name = file_list[i];
     }
 }
 
@@ -1853,25 +1855,20 @@ static void free_bench_data(struct bench_data *data) {
     free(data->benches);
 }
 
-static bool run_app_bench(const struct cli_settings *cli) {
+static bool do_app_bench(const struct cli_settings *cli) {
     bool success = false;
     struct run_info info = {0};
     if (!init_run_info(cli, &info))
         return false;
-    if (g_use_perf && !init_perf())
-        goto err_free_run_info;
     struct bench_data data;
     init_bench_data(cli->meas, sb_len(cli->meas), &info, &data);
     if (!run_benches(info.params, data.benches, data.bench_count))
-        goto err_free_bench_data;
-    if (!do_analysis(&data))
-        goto err_free_bench_data;
+        goto err;
+    if (!do_analysis_and_make_report(&data))
+        goto err;
     success = true;
-err_free_bench_data:
+err:
     free_bench_data(&data);
-    if (g_use_perf)
-        deinit_perf();
-err_free_run_info:
     free_run_info(&info);
     return success;
 }
@@ -1973,36 +1970,22 @@ static bool load_meas_from_csv(const struct cli_settings *settings,
     return true;
 }
 
-static bool set_benchmark_names_csv(struct rename_entry *rename_list,
-                                    const char **file_list,
-                                    struct bench_data *data) {
-    if (!validate_rename_list(rename_list, data->bench_count, NULL))
-        return false;
-
-    for (size_t i = 0; i < data->bench_count; ++i) {
-        struct bench *bench = data->benches + i;
-        const char *file = file_list[i];
-        if (!attempt_rename(rename_list, i, &bench->name))
-            bench->name = file;
-    }
-
-    return true;
-}
-
-static bool run_app_load_csv(const struct cli_settings *settings) {
+static bool do_app_load_csv(const struct cli_settings *settings) {
     bool success = false;
     const char **file_list = settings->args;
+    // We know that each CSV file should belong to separate benchmark,
+    // so we can validate rename list before we actually initialize benchmarks
+    if (!validate_rename_list(settings->rename_list, sb_len(file_list), NULL))
+        return false;
     struct meas *meas_list = NULL;
     if (!load_meas_from_csv(settings, file_list, &meas_list))
         return false;
-
     struct bench_data data;
-    init_bench_data_csv(meas_list, sb_len(meas_list), file_list, &data);
-    if (!set_benchmark_names_csv(settings->rename_list, file_list, &data))
-        goto err;
+    init_bench_data_csv(meas_list, sb_len(meas_list), settings->rename_list,
+                        file_list, &data);
     if (!load_bench_data_csv(file_list, &data))
         goto err;
-    if (!do_analysis(&data))
+    if (!do_analysis_and_make_report(&data))
         goto err;
     success = true;
 err:
@@ -2014,9 +1997,9 @@ err:
 static bool run(const struct cli_settings *cli) {
     switch (g_mode) {
     case APP_BENCH:
-        return run_app_bench(cli);
+        return do_app_bench(cli);
     case APP_LOAD_CSV:
-        return run_app_load_csv(cli);
+        return do_app_load_csv(cli);
     }
 
     return false;

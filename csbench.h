@@ -474,7 +474,7 @@ bool load_bench_data_csv(const char **files, struct bench_data *data);
 // csbench_analyze.c
 //
 
-bool do_analysis(const struct bench_data *data);
+bool do_analysis_and_make_report(const struct bench_data *data);
 
 //
 // csbench_run.c
