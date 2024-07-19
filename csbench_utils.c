@@ -773,3 +773,98 @@ void init_rng_state(void) {
         g_rng_state = time(NULL) * 2 + 1;
     }
 }
+
+const char **parse_comma_separated_list(const char *str) {
+    const char **value_list = NULL;
+    const char *cursor = str;
+    const char *end = str + strlen(str);
+    while (cursor != end) {
+        const char *next = strchr(cursor, ',');
+        if (next == NULL) {
+            const char *new_str = csstripend(cursor);
+            sb_push(value_list, new_str);
+            break;
+        }
+        size_t value_len = next - cursor;
+        const char *value = csmkstr(cursor, value_len);
+        sb_push(value_list, value);
+        cursor = next + 1;
+    }
+    return value_list;
+}
+
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
+    if (g_colored_output) {
+        fprintf(f, "\x1b[%sm", how);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+        fprintf(f, "\x1b[0m");
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+    }
+}
+
+void errorv(const char *fmt, va_list args) {
+    pthread_t tid = pthread_self();
+    for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
+        // Implicitly discard all messages but the first. This should not be an
+        // issue, as the only possible message is error, and it (at least it
+        // should) is always a single one
+        if (pthread_equal(tid, g_output_anchors[i].id) &&
+            !atomic_load(&g_output_anchors[i].has_message)) {
+            vsnprintf(g_output_anchors[i].buffer,
+                      sizeof(g_output_anchors[i].buffer), fmt, args);
+            atomic_fence();
+            atomic_store(&g_output_anchors[i].has_message, true);
+            va_end(args);
+            return;
+        }
+    }
+    fprintf_colored(stderr, ANSI_RED, "error: ");
+    vfprintf(stderr, fmt, args);
+    putc('\n', stderr);
+}
+
+void error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    errorv(fmt, args);
+    va_end(args);
+}
+
+void csperror(const char *msg) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg;
+#ifdef _GNU_SOURCE
+    err_msg = strerror_r(err, errbuf, sizeof(errbuf));
+#else
+    strerror_r(err, errbuf, sizeof(errbuf));
+    err_msg = errbuf;
+#endif
+    error("%s: %s", msg, err_msg);
+}
+
+void csfmterror(const char *fmt, ...) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg;
+#ifdef _GNU_SOURCE
+    err_msg = strerror_r(err, errbuf, sizeof(errbuf));
+#else
+    strerror_r(err, errbuf, sizeof(errbuf));
+    err_msg = errbuf;
+#endif
+
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    error("%s: %s", buf, err_msg);
+}

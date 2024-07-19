@@ -378,6 +378,31 @@ struct output_anchor {
     bool has_message;
 };
 
+// Instruction to rename certain benchmark. 'n' refers to individual benchmark
+// when variable is not used, otherwise it refers to benchmark group.
+struct rename_entry {
+    size_t n;
+    const char *name;
+};
+
+// This structure contains all information
+// supplied by user prior to benchmark start.
+struct cli_settings {
+    const char **args;
+    struct meas *meas;
+    struct input_policy input;
+    enum output_kind output;
+    bool has_var;
+    struct bench_var var;
+    int baseline;
+    struct rename_entry *rename_list;
+};
+
+enum app_mode {
+    APP_BENCH,
+    APP_LOAD_CSV
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -432,37 +457,41 @@ struct output_anchor {
 // csbench.c
 //
 
-#define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
-__attribute__((format(printf, 3, 4))) void
-fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
-__attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
-void errorv(const char *fmt, va_list args);
-void csperror(const char *msg);
-void csfmterror(const char *fmt, ...);
-
 extern __thread uint64_t g_rng_state;
-// Number of resamples to use in bootstrapping when estimating distributions.
-extern int g_nresamp;
-// Use linear regression to estimate slope when doing parameterized benchmark.
-extern bool g_regr;
-// Index of benchmark that should be used as baseline or -1.
-extern int g_baseline;
-extern int g_threads;
+extern bool g_colored_output;
 extern bool g_ignore_failure;
+extern int g_threads;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
 extern bool g_plot_src;
-extern const char *g_json_export_filename;
-extern struct bench_stop_policy g_bench_stop;
-extern struct bench_stop_policy g_warmup_stop;
-extern struct bench_stop_policy g_round_stop;
-extern const char *g_prepare;
-extern const char *g_out_dir;
-extern bool g_python_output;
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
 extern bool g_use_perf;
 extern bool g_progress_bar;
+// Use linear regression to estimate slope when doing parameterized benchmark.
+extern bool g_regr;
+extern bool g_python_output;
+// Index of benchmark that should be used as baseline or -1.
+extern int g_baseline;
+extern enum app_mode g_mode;
+extern struct bench_stop_policy g_warmup_stop;
+extern struct bench_stop_policy g_bench_stop;
+extern struct bench_stop_policy g_round_stop;
 extern struct output_anchor *volatile g_output_anchors;
+extern const char *g_json_export_filename;
+extern const char *g_out_dir;
+extern const char *g_shell;
+extern const char *g_common_argstring;
+extern const char *g_prepare;
+extern const char *g_inputd;
+
+//
+// csbench_cli.c
+//
+
+void parse_cli_args(int argc, char **argv, struct cli_settings *settings);
+void free_cli_settings(struct cli_settings *settings);
 
 //
 // csbench_serialize.c
@@ -527,6 +556,14 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
 // csbench_utils.c
 //
 
+#define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
+__attribute__((format(printf, 3, 4))) void
+fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
+__attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
+void errorv(const char *fmt, va_list args);
+void csperror(const char *msg);
+void csfmterror(const char *fmt, ...);
+
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
 double get_time(void);
@@ -567,6 +604,8 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);
 __attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
                                                       const char *fmt, ...);
+
+const char **parse_comma_separated_list(const char *str);
 
 bool spawn_threads(void *(*worker_fn)(void *), void *param,
                    size_t thread_count);
