@@ -57,8 +57,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-static bool load_bench_run_meas_from_csv_line(const char *str, double **meas,
-                                              size_t meas_count) {
+static bool load_bench_run_meas_csv_line(const char *str, double **meas,
+                                         size_t meas_count) {
     size_t cursor = 0;
     while (cursor < meas_count) {
         char *end = NULL;
@@ -77,7 +77,7 @@ static bool load_bench_run_meas_from_csv_line(const char *str, double **meas,
     return cursor == meas_count ? true : false;
 }
 
-static bool load_bench_result_from_csv(const char *file, struct bench *bench) {
+static bool load_bench_result_csv(const char *file, struct bench *bench) {
     bool success = false;
     FILE *f = fopen(file, "r");
     if (f == NULL)
@@ -100,8 +100,8 @@ static bool load_bench_result_from_csv(const char *file, struct bench *bench) {
             break;
         }
         ++bench->run_count;
-        if (!load_bench_run_meas_from_csv_line(line_buffer, bench->meas,
-                                               bench->meas_count)) {
+        if (!load_bench_run_meas_csv_line(line_buffer, bench->meas,
+                                          bench->meas_count)) {
             error("failed to parse file '%s'", file);
             goto out;
         }
@@ -114,11 +114,11 @@ out:
     return success;
 }
 
-bool load_bench_data_from_csv(const char **files, struct bench_data *data) {
+bool load_bench_data_csv(const char **files, struct bench_data *data) {
     for (size_t i = 0; i < data->bench_count; ++i) {
         struct bench *bench = data->benches + i;
         const char *file = files[i];
-        if (!load_bench_result_from_csv(file, bench))
+        if (!load_bench_result_csv(file, bench))
             return false;
     }
     return true;
@@ -139,8 +139,6 @@ struct csbench_binary_header {
     uint64_t var_size;
     uint64_t meas_offset;
     uint64_t meas_size;
-    uint64_t bench_param_offset;
-    uint64_t bench_param_size;
     uint64_t groups_offset;
     uint64_t groups_size;
     uint64_t bench_data_offset;
@@ -222,25 +220,6 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
 
         uint64_t at = ftell(f);
         header.meas_size = at - header.meas_offset;
-        cursor = (ftell(f) + 0x7) & ~0x7;
-    }
-
-    {
-        fseek(f, cursor, SEEK_SET);
-        header.bench_param_offset = cursor;
-        for (size_t i = 0; i < data->bench_count; ++i) {
-            const struct bench_params *param = data->benches[i].params;
-            write_string(param->name, f);
-            write_string(param->str, f);
-            write_string(param->exec, f);
-            const char **cursor = param->argv;
-            do {
-                write_string(*cursor, f);
-            } while (*cursor != NULL);
-        }
-
-        uint64_t at = ftell(f);
-        header.bench_param_size = at - header.bench_param_offset;
         cursor = (ftell(f) + 0x7) & ~0x7;
     }
 
@@ -350,29 +329,6 @@ bool load_bench_data_binary(FILE *f, const char *filename,
         error("invalid benchmark count in csbench data file '%s'", filename);
         return false;
     }
-    {
-        fseek(f, header.bench_param_offset, SEEK_SET);
-        assert(header.bench_count);
-
-        storage->bench_count = header.bench_count;
-        storage->bench_params =
-            calloc(header.bench_count, sizeof(*storage->bench_params));
-        for (size_t i = 0; i < header.bench_count; ++i) {
-            struct bench_params *param = storage->bench_params + i;
-            param->name = read_string(f);
-            param->str = read_string(f);
-            param->exec = read_string(f);
-            for (;;) {
-                const char *str = read_string(f);
-                sb_push(param->argv, str);
-                if (str == NULL)
-                    break;
-            }
-        }
-
-        assert((uint64_t)ftell(f) ==
-               header.bench_param_offset + header.bench_param_size);
-    }
     if (header.group_count) {
         assert(data->var);
         fseek(f, header.groups_offset, SEEK_SET);
@@ -397,13 +353,13 @@ bool load_bench_data_binary(FILE *f, const char *filename,
     {
         fseek(f, header.bench_data_offset, SEEK_SET);
 
+        data->bench_count = header.bench_count;
         data->benches = calloc(header.bench_count, sizeof(*data->benches));
         for (size_t i = 0; i < header.bench_count; ++i) {
             struct bench *bench = data->benches + i;
             bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
             bench->run_count = read_u64(f);
             bench->meas_count = data->meas_count;
-            bench->params = storage->bench_params + i;
             sb_resize(bench->exit_codes, bench->run_count);
             fread(bench->exit_codes, sizeof(int), bench->run_count, f);
             for (size_t j = 0; j < data->meas_count; ++j) {

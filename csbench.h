@@ -210,20 +210,20 @@ struct distr {
 // filled accordinly with results of execution and, in particular, measurement
 // values. This is later passed down for analysis.
 struct bench {
+    const char *name;
     size_t run_count;
     int *exit_codes;
     size_t meas_count;
     double **meas; // [meas_count]
+
+    // The following fields are runtime only information, can be thrown away
+    // later
     struct progress_bar_bench *progress;
     // This this is used when running custom measurements
     size_t *stdout_offsets;
     // In case of suspension we save the state of running so it can be restored
     // later
     double time_run;
-    // This is not strictly required for operation, but we keep it here for
-    // meta-information
-    const char *name;
-    const struct bench_params *params;
 };
 
 struct bench_data {
@@ -468,7 +468,7 @@ extern struct output_anchor *volatile g_output_anchors;
 // csbench_serialize.c
 //
 
-bool load_bench_data_from_csv(const char **files, struct bench_data *data);
+bool load_bench_data_csv(const char **files, struct bench_data *data);
 
 //
 // csbench_analyze.c

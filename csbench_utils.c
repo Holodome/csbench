@@ -727,14 +727,19 @@ void cs_free_strings(void) {
     }
 }
 
-const char *csmkstr(const char *src, size_t len) {
+char *csstralloc(size_t len) {
     struct string_ll *lc = calloc(1, sizeof(*lc));
     char *str = malloc(len + 1);
-    memcpy(str, src, len);
-    str[len] = '\0';
     lc->str = str;
     lc->next = string_ll;
     string_ll = lc;
+    return str;
+}
+
+const char *csmkstr(const char *src, size_t len) {
+    char *str = csstralloc(len);
+    memcpy(str, src, len);
+    str[len] = '\0';
     return str;
 }
 
