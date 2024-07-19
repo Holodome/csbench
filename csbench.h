@@ -341,8 +341,8 @@ struct analysis {
 struct run_info {
     struct bench_params *params;
     struct bench_var_group *groups;
-    const struct bench_var *var;
     const struct meas *meas;
+    const struct bench_var *var;
 };
 
 struct bench_stop_policy {
@@ -597,6 +597,7 @@ void cs_free_strings(void);
 const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);
 const char *csstripend(const char *str);
+char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 
 #endif // CSBENCH_H

@@ -149,10 +149,6 @@ struct csbench_binary_header {
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
 
-static void write_u32(uint32_t value, FILE *f) {
-    fwrite(&value, sizeof(value), 1, f);
-}
-
 static void write_u64(uint64_t value, FILE *f) {
     fwrite(&value, sizeof(value), 1, f);
 }
@@ -166,6 +162,23 @@ static void write_string(const char *str, FILE *f) {
         fwrite(&len, sizeof(len), 1, f);
         fwrite(str, len, 1, f);
     }
+}
+
+static uint64_t read_u64(FILE *f) {
+    uint64_t value;
+    fread(&value, sizeof(value), 1, f);
+    return value;
+}
+
+static const char *read_string(FILE *f) {
+    uint32_t len;
+    fread(&len, sizeof(len), 1, f);
+    if (len == 0)
+        return NULL;
+
+    char *memory = csstralloc(len + 1);
+    fread(memory, 1, len + 1, f);
+    return memory;
 }
 
 void save_bench_data_binary(const struct bench_data *data, FILE *f) {
@@ -183,7 +196,6 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
         header.has_var = 1;
         header.var_offset = cursor;
         fseek(f, cursor, SEEK_SET);
-        uint64_t var_start = (uint64_t)ftell(f);
         write_string(data->var->name, f);
         write_u64(data->var->value_count, f);
         for (size_t i = 0; i < data->var->value_count; ++i)
@@ -225,7 +237,6 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
             do {
                 write_string(*cursor, f);
             } while (*cursor != NULL);
-            write_u64(param->output, f);
         }
 
         uint64_t at = ftell(f);
@@ -269,4 +280,141 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
 
     fseek(f, 0, SEEK_SET);
     fwrite(&header, sizeof(header), 1, f);
+}
+
+struct bench_binary_data_storage {
+    bool has_var;
+    struct bench_var var;
+    size_t meas_count;
+    struct meas *meas;
+    size_t bench_count;
+    struct bench_params *bench_params;
+    size_t group_count;
+    struct bench_var_group *groups;
+};
+
+bool load_bench_data_binary(FILE *f, const char *filename,
+                            struct bench_binary_data_storage *storage,
+                            struct bench_data *data) {
+    struct csbench_binary_header header;
+    fread(&header, sizeof(header), 1, f);
+    if (header.magic != CSBENCH_MAGIC) {
+        error("invlaid magic number in csbench data file '%s'", filename);
+        return false;
+    }
+    if (header.version != 1) {
+        error("invalid version in csbench data file '%s'", filename);
+        return false;
+    }
+
+    if (header.has_var) {
+        fseek(f, header.var_offset, SEEK_SET);
+
+        storage->has_var = true;
+        storage->var.name = read_string(f);
+        storage->var.value_count = read_u64(f);
+        sb_resize(storage->var.values, storage->var.value_count);
+        for (size_t i = 0; i < storage->var.value_count; ++i)
+            storage->var.values[i] = read_string(f);
+        data->var = &storage->var;
+
+        assert((uint64_t)ftell(f) == header.var_offset + header.var_size);
+    }
+
+    if (header.meas_count == 0) {
+        error("invalid measurement count in csbench data file '%s'", filename);
+        return false;
+    }
+    {
+        fseek(f, header.meas_offset, SEEK_SET);
+
+        storage->meas_count = header.meas_count;
+        storage->meas = calloc(header.meas_count, sizeof(*storage->meas));
+        for (size_t i = 0; i < header.meas_count; ++i) {
+            struct meas *meas = storage->meas + i;
+            meas->name = read_string(f);
+            meas->cmd = read_string(f);
+            meas->units.kind = read_u64(f);
+            meas->units.str = read_string(f);
+            meas->kind = read_u64(f);
+            meas->is_secondary = read_u64(f);
+            meas->primary_idx = read_u64(f);
+        }
+        data->meas_count = storage->meas_count;
+        data->meas = storage->meas;
+
+        assert((uint64_t)ftell(f) == header.meas_offset + header.meas_size);
+    }
+
+    if (header.bench_count == 0) {
+        error("invalid benchmark count in csbench data file '%s'", filename);
+        return false;
+    }
+    {
+        fseek(f, header.bench_param_offset, SEEK_SET);
+        assert(header.bench_count);
+
+        storage->bench_count = header.bench_count;
+        storage->bench_params =
+            calloc(header.bench_count, sizeof(*storage->bench_params));
+        for (size_t i = 0; i < header.bench_count; ++i) {
+            struct bench_params *param = storage->bench_params + i;
+            param->name = read_string(f);
+            param->str = read_string(f);
+            param->exec = read_string(f);
+            for (;;) {
+                const char *str = read_string(f);
+                sb_push(param->argv, str);
+                if (str == NULL)
+                    break;
+            }
+        }
+
+        assert((uint64_t)ftell(f) ==
+               header.bench_param_offset + header.bench_param_size);
+    }
+    if (header.group_count) {
+        assert(data->var);
+        fseek(f, header.groups_offset, SEEK_SET);
+
+        storage->group_count = header.group_count;
+        storage->groups = calloc(header.group_count, sizeof(*storage->groups));
+        for (size_t i = 0; i < header.group_count; ++i) {
+            struct bench_var_group *grp = storage->groups + i;
+            grp->name = read_string(f);
+            grp->cmd_count = read_u64(f);
+            for (size_t j = 0; j < grp->cmd_count; ++j)
+                grp->cmd_idxs[j] = read_u64(f);
+            assert(grp->cmd_count == data->var->value_count);
+        }
+
+        data->group_count = storage->group_count;
+        data->groups = storage->groups;
+
+        assert((uint64_t)ftell(f) == header.groups_offset + header.groups_size);
+    }
+
+    {
+        fseek(f, header.bench_data_offset, SEEK_SET);
+
+        data->benches = calloc(header.bench_count, sizeof(*data->benches));
+        for (size_t i = 0; i < header.bench_count; ++i) {
+            struct bench *bench = data->benches + i;
+            bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
+            bench->run_count = read_u64(f);
+            bench->meas_count = data->meas_count;
+            bench->params = storage->bench_params + i;
+            sb_resize(bench->exit_codes, bench->run_count);
+            fread(bench->exit_codes, sizeof(int), bench->run_count, f);
+            for (size_t j = 0; j < data->meas_count; ++j) {
+                sb_resize(bench->meas[j], bench->run_count);
+                fread(bench->meas[j], sizeof(double), bench->run_count, f);
+            }
+        }
+
+        assert((uint64_t)ftell(f) ==
+               header.bench_data_offset + header.bench_data_size);
+    }
+
+    return true;
 }

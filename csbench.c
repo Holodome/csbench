@@ -1,5 +1,3 @@
-// csbench
-// command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
 //
@@ -83,10 +81,8 @@ struct cli_settings {
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
-    // Currently we support only one benchmark variable. Not to complicate
-    // things, this is one heap-allocated structure. If null, there are no
-    // variables.
-    struct bench_var *var;
+    bool has_var;
+    struct bench_var var;
     int baseline;
     struct rename_entry *rename_list;
 };
@@ -421,7 +417,7 @@ static void print_help_and_exit(int rc) {
 }
 
 static void print_version_and_exit(void) {
-    printf("csbench 0.1\n");
+    printf("csbench 1.2\n");
     exit(EXIT_SUCCESS);
 }
 
@@ -849,13 +845,14 @@ static void parse_cli_args(int argc, char **argv,
             settings->input.kind = INPUT_POLICY_FILE;
             settings->input.file = "{file}";
 
-            struct bench_var *var = calloc(1, sizeof(*var));
-            var->name = "file";
-            var->values = files;
-            var->value_count = sb_len(files);
-            if (settings->var)
-                free(settings->var);
-            settings->var = var;
+            if (settings->has_var) {
+                error("multiple benchmark variables are forbidden");
+                exit(EXIT_FAILURE);
+            }
+            settings->var.name = "file";
+            settings->var.values = files;
+            settings->var.value_count = sb_len(files);
+            settings->has_var = true;
             g_inputd = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
@@ -927,36 +924,30 @@ static void parse_cli_args(int argc, char **argv,
                 error("invalid --scan argument");
                 exit(EXIT_FAILURE);
             }
-            if (settings->var) {
+            if (settings->has_var) {
                 error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
             const char **value_list = range_to_var_value_list(low, high, step);
-            struct bench_var *var = calloc(1, sizeof(*var));
-            var->name = name;
-            var->values = value_list;
-            var->value_count = sb_len(value_list);
-            if (settings->var)
-                free(settings->var);
-            settings->var = var;
+            settings->var.name = name;
+            settings->var.values = value_list;
+            settings->var.value_count = sb_len(value_list);
+            settings->has_var = true;
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
             const char *name, *scan_list;
             if (!parse_comma_separated_settings(str, &name, &scan_list)) {
                 error("invalid --scanl argument");
                 exit(EXIT_FAILURE);
             }
-            if (settings->var) {
+            if (settings->has_var) {
                 error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
             const char **value_list = parse_comma_separated_list(scan_list);
-            struct bench_var *var = calloc(1, sizeof(*var));
-            var->name = name;
-            var->values = value_list;
-            var->value_count = sb_len(value_list);
-            if (settings->var)
-                free(settings->var);
-            settings->var = var;
+            settings->var.name = name;
+            settings->var.values = value_list;
+            settings->var.value_count = sb_len(value_list);
+            settings->has_var = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
@@ -1059,11 +1050,10 @@ static void parse_cli_args(int argc, char **argv,
 }
 
 static void free_cli_settings(struct cli_settings *settings) {
-    if (settings->var) {
-        struct bench_var *var = settings->var;
+    if (settings->has_var) {
+        struct bench_var *var = &settings->var;
         assert(sb_len(var->values) == var->value_count);
         sb_free(var->values);
-        free(settings->var);
     }
     sb_free(settings->args);
     sb_free(settings->meas);
@@ -1607,7 +1597,9 @@ static bool init_benches(const struct cli_settings *cli,
     }
 
     size_t group_count = sb_last(cmd_infos).grp_idx + 1;
-    const struct bench_var *var = cli->var;
+    const struct bench_var *var = NULL;
+    if (cli->has_var)
+        var = &cli->var;
     const struct command_info *cmd_cursor = cmd_infos;
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
@@ -1638,9 +1630,8 @@ static bool init_commands(const struct cli_settings *cli,
         return false;
 
     bool has_groups = false;
-    struct bench_var *var = cli->var;
-    if (var != NULL) {
-        int ret = multiplex_command_infos(var, &command_infos);
+    if (cli->has_var) {
+        int ret = multiplex_command_infos(&cli->var, &command_infos);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -1689,7 +1680,8 @@ static bool validate_and_set_baseline(int baseline,
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
-    info->var = cli->var;
+    if (cli->has_var)
+        info->var = &cli->var;
 
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging,
@@ -1803,9 +1795,10 @@ static void set_benchmark_names(const struct cli_settings *cli,
         if (sb_len(info->groups) == 0) {
             renamed = attempt_rename(cli->rename_list, bench_idx, &bench->name);
         } else {
+            assert(cli->has_var);
             renamed =
                 attempt_groupped_rename(cli->rename_list, bench_idx,
-                                        info->groups, cli->var, &bench->name);
+                                        info->groups, &cli->var, &bench->name);
         }
         if (!renamed)
             bench->name = params->name;
@@ -1819,13 +1812,13 @@ static void init_bench_data(size_t bench_count, const struct meas *meas,
                             size_t group_count, const struct bench_var *var,
                             struct bench_data *data) {
     memset(data, 0, sizeof(*data));
-    data->bench_count = bench_count;
-    data->benches = calloc(bench_count, sizeof(*data->benches));
     data->meas_count = meas_count;
     data->meas = meas;
     data->group_count = group_count;
     data->groups = groups;
     data->var = var;
+    data->bench_count = bench_count;
+    data->benches = calloc(bench_count, sizeof(*data->benches));
     for (size_t i = 0; i < bench_count; ++i) {
         struct bench *bench = data->benches + i;
         bench->meas_count = meas_count;
