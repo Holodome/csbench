@@ -785,7 +785,7 @@ static void html_report(const struct analysis *al, FILE *f) {
 static bool make_html_report(const struct analysis *al) {
     FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
-        error("failed to create file %s/index.html", g_out_dir);
+        error("failed to create file '%s/index.html'", g_out_dir);
         return false;
     }
     html_report(al, f);
@@ -799,14 +799,6 @@ static bool do_visualize(const struct analysis *al) {
 
     if (!g_plot && !g_html && !g_csv)
         return true;
-
-    if (mkdir(g_out_dir, 0766) == -1) {
-        if (errno == EEXIST) {
-        } else {
-            csperror("mkdir");
-            return false;
-        }
-    }
 
     if (g_plot) {
         if (!python_found()) {

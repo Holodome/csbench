@@ -66,6 +66,10 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#define CSCONCAT_(_a, _b) _a##_b
+#define CSCONCAT(_a, _b) CSCONCAT_(_a, _b)
+#define CSUNIQIFY(_a) CSCONCAT(_a, __LINE__)
+
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
 struct sb_header {
@@ -400,7 +404,8 @@ struct cli_settings {
 
 enum app_mode {
     APP_BENCH,
-    APP_LOAD_CSV
+    APP_LOAD_CSV,
+    APP_LOAD_BIN
 };
 
 struct bench_binary_data_storage {
@@ -509,6 +514,10 @@ void free_cli_settings(struct cli_settings *settings);
 
 bool load_bench_data_csv(const char **files, struct bench_data *data);
 bool save_bench_data_binary(const struct bench_data *data, FILE *f);
+bool load_bench_data_binary(FILE *f, const char *filename,
+                            struct bench_binary_data_storage *storage,
+                            struct bench_data *data);
+void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
 
 //
 // csbench_analyze.c

@@ -149,27 +149,27 @@ bool load_bench_data_csv(const char **files, struct bench_data *data) {
 
 #define write_raw__(_arr, _elemsz, _cnt, _f)                                   \
     do {                                                                       \
-        size_t cnt##__LINE__ = (_cnt);                                         \
-        if (fwrite(_arr, _elemsz, cnt##__LINE__, _f) != cnt##__LINE__)         \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                        \
+        if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))       \
             goto err;                                                          \
     } while (0)
 
 #define write_u64__(_value, _f)                                                \
     do {                                                                       \
-        uint64_t value##__LINE__ = (_value);                                   \
-        write_raw__(&value##__LINE__, sizeof(uint64_t), 1, _f);                \
+        uint64_t CSUNIQIFY(value) = (_value);                                  \
+        write_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, _f);               \
     } while (0)
 
 #define write_str__(_str, _f)                                                  \
     do {                                                                       \
-        const char *str##__LINE__ = (_str);                                    \
-        if (str##__LINE__ == NULL) {                                           \
-            uint32_t len = 0;                                                  \
-            write_raw__(&len, sizeof(uint32_t), 1, f);                         \
+        const char *CSUNIQIFY(str) = (_str);                                   \
+        if (CSUNIQIFY(str) == NULL) {                                          \
+            uint32_t CSUNIQIFY(len) = 0;                                       \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);              \
         } else {                                                               \
-            uint32_t len = strlen(str##__LINE__) + 1;                          \
-            write_raw__(&len, sizeof(uint32_t), 1, f);                         \
-            write_raw__(str##__LINE__, len, 1, f);                             \
+            uint32_t CSUNIQIFY(len) = strlen(CSUNIQIFY(str)) + 1;              \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);              \
+            write_raw__(CSUNIQIFY(str), 1, CSUNIQIFY(len), f);                 \
         }                                                                      \
     } while (0)
 
@@ -217,7 +217,7 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f) {
         cursor = (ftell(f) + 0x7) & ~0x7;
     }
 
-    {
+    if (data->group_count != 0) {
         fseek(f, cursor, SEEK_SET);
         header.groups_offset = cursor;
         for (size_t i = 0; i < data->group_count; ++i) {
@@ -240,6 +240,7 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f) {
 
         for (size_t i = 0; i < data->bench_count; ++i) {
             const struct bench *bench = data->benches + i;
+            write_str__(bench->name, f);
             write_u64__(bench->run_count, f);
             write_raw__(bench->exit_codes, sizeof(int), bench->run_count, f);
             for (size_t j = 0; j < data->meas_count; ++j)
@@ -261,28 +262,28 @@ err:
 
 #define read_raw__(_dst, _elemsz, _cnt, _f)                                    \
     do {                                                                       \
-        size_t cnt##__LINE__ = (_cnt);                                         \
-        if (fread(_dst, _elemsz, cnt##__LINE__, _f) != cnt##__LINE__)          \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                        \
+        if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))        \
             goto err;                                                          \
     } while (0)
 
 #define read_u64__(_dst, _f)                                                   \
     do {                                                                       \
-        uint64_t value##__LINE__;                                              \
-        read_raw__(&value##__LINE__, sizeof(uint64_t), 1, f);                  \
-        (_dst) = value##__LINE__;                                              \
+        uint64_t CSUNIQIFY(value);                                             \
+        read_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, f);                 \
+        (_dst) = CSUNIQIFY(value);                                             \
     } while (0)
 
 #define read_str__(_dst, _f)                                                   \
     do {                                                                       \
-        uint32_t len##__LINE__;                                                \
-        read_raw__(&len##__LINE__, sizeof(uint32_t), 1, f);                    \
-        char *res##__LINE__ = NULL;                                            \
-        if (len##__LINE__ != 0) {                                              \
-            res##__LINE__ = csstralloc(len##__LINE__ + 1);                     \
-            read_raw__(res##__LINE__, 1, len##__LINE__ + 1, f);                \
+        uint32_t CSUNIQIFY(len);                                               \
+        read_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                   \
+        char *CSUNIQIFY(res) = NULL;                                           \
+        if (CSUNIQIFY(len) != 0) {                                             \
+            CSUNIQIFY(res) = csstralloc(CSUNIQIFY(len) - 1);                   \
+            read_raw__(CSUNIQIFY(res), 1, CSUNIQIFY(len), f);                  \
         }                                                                      \
-        (_dst) = (const char *)res##__LINE__;                                  \
+        (_dst) = (const char *)CSUNIQIFY(res);                                 \
     } while (0)
 
 bool load_bench_data_binary(FILE *f, const char *filename,
@@ -410,6 +411,7 @@ bool load_bench_data_binary(FILE *f, const char *filename,
         data->benches = calloc(header.bench_count, sizeof(*data->benches));
         for (size_t i = 0; i < header.bench_count; ++i) {
             struct bench *bench = data->benches + i;
+            read_str__(bench->name, f);
             bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
             read_u64__(bench->run_count, f);
             bench->meas_count = data->meas_count;
@@ -436,6 +438,21 @@ bool load_bench_data_binary(FILE *f, const char *filename,
 err:
     csperror("IO error reading csbench binary file");
 err_raw:
+    if (data->benches) {
+        for (size_t i = 0; i < data->bench_count; ++i) {
+            struct bench *bench = data->benches + i;
+            sb_free(bench->exit_codes);
+            for (size_t j = 0; j < bench->meas_count; ++j)
+                sb_free(bench->meas[j]);
+            free(bench->meas);
+        }
+        free(data->benches);
+    }
+    free_bench_binary_data_storage(storage);
+    return false;
+}
+
+void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
     if (storage->has_var) {
         sb_free(storage->var.values);
     }
@@ -447,17 +464,4 @@ err_raw:
             free(storage->groups[i].cmd_idxs);
         free(storage->groups);
     }
-    if (data->benches) {
-        for (size_t i = 0; i < data->bench_count; ++i) {
-            struct bench *bench = data->benches + i;
-            sb_free(bench->exit_codes);
-            for (size_t j = 0; j < bench->meas_count; ++j)
-                sb_free(bench->meas[j]);
-            free(bench->meas);
-        }
-        free(data->benches);
-    }
-    memset(storage, 0, sizeof(*storage));
-    memset(data, 0, sizeof(*data));
-    return false;
 }

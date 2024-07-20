@@ -815,6 +815,9 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
         } else if (strcmp(argv[cursor], "--load-csv") == 0) {
             ++cursor;
             g_mode = APP_LOAD_CSV;
+        } else if (strcmp(argv[cursor], "--load-bin") == 0) {
+            ++cursor;
+            g_mode = APP_LOAD_BIN;
         } else if (strcmp(argv[cursor], "--simple") == 0 ||
                    strcmp(argv[cursor], "-s") == 0) {
             ++cursor;

@@ -58,6 +58,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 struct command_info {
@@ -899,7 +900,7 @@ static void free_bench_data(struct bench_data *data) {
 }
 
 static bool do_save_bin(const struct bench_data *data) {
-    FILE *f = open_file_fmt("w", "%s/data.csbench", g_out_dir);
+    FILE *f = open_file_fmt("wb", "%s/data.csbench", g_out_dir);
     if (f == NULL) {
         error("failed to create file '%s/data.csbench'", g_out_dir);
         return false;
@@ -1050,12 +1051,55 @@ err:
     return success;
 }
 
+static bool do_app_load_bin(const struct cli_settings *cli) {
+    bool success = false;
+    const char **src_list = cli->args;
+    assert(sb_len(src_list) == 1);
+    const char *src_dir = src_list[0];
+    char buf[4096];
+    snprintf(buf, sizeof(buf), "%s/data.csbench", src_dir);
+    FILE *f = fopen(buf, "rb");
+    if (f == NULL) {
+        error("failed to open data file '%s'", buf);
+        return false;
+    }
+
+    struct bench_binary_data_storage storage;
+    struct bench_data data;
+    if (!load_bench_data_binary(f, buf, &storage, &data))
+        goto err;
+    if (!do_analysis_and_make_report(&data))
+        goto err_free_data;
+    success = true;
+err_free_data:
+    free_bench_data(&data);
+    free_bench_binary_data_storage(&storage);
+err:
+    fclose(f);
+    return success;
+}
+
+static bool ensure_out_dir_is_created(void) {
+    if (mkdir(g_out_dir, 0766) == -1) {
+        if (errno == EEXIST) {
+        } else {
+            csperror("mkdir");
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool run(const struct cli_settings *cli) {
+    if (!ensure_out_dir_is_created())
+        return false;
     switch (g_mode) {
     case APP_BENCH:
         return do_app_bench(cli);
     case APP_LOAD_CSV:
         return do_app_load_csv(cli);
+    case APP_LOAD_BIN:
+        return do_app_load_bin(cli);
     }
 
     return false;
