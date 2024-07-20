@@ -82,6 +82,7 @@ bool g_use_perf = false;
 bool g_progress_bar = false;
 bool g_regr = false;
 bool g_python_output = false;
+bool g_save_bin = false;
 int g_baseline = -1;
 enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
@@ -897,6 +898,17 @@ static void free_bench_data(struct bench_data *data) {
     free(data->benches);
 }
 
+static bool do_save_bin(const struct bench_data *data) {
+    FILE *f = open_file_fmt("w", "%s/data.csbench", g_out_dir);
+    if (f == NULL) {
+        error("failed to create file '%s/data.csbench'", g_out_dir);
+        return false;
+    }
+    bool success = save_bench_data_binary(data, f);
+    fclose(f);
+    return success;
+}
+
 static bool do_app_bench(const struct cli_settings *cli) {
     bool success = false;
     struct run_info info = {0};
@@ -905,6 +917,8 @@ static bool do_app_bench(const struct cli_settings *cli) {
     struct bench_data data;
     init_bench_data(cli->meas, sb_len(cli->meas), &info, &data);
     if (!run_benches(info.params, data.benches, data.bench_count))
+        goto err;
+    if (g_save_bin && !do_save_bin(&data))
         goto err;
     if (!do_analysis_and_make_report(&data))
         goto err;

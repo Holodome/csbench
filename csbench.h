@@ -481,6 +481,7 @@ extern bool g_progress_bar;
 // Use linear regression to estimate slope when doing parameterized benchmark.
 extern bool g_regr;
 extern bool g_python_output;
+extern bool g_save_bin;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
 extern enum app_mode g_mode;
@@ -507,6 +508,7 @@ void free_cli_settings(struct cli_settings *settings);
 //
 
 bool load_bench_data_csv(const char **files, struct bench_data *data);
+bool save_bench_data_binary(const struct bench_data *data, FILE *f);
 
 //
 // csbench_analyze.c
