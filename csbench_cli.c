@@ -447,7 +447,9 @@ static int string_cmp(const void *ap, const void *bp) {
     return strcmp(a, b);
 }
 
-static bool get_input_files_from_dir(const char *dirname, const char ***files) {
+static bool get_input_files_from_dir(const char *dirname,
+                                     const char ***filesp) {
+    bool success = false;
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
         csfmterror("failed to open directory '%s' (designated for input)",
@@ -455,14 +457,14 @@ static bool get_input_files_from_dir(const char *dirname, const char ***files) {
         return false;
     }
 
-    *files = NULL;
+    const char **files = NULL;
     for (;;) {
         errno = 0;
         struct dirent *dirent = readdir(dir);
         if (dirent == NULL && errno != 0) {
             csperror("readdir");
-            sb_free(*files);
-            break;
+            sb_free(files);
+            goto err;
         } else if (dirent == NULL) {
             break;
         }
@@ -472,13 +474,16 @@ static bool get_input_files_from_dir(const char *dirname, const char ***files) {
             continue;
 
         const char *path = csstrdup(name);
-        sb_push(*files, path);
+        sb_push(files, path);
     }
 
-    qsort(*files, sb_len(*files), sizeof(**files), string_cmp);
+    qsort(files, sb_len(files), sizeof(*files), string_cmp);
+    *filesp = files;
 
+    success = true;
+err:
     closedir(dir);
-    return true;
+    return success;
 }
 
 static bool opt_arg(char **argv, int *cursor, const char *opt,

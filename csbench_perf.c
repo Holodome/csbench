@@ -677,7 +677,8 @@ static int kdebug_trace_read(void *buf, size_t len, size_t *count) {
     int ret = sysctl(mib, 3, buf, &len, NULL, 0);
     if (ret != 0)
         return ret;
-    *count = len;
+    if (count)
+        *count = len;
     return 0;
 }
 

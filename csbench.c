@@ -640,10 +640,9 @@ static bool init_benches(const struct cli_settings *cli,
         return true;
     }
 
+    assert(cli->has_var);
     size_t group_count = sb_last(cmd_infos).grp_idx + 1;
-    const struct bench_var *var = NULL;
-    if (cli->has_var)
-        var = &cli->var;
+    const struct bench_var *var = &cli->var;
     const struct command_info *cmd_cursor = cmd_infos;
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
@@ -656,7 +655,7 @@ static bool init_benches(const struct cli_settings *cli,
              ++val_idx, ++cmd_cursor) {
             assert(cmd_cursor->grp_idx == grp_idx);
             if (!init_command(cmd_cursor, info, group.cmd_idxs + val_idx)) {
-                sb_free(group.cmd_idxs);
+                free(group.cmd_idxs);
                 return false;
             }
         }

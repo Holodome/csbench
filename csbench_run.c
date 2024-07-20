@@ -114,6 +114,7 @@ struct progress_bar_state {
 };
 
 struct progress_bar {
+    pthread_t thread;
     bool was_drawn;
     size_t max_name_len;
     size_t count;
@@ -777,6 +778,7 @@ static bool run_benches_single_threaded(struct run_task_queue *q) {
             break;
         }
     }
+    g_q = NULL;
     return true;
 }
 
@@ -910,7 +912,7 @@ static void init_progress_bar(struct bench *benches, size_t count,
                               struct progress_bar *bar) {
     memset(bar, 0, sizeof(*bar));
     bar->count = count;
-    bar->bar_benches = calloc(count, sizeof(*bar->benches));
+    bar->bar_benches = calloc(count, sizeof(*bar->bar_benches));
     bar->states = calloc(count, sizeof(*bar->states));
     bar->benches = benches;
     for (size_t i = 0; i < count; ++i) {
@@ -1166,14 +1168,15 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 static bool run_benches_internal(const struct bench_params *params,
                                  struct bench *benches, size_t count) {
     bool success = false;
-    struct progress_bar progress_bar;
-    pthread_t progress_bar_thread;
+    struct progress_bar *progress_bar = NULL;
     if (g_progress_bar) {
-        init_progress_bar(benches, count, &progress_bar);
-        if (pthread_create(&progress_bar_thread, NULL,
-                           progress_bar_thread_worker, &progress_bar) != 0) {
+        progress_bar = calloc(1, sizeof(*progress_bar));
+        init_progress_bar(benches, count, progress_bar);
+        if (pthread_create(&progress_bar->thread, NULL,
+                           progress_bar_thread_worker, progress_bar) != 0) {
             error("failed to spawn thread");
-            free_progress_bar(&progress_bar);
+            free_progress_bar(progress_bar);
+            free(progress_bar);
             return false;
         }
     }
@@ -1197,9 +1200,10 @@ static bool run_benches_internal(const struct bench_params *params,
 
     success = true;
 out:
-    if (g_progress_bar) {
-        pthread_join(progress_bar_thread, NULL);
-        free_progress_bar(&progress_bar);
+    if (progress_bar) {
+        pthread_join(progress_bar->thread, NULL);
+        free_progress_bar(progress_bar);
+        free(progress_bar);
     }
     // Clean up anchors after execution
     struct output_anchor *anchors = g_output_anchors;

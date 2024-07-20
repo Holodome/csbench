@@ -624,7 +624,7 @@ static inline uint32_t pcg32_fast(uint64_t *state) {
 // This program is not string-heavy, most of the times they arise during
 // configuration parsing and benchmark initialization.
 //
-// But **** this stupid ****, memory management is too hard. Just allocate all
+// Memory management is too hard. Just allocate all
 // strings in global arena and then free at once. This way all strings are
 // treated as read-only, so we can safely assign them without copying.
 //

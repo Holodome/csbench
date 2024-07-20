@@ -229,7 +229,7 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
         for (size_t i = 0; i < data->group_count; ++i) {
             const struct bench_var_group *grp = data->groups + i;
             write_string(grp->name, f);
-            assert(grp->cmd_count == data->var->value_count);
+            assert(data->var && grp->cmd_count == data->var->value_count);
             write_u64(grp->cmd_count, f);
             for (size_t j = 0; j < grp->cmd_count; ++j)
                 write_u64(grp->cmd_idxs[j], f);
@@ -336,6 +336,7 @@ bool load_bench_data_binary(FILE *f, const char *filename,
             struct bench_var_group *grp = storage->groups + i;
             grp->name = read_string(f);
             grp->cmd_count = read_u64(f);
+            grp->cmd_idxs = calloc(grp->cmd_count, sizeof(*grp->cmd_idxs));
             for (size_t j = 0; j < grp->cmd_count; ++j)
                 grp->cmd_idxs[j] = read_u64(f);
             assert(grp->cmd_count == data->var->value_count);
