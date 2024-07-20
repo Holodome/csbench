@@ -105,7 +105,7 @@ const char *g_inputd = NULL;
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
                             const char *name, const char *value,
                             bool *replaced) {
-    char *buf_end = buf + buf_size;
+    const char *buf_end = buf + buf_size;
     size_t var_name_len = strlen(name);
     char *wr_cursor = buf;
     const char *rd_cursor = src;
@@ -539,12 +539,13 @@ multiplex_command_info_input(const struct command_info *src_info,
         src_info->input.kind != INPUT_POLICY_STRING)
         return CMD_MULTIPLEX_NO_GROUPS;
 
-    const char *src_string;
+    const char *src_string = NULL;
     if (src_info->input.kind == INPUT_POLICY_FILE)
         src_string = src_info->input.file;
     else if (src_info->input.kind == INPUT_POLICY_STRING)
         src_string = src_info->input.string;
 
+    assert(src_string);
     char buf[4096];
     bool replaced = false;
     if (!replace_var_str(buf, sizeof(buf), src_string, var->name,
@@ -587,10 +588,10 @@ multiplex_command_info_input(const struct command_info *src_info,
 static enum cmd_multiplex_result
 multiplex_command_infos(const struct bench_var *var,
                         struct command_info **infos) {
-    int ret = CMD_MULTIPLEX_NO_GROUPS;
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
         const struct command_info *src_info = *infos + src_idx;
+        int ret;
 
         ret = multiplex_command_info_cmd(src_info, src_idx, var, &multiplexed);
         switch (ret) {
@@ -889,8 +890,8 @@ static void free_bench_data(struct bench_data *data) {
     for (size_t i = 0; i < data->bench_count; ++i) {
         struct bench *bench = data->benches + i;
         sb_free(bench->exit_codes);
-        for (size_t i = 0; i < data->meas_count; ++i)
-            sb_free(bench->meas[i]);
+        for (size_t j = 0; j < data->meas_count; ++j)
+            sb_free(bench->meas[j]);
         free(bench->meas);
         sb_free(bench->stdout_offsets);
     }

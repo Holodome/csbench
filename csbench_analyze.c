@@ -255,28 +255,33 @@ static void ref_speed(double u1, double sigma1, double u2, double sigma2,
 static void calculate_speedups(struct meas_analysis *al) {
     if (al->base->bench_count == 1)
         return;
-    bool flip = false;
-    const struct distr *reference;
-    if (g_baseline != -1) {
-        reference = al->benches[g_baseline];
-    } else {
-        reference = al->benches[al->fastest[0]];
-        flip = true;
+    // Per-benchmark speedups
+    {
+        bool flip = false;
+        const struct distr *reference;
+        if (g_baseline != -1) {
+            reference = al->benches[g_baseline];
+        } else {
+            reference = al->benches[al->fastest[0]];
+            flip = true;
+        }
+        for (size_t bench_idx = 0; bench_idx < al->base->bench_count;
+             ++bench_idx) {
+            const struct distr *bench = al->benches[bench_idx];
+            if (bench == reference)
+                continue;
+            struct point_err_est *est = al->speedup + bench_idx;
+            if (flip)
+                ref_speed(bench->mean.point, bench->st_dev.point,
+                          reference->mean.point, reference->st_dev.point,
+                          &est->point, &est->err);
+            else
+                ref_speed(reference->mean.point, reference->st_dev.point,
+                          bench->mean.point, bench->st_dev.point, &est->point,
+                          &est->err);
+        }
     }
-    for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
-        const struct distr *bench = al->benches[bench_idx];
-        if (bench == reference)
-            continue;
-        struct point_err_est *est = al->speedup + bench_idx;
-        if (flip)
-            ref_speed(bench->mean.point, bench->st_dev.point,
-                      reference->mean.point, reference->st_dev.point,
-                      &est->point, &est->err);
-        else
-            ref_speed(reference->mean.point, reference->st_dev.point,
-                      bench->mean.point, bench->st_dev.point, &est->point,
-                      &est->err);
-    }
+    // Per-variable value speedups
     if (al->base->var && al->base->group_count > 1) {
         for (size_t val_idx = 0; val_idx < al->base->var->value_count;
              ++val_idx) {
@@ -406,8 +411,9 @@ static bool execute_analyze_tasks(struct bench_analysis *als, size_t count) {
     init_analyze_task_queue(als, count, &q);
     bool success;
     if (thread_count == 1) {
-        void *result = analyze_bench_worker(&q);
+        const void *result = analyze_bench_worker(&q);
         success = true;
+        (void)result;
         assert(result == NULL);
     } else {
         success = spawn_threads(analyze_bench_worker, &q, thread_count);

@@ -88,7 +88,7 @@ static bool json_escape(char *buf, size_t buf_size, const char *src) {
         *buf = '\0';
         return true;
     }
-    char *end = buf + buf_size;
+    const char *end = buf + buf_size;
     while (*src) {
         if (buf >= end)
             return false;
@@ -306,7 +306,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
 }
 
 static void format_plot_name(char *buf, size_t buf_size,
-                             struct plot_walker_args *args,
+                             const struct plot_walker_args *args,
                              const char *extension) {
     switch (args->plot_kind) {
     case PLOT_BAR:
@@ -344,13 +344,10 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static void write_make_plot(struct plot_walker_args *args, FILE *f) {
-    char svg_buf[4096];
-    size_t grp_idx = args->grp_idx;
-    size_t bench_idx = args->bench_idx;
-    size_t var_value_idx = args->var_value_idx;
+static void write_make_plot(const struct plot_walker_args *args, FILE *f) {
     const struct meas_analysis *al = args->analysis;
     const struct meas *meas = al->meas;
+    char svg_buf[4096];
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
@@ -359,29 +356,25 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     case PLOT_GROUP_BAR:
         group_bar_plot(al, svg_buf, f);
         break;
-    case PLOT_GROUP_SINGLE: {
-        group_plot(al->group_analyses + grp_idx, 1, meas, al->base->var,
+    case PLOT_GROUP_SINGLE:
+        group_plot(al->group_analyses + args->grp_idx, 1, meas, al->base->var,
                    svg_buf, f);
         break;
-    }
-    case PLOT_GROUP: {
+    case PLOT_GROUP:
         group_plot(al->group_analyses, al->base->group_count, meas,
                    al->base->var, svg_buf, f);
         break;
-    }
-    case PLOT_KDE: {
-        kde_plot(al->benches[bench_idx], meas, svg_buf, f);
+    case PLOT_KDE:
+        kde_plot(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
-    }
-    case PLOT_KDE_EXT: {
-        kde_plot_ext(al->benches[bench_idx], meas, svg_buf, f);
+    case PLOT_KDE_EXT:
+        kde_plot_ext(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
-    }
     case PLOT_KDE_CMPG: {
         const struct group_analysis *a = al->group_analyses;
         const struct group_analysis *b = al->group_analyses + 1;
-        kde_cmp_plot(al->benches[a->group->cmd_idxs[var_value_idx]],
-                     al->benches[b->group->cmd_idxs[var_value_idx]], meas,
+        kde_cmp_plot(al->benches[a->group->cmd_idxs[args->var_value_idx]],
+                     al->benches[b->group->cmd_idxs[args->var_value_idx]], meas,
                      svg_buf, f);
         break;
     }
@@ -917,7 +910,6 @@ static void print_distr(const struct distr *dist, const struct units *units) {
 static void print_benchmark_info(const struct bench_analysis *cur,
                                  const struct analysis *al) {
     const struct bench *bench = cur->bench;
-    size_t run_count = bench->run_count;
     printf("command ");
     printf_colored(ANSI_BOLD, "%s\n", cur->name);
     // Print runs count only if it not explicitly specified, otherwise it is
@@ -944,7 +936,7 @@ static void print_benchmark_info(const struct bench_analysis *cur,
                                    &al->meas[j].units, ANSI_BOLD_BLUE,
                                    ANSI_BRIGHT_BLUE);
             }
-            print_outliers(&distr->outliers, run_count);
+            print_outliers(&distr->outliers, bench->run_count);
         }
     } else {
         for (size_t i = 0; i < al->meas_count; ++i) {

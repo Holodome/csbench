@@ -834,11 +834,12 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         printf_colored(ANSI_BLUE, "%s", buf);
         if (data.aborted) {
             memcpy(&data.id, &bar->bar_benches[i].id, sizeof(data.id));
-            for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
-                if (pthread_equal(g_output_anchors[i].id, data.id)) {
-                    assert(g_output_anchors[i].has_message);
+            for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
+                const struct output_anchor *anchor = g_output_anchors + j;
+                if (pthread_equal(anchor->id, data.id)) {
+                    assert(anchor->has_message);
                     printf_colored(ANSI_RED, " error: ");
-                    printf("%s", g_output_anchors[i].buffer);
+                    printf("%s", anchor->buffer);
                     break;
                 }
             }
@@ -1129,9 +1130,9 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
                                              size_t thread_count) {
     struct custom_measurement_task_queue q;
     init_custom_measurement_task_queue(params, benches, count, &q);
-    bool success;
+    bool success = false;
     if (thread_count == 1) {
-        void *result = custom_measurement_bench_worker(&q);
+        const void *result = custom_measurement_bench_worker(&q);
         if (result == NULL)
             success = true;
         else

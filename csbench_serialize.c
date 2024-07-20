@@ -254,7 +254,6 @@ void save_bench_data_binary(const struct bench_data *data, FILE *f) {
 
         uint64_t at = ftell(f);
         header.bench_data_size = at - header.bench_data_offset;
-        cursor = (ftell(f) + 0x7) & ~0x7;
     }
 
     fseek(f, 0, SEEK_SET);
@@ -266,8 +265,6 @@ struct bench_binary_data_storage {
     struct bench_var var;
     size_t meas_count;
     struct meas *meas;
-    size_t bench_count;
-    struct bench_params *bench_params;
     size_t group_count;
     struct bench_var_group *groups;
 };

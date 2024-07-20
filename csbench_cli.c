@@ -285,7 +285,7 @@ static bool parse_range_scan_settings(const char *settings, const char **namep,
     const char *name = csmkstr(cursor, name_len);
 
     cursor = i_end + 1;
-    char *n_end = strchr(cursor, '/');
+    const char *n_end = strchr(cursor, '/');
     if (n_end == NULL)
         return false;
 
@@ -295,7 +295,7 @@ static bool parse_range_scan_settings(const char *settings, const char **namep,
         return false;
 
     cursor = n_end + 1;
-    char *m_end = strchr(cursor, '/');
+    const char *m_end = strchr(cursor, '/');
     char *high_str_end = NULL;
     double high = strtod(cursor, &high_str_end);
     if (m_end == NULL ? 0 : high_str_end != m_end)
