@@ -512,7 +512,11 @@ void free_cli_settings(struct cli_settings *settings);
 // csbench_serialize.c
 //
 
+bool load_meas_csv(const struct meas *user_specified_meas,
+                        size_t user_specified_meas_count,
+                        const char **file_list, struct meas **meas_list);
 bool load_bench_data_csv(const char **files, struct bench_data *data);
+
 bool save_bench_data_binary(const struct bench_data *data, FILE *f);
 bool load_bench_data_binary(FILE *f, const char *filename,
                             struct bench_binary_data_storage *storage,

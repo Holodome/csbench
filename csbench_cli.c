@@ -672,19 +672,17 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
+            if (settings->has_var) {
+                error("multiple benchmark variables are forbidden");
+                exit(EXIT_FAILURE);
+            }
             // XXX: To reuse old code, --inputd is more like a macro to
             // --input '{file}' with --scanl file/... having list of files.
             const char **files;
             if (!get_input_files_from_dir(str, &files))
                 exit(EXIT_FAILURE);
-
             settings->input.kind = INPUT_POLICY_FILE;
             settings->input.file = "{file}";
-
-            if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
-                exit(EXIT_FAILURE);
-            }
             settings->var.name = "file";
             settings->var.values = files;
             settings->var.value_count = sb_len(files);
@@ -754,14 +752,14 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             }
             sb_free(list);
         } else if (opt_arg(argv, &cursor, "--scan", &str)) {
+            if (settings->has_var) {
+                error("multiple benchmark variables are forbidden");
+                exit(EXIT_FAILURE);
+            }
             double low, high, step;
             const char *name;
             if (!parse_range_scan_settings(str, &name, &low, &high, &step)) {
                 error("invalid --scan argument");
-                exit(EXIT_FAILURE);
-            }
-            if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
             const char **value_list = range_to_var_value_list(low, high, step);
@@ -770,13 +768,13 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             settings->var.value_count = sb_len(value_list);
             settings->has_var = true;
         } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
+            if (settings->has_var) {
+                error("multiple benchmark variables are forbidden");
+                exit(EXIT_FAILURE);
+            }
             const char *name, *scan_list;
             if (!parse_comma_separated_settings(str, &name, &scan_list)) {
                 error("invalid --scanl argument");
-                exit(EXIT_FAILURE);
-            }
-            if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
                 exit(EXIT_FAILURE);
             }
             const char **value_list = parse_comma_separated_list(scan_list);
