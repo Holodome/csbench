@@ -420,9 +420,9 @@ err:
         (_dst) = (const char *)CSUNIQIFY(res);                                 \
     } while (0)
 
-bool load_bench_data_binary(FILE *f, const char *filename,
-                            struct bench_binary_data_storage *storage,
-                            struct bench_data *data) {
+static bool load_bench_data_binary_file_internal(
+    FILE *f, const char *filename, struct bench_data *data,
+    struct bench_binary_data_storage *storage) {
     memset(storage, 0, sizeof(*storage));
     memset(data, 0, sizeof(*data));
 
@@ -579,6 +579,20 @@ err_raw:
     return false;
 }
 
+static bool
+load_bench_data_binary_file(const char *filename, struct bench_data *data,
+                            struct bench_binary_data_storage *storage) {
+    FILE *f = fopen(filename, "rb");
+    if (f == NULL) {
+        csfmterror("failed to open benchmark data file '%s'", filename);
+        return false;
+    }
+    bool result =
+        load_bench_data_binary_file_internal(f, filename, data, storage);
+    fclose(f);
+    return result;
+}
+
 void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
     if (storage->has_var) {
         sb_free(storage->var.values);
@@ -591,4 +605,121 @@ void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
             free(storage->groups[i].cmd_idxs);
         free(storage->groups);
     }
+}
+
+static bool meas_match(const struct meas *a, const struct meas *b) {
+    if (strcmp(a->name, b->name) != 0)
+        return false;
+    if ((a->cmd != NULL) != (b->cmd != NULL))
+        return false;
+    if (a->cmd != NULL && strcmp(a->cmd, b->cmd) != 0)
+        return false;
+    if (a->units.kind != b->units.kind)
+        return false;
+    if (a->units.str != NULL && strcmp(a->units.str, b->units.str) != 0)
+        return false;
+    if (a->is_secondary != b->is_secondary)
+        return false;
+    if (a->primary_idx != b->primary_idx)
+        return false;
+    return true;
+}
+
+static bool vars_match(const struct bench_var *a, const struct bench_var *b) {
+    if (strcmp(a->name, b->name) != 0)
+        return false;
+    if (a->value_count != b->value_count)
+        return false;
+    for (size_t i = 0; i < a->value_count; ++i)
+        if (strcmp(a->values[i], b->values[i]) != 0)
+            return false;
+    return true;
+}
+
+static bool bench_data_match(const struct bench_data *a,
+                             const struct bench_data *b) {
+    if (a->meas_count != b->meas_count)
+        return false;
+    for (size_t j = 0; j < a->meas_count; ++j)
+        if (!meas_match(a->meas + j, b->meas + j))
+            return false;
+    if ((a->var != NULL != (b->var != NULL)))
+        return false;
+    if (a->var != NULL && !vars_match(a->var, b->var))
+        return false;
+    return true;
+}
+
+static bool merge_bench_data(struct bench_data *src_datas,
+                             struct bench_binary_data_storage *src_storages,
+                             size_t src_count, struct bench_data *data,
+                             struct bench_binary_data_storage *storage) {
+    assert(src_count >= 2);
+    size_t total_bench_count = src_datas[0].bench_count;
+    for (size_t i = 1; i < src_count; ++i) {
+        total_bench_count += src_datas[i].bench_count;
+        if (!bench_data_match(src_datas + 0, src_datas + i)) {
+            error("loaded benchmarks structure does not match");
+            return false;
+        }
+    }
+
+    memset(data, 0, sizeof(*data));
+    memset(storage, 0, sizeof(*storage));
+    storage->has_var = src_storages[0].has_var;
+    memcpy(&storage->var, &src_storages[0].var, sizeof(storage->var));
+    storage->meas_count = src_storages[0].meas_count;
+    storage->meas = src_storages[0].meas;
+    src_storages[0].has_var = false;
+    src_storages[0].meas_count = 0;
+    src_storages[0].meas = NULL;
+
+    data->meas_count = storage->meas_count;
+    data->meas = storage->meas;
+    if (storage->has_var)
+        data->var = &storage->var;
+    data->bench_count = total_bench_count;
+    data->benches = calloc(total_bench_count, sizeof(*data->benches));
+    for (size_t i = 0, bench_cursor = 0; i < src_count; ++i) {
+        struct bench_data *src = src_datas + i;
+        memcpy(data->benches + bench_cursor, src->benches,
+               sizeof(struct bench) * src->bench_count);
+        bench_cursor += src->bench_count;
+        free(src->benches);
+        src->benches = NULL;
+        src->bench_count = 0;
+    }
+    return true;
+}
+
+bool load_bench_data_binary(const char **file_list, struct bench_data *data,
+                            struct bench_binary_data_storage *storage) {
+    bool success = false;
+    size_t src_count = sb_len(file_list);
+    assert(src_count > 0);
+    if (src_count == 1) {
+        success = load_bench_data_binary_file(file_list[0], data, storage);
+    } else {
+        struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
+        struct bench_binary_data_storage *src_storages =
+            calloc(src_count, sizeof(*src_storages));
+        for (size_t i = 0; i < src_count; ++i)
+            if (!load_bench_data_binary_file(file_list[i], src_datas + i,
+                                             src_storages + i))
+                goto err;
+
+        if (!merge_bench_data(src_datas, src_storages, src_count, data,
+                              storage))
+            goto err;
+
+        success = true;
+    err:
+        for (size_t i = 0; i < src_count; ++i) {
+            free_bench_binary_data_storage(src_storages + i);
+            free_bench_data(src_datas + i);
+        }
+        free(src_datas);
+        free(src_storages);
+    }
+    return success;
 }

@@ -232,11 +232,11 @@ struct bench {
 
 struct bench_data {
     size_t meas_count;
-    const struct meas *meas;
+    const struct meas *meas; // [meas_count]
     size_t bench_count;
-    struct bench *benches;
+    struct bench *benches; // [bench_count]
     size_t group_count;
-    const struct bench_var_group *groups;
+    const struct bench_var_group *groups; // [group_count]
     const struct bench_var *var;
 };
 
@@ -412,9 +412,9 @@ struct bench_binary_data_storage {
     bool has_var;
     struct bench_var var;
     size_t meas_count;
-    struct meas *meas;
+    struct meas *meas; // [meas_count]
     size_t group_count;
-    struct bench_var_group *groups;
+    struct bench_var_group *groups; // [group_count]
 };
 
 #define sb_header(_a)                                                          \
@@ -501,6 +501,8 @@ extern const char *g_common_argstring;
 extern const char *g_prepare;
 extern const char *g_inputd;
 
+void free_bench_data(struct bench_data *data);
+
 //
 // csbench_cli.c
 //
@@ -513,14 +515,13 @@ void free_cli_settings(struct cli_settings *settings);
 //
 
 bool load_meas_csv(const struct meas *user_specified_meas,
-                        size_t user_specified_meas_count,
-                        const char **file_list, struct meas **meas_list);
+                   size_t user_specified_meas_count, const char **file_list,
+                   struct meas **meas_list);
 bool load_bench_data_csv(const char **files, struct bench_data *data);
 
 bool save_bench_data_binary(const struct bench_data *data, FILE *f);
-bool load_bench_data_binary(FILE *f, const char *filename,
-                            struct bench_binary_data_storage *storage,
-                            struct bench_data *data);
+bool load_bench_data_binary(const char **file_list, struct bench_data *data,
+                            struct bench_binary_data_storage *storage);
 void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
 
 //
