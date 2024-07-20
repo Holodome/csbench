@@ -403,6 +403,15 @@ enum app_mode {
     APP_LOAD_CSV
 };
 
+struct bench_binary_data_storage {
+    bool has_var;
+    struct bench_var var;
+    size_t meas_count;
+    struct meas *meas;
+    size_t group_count;
+    struct bench_var_group *groups;
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
