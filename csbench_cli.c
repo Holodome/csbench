@@ -415,10 +415,10 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
 
 static size_t simple_get_thread_count(void) {
     int pipe_fd[2];
-    if (pipe(pipe_fd) == -1)
+    if (!pipe_cloexec(pipe_fd))
         return 1;
 
-    if (!execute_in_shell("nproc", -1, pipe_fd[1], -1)) {
+    if (!shell_execute_and_wait("nproc", -1, pipe_fd[1], -1)) {
         close(pipe_fd[0]);
         close(pipe_fd[1]);
         return 1;

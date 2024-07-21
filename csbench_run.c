@@ -288,30 +288,42 @@ static bool should_i_suspend(void) {
     return result;
 }
 
-static void apply_input_policy(int stdin_fd) {
+static void apply_input_policy(int stdin_fd, int err_pipe_end) {
     if (stdin_fd == -1) {
         int fd = open("/dev/null", O_RDONLY);
-        if (fd == -1)
+        if (fd == -1) {
+            csfdperror(err_pipe_end, "open(\"/dev/null\", O_RDONLY)");
             _exit(-1);
-        if (dup2(fd, STDIN_FILENO) == -1)
+        }
+        if (dup2(fd, STDIN_FILENO) == -1) {
+            csfdperror(err_pipe_end, "dup2");
             _exit(-1);
+        }
         close(fd);
     } else {
-        if (lseek(stdin_fd, 0, SEEK_SET) == -1)
+        if (lseek(stdin_fd, 0, SEEK_SET) == -1) {
+            csfdperror(err_pipe_end, "lseek");
             _exit(-1);
-        if (dup2(stdin_fd, STDIN_FILENO) == -1)
+        }
+        if (dup2(stdin_fd, STDIN_FILENO) == -1) {
+            csfdperror(err_pipe_end, "dup2");
             _exit(-1);
+        }
     }
 }
 
-static void apply_output_policy(enum output_kind policy) {
+static void apply_output_policy(enum output_kind policy, int err_pipe_end) {
     switch (policy) {
     case OUTPUT_POLICY_NULL: {
         int fd = open("/dev/null", O_WRONLY);
-        if (fd == -1)
+        if (fd == -1) {
+            csfdperror(err_pipe_end, "open(\"/dev/null\", O_WRONLY)");
             _exit(-1);
-        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1)
+        }
+        if (dup2(fd, STDOUT_FILENO) == -1 || dup2(fd, STDERR_FILENO) == -1) {
+            csfdperror(err_pipe_end, "dup2");
             _exit(-1);
+        }
         close(fd);
         break;
     }
@@ -320,9 +332,51 @@ static void apply_output_policy(enum output_kind policy) {
     }
 }
 
-static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
-                    struct perf_cnt *pmc, bool is_warmup) {
+static void exec_cmd_child(const struct bench_params *params,
+                           struct perf_cnt *pmc, bool is_warmup,
+                           int err_pipe_end) {
+    apply_input_policy(params->stdin_fd, err_pipe_end);
+    if (is_warmup) {
+        apply_output_policy(OUTPUT_POLICY_NULL, err_pipe_end);
+    } else if (params->stdout_fd != -1) {
+        // special handling when stdout needs to be piped
+        int fd = open("/dev/null", O_WRONLY);
+        if (fd == -1) {
+            csfdperror(err_pipe_end, "open(\"/dev/null\", O_WRONLY)");
+            _exit(-1);
+        }
+        if (dup2(fd, STDERR_FILENO) == -1 ||
+            dup2(params->stdout_fd, STDOUT_FILENO) == -1) {
+            csfdperror(err_pipe_end, "dup2");
+            _exit(-1);
+        }
+        close(fd);
+    } else {
+        apply_output_policy(params->output, err_pipe_end);
+    }
+    if (pmc != NULL) {
+        sigset_t set;
+        sigemptyset(&set);
+        sigaddset(&set, SIGUSR1);
+        int sig;
+        if (sigwait(&set, &sig) != 0) {
+            csfdperror(err_pipe_end, "sigwait");
+            _exit(-1);
+        }
+    }
+    if (execvp(params->exec, (char **)params->argv) == -1) {
+        csfdperror(err_pipe_end, "execvp");
+        _exit(-1);
+    }
+
+    __builtin_unreachable();
+}
+
+static int exec_cmd_internal(const struct bench_params *params,
+                             struct rusage *rusage, struct perf_cnt *pmc,
+                             bool is_warmup, int err_pipe[2]) {
     bool success = true;
+
     pid_t pid = fork();
     if (pid == -1) {
         csperror("fork");
@@ -330,33 +384,7 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
     }
 
     if (pid == 0) {
-        apply_input_policy(params->stdin_fd);
-        if (is_warmup) {
-            apply_output_policy(OUTPUT_POLICY_NULL);
-        } else if (params->stdout_fd != -1) {
-            // special handling when stdout needs to be piped
-            int fd = open("/dev/null", O_WRONLY);
-            if (fd == -1)
-                _exit(-1);
-            if (dup2(fd, STDERR_FILENO) == -1)
-                _exit(-1);
-            if (dup2(params->stdout_fd, STDOUT_FILENO) == -1)
-                _exit(-1);
-            close(fd);
-        } else {
-            apply_output_policy(params->output);
-        }
-        if (pmc != NULL) {
-            sigset_t set;
-            sigemptyset(&set);
-            sigaddset(&set, SIGUSR1);
-            int sig;
-            sigwait(&set, &sig);
-        }
-        if (execvp(params->exec, (char **)params->argv) == -1)
-            _exit(-1);
-
-        __builtin_unreachable();
+        exec_cmd_child(params, pmc, is_warmup, err_pipe[1]);
     }
 
     if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
@@ -377,6 +405,9 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
         break;
     }
 
+    if (!check_and_handle_err_pipe(err_pipe[0], 0))
+        return -1;
+
     int ret = -1;
     if (success) {
         // shell-like exit codes
@@ -389,6 +420,17 @@ static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
         error("process finished with unexpected status (%d)", status);
 
     return ret;
+}
+
+static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
+                    struct perf_cnt *pmc, bool is_warmup) {
+    int err_pipe[2];
+    if (!pipe_cloexec(err_pipe))
+        return -1;
+    int result = exec_cmd_internal(params, rusage, pmc, is_warmup, err_pipe);
+    close(err_pipe[0]);
+    close(err_pipe[1]);
+    return result;
 }
 
 static void init_run_state(double time, const struct bench_stop_policy *policy,
@@ -641,7 +683,7 @@ static void progress_bar_suspend(struct progress_bar_bench *bench,
 }
 
 static bool run_prepare_if_needed(void) {
-    if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
+    if (g_prepare && !shell_execute_and_wait(g_prepare, -1, -1, -1)) {
         error("failed to execute prepare command");
         return false;
     }
@@ -1028,7 +1070,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
         return false;
     }
 
-    if (!execute_in_shell(custom->cmd, input_fd, output_fd, -1))
+    if (!shell_execute_and_wait(custom->cmd, input_fd, output_fd, -1))
         return false;
 
     if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {

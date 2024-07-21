@@ -179,42 +179,26 @@ static bool do_export(const struct analysis *al) {
 }
 
 static bool python_found(void) {
-    pid_t pid = fork();
-    if (pid == -1) {
-        csperror("fork");
-        return false;
-    }
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        if (execlp("python3", "python3", "--version", NULL) == -1)
-            _exit(-1);
-    }
-    return process_finished_correctly(pid);
+    return shell_execute_and_wait("python3 --version", -1, -1, -1);
 }
 
 static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
-    if (pipe(pipe_fds) == -1) {
-        csperror("pipe");
+    if (!pipe_cloexec(pipe_fds))
         return false;
-    }
 
-    pid_t pid = fork();
-    if (pid == -1) {
-        csperror("fork");
-        return false;
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    if (g_python_output) {
+        stdout_fd = STDOUT_FILENO;
+        stderr_fd = STDERR_FILENO;
     }
-    if (pid == 0) {
+    bool success =
+        shell_execute("python3", pipe_fds[0], stdout_fd, stderr_fd, pidp);
+    if (!success) {
+        close(pipe_fds[0]);
         close(pipe_fds[1]);
-        if (dup2(pipe_fds[0], STDIN_FILENO) == -1)
-            _exit(-1);
-        if (!g_python_output) {
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
-        }
-        if (execlp("python3", "python3", NULL) == -1)
-            _exit(-1);
+        return false;
     }
     close(pipe_fds[0]);
     FILE *f = fdopen(pipe_fds[1], "w");
@@ -222,16 +206,15 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
         csperror("fdopen");
         // Not a very nice way of handling errors, but it seems correct.
         close(pipe_fds[1]);
-        kill(pid, SIGKILL);
+        kill(*pidp, SIGKILL);
         for (;;) {
-            int err = waitpid(pid, NULL, 0);
+            int err = waitpid(*pidp, NULL, 0);
             if (err == -1 && errno == EINTR)
                 continue;
             break;
         }
         return false;
     }
-    *pidp = pid;
     *inp = f;
     return true;
 }
@@ -243,7 +226,7 @@ static bool python_has_matplotlib(void) {
         return false;
     fprintf(f, "import matplotlib\n");
     fclose(f);
-    return process_finished_correctly(pid);
+    return process_wait_finished_correctly(pid);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
@@ -436,7 +419,7 @@ static bool make_plots(const struct analysis *al) {
             success = false;
     }
     for (size_t i = 0; i < sb_len(args.pids); ++i) {
-        if (!process_finished_correctly(args.pids[i])) {
+        if (!process_wait_finished_correctly(args.pids[i])) {
             error("python finished with non-zero exit code");
             success = false;
         }

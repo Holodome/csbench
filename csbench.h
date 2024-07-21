@@ -589,6 +589,10 @@ void errorv(const char *fmt, va_list args);
 void csperror(const char *msg);
 void csfmtperror(const char *fmt, ...);
 
+bool pipe_cloexec(int fd[2]);
+bool check_and_handle_err_pipe(int read_end, int timeout);
+void csfdperror(int fd, const char *msg);
+
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
 double get_time(void);
@@ -615,9 +619,11 @@ void ols(const double *x, const double *y, size_t count,
 
 void shuffle(size_t *arr, size_t count);
 
-bool process_finished_correctly(pid_t pid);
-bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
-                      int stderr_fd);
+bool process_wait_finished_correctly(pid_t pid);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                   pid_t *pid);
+bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
+                            int stderr_fd);
 
 int tmpfile_fd(void);
 
