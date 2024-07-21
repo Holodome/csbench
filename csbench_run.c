@@ -640,6 +640,14 @@ static void progress_bar_suspend(struct progress_bar_bench *bench,
     atomic_store(&bench->suspended, true);
 }
 
+static bool run_prepare_if_needed(void) {
+    if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
+        error("failed to execute prepare command");
+        return false;
+    }
+    return true;
+}
+
 static enum bench_run_result
 run_benchmark_exact_runs(const struct bench_params *params,
                          struct bench *bench) {
@@ -647,10 +655,8 @@ run_benchmark_exact_runs(const struct bench_params *params,
     init_run_state(get_time(), &g_round_stop, 0, 0, &round_state);
     for (int run_idx = bench->run_count; run_idx < g_bench_stop.runs;
          ++run_idx) {
-        if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
-            error("failed to execute prepare command");
+        if (!run_prepare_if_needed())
             return BENCH_RUN_ERROR;
-        }
         if (!exec_and_measure(params, bench))
             return BENCH_RUN_ERROR;
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
@@ -669,43 +675,29 @@ run_benchmark_exact_runs(const struct bench_params *params,
 static enum bench_run_result
 run_benchmark_adaptive_runs(const struct bench_params *params,
                             struct bench *bench) {
-    double niter_accum = 1;
-    size_t niter = 1;
     double start_time = get_time();
     struct run_state state, round_state;
     init_run_state(start_time, &g_bench_stop, bench->run_count, bench->time_run,
                    &state);
     init_run_state(start_time, &g_round_stop, 0, 0, &round_state);
     for (;;) {
-        for (size_t run_idx = 0; run_idx < niter; ++run_idx) {
-            if (g_prepare && !execute_in_shell(g_prepare, -1, -1, -1)) {
-                error("failed to execute prepare command");
-                return BENCH_RUN_ERROR;
-            }
-            if (!exec_and_measure(params, bench))
-                return BENCH_RUN_ERROR;
+        if (!run_prepare_if_needed())
+            return BENCH_RUN_ERROR;
+        if (!exec_and_measure(params, bench))
+            return BENCH_RUN_ERROR;
 
-            double current = get_time();
-            double time_in_round_passed = current - start_time;
-            double bench_time_passed = time_in_round_passed + bench->time_run;
-            int progress = bench_time_passed / g_bench_stop.time_limit * 100;
-            progress_bar_update_time(bench->progress, progress,
-                                     bench_time_passed);
+        double current = get_time();
+        double time_in_round_passed = current - start_time;
+        double bench_time_passed = time_in_round_passed + bench->time_run;
+        int progress = bench_time_passed / g_bench_stop.time_limit * 100;
+        progress_bar_update_time(bench->progress, progress, bench_time_passed);
 
-            if (should_finish_running(&state, 1))
-                goto out;
+        if (should_finish_running(&state, 1))
+            goto out;
 
-            if (should_suspend_round(&round_state)) {
-                bench->time_run += time_in_round_passed;
-                return BENCH_RUN_SUSPENDED;
-            }
-        }
-
-        for (;;) {
-            niter_accum *= 1.05;
-            size_t new_niter = (size_t)floor(niter_accum);
-            if (new_niter != niter)
-                break;
+        if (should_suspend_round(&round_state)) {
+            bench->time_run += time_in_round_passed;
+            return BENCH_RUN_SUSPENDED;
         }
     }
     double passed;
@@ -856,13 +848,24 @@ static void redraw_progress_bar(struct progress_bar *bar) {
 
         if (g_bench_stop.runs != 0) {
             char eta_buf[256] = "N/A     ";
+            // I don't hope that anyone would be able to understand ETA
+            // calculating code, but it is roughly divided in three parts.
+            // First, there is some tracker of benchmark time in total
+            // (data.time_passed.d and passed_time variable). It should grow
+            // linearly and reflect the actual time spent running. Next,
+            // we calculate ETA when run count changes using this total passed
+            // time. There are corner cases with this number when benchmark goes
+            // from suspended to running and vice versa. We have to explicitly
+            // recalculate ETA in this case because it will otherwise be
+            // inconsistent (bar->states[i].last_running). Lastly, when
+            // benchmark is actually running, we subtract from ETA time passed
+            // in current round to update it dynamically.
             if (data.start_time.d != 0 &&
                 (data.suspended || data.warmup || data.finished)) {
                 if (bar->states[i].last_running ||
                     (bar->states[i].runs != data.metric.u)) {
                     bar->states[i].eta = (g_bench_stop.runs - data.metric.u) *
                                          data.time_passed.d / data.metric.u;
-                    bar->states[i].time = 0;
                     bar->states[i].runs = data.metric.u;
                 }
                 double eta = bar->states[i].eta;
