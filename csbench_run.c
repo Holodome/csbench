@@ -57,10 +57,11 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
-#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <pthread.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -111,6 +112,7 @@ struct progress_bar_state {
     size_t runs;
     double eta;
     double time;
+    bool last_running;
 };
 
 struct progress_bar {
@@ -585,15 +587,12 @@ static void progress_bar_at_warmup(struct progress_bar_bench *bench) {
     atomic_store(&bench->warmup, true);
 }
 
-static void progress_bar_start(struct progress_bar_bench *bench, double time,
-                               double time_passed) {
+static void progress_bar_start(struct progress_bar_bench *bench, double time) {
     if (!g_progress_bar)
         return;
     uint64_t u;
     memcpy(&u, &time, sizeof(u));
     atomic_store(&bench->start_time.u, u);
-    memcpy(&u, &time_passed, sizeof(u));
-    atomic_store(&bench->time_passed.u, u);
     atomic_store(&bench->warmup, false);
 }
 
@@ -631,9 +630,13 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
     atomic_store(&bench->metric.u, runs);
 }
 
-static void progress_bar_suspend(struct progress_bar_bench *bench) {
+static void progress_bar_suspend(struct progress_bar_bench *bench,
+                                 double time_passed) {
     if (!g_progress_bar)
         return;
+    uint64_t u;
+    memcpy(&u, &time_passed, sizeof(u));
+    atomic_store(&bench->time_passed.u, u);
     atomic_store(&bench->suspended, true);
 }
 
@@ -652,7 +655,9 @@ run_benchmark_exact_runs(const struct bench_params *params,
             return BENCH_RUN_ERROR;
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
         progress_bar_update_runs(bench->progress, percent, run_idx + 1);
-        if (should_suspend_round(&round_state)) {
+        // Check if we should suspend, but only if not this is the last round
+        if (run_idx != g_bench_stop.runs - 1 &&
+            should_suspend_round(&round_state)) {
             bench->time_run += get_time() - round_state.start_time;
             return BENCH_RUN_SUSPENDED;
         }
@@ -691,7 +696,7 @@ run_benchmark_adaptive_runs(const struct bench_params *params,
                 goto out;
 
             if (should_suspend_round(&round_state)) {
-                bench->time_run = bench_time_passed;
+                bench->time_run += time_in_round_passed;
                 return BENCH_RUN_SUSPENDED;
             }
         }
@@ -732,7 +737,7 @@ static enum bench_run_result run_bench(const struct bench_params *params,
         return BENCH_RUN_ERROR;
 
     assert(should_run(&g_bench_stop));
-    progress_bar_start(bench->progress, get_time(), bench->time_run);
+    progress_bar_start(bench->progress, get_time());
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
     enum bench_run_result result;
@@ -750,7 +755,7 @@ static enum bench_run_result run_bench(const struct bench_params *params,
         progress_bar_abort(bench->progress);
         break;
     case BENCH_RUN_SUSPENDED:
-        progress_bar_suspend(bench->progress);
+        progress_bar_suspend(bench->progress, bench->time_run);
         break;
     }
     return result;
@@ -830,9 +835,9 @@ static void redraw_progress_bar(struct progress_bar *bar) {
         for (int j = 0; j < c; ++j)
             buf[j] = '#';
         printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
-        for (int j = 0; j < 40 - c; ++j)
+        for (int j = 0; j < length - c; ++j)
             buf[j] = '-';
-        buf[40 - c] = '\0';
+        buf[length - c] = '\0';
         printf_colored(ANSI_BLUE, "%s", buf);
         if (data.aborted) {
             memcpy(&data.id, &bar->bar_benches[i].id, sizeof(data.id));
@@ -845,47 +850,62 @@ static void redraw_progress_bar(struct progress_bar *bar) {
                     break;
                 }
             }
-        } else {
-            if (g_bench_stop.runs != 0) {
-                char eta_buf[256] = "N/A     ";
-                if (data.start_time.d != 0.0) {
-                    double passed_time =
-                        current_time - data.start_time.d + data.time_passed.d;
-                    if (bar->states[i].runs != data.metric.u) {
-                        bar->states[i].eta =
-                            (g_bench_stop.runs - data.metric.u) * passed_time /
-                            data.metric.u;
-                        bar->states[i].runs = data.metric.u;
-                        bar->states[i].time = current_time;
-                    }
-                    double eta = bar->states[i].eta;
-                    if (!data.finished && !data.suspended && !data.warmup)
-                        eta -= current_time - bar->states[i].time;
-                    // Sometimes we would get -inf here
-                    if (eta < 0.0)
-                        eta = -eta;
-                    if (eta != INFINITY)
-                        format_time(eta_buf, sizeof(eta_buf), eta);
-                }
-                char total_buf[256];
-                snprintf(total_buf, sizeof(total_buf), "%zu",
-                         (size_t)g_bench_stop.runs);
-                printf(" %*zu/%s eta %s", (int)strlen(total_buf),
-                       (size_t)data.metric.u, total_buf, eta_buf);
-            } else {
-                char buf1[256], buf2[256];
-                format_time(buf1, sizeof(buf1), data.metric.d);
-                format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
-                printf(" %s/ %s", buf1, buf2);
-            }
+            printf("\n");
+            continue;
+        }
 
-            if (data.suspended) {
-                printf_colored(ANSI_YELLOW, " S  ");
-            } else if (data.warmup) {
-                printf_colored(ANSI_MAGENTA, " W  ");
-            } else {
-                printf("    ");
+        if (g_bench_stop.runs != 0) {
+            char eta_buf[256] = "N/A     ";
+            if (data.start_time.d != 0 &&
+                (data.suspended || data.warmup || data.finished)) {
+                if (bar->states[i].last_running ||
+                    (bar->states[i].runs != data.metric.u)) {
+                    bar->states[i].eta = (g_bench_stop.runs - data.metric.u) *
+                                         data.time_passed.d / data.metric.u;
+                    bar->states[i].time = 0;
+                    bar->states[i].runs = data.metric.u;
+                }
+                double eta = bar->states[i].eta;
+                if (isfinite(eta))
+                    format_time(eta_buf, sizeof(eta_buf), eta);
+                bar->states[i].last_running = false;
+            } else if (data.start_time.d != 0.0) {
+                // Check if the benchmark updated progress bar since
+                // last time we checked and recalculate ETA accordingly
+                if (!bar->states[i].last_running ||
+                    bar->states[i].runs != data.metric.u) {
+                    double passed_time =
+                        data.time_passed.d + current_time - data.start_time.d;
+                    bar->states[i].eta = (g_bench_stop.runs - data.metric.u) *
+                                         passed_time / data.metric.u;
+                    bar->states[i].time = current_time;
+                    bar->states[i].runs = data.metric.u;
+                }
+                // Adjust ETA using time that has passed in current run
+                double eta =
+                    bar->states[i].eta - (current_time - bar->states[i].time);
+                if (isfinite(eta))
+                    format_time(eta_buf, sizeof(eta_buf), eta);
+                bar->states[i].last_running = true;
             }
+            char total_buf[256];
+            snprintf(total_buf, sizeof(total_buf), "%zu",
+                     (size_t)g_bench_stop.runs);
+            printf(" %*zu/%s eta %s", (int)strlen(total_buf),
+                   (size_t)data.metric.u, total_buf, eta_buf);
+        } else {
+            char buf1[256], buf2[256];
+            format_time(buf1, sizeof(buf1), data.metric.d);
+            format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
+            printf(" %s/ %s", buf1, buf2);
+        }
+
+        if (data.suspended) {
+            printf_colored(ANSI_YELLOW, " S  ");
+        } else if (data.warmup) {
+            printf_colored(ANSI_MAGENTA, " W  ");
+        } else {
+            printf("    ");
         }
         printf("\n");
     }
