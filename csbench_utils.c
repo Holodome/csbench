@@ -605,9 +605,15 @@ bool check_and_handle_err_pipe(int read_end, int timeout) {
     pfd.events = POLLIN;
     pfd.revents = 0;
     int ret;
-    if ((ret = poll(&pfd, 1, timeout)) == -1) {
-        csperror("poll");
-        return false;
+    for (;;) {
+        ret = poll(&pfd, 1, timeout);
+        if (ret == -1 && errno == EINTR)
+            continue;
+        if (ret == -1) {
+            csperror("poll");
+            return false;
+        }
+        break;
     }
     if (ret == 1 && pfd.revents & POLLIN) {
         char buf[4096];
