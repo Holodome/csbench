@@ -52,12 +52,13 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <errno.h>
+#include <limits.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <errno.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -88,7 +89,7 @@ int g_baseline = -1;
 enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
-struct bench_stop_policy g_round_stop = {5.0, 0, 2, 0};
+struct bench_stop_policy g_round_stop = {0, 0, INT_MAX, 0};
 // XXX: Mark this as volatile because we rely that this variable is changed
 // atomically when creating and destorying threads. Elements of this array could
 // only be written by a single thread, and reads are synchronized, so the data
