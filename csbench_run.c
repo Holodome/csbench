@@ -372,20 +372,19 @@ static void exec_cmd_child(const struct bench_params *params,
     __builtin_unreachable();
 }
 
-static int exec_cmd_internal(const struct bench_params *params,
-                             struct rusage *rusage, struct perf_cnt *pmc,
-                             bool is_warmup, int err_pipe[2]) {
+static bool exec_cmd_internal(const struct bench_params *params,
+                              struct rusage *rusage, struct perf_cnt *pmc,
+                              bool is_warmup, int err_pipe[2], int *rc) {
     bool success = true;
 
     pid_t pid = fork();
     if (pid == -1) {
         csperror("fork");
-        return -1;
+        return false;
     }
 
-    if (pid == 0) {
+    if (pid == 0)
         exec_cmd_child(params, pmc, is_warmup, err_pipe[1]);
-    }
 
     if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
         success = false;
@@ -395,42 +394,47 @@ static int exec_cmd_internal(const struct bench_params *params,
     int status = 0;
     pid_t wpid;
     for (;;) {
-        if ((wpid = wait4(pid, &status, 0, rusage)) != pid) {
-            if (wpid == -1 && errno == EINTR)
-                continue;
-            if (wpid == -1)
-                csperror("wait4");
-            return -1;
+        wpid = wait4(pid, &status, 0, rusage);
+        if (wpid == -1 && errno == EINTR)
+            continue;
+        if (wpid != pid) {
+            csperror("wait4");
+            return false;
         }
         break;
     }
 
+    if (!success)
+        return false;
+
     if (!check_and_handle_err_pipe(err_pipe[0], 0))
-        return -1;
+        return false;
 
-    int ret = -1;
-    if (success) {
-        // shell-like exit codes
-        if (WIFEXITED(status))
-            ret = WEXITSTATUS(status);
-        else if (WIFSIGNALED(status))
-            ret = 128 + WTERMSIG(status);
-    }
-    if (ret == -1 && success)
+    // shell-like exit codes
+    if (WIFEXITED(status)) {
+        if (rc)
+            *rc = WEXITSTATUS(status);
+    } else if (WIFSIGNALED(status)) {
+        if (rc)
+            *rc = 128 + WTERMSIG(status);
+    } else {
         error("process finished with unexpected status (%d)", status);
+        return false;
+    }
 
-    return ret;
+    return true;
 }
 
-static int exec_cmd(const struct bench_params *params, struct rusage *rusage,
-                    struct perf_cnt *pmc, bool is_warmup) {
+static bool exec_cmd(const struct bench_params *params, struct rusage *rusage,
+                     struct perf_cnt *pmc, bool is_warmup, int *rc) {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return -1;
-    int result = exec_cmd_internal(params, rusage, pmc, is_warmup, err_pipe);
+    bool success =
+        exec_cmd_internal(params, rusage, pmc, is_warmup, err_pipe, rc);
     close(err_pipe[0]);
     close(err_pipe[1]);
-    return result;
+    return success;
 }
 
 static void init_run_state(double time, const struct bench_stop_policy *policy,
@@ -503,7 +507,7 @@ static bool warmup(const struct bench_params *cmd) {
     struct run_state state;
     init_run_state(get_time(), &g_warmup_stop, 0, 0, &state);
     for (;;) {
-        if (exec_cmd(cmd, NULL, NULL, true) == -1) {
+        if (!exec_cmd(cmd, NULL, NULL, true, NULL)) {
             error("failed to execute warmup command");
             return false;
         }
@@ -536,13 +540,13 @@ static bool exec_and_measure(const struct bench_params *params,
     struct perf_cnt *pmc = NULL;
     if (g_use_perf)
         pmc = &pmc_;
-    volatile double wall_clock_start = get_time();
-    volatile int rc = exec_cmd(params, &rusage, pmc, false);
-    volatile double wall_clock_end = get_time();
-
-    // Some internal error
-    if (rc == -1)
+    double wall_clock_start = get_time();
+    __asm__ volatile("" ::: "memory");
+    int rc = -1;
+    if (!exec_cmd(params, &rusage, pmc, false, &rc))
         return false;
+    __asm__ volatile("" ::: "memory");
+    double wall_clock_end = get_time();
 
     if (!g_ignore_failure && rc != 0) {
         error("command '%s' finished with non-zero exit code (%d)", params->str,
