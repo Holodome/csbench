@@ -592,7 +592,7 @@ load_bench_data_binary_file(const char *filename, struct bench_data *data,
                             struct bench_binary_data_storage *storage) {
     FILE *f = fopen(filename, "rb");
     if (f == NULL) {
-        csfmterror("failed to open benchmark data file '%s'", filename);
+        csfmtperror("failed to open benchmark data file '%s'", filename);
         return false;
     }
     bool success =

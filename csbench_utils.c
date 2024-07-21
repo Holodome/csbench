@@ -850,7 +850,7 @@ void csperror(const char *msg) {
     error("%s: %s", msg, err_msg);
 }
 
-void csfmterror(const char *fmt, ...) {
+void csfmtperror(const char *fmt, ...) {
     int err = errno;
     char errbuf[4096];
     char *err_msg;

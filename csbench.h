@@ -587,7 +587,7 @@ fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void errorv(const char *fmt, va_list args);
 void csperror(const char *msg);
-void csfmterror(const char *fmt, ...);
+void csfmtperror(const char *fmt, ...);
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 

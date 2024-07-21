@@ -452,8 +452,8 @@ static bool get_input_files_from_dir(const char *dirname,
     bool success = false;
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
-        csfmterror("failed to open directory '%s' (designated for input)",
-                   dirname);
+        csfmtperror("failed to open directory '%s' (designated for input)",
+                    dirname);
         return false;
     }
 

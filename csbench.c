@@ -384,7 +384,7 @@ static bool init_bench_stdin(const struct input_policy *input,
 
         int fd = open(file, O_RDONLY | O_CLOEXEC);
         if (fd == -1) {
-            csfmterror(
+            csfmtperror(
                 "failed to open file '%s' (designated for benchmark input)",
                 input->file);
             return false;
@@ -903,7 +903,7 @@ void free_bench_data(struct bench_data *data) {
 static bool do_save_bin(const struct bench_data *data) {
     FILE *f = open_file_fmt("wb", "%s/data.csbench", g_out_dir);
     if (f == NULL) {
-        csfmterror("failed to create file '%s/data.csbench'", g_out_dir);
+        csfmtperror("failed to create file '%s/data.csbench'", g_out_dir);
         return false;
     }
     bool success = save_bench_data_binary(data, f);
@@ -966,8 +966,8 @@ static const char **calculate_bin_names(const char **args) {
         const char *arg = args[i];
         struct stat st;
         if (stat(arg, &st) == -1) {
-            csfmterror("failed to get information about file/directory '%s'",
-                       arg);
+            csfmtperror("failed to get information about file/directory '%s'",
+                        arg);
             goto err;
         }
         if (S_ISREG(st.st_mode)) {
@@ -975,9 +975,9 @@ static const char **calculate_bin_names(const char **args) {
         } else if (S_ISDIR(st.st_mode)) {
             const char *in_dir = csfmt("%s/data.csbench", arg);
             if (access(in_dir, R_OK) == -1) {
-                csfmterror("'%s' is not a csbench data directory (file "
-                           "data.csbench not found)",
-                           arg);
+                csfmtperror("'%s' is not a csbench data directory (file "
+                            "data.csbench not found)",
+                            arg);
                 goto err;
             }
             sb_push(names, in_dir);
