@@ -394,6 +394,10 @@ err:
     return false;
 }
 
+#undef write_raw__
+#undef write_u64__
+#undef write_str__
+
 #define read_raw__(_dst, _elemsz, _cnt, _f)                                    \
     do {                                                                       \
         size_t CSUNIQIFY(cnt) = (_cnt);                                        \
@@ -579,6 +583,10 @@ err_raw:
     return false;
 }
 
+#undef read_raw__
+#undef read_u64__
+#undef read_str__
+
 static bool
 load_bench_data_binary_file(const char *filename, struct bench_data *data,
                             struct bench_binary_data_storage *storage) {
@@ -587,10 +595,10 @@ load_bench_data_binary_file(const char *filename, struct bench_data *data,
         csfmterror("failed to open benchmark data file '%s'", filename);
         return false;
     }
-    bool result =
+    bool success =
         load_bench_data_binary_file_internal(f, filename, data, storage);
     fclose(f);
-    return result;
+    return success;
 }
 
 void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
@@ -643,7 +651,7 @@ static bool bench_data_match(const struct bench_data *a,
     for (size_t j = 0; j < a->meas_count; ++j)
         if (!meas_match(a->meas + j, b->meas + j))
             return false;
-    if ((a->var != NULL != (b->var != NULL)))
+    if (((a->var != NULL) != (b->var != NULL)))
         return false;
     if (a->var != NULL && !vars_match(a->var, b->var))
         return false;
@@ -692,6 +700,33 @@ static bool merge_bench_data(struct bench_data *src_datas,
     return true;
 }
 
+static bool
+load_bench_data_binary_merge(const char **file_list, struct bench_data *data,
+                             struct bench_binary_data_storage *storage) {
+    bool success = false;
+    size_t src_count = sb_len(file_list);
+    struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
+    struct bench_binary_data_storage *src_storages =
+        calloc(src_count, sizeof(*src_storages));
+    for (size_t i = 0; i < src_count; ++i)
+        if (!load_bench_data_binary_file(file_list[i], src_datas + i,
+                                         src_storages + i))
+            goto err;
+
+    if (!merge_bench_data(src_datas, src_storages, src_count, data, storage))
+        goto err;
+
+    success = true;
+err:
+    for (size_t i = 0; i < src_count; ++i) {
+        free_bench_binary_data_storage(src_storages + i);
+        free_bench_data(src_datas + i);
+    }
+    free(src_datas);
+    free(src_storages);
+    return success;
+}
+
 bool load_bench_data_binary(const char **file_list, struct bench_data *data,
                             struct bench_binary_data_storage *storage) {
     bool success = false;
@@ -700,26 +735,7 @@ bool load_bench_data_binary(const char **file_list, struct bench_data *data,
     if (src_count == 1) {
         success = load_bench_data_binary_file(file_list[0], data, storage);
     } else {
-        struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
-        struct bench_binary_data_storage *src_storages =
-            calloc(src_count, sizeof(*src_storages));
-        for (size_t i = 0; i < src_count; ++i)
-            if (!load_bench_data_binary_file(file_list[i], src_datas + i,
-                                             src_storages + i))
-                goto err;
-
-        if (!merge_bench_data(src_datas, src_storages, src_count, data,
-                              storage))
-            goto err;
-
-        success = true;
-    err:
-        for (size_t i = 0; i < src_count; ++i) {
-            free_bench_binary_data_storage(src_storages + i);
-            free_bench_data(src_datas + i);
-        }
-        free(src_datas);
-        free(src_storages);
+        success = load_bench_data_binary_merge(file_list, data, storage);
     }
     return success;
 }

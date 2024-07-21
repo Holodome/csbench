@@ -1216,9 +1216,9 @@ bool run_benches(const struct bench_params *params, struct bench *benches,
                  size_t count) {
     if (g_use_perf && !init_perf())
         return false;
-    bool result = run_benches_internal(params, benches, count);
+    bool success = run_benches_internal(params, benches, count);
     if (g_use_perf)
         deinit_perf();
-    return result;
+    return success;
 }
 

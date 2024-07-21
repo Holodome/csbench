@@ -668,7 +668,7 @@ static bool init_benches(const struct cli_settings *cli,
 
 static bool init_commands(const struct cli_settings *cli,
                           struct run_info *info) {
-    bool result = false;
+    bool success = false;
     struct command_info *command_infos = NULL;
     if (!init_raw_command_infos(cli, &command_infos))
         return false;
@@ -689,10 +689,10 @@ static bool init_commands(const struct cli_settings *cli,
     if (!init_benches(cli, command_infos, has_groups, info))
         goto err;
 
-    result = true;
+    success = true;
 err:
     sb_free(command_infos);
-    return result;
+    return success;
 }
 
 static bool validate_and_set_baseline(int baseline,
