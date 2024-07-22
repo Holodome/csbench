@@ -664,28 +664,30 @@ static bool merge_bench_data(struct bench_data *src_datas,
                              struct bench_binary_data_storage *storage) {
     assert(src_count >= 2);
     size_t total_bench_count = src_datas[0].bench_count;
+    size_t total_group_count = src_datas[0].group_count;
     for (size_t i = 1; i < src_count; ++i) {
-        total_bench_count += src_datas[i].bench_count;
         if (!bench_data_match(src_datas + 0, src_datas + i)) {
             error("loaded benchmarks structure does not match");
             return false;
         }
+        total_bench_count += src_datas[i].bench_count;
+        total_group_count += src_datas[i].group_count;
     }
 
     memset(data, 0, sizeof(*data));
     memset(storage, 0, sizeof(*storage));
+
+    // Move measurements and variable
     storage->has_var = src_storages[0].has_var;
+    if (storage->has_var)
+        data->var = &storage->var;
     memcpy(&storage->var, &src_storages[0].var, sizeof(storage->var));
-    storage->meas_count = src_storages[0].meas_count;
-    storage->meas = src_storages[0].meas;
+    data->meas_count = storage->meas_count = src_storages[0].meas_count;
+    data->meas = storage->meas = src_storages[0].meas;
     src_storages[0].has_var = false;
     src_storages[0].meas_count = 0;
     src_storages[0].meas = NULL;
-
-    data->meas_count = storage->meas_count;
-    data->meas = storage->meas;
-    if (storage->has_var)
-        data->var = &storage->var;
+    // Make new benchmark list
     data->bench_count = total_bench_count;
     data->benches = calloc(total_bench_count, sizeof(*data->benches));
     for (size_t i = 0, bench_cursor = 0; i < src_count; ++i) {
@@ -693,9 +695,35 @@ static bool merge_bench_data(struct bench_data *src_datas,
         memcpy(data->benches + bench_cursor, src->benches,
                sizeof(struct bench) * src->bench_count);
         bench_cursor += src->bench_count;
+        // Free data in source as if it never had it
         free(src->benches);
         src->benches = NULL;
         src->bench_count = 0;
+    }
+    // Make new group list
+    if (data->var) {
+        data->group_count = storage->group_count = total_group_count;
+        data->groups = storage->groups =
+            calloc(total_group_count, sizeof(*storage->groups));
+        for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count;
+             ++i) {
+            struct bench_binary_data_storage *src = src_storages + i;
+            memcpy(storage->groups + group_cursor, src->groups,
+                   sizeof(struct bench_var_group) * src->group_count);
+            // Fixup command indexes
+            for (size_t j = 0; j < src->group_count; ++j) {
+                assert(src->groups[j].cmd_count == data->var->value_count);
+                for (size_t k = 0; k < src->groups[j].cmd_count; ++k)
+                    storage->groups[group_cursor + j].cmd_idxs[k] +=
+                        bench_cursor;
+                bench_cursor += src->groups[j].cmd_count;
+            }
+            group_cursor += src->group_count;
+            // Free data in source as if it never had it
+            free(src->groups);
+            src->groups = NULL;
+            src->group_count = 0;
+        }
     }
     return true;
 }

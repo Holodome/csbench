@@ -158,7 +158,7 @@ struct bench_var {
 struct bench_var_group {
     const char *name;
     size_t cmd_count;
-    size_t *cmd_idxs; // [var->value_count]
+    size_t *cmd_idxs; // [cmd_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as

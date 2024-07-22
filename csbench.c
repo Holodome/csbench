@@ -653,6 +653,7 @@ static bool init_benches(const struct cli_settings *cli,
         if (!attempt_group_rename(cli->rename_list, sb_len(info->groups),
                                   &group))
             group.name = cmd_cursor->grp_name;
+        group.cmd_count = var->value_count;
         group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
         for (size_t val_idx = 0; val_idx < var->value_count;
              ++val_idx, ++cmd_cursor) {
