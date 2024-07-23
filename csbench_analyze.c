@@ -229,8 +229,8 @@ static void calculate_fastest_bench_per_value(struct meas_analysis *al) {
     }
 }
 
-static const struct distr *per_bench_reference(struct meas_analysis *al,
-                                               bool *flipp) {
+static const struct distr *reference_bench(struct meas_analysis *al,
+                                           bool *flipp) {
     bool flip = false;
     const struct distr *reference = NULL;
     if (g_baseline != -1) {
@@ -244,8 +244,8 @@ static const struct distr *per_bench_reference(struct meas_analysis *al,
     return reference;
 }
 
-static const struct distr *per_group_reference(struct meas_analysis *al,
-                                               size_t val_idx, bool *flipp) {
+static const struct distr *reference_group(struct meas_analysis *al,
+                                           size_t val_idx, bool *flipp) {
     bool flip = false;
     const struct group_analysis *reference_group = NULL;
     if (g_baseline != -1) {
@@ -254,12 +254,13 @@ static const struct distr *per_group_reference(struct meas_analysis *al,
         reference_group = al->group_analyses + al->fastest_val[val_idx];
         flip = true;
     }
-    *flipp = flip;
+    if (flipp)
+        *flipp = flip;
     return reference_group->data[val_idx].distr;
 }
 
 static void calculate_per_bench_p_values(struct meas_analysis *al) {
-    const struct distr *reference = per_bench_reference(al, NULL);
+    const struct distr *reference = reference_bench(al, NULL);
     for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
         if (reference == distr)
@@ -277,7 +278,7 @@ static void calculate_per_group_p_values(struct meas_analysis *al) {
 
     size_t var_value_count = al->base->var->value_count;
     for (size_t val_idx = 0; val_idx < var_value_count; ++val_idx) {
-        const struct distr *reference = per_group_reference(al, val_idx, NULL);
+        const struct distr *reference = reference_group(al, val_idx, NULL);
         for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
             const struct distr *distr =
                 al->group_analyses[grp_idx].data[val_idx].distr;
@@ -319,7 +320,7 @@ static void calculate_bench_speedups(struct meas_analysis *al) {
         return;
 
     bool flip = false;
-    const struct distr *reference = per_bench_reference(al, &flip);
+    const struct distr *reference = reference_bench(al, &flip);
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
         if (distr == reference)
@@ -341,7 +342,7 @@ static void calculate_group_speedups(struct meas_analysis *al) {
     size_t value_count = al->base->var->value_count;
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         bool flip = false;
-        const struct distr *reference = per_group_reference(al, val_idx, &flip);
+        const struct distr *reference = reference_group(al, val_idx, &flip);
 
         for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
             const struct distr *distr =
@@ -355,7 +356,7 @@ static void calculate_group_speedups(struct meas_analysis *al) {
     }
 }
 
-static void calculate_average_per_group_speedups(struct meas_analysis *al) {
+static void calculate_average_per_value_speedups(struct meas_analysis *al) {
     if (al->base->bench_count == 1)
         return;
 
@@ -453,7 +454,7 @@ static bool execute_analyze_tasks(struct bench_analysis *als, size_t count) {
 
     struct analyze_task_queue q;
     init_analyze_task_queue(als, count, &q);
-    bool success;
+    bool success = false;
     if (thread_count == 1) {
         const void *result = analyze_bench_worker(&q);
         success = true;
@@ -497,7 +498,7 @@ static bool analyze_benches(struct analysis *al) {
         calculate_per_group_p_values(mal);
         calculate_bench_speedups(mal);
         calculate_group_speedups(mal);
-        calculate_average_per_group_speedups(mal);
+        calculate_average_per_value_speedups(mal);
     }
     return true;
 }
