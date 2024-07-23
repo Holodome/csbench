@@ -124,6 +124,7 @@ static void compare_benches(struct analysis *al) {
     size_t meas_count = al->meas_count;
     assert(meas_count != 0);
     for (size_t i = 0; i < meas_count; ++i) {
+        // We don't do comparison for secondary measurements
         if (al->meas[i].is_secondary)
             continue;
 
@@ -144,55 +145,81 @@ static void compare_benches(struct analysis *al) {
     }
 }
 
-static void analyze_var_groups(struct meas_analysis *al) {
-    if (al->base->group_count == 0)
-        return;
+static void analyze_group(struct meas_analysis *al,
+                          const struct bench_var_group *grp,
+                          struct group_analysis *grp_al) {
     const struct bench_var *var = al->base->var;
-    for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
-        const struct bench_var_group *grp = al->base->var_groups + grp_idx;
-        struct group_analysis *grp_al = al->group_analyses + grp_idx;
-        grp_al->group = grp;
-        grp_al->data = calloc(var->value_count, sizeof(*grp_al->data));
-        bool values_are_doubles = true;
-        double slowest = -INFINITY, fastest = INFINITY;
-        for (size_t cmd_idx = 0; cmd_idx < var->value_count; ++cmd_idx) {
-            const char *value = var->values[cmd_idx];
-            size_t bench_idx = grp->cmd_idxs[cmd_idx];
-            char *end = NULL;
-            double value_double = strtod(value, &end);
-            if (end == value)
-                values_are_doubles = false;
-            double mean = al->benches[bench_idx]->mean.point;
-            struct cmd_in_group_data *data = grp_al->data + cmd_idx;
-            data->distr = al->benches[bench_idx];
-            data->mean = mean;
-            data->value = value;
-            data->value_double = value_double;
-            if (mean > slowest) {
-                slowest = mean;
-                grp_al->slowest = data;
-            }
-            if (mean < fastest) {
-                fastest = mean;
-                grp_al->fastest = data;
-            }
+
+    memset(grp_al, 0, sizeof(*grp_al));
+    grp_al->group = grp;
+    grp_al->data = calloc(var->value_count, sizeof(*grp_al->data));
+
+    // Fill grp->data, settings slowest and fastest entries
+    bool values_are_doubles = true;
+    double slowest = -INFINITY, fastest = INFINITY;
+    for (size_t cmd_idx = 0; cmd_idx < var->value_count; ++cmd_idx) {
+        const char *value = var->values[cmd_idx];
+        size_t bench_idx = grp->cmd_idxs[cmd_idx];
+        char *end = NULL;
+        // Check if value is a double.
+        double value_double = strtod(value, &end);
+        if (end == value)
+            values_are_doubles = false;
+        double mean = al->benches[bench_idx]->mean.point;
+        struct cmd_in_group_data *data = grp_al->data + cmd_idx;
+        data->distr = al->benches[bench_idx];
+        data->mean = mean;
+        data->value = value;
+        data->value_double = value_double;
+        if (mean > slowest) {
+            slowest = mean;
+            grp_al->slowest = data;
         }
-        grp_al->values_are_doubles = values_are_doubles;
-        if (values_are_doubles) {
-            double *x = calloc(var->value_count, sizeof(*x));
-            double *y = calloc(var->value_count, sizeof(*y));
-            for (size_t i = 0; i < var->value_count; ++i) {
-                x[i] = grp_al->data[i].value_double;
-                y[i] = grp_al->data[i].mean;
-            }
-            ols(x, y, var->value_count, &grp_al->regress);
-            free(x);
-            free(y);
+        if (mean < fastest) {
+            fastest = mean;
+            grp_al->fastest = data;
         }
     }
-    for (size_t val_idx = 0; val_idx < al->base->var->value_count; ++val_idx) {
+
+    // If values are doubles (they don't have to be because we store them as
+    // just strings), and --regr flag is passed, do linear regression.
+    grp_al->values_are_doubles = values_are_doubles;
+    if (values_are_doubles && g_regr) {
+        double *x = calloc(var->value_count, sizeof(*x));
+        double *y = calloc(var->value_count, sizeof(*y));
+        for (size_t i = 0; i < var->value_count; ++i) {
+            x[i] = grp_al->data[i].value_double;
+            y[i] = grp_al->data[i].mean;
+        }
+        ols(x, y, var->value_count, &grp_al->regress);
+        free(x);
+        free(y);
+    }
+}
+
+static void analyze_groups(struct meas_analysis *al) {
+    size_t grp_count = al->base->group_count;
+    if (grp_count == 0)
+        return;
+
+    for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+        const struct bench_var_group *grp = al->base->var_groups + grp_idx;
+        struct group_analysis *grp_al = al->group_analyses + grp_idx;
+        analyze_group(al, grp, grp_al);
+    }
+}
+
+static void calculate_fastest_bench_per_value(struct meas_analysis *al) {
+    size_t grp_count = al->base->group_count;
+    if (grp_count == 0)
+        return;
+
+    const struct bench_var *var = al->base->var;
+    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
         double fastest_mean = al->group_analyses[0].data[val_idx].mean;
-        for (size_t grp_idx = 1; grp_idx < al->base->group_count; ++grp_idx) {
+        for (size_t grp_idx = 1; grp_idx < grp_count; ++grp_idx) {
+            // analyze_var_groups has to be called before this function
+            assert(al->group_analyses[grp_idx].data);
             double t = al->group_analyses[grp_idx].data[val_idx].mean;
             if (t < fastest_mean) {
                 fastest_mean = t;
@@ -202,41 +229,63 @@ static void analyze_var_groups(struct meas_analysis *al) {
     }
 }
 
-static void calculate_p_values(struct meas_analysis *al) {
-    {
-        const struct distr *d1;
-        if (g_baseline != -1)
-            d1 = al->benches[g_baseline];
-        else
-            d1 = al->benches[al->fastest[0]];
-        for (size_t bench_idx = 0; bench_idx < al->base->bench_count;
-             ++bench_idx) {
-            const struct distr *d2 = al->benches[bench_idx];
-            if (d1 == d2)
-                continue;
-            double p = mwu(d1->data, d1->count, d2->data, d2->count);
-            al->p_values[bench_idx] = p;
-        }
+static const struct distr *per_bench_reference(struct meas_analysis *al,
+                                               bool *flipp) {
+    bool flip = false;
+    const struct distr *reference = NULL;
+    if (g_baseline != -1) {
+        reference = al->benches[g_baseline];
+    } else {
+        reference = al->benches[al->fastest[0]];
+        flip = true;
     }
-    if (al->base->group_count > 1) {
-        size_t var_value_count = al->base->var->value_count;
-        for (size_t val_idx = 0; val_idx < var_value_count; ++val_idx) {
-            const struct distr *d1;
-            if (g_baseline != -1)
-                d1 = al->group_analyses[g_baseline].data[val_idx].distr;
-            else
-                d1 = al->group_analyses[al->fastest_val[val_idx]]
-                         .data[val_idx]
-                         .distr;
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
-                const struct distr *d2 =
-                    al->group_analyses[grp_idx].data[val_idx].distr;
-                if (d1 == d2)
-                    continue;
-                double p = mwu(d1->data, d1->count, d2->data, d2->count);
-                al->var_p_values[val_idx][grp_idx] = p;
-            }
+    if (flipp)
+        *flipp = flip;
+    return reference;
+}
+
+static const struct distr *per_group_reference(struct meas_analysis *al,
+                                               size_t val_idx, bool *flipp) {
+    bool flip = false;
+    const struct group_analysis *reference_group = NULL;
+    if (g_baseline != -1) {
+        reference_group = al->group_analyses + g_baseline;
+    } else {
+        reference_group = al->group_analyses + al->fastest_val[val_idx];
+        flip = true;
+    }
+    *flipp = flip;
+    return reference_group->data[val_idx].distr;
+}
+
+static void calculate_per_bench_p_values(struct meas_analysis *al) {
+    const struct distr *reference = per_bench_reference(al, NULL);
+    for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
+        const struct distr *distr = al->benches[bench_idx];
+        if (reference == distr)
+            continue;
+
+        al->p_values[bench_idx] =
+            mwu(reference->data, reference->count, distr->data, distr->count);
+    }
+}
+
+static void calculate_per_group_p_values(struct meas_analysis *al) {
+    size_t grp_count = al->base->group_count;
+    if (grp_count <= 1)
+        return;
+
+    size_t var_value_count = al->base->var->value_count;
+    for (size_t val_idx = 0; val_idx < var_value_count; ++val_idx) {
+        const struct distr *reference = per_group_reference(al, val_idx, NULL);
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+            const struct distr *distr =
+                al->group_analyses[grp_idx].data[val_idx].distr;
+            if (reference == distr)
+                continue;
+
+            al->var_p_values[val_idx][grp_idx] = mwu(
+                reference->data, reference->count, distr->data, distr->count);
         }
     }
 }
@@ -252,100 +301,95 @@ static void ref_speed(double u1, double sigma1, double u2, double sigma2,
     *ref_sigma = ref_st_dev;
 }
 
-static void calculate_speedups(struct meas_analysis *al) {
+static void calculate_ref_speed(const struct distr *reference,
+                                const struct distr *distr, bool flip,
+                                struct point_err_est *est) {
+    if (flip)
+        ref_speed(distr->mean.point, distr->st_dev.point, reference->mean.point,
+                  reference->st_dev.point, &est->point, &est->err);
+    else
+        ref_speed(reference->mean.point, reference->st_dev.point,
+                  distr->mean.point, distr->st_dev.point, &est->point,
+                  &est->err);
+}
+
+static void calculate_bench_speedups(struct meas_analysis *al) {
+    size_t bench_count = al->base->bench_count;
+    if (bench_count == 1)
+        return;
+
+    bool flip = false;
+    const struct distr *reference = per_bench_reference(al, &flip);
+    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+        const struct distr *distr = al->benches[bench_idx];
+        if (distr == reference)
+            continue;
+
+        struct point_err_est *est = al->speedup + bench_idx;
+        calculate_ref_speed(reference, distr, flip, est);
+    }
+}
+
+static void calculate_group_speedups(struct meas_analysis *al) {
     if (al->base->bench_count == 1)
         return;
-    // Per-benchmark speedups
-    {
+
+    size_t grp_count = al->base->group_count;
+    if (!al->base->var || grp_count <= 1)
+        return;
+
+    size_t value_count = al->base->var->value_count;
+    for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         bool flip = false;
-        const struct distr *reference;
-        if (g_baseline != -1) {
-            reference = al->benches[g_baseline];
-        } else {
-            reference = al->benches[al->fastest[0]];
-            flip = true;
-        }
-        for (size_t bench_idx = 0; bench_idx < al->base->bench_count;
-             ++bench_idx) {
-            const struct distr *bench = al->benches[bench_idx];
-            if (bench == reference)
+        const struct distr *reference = per_group_reference(al, val_idx, &flip);
+
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+            const struct distr *distr =
+                al->group_analyses[grp_idx].data[val_idx].distr;
+            if (distr == reference)
                 continue;
-            struct point_err_est *est = al->speedup + bench_idx;
-            if (flip)
-                ref_speed(bench->mean.point, bench->st_dev.point,
-                          reference->mean.point, reference->st_dev.point,
-                          &est->point, &est->err);
-            else
-                ref_speed(reference->mean.point, reference->st_dev.point,
-                          bench->mean.point, bench->st_dev.point, &est->point,
-                          &est->err);
+
+            struct point_err_est *est = al->var_speedup[val_idx] + grp_idx;
+            calculate_ref_speed(reference, distr, flip, est);
         }
     }
-    // Per-variable value speedups
-    if (al->base->var && al->base->group_count > 1) {
-        for (size_t val_idx = 0; val_idx < al->base->var->value_count;
-             ++val_idx) {
-            const struct group_analysis *reference_group;
-            bool flip = false;
-            if (g_baseline != -1) {
-                reference_group = al->group_analyses + g_baseline;
-            } else {
-                reference_group = al->group_analyses + al->fastest_val[val_idx];
-                flip = true;
-            }
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
-                const struct group_analysis *group =
-                    al->group_analyses + grp_idx;
-                if (group == reference_group)
-                    continue;
-                struct point_err_est *est = al->var_speedup[val_idx] + grp_idx;
-                if (flip)
-                    ref_speed(
-                        group->data[val_idx].distr->mean.point,
-                        group->data[val_idx].distr->st_dev.point,
-                        reference_group->data[val_idx].distr->mean.point,
-                        reference_group->data[val_idx].distr->st_dev.point,
-                        &est->point, &est->err);
-                else
-                    ref_speed(
-                        reference_group->data[val_idx].distr->mean.point,
-                        reference_group->data[val_idx].distr->st_dev.point,
-                        group->data[val_idx].distr->mean.point,
-                        group->data[val_idx].distr->st_dev.point, &est->point,
-                        &est->err);
-            }
+}
+
+static void calculate_average_per_group_speedups(struct meas_analysis *al) {
+    if (al->base->bench_count == 1)
+        return;
+
+    if (!al->base->var || g_baseline == -1 || g_regr)
+        return;
+
+    size_t grp_count = al->base->group_count;
+    size_t value_count = al->base->var->value_count;
+    const struct group_analysis *baseline_group =
+        al->group_analyses + g_baseline;
+    for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+        const struct group_analysis *group = al->group_analyses + grp_idx;
+        if (group == baseline_group)
+            continue;
+
+        // This uses hand-written error propagation formula for geometric mean,
+        // for reference see.
+        // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
+        double mean_accum = 1;
+        double st_dev_accum = 0.0;
+        double n = value_count;
+        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+            const struct point_err_est *est =
+                al->var_speedup[val_idx] + grp_idx;
+            mean_accum *= est->point;
+            double a = pow(est->point, 1.0 / n - 1.0) * est->err;
+            st_dev_accum += a * a;
         }
-        if (g_baseline != -1 && !g_regr) {
-            const struct group_analysis *baseline_group =
-                al->group_analyses + g_baseline;
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
-                const struct group_analysis *group =
-                    al->group_analyses + grp_idx;
-                if (group == baseline_group)
-                    continue;
-                // This uses hand-written error propagation formula, for
-                // reference see
-                // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
-                double mean_accum = 1;
-                double st_dev_accum = 0.0;
-                size_t n = al->base->var->value_count;
-                for (size_t val_idx = 0; val_idx < n; ++val_idx) {
-                    const struct point_err_est *est =
-                        al->var_speedup[val_idx] + grp_idx;
-                    mean_accum *= est->point;
-                    double a = pow(est->point, 1.0 / n - 1.0) * est->err;
-                    st_dev_accum += a * a;
-                }
-                double av = pow(mean_accum, 1.0 / n);
-                double av_st_dev = av / n * sqrt(st_dev_accum);
-                struct point_err_est *est =
-                    al->group_baseline_speedup + grp_idx;
-                est->point = av;
-                est->err = av_st_dev;
-            }
-        }
+        double avg = pow(mean_accum, 1.0 / n);
+        double avg_st_dev = avg / n * sqrt(st_dev_accum);
+
+        struct point_err_est *est = al->group_baseline_speedup + grp_idx;
+        est->point = avg;
+        est->err = avg_st_dev;
     }
 }
 
@@ -444,9 +488,16 @@ static bool analyze_benches(struct analysis *al) {
     for (size_t i = 0; i < meas_count; ++i) {
         if (al->meas[i].is_secondary)
             continue;
-        analyze_var_groups(al->meas_analyses + i);
-        calculate_p_values(al->meas_analyses + i);
-        calculate_speedups(al->meas_analyses + i);
+        struct meas_analysis *mal = al->meas_analyses + i;
+        // This has to be done first because other analyses depend on it
+        analyze_groups(mal);
+
+        calculate_fastest_bench_per_value(mal);
+        calculate_per_bench_p_values(mal);
+        calculate_per_group_p_values(mal);
+        calculate_bench_speedups(mal);
+        calculate_group_speedups(mal);
+        calculate_average_per_group_speedups(mal);
     }
     return true;
 }

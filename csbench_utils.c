@@ -812,6 +812,7 @@ const char *csmkstr(const char *src, size_t len) {
 
 const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
 
+// TODO: Remove this function and do the same thing in place it is called
 const char *csstripend(const char *src) {
     size_t len = strlen(src);
     char *str = (char *)csmkstr(src, len);
