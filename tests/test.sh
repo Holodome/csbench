@@ -108,11 +108,11 @@ for file in $files ; do
 done
 
 #
-# check that --no-wall works on quicksort example
+# check that --no-default-meas works on quicksort example
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-wall > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-default-meas > /dev/null || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
 bar_0.svg readme.md"
@@ -144,7 +144,7 @@ done
 
 if command -v jq &> /dev/null ; then 
     j=/tmp/csbench.json
-    $b ls --export-json $j > /dev/null || die
+    $b ls --json $j > /dev/null || die
 
     cat $j | jq -e '.["settings"]' > /dev/null || die
     cat $j | jq -e '.["settings"]["time_limit"]' > /dev/null || die
@@ -161,7 +161,7 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["benches"][] | .["meas"][]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["exit_codes"][]' > /dev/null || die
 
-    $b ls --export-json $j --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
+    $b ls --json $j --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["meas"][] | .["name"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["meas"][] | .["units"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["meas"][] | .["cmd"]' > /dev/null || die
@@ -191,7 +191,7 @@ $b ls --plot --shell=none > /dev/null || die
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --no-wall --regr > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --no-default-meas --regr > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 30 ] && \
 [ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
 
@@ -241,12 +241,8 @@ echo "$out" | grep -qv ls || die
 
 distclean 
 $b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-$b --load $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
+$b --load-csv $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
 # FIXME: Due to floating-point rounding diff does not always work
-# diff /tmp/csbench_1 /tmp/csbench_2 || die
-distclean 
-$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-$b --loada --rename-all=one,two > /tmp/csbench_2
 # diff /tmp/csbench_1 /tmp/csbench_2 || die
 
 #
@@ -283,7 +279,7 @@ $b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --scan n/100/500/1
 # measurement with utime and stime measurements hand-specified
 #
 
-$b ls --no-wall --meas stime,utime > /dev/null || die
+$b ls --no-default-meas --meas stime,utime > /dev/null || die
 
 #
 # custom measurement units
@@ -324,3 +320,10 @@ touch /tmp/csbenchdir/a
 touch /tmp/csbenchdir/b
 $b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 6 ]
+
+#
+# check save-bin and --load-bin without parameters
+#
+$b ls -o /tmp/csbench1 --save-bin > /dev/null || die 
+$b pwd -o /tmp/csbench2 --save-bin > /dev/null || die 
+$b --load-bin /tmp/csbench1 /tmp/csbench2 --plot > /dev/null || die

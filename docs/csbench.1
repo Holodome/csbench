@@ -1,0 +1,378 @@
+.TH CSBENCH 1
+.SH NAME
+csbench \- batteries\-included command\-line benchmarking tool
+.SH SYNOPSIS 
+.NM csbench 
+.B csbench
+.OP options
+.RI command...
+.SH DESCRIPTION
+Command\-line benchmarking tool which includes:
+.LP
+.RS
+* Statistical analysis across multiple runs.
+.RE
+.RS
+* Statistical comparison between multiple benchmarks.
+.RE
+.RS
+* Support for arbitrary shell commands.
+.RE
+.RS
+* Benchmarks can be executed in rounds of several consecutive runs.
+.RE
+.RS 
+* Warmup runs can be executed before each benchmark or round.
+.RE
+.RS
+* Benchmarks can receive common input either from file or string specified in command\-line.
+.RE
+.RS 
+* Benchmarks can be parameterized with variable, substituted in command string or input file name or input string.
+.RE
+.RS 
+* Benchmarks can include custom measurements, whose values are extracted from each command's stdout.
+.RE
+.RS
+* Benchmarks' measurements can include information from "struct rusage" (see getrusage(2)).
+.RE
+.RS 
+* Benchmarks' measurements can include performance counter metrics, such as number of cycles, instructions, branches taken and branches missed.
+.RS
+.RE
+* Parallel execution.
+.RE
+.RS
+* Plotting functionality.
+.RE
+.RS
+* Generate thorough reports in various formats: HTML, Command\-line, Markdown.
+.RE
+.RS
+* Export results to various formats: CSV, JSON.
+.RE
+.SH OPTIONS
+.SS Benchmark stop condition options
+.HP
+\fB\-R\fR, \fB\-\-runs\fR \fINUM\fP
+.IP
+Run each benchmark exactly \fINUM\fP times in total (not including warmup). When set, \fB\-\-time\-limit\fR, \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR have no effect.
+.HP
+\fB\-T\fR, \fB\-\-time\-limit\fR \fINUM\fP
+.IP
+Run each benchmark for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR.
+.HP
+\fB\-\-min\-runs\fR \fINUM\fP
+.IP
+Run each benchmark at least \fINUM\fP times.
+.HP
+\fB\-\-max\-runs\fR \fINUM\fP
+.IP
+Run each benchmark at most \fINUM\fP times.
+.SS Warmup options
+.HP
+\fB\-W\fR, \fB\-\-warmup\-runs\fR \fINUM\fP
+.IP
+Perform exactly \fINUM\fP warmup runs. When set, \fB\-\-warmup\fR, \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR have no effect.
+.HP
+\fB\-W\fR, \fB\-\-warmup\fR \fINUM\fP
+.IP
+Perform warmup for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR.
+.HP
+\fB\-\-min\-warmup\-runs\fR \fINUM\fP
+.IP
+Perform at least \fINUM\fP warmup runs.
+.HP
+\fB\-\-max\-warmup\-runs\fR \fINUM\fP
+.IP
+Perform at most \fINUM\fP warmup runs.
+.HP
+.B \-\-no\-warmup
+.IP
+Disable warmup.
+.SS Round options
+.HP
+\fB\-\-round\-runs\fR \fINUM\fP
+.IP
+In a single round perform exactly \fINUM\fP runs. When set, \fB\-\-round\-time\fR, \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR have no effect.
+.HP
+\fB\-\-round\-time\fR \fINUM\fP
+.IP
+Each benchmark will be run at least \fINUM\fP seconds in a row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR.
+.HP
+\fB\-\-min\-round\-runs\fR \fINUM\fP
+.IP
+In a single round perform at least \fINUM\fP runs.
+.HP
+\fB\-\-max\-round\-runs\fR \fINUM\fP
+.IP
+In a single round perform at most \fINUM\fP runs.
+.HP
+.B \-\-no\-rounds
+.IP
+Do not split execution into rounds.
+.SS Benchmark setup options
+.HP
+\fB\-\-common\-args\fR \fISTR\fP
+.IP
+Append \fISTR\fP to each benchmark command. 
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-common\-args\fR '-Wall -Werror -pedantic -O2 main.c' gcc clang
+.RE
+.RE
+.HP
+\fB\-S\fR, \fB\-\-shell\fR \fISHELL\fP
+.IP
+Set the shell be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash --norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
+.HP
+.B \-N
+.IP
+An alias no \fB\-\-shell=none\fR.
+.HP
+\fB\-P\fR, \fB\-\-prepare\fR \fICMD\fP
+.IP
+Execute \fICMD\fP in shell before each benchmark run.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-prepare\fR='make clean' make
+.RE
+.RE
+.HP
+\fB\-j\fR, \fB\-\-jobs\fR \fINUM\fP
+.IP
+Executed benchmarks asynchronously using \fINUM\fP system threads. By default, benchmarks are executed only in one thread. 
+.HP
+\fB\-i\fR, \fB\-\-ignore\-failure\fR
+.IP
+Do not abort benchmarking when benchmark commands finish with non\-zero exit code.
+.HP
+\fB\-s\fR, \fB\-\-simple\fR
+.IP
+Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and without rounds.
+.SS Input and output options
+.HP
+\fB\-\-input\fR \fIFILE\fP
+.IP
+Specify input file for each benchmark command. \fIFILE\fP can include variable substitutions.
+.HP
+\fB\-\-inputs\fR \fISTR\fP
+.IP
+Specify string, which will be piped to each benchmark command. \fISTR\fP can include variable substitutions.
+.HP
+\fB\-\-inputd\fR \fIDIR\fP
+.IP
+Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-scanl\fR file/...", where "\fB\-\-scanl\fR" option is passed a list of files contained in \fIDIR\fP.
+.HP
+.B \-\-no\-input
+.IP
+Disable input (use \fI\,/dev/null\/\fP as input). This is a default option.
+.HP
+\fB\-\-output\fR \fIKIND\fP
+.IP
+Control where stdout and stderr of benchmark commands is redirected. 
+.IP
+\fIKIND\fP can be:
+.RS
+.IP null
+Redirect output to \fI\,/dev/null\/\fP (the default).
+.IP inherit
+Don't redirect the output at all.
+.RE
+.SS Measurement options
+.HP
+\fB\-\-meas\fR \fIMEAS\fP
+.IP
+List of built-in measurements to collect. 
+.IP
+\fIMEAS\fP is comma-separated list of measurement names, which can be of the following:
+.RS
+.IP wall 
+wall clock time
+.IP stime 
+kernel CPU time
+.IP utime 
+userspace CPU time
+.IP maxrss 
+maximum size of resident set size
+.IP minflt 
+minor page fault count
+.IP majflt 
+major page fault count
+.IP nvcsw 
+voluntary context switch count
+.IP nivcsw 
+involuntary context switch count
+.IP cycles
+CPU cycle count
+.IP instructions 
+CPU instruction count
+.IP branches
+CPU taken branch count
+.IP branch-misses
+CPU branch misdirection count
+.RE
+.IP
+Measurements "stime", "utime", "maxrss", "minflt", "majflt", "nvcsw", "nivcsw" are obtained from "struct rusage" (see getrusage(2)). Measurements "cycles", "instructions", "branches", "branch-misses" are obtained using system performance counters (see perf_event_open(2) on Linux). Default measurements are "wall", "stime", "utime".
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-meas\fR cycles,instructions ls
+.RE
+.RE
+.HP
+\fB\-\-custom\fR \fINAME\fP
+.IP
+Add custom measurement with name \fINAME\fP. This measurement interprets each command's stdout as a single real number and interprets it as seconds.
+.HP
+\fB\-\-custom\-t\fR \fINAME\fP \fICMD\fP
+.IP
+Add custom measurement with name \fINAME\fP. This measurement pipes each command's stdout to \fICMD\fP and interprets its output as a single real number and interprets it as seconds.
+.HP
+\fB\-\-custom\-x\fR \fINAME\fP \fIUNITS\fP \fICMD\fP
+.IP
+Add custom measurement with name \fINAME\fP. This measurement pipes each command's stdout to \fICMD\fP and interprets its output as a single real number and interprets it as \fIUNITS\fP.
+.IP 
+\fIUNITS\fP can be one of the following:
+.RS
+.IP s
+seconds
+.IP ms
+milliseconds
+.IP us
+microseconds
+.IP ns 
+nanoseconds
+.IP b
+bytes
+.IP kb
+kilobytes
+.IP mb
+megabytes
+.IP gb
+gigabytes
+.IP none 
+no units 
+.IP <UNITS\-NAME>
+Use <UNITS\-NAME> as name
+.RE
+.HP
+.B \-\-no\-default\-meas
+.IP
+Do not use default measurements (which are "wall", "stime", "utime").
+.SS Parameterization options
+\fB\-\-inputd\fR implicitly creates parameter with name "file".
+.HP
+\fB\-\-scan\fR \fISTR\fP
+.IP
+\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add variable with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 1.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-scan\fR n/100/500/100 'python3 quicksort.py {n}'
+.RE
+.RE
+.HP
+\fB\-\-scanl\fR \fISTR\fP
+.IP
+\fISTR\fP is of the format <i>/<v>. Add variable with name <i>. <v> is a comma\-separated list of values.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-scanl\fR n/100,200,400,800 'python3 quicksort.py {n}'
+.RE
+.RE
+.SS Analysis options
+.HP
+\fB\-\-baseline\fR \fINUM\fP
+.IP
+Use benchmark with number (starting from 1) \fINUM\fP as baseline in comparisons.
+.HP
+\fB\-\-nrs\fR \fINUM\fP
+.IP
+Use \fINUM\fP resamples when computing 95% confidence interval using bootstrapping. Default value is 10000.
+.HP
+\fB\-\-regr\fR
+.IP
+Perform linear regression of measurements in terms of variables.
+.SS Output options
+.HP
+\fB\-\-rename\fR \fINUM\fP \fINAME\fP
+.IP
+Rename benchmark with number \fINUM\fP (starting from 1) to \fINAME\fP. This name will be used in reports instead of the default one, which is a command string.
+.HP
+\fB\-\-rename-all\fP \fINAMES\fP
+.IP
+Rename all benchmarks. \fINAMES\fP is a comma-separated list of new benchmark names, whose length must be equal to benchmark count.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR \fB\-\-rename\-all\fR one,two ls pwd
+.RE
+.RE
+.HP
+\fB\-o\fR, \fB\-\-out\-dir\fR \fIDIR\fP
+.IP
+Place all outputs to directory \fIDIR\fP. Default value is ".csbench".
+.HP 
+.B \-\-plot
+.IP
+Generate plots to output directory. "python3" with "matplotlib" installed must be available at search path.
+.HP
+.B \-\-plot\-src
+.IP
+Save python sources used to generate plots to output directory.
+.HP
+.B \-\-html
+.IP
+Generate html report. Implies \fB\-\-plot\fR.
+.HP
+.B \-\-csv
+.IP
+Save benchmark results to csv files placed in output directory.
+.HP
+\fB\-\-json\fR \fIFILE\fP
+.IP
+Export benchmark results to \fIFILE\fP in json format.
+.SS Miscellaneous options
+.HP
+\fB\-\-color\fR \fIWHEN\fP
+.IP
+Use colored output. Possible values for \fIWHEN\fP are "never", "auto", "always".
+.HP
+\fB\-\-progress\-bar\fR \fIWHEN\fP
+.IP
+Display dynamically updated progress bar when running benchmarks. Possible values for \fIWHEN\fP are "never", "auto", "always".
+.HP
+.B \-\-python\-output
+.IP
+Do not silence python output. This can be used for debugging.
+.SH EXAMPLES
+.LP
+Basic benchmark of 'ls':
+.RS
+.nf
+\fBcsbench\fR ls
+.fi
+.RE
+.LP
+Comparison benchmark between 'ls' and 'exa':
+.RS
+.nf
+\fBcsbench\fR ls exa
+.fi
+.RE
+.SH AUTHOR
+.LP
+Vinogradov Ilya <holodmoose@gmail.com>
+.LP
+Source, bug tracker, and additional information can be found on GitHub:
+.I https://github.com/Holodome/csbench

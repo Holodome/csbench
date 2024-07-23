@@ -54,14 +54,16 @@
 #include "csbench.h"
 
 #include <errno.h>
-#include <fcntl.h>
 #include <math.h>
-#include <pthread.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include <time.h>
+
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
@@ -578,7 +580,7 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
     free(tmp);
 }
 
-bool process_finished_correctly(pid_t pid) {
+bool process_wait_finished_correctly(pid_t pid) {
     int status = 0;
     pid_t wpid;
     for (;;) {
@@ -593,11 +595,44 @@ bool process_finished_correctly(pid_t pid) {
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         return true;
+    error("process finished with non-zero exit code");
     return false;
 }
 
-bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
-                      int stderr_fd) {
+bool check_and_handle_err_pipe(int read_end, int timeout) {
+    struct pollfd pfd;
+    pfd.fd = read_end;
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int ret;
+    for (;;) {
+        ret = poll(&pfd, 1, timeout);
+        if (ret == -1 && errno == EINTR)
+            continue;
+        if (ret == -1) {
+            csperror("poll");
+            return false;
+        }
+        break;
+    }
+    if (ret == 1 && pfd.revents & POLLIN) {
+        char buf[4096];
+        int ret = read(read_end, buf, sizeof(buf));
+        if (ret == -1) {
+            csperror("read");
+            return false;
+        }
+        if (buf[0] != '\0') {
+            error("child process failed to launch: %s", buf);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
+                                   int stderr_fd, int err_pipe[2],
+                                   pid_t *pidp) {
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -611,8 +646,10 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
         int fd = -1;
         if (stdin_fd == -1 || stdout_fd == -1 || stderr_fd == -1) {
             fd = open("/dev/null", O_RDWR);
-            if (fd == -1)
+            if (fd == -1) {
+                csfdperror(err_pipe[1], "open(\"/dev/null\", O_RDWR)");
                 _exit(-1);
+            }
             if (stdin_fd == -1)
                 stdin_fd = fd;
             if (stdout_fd == -1)
@@ -622,14 +659,44 @@ bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
         }
         if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
             dup2(stdout_fd, STDOUT_FILENO) == -1 ||
-            dup2(stderr_fd, STDERR_FILENO) == -1)
+            dup2(stderr_fd, STDERR_FILENO) == -1) {
+            csfdperror(err_pipe[1], "dup2");
             _exit(-1);
+        }
         if (fd != -1)
             close(fd);
-        if (execv(exec, argv) == -1)
+        if (write(err_pipe[1], "", 1) < 0)
             _exit(-1);
+        if (execv(exec, argv) == -1) {
+            csfdperror(err_pipe[1], "execv");
+            _exit(-1);
+        }
+        __builtin_unreachable();
     }
-    return process_finished_correctly(pid);
+    *pidp = pid;
+    return check_and_handle_err_pipe(err_pipe[0], -1);
+}
+
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                   pid_t *pid) {
+    int err_pipe[2];
+    if (!pipe_cloexec(err_pipe))
+        return -1;
+    bool success = shell_execute_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
+                                          err_pipe, pid);
+    close(err_pipe[0]);
+    close(err_pipe[1]);
+    return success;
+}
+
+bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
+                            int stderr_fd) {
+    pid_t pid;
+    bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
+    if (success) {
+        success = process_wait_finished_correctly(pid);
+    }
+    return success;
 }
 
 size_t csstrlcpy(char *dst, const char *src, size_t size) {
@@ -727,14 +794,19 @@ void cs_free_strings(void) {
     }
 }
 
-const char *csmkstr(const char *src, size_t len) {
+char *csstralloc(size_t len) {
     struct string_ll *lc = calloc(1, sizeof(*lc));
     char *str = malloc(len + 1);
-    memcpy(str, src, len);
-    str[len] = '\0';
     lc->str = str;
     lc->next = string_ll;
     string_ll = lc;
+    return str;
+}
+
+const char *csmkstr(const char *src, size_t len) {
+    char *str = csstralloc(len);
+    memcpy(str, src, len);
+    str[len] = '\0';
     return str;
 }
 
@@ -767,4 +839,122 @@ void init_rng_state(void) {
     } else {
         g_rng_state = time(NULL) * 2 + 1;
     }
+}
+
+const char **parse_comma_separated_list(const char *str) {
+    const char **value_list = NULL;
+    const char *cursor = str;
+    const char *end = str + strlen(str);
+    while (cursor != end) {
+        const char *next = strchr(cursor, ',');
+        if (next == NULL) {
+            const char *new_str = csstripend(cursor);
+            sb_push(value_list, new_str);
+            break;
+        }
+        size_t value_len = next - cursor;
+        const char *value = csmkstr(cursor, value_len);
+        sb_push(value_list, value);
+        cursor = next + 1;
+    }
+    return value_list;
+}
+
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
+    if (g_colored_output) {
+        fprintf(f, "\x1b[%sm", how);
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+        fprintf(f, "\x1b[0m");
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(f, fmt, args);
+        va_end(args);
+    }
+}
+
+void errorv(const char *fmt, va_list args) {
+    pthread_t tid = pthread_self();
+    for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
+        // Implicitly discard all messages but the first. This should not be an
+        // issue, as the only possible message is error, and it (at least it
+        // should) is always a single one
+        if (pthread_equal(tid, g_output_anchors[i].id) &&
+            !atomic_load(&g_output_anchors[i].has_message)) {
+            vsnprintf(g_output_anchors[i].buffer,
+                      sizeof(g_output_anchors[i].buffer), fmt, args);
+            atomic_fence();
+            atomic_store(&g_output_anchors[i].has_message, true);
+            va_end(args);
+            return;
+        }
+    }
+    fprintf_colored(stderr, ANSI_RED, "error: ");
+    vfprintf(stderr, fmt, args);
+    putc('\n', stderr);
+}
+
+void error(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    errorv(fmt, args);
+    va_end(args);
+}
+
+char *csstrerror(char *buf, size_t buf_size, int err) {
+    char *err_msg;
+#ifdef _GNU_SOURCE
+    err_msg = strerror_r(err, buf, buf_size);
+#else
+    strerror_r(err, buf, buf_size);
+    err_msg = buf;
+#endif
+    return err_msg;
+}
+
+void csperror(const char *msg) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
+    error("%s: %s", msg, err_msg);
+}
+
+void csfmtperror(const char *fmt, ...) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
+
+    char buf[4096];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    error("%s: %s", buf, err_msg);
+}
+
+void csfdperror(int fd, const char *msg) {
+    int err = errno;
+    char errbuf[4096];
+    char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
+    char buf[4096];
+    int len = snprintf(buf, sizeof(buf), "%s: %s", msg, err_msg);
+    if (write(fd, buf, len + 1) < 0)
+        _exit(-1);
+}
+
+bool pipe_cloexec(int fd[2]) {
+    if (pipe(fd) == -1) {
+        csperror("pipe");
+        return false;
+    }
+    if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 ||
+        fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
+        close(fd[0]);
+        close(fd[1]);
+        return false;
+    }
+    return true;
 }

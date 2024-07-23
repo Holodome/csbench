@@ -168,8 +168,8 @@ static int stop_counting(struct perf_events *events) {
 
 static uint64_t get_counter(struct perf_events *events, size_t idx) {
     uint64_t id = events->ids[idx];
-    uint64_t *cursor = events->read_buf + 1,
-             *end = events->read_buf + events->read_buf_len;
+    const uint64_t *cursor = events->read_buf + 1;
+    const uint64_t *end = events->read_buf + events->read_buf_len;
     for (; cursor < end; cursor += 2) {
         if (*cursor == id)
             return cursor[1];
@@ -677,7 +677,8 @@ static int kdebug_trace_read(void *buf, size_t len, size_t *count) {
     int ret = sysctl(mib, 3, buf, &len, NULL, 0);
     if (ret != 0)
         return ret;
-    *count = len;
+    if (count)
+        *count = len;
     return 0;
 }
 

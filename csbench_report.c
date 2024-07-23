@@ -88,7 +88,7 @@ static bool json_escape(char *buf, size_t buf_size, const char *src) {
         *buf = '\0';
         return true;
     }
-    char *end = buf + buf_size;
+    const char *end = buf + buf_size;
     while (*src) {
         if (buf >= end)
             return false;
@@ -179,42 +179,26 @@ static bool do_export(const struct analysis *al) {
 }
 
 static bool python_found(void) {
-    pid_t pid = fork();
-    if (pid == -1) {
-        csperror("fork");
-        return false;
-    }
-    if (pid == 0) {
-        close(STDOUT_FILENO);
-        close(STDERR_FILENO);
-        if (execlp("python3", "python3", "--version", NULL) == -1)
-            _exit(-1);
-    }
-    return process_finished_correctly(pid);
+    return shell_execute_and_wait("python3 --version", -1, -1, -1);
 }
 
 static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     int pipe_fds[2];
-    if (pipe(pipe_fds) == -1) {
-        csperror("pipe");
+    if (!pipe_cloexec(pipe_fds))
         return false;
-    }
 
-    pid_t pid = fork();
-    if (pid == -1) {
-        csperror("fork");
-        return false;
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    if (g_python_output) {
+        stdout_fd = STDOUT_FILENO;
+        stderr_fd = STDERR_FILENO;
     }
-    if (pid == 0) {
+    bool success =
+        shell_execute("python3", pipe_fds[0], stdout_fd, stderr_fd, pidp);
+    if (!success) {
+        close(pipe_fds[0]);
         close(pipe_fds[1]);
-        if (dup2(pipe_fds[0], STDIN_FILENO) == -1)
-            _exit(-1);
-        if (!g_python_output) {
-            close(STDOUT_FILENO);
-            close(STDERR_FILENO);
-        }
-        if (execlp("python3", "python3", NULL) == -1)
-            _exit(-1);
+        return false;
     }
     close(pipe_fds[0]);
     FILE *f = fdopen(pipe_fds[1], "w");
@@ -222,16 +206,15 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
         csperror("fdopen");
         // Not a very nice way of handling errors, but it seems correct.
         close(pipe_fds[1]);
-        kill(pid, SIGKILL);
+        kill(*pidp, SIGKILL);
         for (;;) {
-            int err = waitpid(pid, NULL, 0);
+            int err = waitpid(*pidp, NULL, 0);
             if (err == -1 && errno == EINTR)
                 continue;
             break;
         }
         return false;
     }
-    *pidp = pid;
     *inp = f;
     return true;
 }
@@ -243,7 +226,7 @@ static bool python_has_matplotlib(void) {
         return false;
     fprintf(f, "import matplotlib\n");
     fclose(f);
-    return process_finished_correctly(pid);
+    return process_wait_finished_correctly(pid);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
@@ -306,7 +289,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
 }
 
 static void format_plot_name(char *buf, size_t buf_size,
-                             struct plot_walker_args *args,
+                             const struct plot_walker_args *args,
                              const char *extension) {
     switch (args->plot_kind) {
     case PLOT_BAR:
@@ -344,13 +327,10 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static void write_make_plot(struct plot_walker_args *args, FILE *f) {
-    char svg_buf[4096];
-    size_t grp_idx = args->grp_idx;
-    size_t bench_idx = args->bench_idx;
-    size_t var_value_idx = args->var_value_idx;
+static void write_make_plot(const struct plot_walker_args *args, FILE *f) {
     const struct meas_analysis *al = args->analysis;
     const struct meas *meas = al->meas;
+    char svg_buf[4096];
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
@@ -359,29 +339,25 @@ static void write_make_plot(struct plot_walker_args *args, FILE *f) {
     case PLOT_GROUP_BAR:
         group_bar_plot(al, svg_buf, f);
         break;
-    case PLOT_GROUP_SINGLE: {
-        group_plot(al->group_analyses + grp_idx, 1, meas, al->base->var,
+    case PLOT_GROUP_SINGLE:
+        group_plot(al->group_analyses + args->grp_idx, 1, meas, al->base->var,
                    svg_buf, f);
         break;
-    }
-    case PLOT_GROUP: {
+    case PLOT_GROUP:
         group_plot(al->group_analyses, al->base->group_count, meas,
                    al->base->var, svg_buf, f);
         break;
-    }
-    case PLOT_KDE: {
-        kde_plot(al->benches[bench_idx], meas, svg_buf, f);
+    case PLOT_KDE:
+        kde_plot(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
-    }
-    case PLOT_KDE_EXT: {
-        kde_plot_ext(al->benches[bench_idx], meas, svg_buf, f);
+    case PLOT_KDE_EXT:
+        kde_plot_ext(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
-    }
     case PLOT_KDE_CMPG: {
         const struct group_analysis *a = al->group_analyses;
         const struct group_analysis *b = al->group_analyses + 1;
-        kde_cmp_plot(al->benches[a->group->cmd_idxs[var_value_idx]],
-                     al->benches[b->group->cmd_idxs[var_value_idx]], meas,
+        kde_cmp_plot(al->benches[a->group->cmd_idxs[args->var_value_idx]],
+                     al->benches[b->group->cmd_idxs[args->var_value_idx]], meas,
                      svg_buf, f);
         break;
     }
@@ -443,7 +419,7 @@ static bool make_plots(const struct analysis *al) {
             success = false;
     }
     for (size_t i = 0; i < sb_len(args.pids); ++i) {
-        if (!process_finished_correctly(args.pids[i])) {
+        if (!process_wait_finished_correctly(args.pids[i])) {
             error("python finished with non-zero exit code");
             success = false;
         }
@@ -792,7 +768,7 @@ static void html_report(const struct analysis *al, FILE *f) {
 static bool make_html_report(const struct analysis *al) {
     FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
-        error("failed to create file %s/index.html", g_out_dir);
+        error("failed to create file '%s/index.html'", g_out_dir);
         return false;
     }
     html_report(al, f);
@@ -806,14 +782,6 @@ static bool do_visualize(const struct analysis *al) {
 
     if (!g_plot && !g_html && !g_csv)
         return true;
-
-    if (mkdir(g_out_dir, 0766) == -1) {
-        if (errno == EEXIST) {
-        } else {
-            csperror("mkdir");
-            return false;
-        }
-    }
 
     if (g_plot) {
         if (!python_found()) {
@@ -851,7 +819,7 @@ static void print_exit_code_info(const struct bench *bench) {
         if (bench->exit_codes[i] != 0)
             ++count_nonzero;
 
-    assert(g_allow_nonzero ? 1 : count_nonzero == 0);
+    assert(g_ignore_failure ? 1 : count_nonzero == 0);
     if (count_nonzero == bench->run_count) {
         printf("all commands have non-zero exit code: %d\n",
                bench->exit_codes[0]);
@@ -917,7 +885,6 @@ static void print_distr(const struct distr *dist, const struct units *units) {
 static void print_benchmark_info(const struct bench_analysis *cur,
                                  const struct analysis *al) {
     const struct bench *bench = cur->bench;
-    size_t run_count = bench->run_count;
     printf("command ");
     printf_colored(ANSI_BOLD, "%s\n", cur->name);
     // Print runs count only if it not explicitly specified, otherwise it is
@@ -944,7 +911,7 @@ static void print_benchmark_info(const struct bench_analysis *cur,
                                    &al->meas[j].units, ANSI_BOLD_BLUE,
                                    ANSI_BRIGHT_BLUE);
             }
-            print_outliers(&distr->outliers, run_count);
+            print_outliers(&distr->outliers, bench->run_count);
         }
     } else {
         for (size_t i = 0; i < al->meas_count; ++i) {
@@ -1113,7 +1080,5 @@ static void print_analysis(const struct analysis *al) {
 
 bool make_report(const struct analysis *al) {
     print_analysis(al);
-    if (!do_visualize(al))
-        return false;
-    return true;
+    return do_visualize(al);
 }

@@ -66,6 +66,10 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#define CSCONCAT_(_a, _b) _a##_b
+#define CSCONCAT(_a, _b) CSCONCAT_(_a, _b)
+#define CSUNIQIFY(_a) CSCONCAT(_a, __LINE__)
+
 // This is implementation of type-safe generic vector in C based on
 // std_stretchy_buffer.
 struct sb_header {
@@ -153,7 +157,8 @@ struct bench_var {
 
 struct bench_var_group {
     const char *name;
-    size_t *cmd_idxs; // [var->value_count]
+    size_t cmd_count;
+    size_t *cmd_idxs; // [cmd_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -209,18 +214,35 @@ struct distr {
 // filled accordinly with results of execution and, in particular, measurement
 // values. This is later passed down for analysis.
 struct bench {
+    const char *name;
     size_t run_count;
     int *exit_codes;
+    size_t meas_count;
     double **meas; // [meas_count]
+
+    // The following fields are runtime only information, can be thrown away
+    // later
     struct progress_bar_bench *progress;
+    // This this is used when running custom measurements
     size_t *stdout_offsets;
     // In case of suspension we save the state of running so it can be restored
     // later
     double time_run;
 };
 
+struct bench_data {
+    size_t meas_count;
+    const struct meas *meas; // [meas_count]
+    size_t bench_count;
+    struct bench *benches; // [bench_count]
+    size_t group_count;
+    const struct bench_var_group *groups; // [group_count]
+    const struct bench_var *var;
+};
+
 struct bench_analysis {
-    struct bench *bench;
+    const struct bench *bench;
+    size_t meas_count;
     struct distr *meas; // [meas_count]
     const char *name;
 };
@@ -314,7 +336,7 @@ struct analysis {
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
-    struct bench *benches;                 // [bench_count]
+    const struct bench *benches;           // [bench_count]
     struct bench_analysis *bench_analyses; // [bench_count]
     const struct meas *meas;               // [meas_count]
     struct meas_analysis *meas_analyses;   // [meas_count]
@@ -323,8 +345,8 @@ struct analysis {
 struct run_info {
     struct bench_params *params;
     struct bench_var_group *groups;
-    const struct bench_var *var;
     const struct meas *meas;
+    const struct bench_var *var;
 };
 
 struct bench_stop_policy {
@@ -358,6 +380,41 @@ struct output_anchor {
     pthread_t id;
     char buffer[4096];
     bool has_message;
+};
+
+// Instruction to rename certain benchmark. 'n' refers to individual benchmark
+// when variable is not used, otherwise it refers to benchmark group.
+struct rename_entry {
+    size_t n;
+    const char *name;
+};
+
+// This structure contains all information
+// supplied by user prior to benchmark start.
+struct cli_settings {
+    const char **args;
+    struct meas *meas;
+    struct input_policy input;
+    enum output_kind output;
+    bool has_var;
+    struct bench_var var;
+    int baseline;
+    struct rename_entry *rename_list;
+};
+
+enum app_mode {
+    APP_BENCH,
+    APP_LOAD_CSV,
+    APP_LOAD_BIN
+};
+
+struct bench_binary_data_storage {
+    bool has_var;
+    struct bench_var var;
+    size_t meas_count;
+    struct meas *meas; // [meas_count]
+    size_t group_count;
+    struct bench_var_group *groups; // [group_count]
 };
 
 #define sb_header(_a)                                                          \
@@ -414,53 +471,70 @@ struct output_anchor {
 // csbench.c
 //
 
-#define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
-__attribute__((format(printf, 3, 4))) void
-fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
-__attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
-void errorv(const char *fmt, va_list args);
-void csperror(const char *msg);
-void csfmterror(const char *fmt, ...);
-
 extern __thread uint64_t g_rng_state;
-// Number of resamples to use in bootstrapping when estimating distributions.
-extern int g_nresamp;
-// Use linear regression to estimate slope when doing parameterized benchmark.
-extern bool g_regr;
-// Index of benchmark that should be used as baseline or -1.
-extern int g_baseline;
+extern bool g_colored_output;
+extern bool g_ignore_failure;
 extern int g_threads;
-extern bool g_allow_nonzero;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
 extern bool g_plot_src;
-extern const char *g_json_export_filename;
-extern struct bench_stop_policy g_bench_stop;
-extern struct bench_stop_policy g_warmup_stop;
-extern struct bench_stop_policy g_round_stop;
-extern const char *g_prepare;
-extern const char *g_out_dir;
-extern bool g_python_output;
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
 extern bool g_use_perf;
 extern bool g_progress_bar;
+// Use linear regression to estimate slope when doing parameterized benchmark.
+extern bool g_regr;
+extern bool g_python_output;
+extern bool g_save_bin;
+// Index of benchmark that should be used as baseline or -1.
+extern int g_baseline;
+extern enum app_mode g_mode;
+extern struct bench_stop_policy g_warmup_stop;
+extern struct bench_stop_policy g_bench_stop;
+extern struct bench_stop_policy g_round_stop;
 extern struct output_anchor *volatile g_output_anchors;
+extern const char *g_json_export_filename;
+extern const char *g_out_dir;
+extern const char *g_shell;
+extern const char *g_common_argstring;
+extern const char *g_prepare;
+extern const char *g_inputd;
+
+void free_bench_data(struct bench_data *data);
+
+//
+// csbench_cli.c
+//
+
+void parse_cli_args(int argc, char **argv, struct cli_settings *settings);
+void free_cli_settings(struct cli_settings *settings);
+
+//
+// csbench_serialize.c
+//
+
+bool load_meas_csv(const struct meas *user_specified_meas,
+                   size_t user_specified_meas_count, const char **file_list,
+                   struct meas **meas_list);
+bool load_bench_data_csv(const char **files, struct bench_data *data);
+
+bool save_bench_data_binary(const struct bench_data *data, FILE *f);
+bool load_bench_data_binary(const char **file_list, struct bench_data *data,
+                            struct bench_binary_data_storage *storage);
+void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
 
 //
 // csbench_analyze.c
 //
 
-void init_analysis(const struct meas *meas_list, size_t bench_count,
-                   const struct bench_var *var, struct analysis *al);
-void analyze_bench(struct bench_analysis *analysis, size_t meas_count);
-bool analyze_benches(const struct run_info *info, struct analysis *al);
-void free_analysis(struct analysis *al);
+bool do_analysis_and_make_report(const struct bench_data *data);
 
 //
 // csbench_run.c
 //
 
-bool run_benches(const struct bench_params *params, struct bench_analysis *als,
+bool run_benches(const struct bench_params *params, struct bench *benches,
                  size_t count);
 
 //
@@ -507,6 +581,18 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
 // csbench_utils.c
 //
 
+#define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
+__attribute__((format(printf, 3, 4))) void
+fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
+__attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
+void errorv(const char *fmt, va_list args);
+void csperror(const char *msg);
+void csfmtperror(const char *fmt, ...);
+
+bool pipe_cloexec(int fd[2]);
+bool check_and_handle_err_pipe(int read_end, int timeout);
+void csfdperror(int fd, const char *msg);
+
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
 double get_time(void);
@@ -533,9 +619,11 @@ void ols(const double *x, const double *y, size_t count,
 
 void shuffle(size_t *arr, size_t count);
 
-bool process_finished_correctly(pid_t pid);
-bool execute_in_shell(const char *cmd, int stdin_fd, int stdout_fd,
-                      int stderr_fd);
+bool process_wait_finished_correctly(pid_t pid);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                   pid_t *pid);
+bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
+                            int stderr_fd);
 
 int tmpfile_fd(void);
 
@@ -547,6 +635,8 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);
 __attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
                                                       const char *fmt, ...);
+
+const char **parse_comma_separated_list(const char *str);
 
 bool spawn_threads(void *(*worker_fn)(void *), void *param,
                    size_t thread_count);
@@ -565,7 +655,7 @@ static inline uint32_t pcg32_fast(uint64_t *state) {
 // This program is not string-heavy, most of the times they arise during
 // configuration parsing and benchmark initialization.
 //
-// But **** this stupid ****, memory management is too hard. Just allocate all
+// Memory management is too hard. Just allocate all
 // strings in global arena and then free at once. This way all strings are
 // treated as read-only, so we can safely assign them without copying.
 //
@@ -575,6 +665,7 @@ void cs_free_strings(void);
 const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);
 const char *csstripend(const char *str);
+char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 
 #endif // CSBENCH_H
