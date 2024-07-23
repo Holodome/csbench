@@ -320,3 +320,10 @@ touch /tmp/csbenchdir/a
 touch /tmp/csbenchdir/b
 $b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 6 ]
+
+#
+# check save-bin and --load-bin without parameters
+#
+$b ls -o /tmp/csbench1 --save-bin > /dev/null || die 
+$b pwd -o /tmp/csbench2 --save-bin > /dev/null || die 
+$b --load-bin /tmp/csbench1 /tmp/csbench2 --plot > /dev/null || die

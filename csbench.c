@@ -1007,6 +1007,7 @@ static bool do_app_load_bin(const struct cli_settings *cli) {
         goto err;
     success = true;
 err:
+    sb_free(src_list);
     free_bench_data(&data);
     free_bench_binary_data_storage(&storage);
     return success;

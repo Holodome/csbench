@@ -789,7 +789,7 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
-        } else if (opt_bool(argv, &cursor, "--save", &g_save_bin)) {
+        } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
         } else if (opt_bool(argv, &cursor, "--no-default-meas", &no_wall)) {
