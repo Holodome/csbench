@@ -665,7 +665,8 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
         }
         if (fd != -1)
             close(fd);
-        (void)write(err_pipe[1], "", 1);
+        if (write(err_pipe[1], "", 1) < 0)
+            _exit(-1);
         if (execv(exec, argv) == -1) {
             csfdperror(err_pipe[1], "execv");
             _exit(-1);
@@ -940,7 +941,8 @@ void csfdperror(int fd, const char *msg) {
     char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
     char buf[4096];
     int len = snprintf(buf, sizeof(buf), "%s: %s", msg, err_msg);
-    (void)write(fd, buf, len + 1);
+    if (write(fd, buf, len + 1) < 0)
+        _exit(-1);
 }
 
 bool pipe_cloexec(int fd[2]) {
