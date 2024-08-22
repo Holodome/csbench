@@ -266,11 +266,9 @@ Use <UNITS\-NAME> as name
 .IP
 Do not use default measurements (which are "wall", "stime", "utime").
 .SS Parameterization options
-\fB\-\-inputd\fR implicitly creates parameter with name "file".
-.HP
 \fB\-\-scan\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add variable with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 1.
+\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add variable with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 2.
 .IP
 .RS
 Example:
@@ -317,6 +315,20 @@ Example:
 .RS
 \fBcsbench\fR \fB\-\-rename\-all\fR one,two ls pwd
 .RE
+.RE
+.HP
+\fB\-\-sort\fR \fIMETHOD\fP
+.IP
+Specify order of benchmarks in reports. 
+.IP
+\fIMETHOD\fP can be one of the following:
+.RS
+.IP auto (default)
+sort by speed if baseline is not set, keep original order otherwise
+.IP command
+keep original order 
+.IP mean-time
+sort by speed
 .RE
 .HP
 \fB\-o\fR, \fB\-\-out\-dir\fR \fIDIR\fP

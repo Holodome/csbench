@@ -85,6 +85,7 @@ bool g_progress_bar = false;
 bool g_regr = false;
 bool g_python_output = false;
 bool g_save_bin = false;
+enum sort_mode g_sort_mode = SORT_DEFAULT;
 int g_baseline = -1;
 enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
@@ -799,6 +800,24 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
     return true;
 }
 
+static void set_sort_mode(void) {
+    // Default case
+    if (g_sort_mode == SORT_DEFAULT) {
+        if (g_baseline == -1)
+            g_sort_mode = SORT_SPEED;
+        else
+            g_sort_mode = SORT_BASELINE_RAW;
+        return;
+    }
+    assert(g_sort_mode == SORT_RAW || g_sort_mode == SORT_SPEED);
+    if (g_baseline != -1) {
+        if (g_sort_mode == SORT_RAW)
+            g_sort_mode = SORT_BASELINE_RAW;
+        else
+            g_sort_mode = SORT_BASELINE_SPEED;
+    }
+}
+
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
@@ -834,10 +853,10 @@ static bool init_run_info(const struct cli_settings *cli,
         }
     }
 
-    // Validate that baseline number (if specified) is not greater than
-    // command count
     if (!validate_and_set_baseline(cli->baseline, info))
         goto err;
+
+    set_sort_mode();
 
     if (!validate_rename_list(cli->rename_list, sb_len(info->params),
                               info->groups))

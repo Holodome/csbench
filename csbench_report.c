@@ -232,8 +232,9 @@ static bool python_has_matplotlib(void) {
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                         struct plot_walker_args *args) {
     const struct meas_analysis *al = args->analysis;
-    if (al->base->bench_count > 1) {
-        if (al->base->group_count <= 1) {
+    const struct analysis *base = al->base;
+    if (base->bench_count > 1) {
+        if (base->group_count <= 1) {
             args->plot_kind = PLOT_BAR;
             if (!walk(args))
                 return false;
@@ -244,7 +245,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     if (g_regr) {
-        for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
             const struct group_analysis *grp = al->group_analyses + grp_idx;
             if (!grp->values_are_doubles)
                 break;
@@ -253,7 +254,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             if (!walk(args))
                 return false;
         }
-        if (al->base->group_count > 1) {
+        if (base->group_count > 1) {
             const struct group_analysis *grp = al->group_analyses;
             if (grp[0].values_are_doubles) {
                 args->plot_kind = PLOT_GROUP;
@@ -262,7 +263,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             }
         }
     }
-    for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
+    for (size_t bench_idx = 0; bench_idx < base->bench_count; ++bench_idx) {
         args->plot_kind = PLOT_KDE;
         args->bench_idx = bench_idx;
         if (!walk(args))
@@ -272,15 +273,15 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         if (!walk(args))
             return false;
     }
-    if (al->base->group_count == 2) {
-        size_t value_count = al->base->var->value_count;
+    if (base->group_count == 2) {
+        size_t value_count = base->var->value_count;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
             args->plot_kind = PLOT_KDE_CMPG;
             args->var_value_idx = val_idx;
             if (!walk(args))
                 return false;
         }
-    } else if (al->base->bench_count == 2) {
+    } else if (base->bench_count == 2) {
         args->plot_kind = PLOT_KDE_CMP;
         if (!walk(args))
             return false;
@@ -489,21 +490,22 @@ static void export_csv_raw_bench(const struct bench *bench,
 }
 
 static void export_csv_group_results(const struct meas_analysis *al, FILE *f) {
-    assert(al->base->group_count > 0 && al->base->var);
-    fprintf(f, "%s,", al->base->var->name);
-    for (size_t i = 0; i < al->base->group_count; ++i) {
+    const struct analysis *base = al->base;
+    assert(base->group_count > 0 && base->var);
+    fprintf(f, "%s,", base->var->name);
+    for (size_t i = 0; i < base->group_count; ++i) {
         char buf[4096];
         json_escape(buf, sizeof(buf), al->group_analyses[i].group->name);
         fprintf(f, "%s", buf);
-        if (i != al->base->group_count - 1)
+        if (i != base->group_count - 1)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t i = 0; i < al->base->var->value_count; ++i) {
-        fprintf(f, "%s,", al->base->var->values[i]);
-        for (size_t j = 0; j < al->base->group_count; ++j) {
+    for (size_t i = 0; i < base->var->value_count; ++i) {
+        fprintf(f, "%s,", base->var->values[i]);
+        for (size_t j = 0; j < base->group_count; ++j) {
             fprintf(f, "%g", al->group_analyses[j].data[i].mean);
-            if (j != al->base->group_count - 1)
+            if (j != base->group_count - 1)
                 fprintf(f, ",");
         }
         fprintf(f, "\n");
@@ -922,31 +924,68 @@ static void print_benchmark_info(const struct bench_analysis *cur,
     }
 }
 
+static size_t reference_bench_idx(const struct meas_analysis *al) {
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_SPEED:
+        return al->fastest[0];
+    case SORT_BASELINE_RAW:
+    case SORT_BASELINE_SPEED:
+        assert(g_baseline != -1);
+        return g_baseline;
+    case SORT_DEFAULT:
+        assert(0);
+    }
+    assert(0);
+    return 0;
+}
+
+static size_t ith_bench_idx(int i, const struct meas_analysis *al) {
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_BASELINE_RAW:
+        return i;
+    case SORT_SPEED:
+    case SORT_BASELINE_SPEED:
+        return al->fastest[i];
+    case SORT_DEFAULT:
+        assert(0);
+    }
+    assert(0);
+    return 0;
+}
+
 static void print_cmd_comparison(const struct meas_analysis *al) {
-    if (al->base->bench_count == 1)
+    const struct analysis *base = al->base;
+    if (base->bench_count == 1)
         return;
 
-    if (al->base->primary_meas_count != 1) {
+    if (base->primary_meas_count != 1) {
         printf("measurement ");
         printf_colored(ANSI_YELLOW, "%s\n", al->meas->name);
     }
 
-    if (al->base->group_count <= 1) {
-        const struct bench_analysis *reference;
-        if (g_baseline != -1) {
-            printf("baseline command ");
-            reference = al->base->bench_analyses + g_baseline;
-        } else {
+    if (base->group_count <= 1) {
+        const struct bench_analysis *reference =
+            base->bench_analyses + reference_bench_idx(al);
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
             printf("fastest command ");
-            reference = al->base->bench_analyses + al->fastest[0];
+            printf_colored(ANSI_BOLD, "%s\n", reference->name);
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            printf("baseline command ");
+            printf_colored(ANSI_BOLD, "%s\n", reference->name);
+            break;
+        case SORT_DEFAULT:
+            assert(0);
         }
-        printf_colored(ANSI_BOLD, "%s\n", reference->name);
-        for (size_t j = 0; j < al->base->bench_count; ++j) {
-            size_t bench_idx = j;
-            if (g_baseline == -1)
-                bench_idx = al->fastest[j];
+        for (size_t i = 0; i < base->bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, al);
             const struct bench_analysis *bench =
-                al->base->bench_analyses + bench_idx;
+                base->bench_analyses + bench_idx;
             if (bench == reference)
                 continue;
             const struct point_err_est *speedup = al->speedup + bench_idx;
@@ -966,14 +1005,14 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
             printf(" (p=%.2f)", al->p_values[bench_idx]);
             printf("\n");
         }
-        if (al->base->group_count == 1 && g_regr) {
+        if (base->group_count == 1 && g_regr) {
             const struct group_analysis *grp = al->group_analyses;
             if (grp->values_are_doubles)
                 printf("%s complexity (%g)\n",
                        big_o_str(grp->regress.complexity), grp->regress.a);
         }
     } else {
-        for (size_t grp_idx = 0; grp_idx < al->base->group_count; ++grp_idx) {
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
             printf("%c = ", (int)('A' + grp_idx));
             printf_colored(ANSI_BOLD, "%s",
                            al->group_analyses[grp_idx].group->name);
@@ -982,7 +1021,7 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
             printf("\n");
         }
 
-        const struct bench_var *var = al->base->var;
+        const struct bench_var *var = base->var;
         size_t value_count = var->value_count;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
             const char *value = var->values[val_idx];
@@ -997,12 +1036,11 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
                 printf("%c is ", (int)('A' + reference_idx));
             }
             const char *ident = "";
-            if (al->base->group_count > 2) {
+            if (base->group_count > 2) {
                 printf("\n");
                 ident = "  ";
             }
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
+            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
                 if (grp_idx == reference_idx)
                     continue;
                 const struct point_err_est *est =
@@ -1023,8 +1061,7 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
             }
         }
         if (g_regr) {
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
+            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
                 const struct group_analysis *grp = al->group_analyses + grp_idx;
                 if (grp->values_are_doubles) {
                     printf_colored(ANSI_BOLD, "%s ", grp->group->name);
@@ -1032,15 +1069,14 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
                            big_o_str(grp->regress.complexity), grp->regress.a);
                 }
             }
-        } else if (g_baseline != -1 && al->base->group_count > 1) {
+        } else if (g_baseline != -1 && base->group_count > 1) {
             printf("on average ");
             const char *ident = "";
-            if (al->base->group_count > 2) {
+            if (base->group_count > 2) {
                 printf("\n");
                 ident = "  ";
             }
-            for (size_t grp_idx = 0; grp_idx < al->base->group_count;
-                 ++grp_idx) {
+            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
                 if (grp_idx == (size_t)g_baseline)
                     continue;
                 const struct point_err_est *est =

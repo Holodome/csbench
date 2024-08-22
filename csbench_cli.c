@@ -787,6 +787,17 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
+        } else if (opt_arg(argv, &cursor, "--sort", &str)) {
+            if (strcmp(str, "auto") == 0) {
+                g_sort_mode = SORT_DEFAULT;
+            } else if (strcmp(str, "command") == 0) {
+                g_sort_mode = SORT_RAW;
+            } else if (strcmp(str, "mean-time") == 0) {
+                g_sort_mode = SORT_SPEED;
+            } else {
+                error("invalid --sort argument");
+                exit(EXIT_FAILURE);
+            }
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
         } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {

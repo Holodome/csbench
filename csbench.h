@@ -417,6 +417,19 @@ struct bench_binary_data_storage {
     struct bench_var_group *groups; // [group_count]
 };
 
+// Decide how output should be sorted
+enum sort_mode {
+    // This is sentinel value. We expand it to one of the following values
+    // during initialization
+    SORT_DEFAULT,
+    // --sort=command
+    SORT_RAW,
+    // --sort=mean-time
+    SORT_SPEED,
+    SORT_BASELINE_RAW,
+    SORT_BASELINE_SPEED,
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -487,6 +500,8 @@ extern bool g_progress_bar;
 extern bool g_regr;
 extern bool g_python_output;
 extern bool g_save_bin;
+extern enum sort_mode g_sort_mode;
+
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
 extern enum app_mode g_mode;
