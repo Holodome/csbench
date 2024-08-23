@@ -312,7 +312,7 @@ struct meas_analysis {
     const struct meas *meas;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
-    // Indexes of commands sorted by their time (last is the fastest)
+    // Indexes of commands sorted by their time (first is the fastest)
     size_t *fastest; // [bench_count]
     // Indexes of fastest command for each value
     size_t *fastest_val;                   // [val_count]

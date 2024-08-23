@@ -953,8 +953,10 @@ static void redraw_progress_bar(struct progress_bar *bar) {
             printf_colored(ANSI_YELLOW, " S  ");
         } else if (data.warmup) {
             printf_colored(ANSI_MAGENTA, " W  ");
+        } else if (data.finished) {
+            printf_colored(ANSI_BLUE, " F  ");
         } else {
-            printf("    ");
+            printf_colored(ANSI_GREEN, " R  ");
         }
         printf("\n");
     }

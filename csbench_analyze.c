@@ -371,8 +371,8 @@ static void calculate_per_value_speedup(struct speedup **speedups, size_t count,
                                         size_t grp_idx, bool flip,
                                         struct point_err_est *dst) {
     // This uses hand-written error propagation formula for geometric mean,
-    // for reference see.
-    // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
+    // for reference see
+    // https://en.wikipedia.org/wiki/Propagation_of_uncertainty
     double mean_accum = 1;
     double st_dev_accum = 0.0;
     double n = count;
