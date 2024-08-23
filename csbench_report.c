@@ -988,16 +988,23 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
                 base->bench_analyses + bench_idx;
             if (bench == reference)
                 continue;
-            const struct point_err_est *speedup = al->speedup + bench_idx;
+            const struct speedup *speedup = al->speedup + bench_idx;
             if (g_baseline != -1)
                 printf_colored(ANSI_BOLD, "  %s", bench->name);
             else
                 printf_colored(ANSI_BOLD, "  %s", reference->name);
             printf(" is ");
-            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->point);
-            printf(" ± ");
-            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->err);
-            printf(" times faster than ");
+            if (speedup->is_slower) {
+                printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
+                printf(" ± ");
+                printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
+                printf(" times slower than ");
+            } else {
+                printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+                printf(" ± ");
+                printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+                printf(" times faster than ");
+            }
             if (g_baseline == -1)
                 printf_colored(ANSI_BOLD, "%s", bench->name);
             else
@@ -1043,21 +1050,59 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
             for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
                 if (grp_idx == reference_idx)
                     continue;
-                const struct point_err_est *est =
+                const struct speedup *speedup =
                     al->var_speedup[val_idx] + grp_idx;
                 printf("%s", ident);
                 if (g_baseline != -1)
                     printf("%c is ", (int)('A' + grp_idx));
-                printf_colored(ANSI_BOLD_GREEN, "%6.3f", est->point);
-                printf(" ± ");
-                printf_colored(ANSI_BRIGHT_GREEN, "%.3f", est->err);
-                printf(" times faster than ");
+                if (speedup->is_slower) {
+                    printf_colored(ANSI_BOLD_GREEN, "%6.3f",
+                                   speedup->inv_est.point);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f",
+                                   speedup->inv_est.err);
+                    printf(" times slower than ");
+                } else {
+                    printf_colored(ANSI_BOLD_GREEN, "%6.3f",
+                                   speedup->est.point);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+                    printf(" times faster than ");
+                }
                 if (g_baseline == -1)
                     printf("%c", (int)('A' + grp_idx));
                 else
                     printf("baseline");
                 printf(" (p=%.2f)", al->var_p_values[val_idx][grp_idx]);
                 printf("\n");
+            }
+        }
+        if (g_baseline != -1 && base->group_count > 1) {
+            printf("on average ");
+            const char *ident = "";
+            if (base->group_count > 2) {
+                printf("\n");
+                ident = "  ";
+            }
+            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+                if (grp_idx == (size_t)g_baseline)
+                    continue;
+                const struct speedup *speedup =
+                    al->group_baseline_speedup + grp_idx;
+                printf("%s%c is ", ident, (int)('A' + grp_idx));
+                if (speedup->is_slower) {
+                    printf_colored(ANSI_BOLD_GREEN, "%.3f",
+                                   speedup->inv_est.point);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f",
+                                   speedup->inv_est.err);
+                    printf(" times slower than baseline\n");
+                } else {
+                    printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+                    printf(" ± ");
+                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+                    printf(" times faster than baseline\n");
+                }
             }
         }
         if (g_regr) {
@@ -1068,24 +1113,6 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
                     printf("%s complexity (%g)\n",
                            big_o_str(grp->regress.complexity), grp->regress.a);
                 }
-            }
-        } else if (g_baseline != -1 && base->group_count > 1) {
-            printf("on average ");
-            const char *ident = "";
-            if (base->group_count > 2) {
-                printf("\n");
-                ident = "  ";
-            }
-            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-                if (grp_idx == (size_t)g_baseline)
-                    continue;
-                const struct point_err_est *est =
-                    al->group_baseline_speedup + grp_idx;
-                printf("%s%c is ", ident, (int)('A' + grp_idx));
-                printf_colored(ANSI_BOLD_GREEN, "%.3f", est->point);
-                printf(" ± ");
-                printf_colored(ANSI_BRIGHT_GREEN, "%.3f", est->err);
-                printf(" times faster than baseline\n");
             }
         }
     }

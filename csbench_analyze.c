@@ -123,22 +123,25 @@ static void compare_benches(struct analysis *al) {
     size_t bench_count = al->bench_count;
     size_t meas_count = al->meas_count;
     assert(meas_count != 0);
-    for (size_t i = 0; i < meas_count; ++i) {
+    for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
         // We don't do comparison for secondary measurements
-        if (al->meas[i].is_secondary)
+        if (al->meas[meas_idx].is_secondary)
             continue;
 
         struct bench_sort_state state = {0};
-        state.meas_idx = i;
+        state.meas_idx = meas_idx;
         state.analyses = al->bench_analyses;
-        for (size_t j = 0; j < bench_count; ++j)
-            al->meas_analyses[i].fastest[j] = j;
+        // Initialize array with indexes for sorting
+        for (size_t i = 0; i < bench_count; ++i)
+            al->meas_analyses[meas_idx].fastest[i] = i;
 #ifdef __linux__
-        qsort_r(al->meas_analyses[i].fastest, bench_count,
-                sizeof(*al->meas_analyses[i].fastest), bench_sort_cmp, &state);
+        qsort_r(al->meas_analyses[meas_idx].fastest, bench_count,
+                sizeof(*al->meas_analyses[meas_idx].fastest), bench_sort_cmp,
+                &state);
 #elif defined(__APPLE__)
-        qsort_r(al->meas_analyses[i].fastest, bench_count,
-                sizeof(*al->meas_analyses[i].fastest), &state, bench_sort_cmp);
+        qsort_r(al->meas_analyses[meas_idx].fastest, bench_count,
+                sizeof(*al->meas_analyses[meas_idx].fastest), &state,
+                bench_sort_cmp);
 #else
 #error
 #endif
@@ -326,8 +329,12 @@ static void calculate_bench_speedups(struct meas_analysis *al) {
         if (distr == reference)
             continue;
 
-        struct point_err_est *est = al->speedup + bench_idx;
-        calculate_ref_speed(reference, distr, flip, est);
+        struct speedup *sp = al->speedup + bench_idx;
+        calculate_ref_speed(reference, distr, flip, &sp->est);
+        if (sp->est.point < 1.0) {
+            sp->is_slower = true;
+            calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
+        }
     }
 }
 
@@ -350,10 +357,39 @@ static void calculate_group_speedups(struct meas_analysis *al) {
             if (distr == reference)
                 continue;
 
-            struct point_err_est *est = al->var_speedup[val_idx] + grp_idx;
-            calculate_ref_speed(reference, distr, flip, est);
+            struct speedup *sp = al->var_speedup[val_idx] + grp_idx;
+            calculate_ref_speed(reference, distr, flip, &sp->est);
+            if (sp->est.point < 1.0) {
+                sp->is_slower = true;
+                calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
+            }
         }
     }
+}
+
+static void calculate_per_value_speedup(struct speedup **speedups, size_t count,
+                                        size_t grp_idx, bool flip,
+                                        struct point_err_est *dst) {
+    // This uses hand-written error propagation formula for geometric mean,
+    // for reference see.
+    // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
+    double mean_accum = 1;
+    double st_dev_accum = 0.0;
+    double n = count;
+    for (size_t val_idx = 0; val_idx < count; ++val_idx) {
+        const struct speedup *speedup = speedups[val_idx] + grp_idx;
+        const struct point_err_est *est = NULL;
+        if (flip)
+            est = &speedup->inv_est;
+        else
+            est = &speedup->est;
+
+        mean_accum *= est->point;
+        double a = pow(est->point, 1.0 / n - 1.0) * est->err;
+        st_dev_accum += a * a;
+    }
+    dst->point = pow(mean_accum, 1.0 / n);
+    dst->err = dst->point / n * sqrt(st_dev_accum);
 }
 
 static void calculate_average_per_value_speedups(struct meas_analysis *al) {
@@ -372,25 +408,14 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al) {
         if (group == baseline_group)
             continue;
 
-        // This uses hand-written error propagation formula for geometric mean,
-        // for reference see.
-        // https://en.wikipedia.org/wiki/Propagation_of_uncertainty.
-        double mean_accum = 1;
-        double st_dev_accum = 0.0;
-        double n = value_count;
-        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-            const struct point_err_est *est =
-                al->var_speedup[val_idx] + grp_idx;
-            mean_accum *= est->point;
-            double a = pow(est->point, 1.0 / n - 1.0) * est->err;
-            st_dev_accum += a * a;
+        struct speedup *sp = al->group_baseline_speedup + grp_idx;
+        calculate_per_value_speedup(al->var_speedup, value_count, grp_idx,
+                                    false, &sp->est);
+        if (sp->est.point < 1.0) {
+            sp->is_slower = true;
+            calculate_per_value_speedup(al->var_speedup, value_count, grp_idx,
+                                        true, &sp->inv_est);
         }
-        double avg = pow(mean_accum, 1.0 / n);
-        double avg_st_dev = avg / n * sqrt(st_dev_accum);
-
-        struct point_err_est *est = al->group_baseline_speedup + grp_idx;
-        est->point = avg;
-        est->err = avg_st_dev;
     }
 }
 

@@ -298,6 +298,12 @@ struct point_err_est {
     double err;
 };
 
+struct speedup {
+    struct point_err_est est;
+    struct point_err_est inv_est;
+    bool is_slower;
+};
+
 // Analysis for a single measurement kind for all benchmarks. We don't do
 // inter-measurement analysis, so this is more or less self-contained.
 struct meas_analysis {
@@ -306,17 +312,17 @@ struct meas_analysis {
     const struct meas *meas;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
-    // Indexes of commands sorted by their time
+    // Indexes of commands sorted by their time (last is the fastest)
     size_t *fastest; // [bench_count]
     // Indexes of fastest command for each value
     size_t *fastest_val;                   // [val_count]
     struct group_analysis *group_analyses; // [group_count]
     // Comparison
-    struct point_err_est *speedup;      // [bench_count]
-    struct point_err_est **var_speedup; // [val_count][group_count]
+    struct speedup *speedup;      // [bench_count]
+    struct speedup **var_speedup; // [val_count][group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
-    struct point_err_est *group_baseline_speedup; // [group_count]
+    struct speedup *group_baseline_speedup; // [group_count]
     // P-values in reference to either fastests command or baseline
     double *p_values;      // [bench_count]
     double **var_p_values; // [val_count][group_count]

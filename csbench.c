@@ -801,7 +801,6 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
 }
 
 static void set_sort_mode(void) {
-    // Default case
     if (g_sort_mode == SORT_DEFAULT) {
         if (g_baseline == -1)
             g_sort_mode = SORT_SPEED;
