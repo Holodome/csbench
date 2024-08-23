@@ -966,6 +966,7 @@ static bool do_app_load_csv(const struct cli_settings *settings) {
                         file_list, &data);
     if (!load_bench_data_csv(file_list, &data))
         goto err;
+    set_sort_mode();
     if (!do_analysis_and_make_report(&data))
         goto err;
     success = true;
@@ -1021,6 +1022,7 @@ static bool do_app_load_bin(const struct cli_settings *cli) {
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
         goto err;
+    set_sort_mode();
     if (!do_analysis_and_make_report(&data))
         goto err;
     success = true;
