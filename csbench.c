@@ -460,15 +460,15 @@ static bool init_command(const struct command_info *cmd, struct run_info *info,
     return true;
 }
 
-static bool init_raw_command_infos(const struct cli_settings *cli,
+static bool init_raw_command_infos(const struct settings *settings,
                                    struct command_info **infos) {
-    size_t cmd_count = sb_len(cli->args);
+    size_t cmd_count = sb_len(settings->args);
     if (cmd_count == 0) {
         error("no commands specified");
         return false;
     }
     for (size_t i = 0; i < cmd_count; ++i) {
-        const char *cmd_str = cli->args[i];
+        const char *cmd_str = settings->args[i];
         if (g_common_argstring) {
             cmd_str = csfmt("%s %s", cmd_str, g_common_argstring);
         }
@@ -476,8 +476,8 @@ static bool init_raw_command_infos(const struct cli_settings *cli,
         struct command_info info;
         memset(&info, 0, sizeof(info));
         info.name = info.cmd = cmd_str;
-        info.output = cli->output;
-        info.input = cli->input;
+        info.output = settings->output;
+        info.input = settings->input;
         info.grp_name = cmd_str;
         sb_push(*infos, info);
     }
@@ -751,20 +751,20 @@ static bool attempt_rename_with_variable_value(
     return false;
 }
 
-static void set_param_names(const struct cli_settings *cli,
+static void set_param_names(const struct settings *settings,
                             struct run_info *info) {
     for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
         struct bench_params *params = info->params + bench_idx;
         if (sb_len(info->groups) != 0) {
-            assert(cli->has_var);
-            attempt_rename_with_variable_value(cli->rename_list, bench_idx,
-                                               info->groups, &cli->var,
+            assert(settings->has_var);
+            attempt_rename_with_variable_value(settings->rename_list, bench_idx,
+                                               info->groups, &settings->var,
                                                &params->name);
         }
     }
 }
 
-static bool init_benches(const struct cli_settings *cli,
+static bool init_benches(const struct settings *settings,
                          const struct command_info *cmd_infos, bool has_groups,
                          struct run_info *info) {
     // Short path when there are no groups
@@ -777,14 +777,14 @@ static bool init_benches(const struct cli_settings *cli,
         return true;
     }
 
-    assert(cli->has_var);
+    assert(settings->has_var);
     size_t group_count = sb_last(cmd_infos).grp_idx + 1;
-    const struct bench_var *var = &cli->var;
+    const struct bench_var *var = &settings->var;
     const struct command_info *cmd_cursor = cmd_infos;
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
         struct bench_var_group group = {0};
-        if (!attempt_rename(cli->rename_list, sb_len(info->groups),
+        if (!attempt_rename(settings->rename_list, sb_len(info->groups),
                             &group.name))
             group.name = cmd_cursor->grp_name;
         group.cmd_count = var->value_count;
@@ -802,16 +802,16 @@ static bool init_benches(const struct cli_settings *cli,
     return true;
 }
 
-static bool init_commands(const struct cli_settings *cli,
+static bool init_commands(const struct settings *settings,
                           struct run_info *info) {
     bool success = false;
     struct command_info *command_infos = NULL;
-    if (!init_raw_command_infos(cli, &command_infos))
+    if (!init_raw_command_infos(settings, &command_infos))
         return false;
 
     bool has_groups = false;
-    if (cli->has_var) {
-        int ret = multiplex_command_infos(&cli->var, &command_infos);
+    if (settings->has_var) {
+        int ret = multiplex_command_infos(&settings->var, &command_infos);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -822,7 +822,7 @@ static bool init_commands(const struct cli_settings *cli,
         }
     }
 
-    if (!init_benches(cli, command_infos, has_groups, info))
+    if (!init_benches(settings, command_infos, has_groups, info))
         goto err;
 
     success = true;
@@ -879,30 +879,30 @@ static bool initialize_global_variables(struct bench_data *data) {
     return true;
 }
 
-static bool init_run_info(const struct cli_settings *cli,
+static bool init_run_info(const struct settings *settings,
                           struct run_info *info) {
-    info->meas = cli->meas;
-    if (cli->has_var)
-        info->var = &cli->var;
+    info->meas = settings->meas;
+    if (settings->has_var)
+        info->var = &settings->var;
 
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging,
     // and user will not care about not having progress bar
-    if (cli->output == OUTPUT_POLICY_INHERIT) {
+    if (settings->output == OUTPUT_POLICY_INHERIT) {
         g_progress_bar = false;
     }
 
-    if (sb_len(cli->meas) == 0) {
+    if (sb_len(settings->meas) == 0) {
         error("no measurements specified");
         return false;
     }
 
-    if (!init_commands(cli, info))
+    if (!init_commands(settings, info))
         return false;
 
     bool has_custom_meas = false;
-    for (size_t i = 0; i < sb_len(cli->meas); ++i) {
-        if (cli->meas[i].kind == MEAS_CUSTOM) {
+    for (size_t i = 0; i < sb_len(settings->meas); ++i) {
+        if (settings->meas[i].kind == MEAS_CUSTOM) {
             has_custom_meas = true;
             break;
         }
@@ -914,7 +914,7 @@ static bool init_run_info(const struct cli_settings *cli,
         }
     }
 
-    set_param_names(cli, info);
+    set_param_names(settings, info);
 
     return true;
 err:
@@ -986,7 +986,7 @@ static bool do_save_bin(const struct bench_data *data) {
     return success;
 }
 
-static bool do_app_bench(const struct cli_settings *settings) {
+static bool do_app_bench(const struct settings *settings) {
     bool success = false;
     struct run_info info = {0};
     if (!init_run_info(settings, &info))
@@ -1010,7 +1010,7 @@ err:
     return success;
 }
 
-static bool do_app_load_csv(const struct cli_settings *settings) {
+static bool do_app_load_csv(const struct settings *settings) {
     bool success = false;
     const char **file_list = settings->args;
     struct meas *meas_list = NULL;
@@ -1087,16 +1087,16 @@ err:
     return NULL;
 }
 
-static bool do_app_load_bin(const struct cli_settings *cli) {
+static bool do_app_load_bin(const struct settings *settings) {
     bool success = false;
-    const char **src_list = calculate_bin_names(cli->args);
+    const char **src_list = calculate_bin_names(settings->args);
     if (src_list == NULL)
         return false;
     struct bench_binary_data_storage storage;
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
         goto err;
-    if (!do_bench_renames(cli->rename_list, &data, &storage))
+    if (!do_bench_renames(settings->rename_list, &data, &storage))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
@@ -1121,17 +1121,17 @@ static bool ensure_out_dir_is_created(void) {
     return true;
 }
 
-static bool run(const struct cli_settings *cli) {
+static bool run(const struct settings *settings) {
     if (!ensure_out_dir_is_created())
         return false;
 
     switch (g_mode) {
     case APP_BENCH:
-        return do_app_bench(cli);
+        return do_app_bench(settings);
     case APP_LOAD_CSV:
-        return do_app_load_csv(cli);
+        return do_app_load_csv(settings);
     case APP_LOAD_BIN:
-        return do_app_load_bin(cli);
+        return do_app_load_bin(settings);
     }
     return false;
 }
@@ -1172,14 +1172,14 @@ int main(int argc, char **argv) {
     prepare();
 
     int rc = EXIT_FAILURE;
-    struct cli_settings cli = {0};
-    parse_cli_args(argc, argv, &cli);
+    struct settings settings = {0};
+    parse_cli_args(argc, argv, &settings);
 
-    if (run(&cli))
+    if (run(&settings))
         rc = EXIT_SUCCESS;
 
     deinit_perf();
-    free_cli_settings(&cli);
+    free_settings(&settings);
     cs_free_strings();
     return rc;
 }

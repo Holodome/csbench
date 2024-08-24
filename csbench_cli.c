@@ -591,7 +591,7 @@ static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
 #define OPT_ARR(...)                                                           \
     (const char *[]) { __VA_ARGS__, NULL }
 
-void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
+void parse_cli_args(int argc, char **argv, struct settings *settings) {
     bool no_wall = false;
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
@@ -911,7 +911,7 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
     sb_free(meas_list);
 }
 
-void free_cli_settings(struct cli_settings *settings) {
+void free_settings(struct settings *settings) {
     if (settings->has_var) {
         struct bench_var *var = &settings->var;
         assert(sb_len(var->values) == var->value_count);

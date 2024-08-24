@@ -398,7 +398,7 @@ struct rename_entry {
 
 // This structure contains all information
 // supplied by user prior to benchmark start.
-struct cli_settings {
+struct settings {
     const char **args;
     struct meas *meas;
     struct input_policy input;
@@ -531,8 +531,8 @@ void free_bench_data(struct bench_data *data);
 // csbench_cli.c
 //
 
-void parse_cli_args(int argc, char **argv, struct cli_settings *settings);
-void free_cli_settings(struct cli_settings *settings);
+void parse_cli_args(int argc, char **argv, struct settings *settings);
+void free_settings(struct settings *settings);
 
 //
 // csbench_serialize.c
