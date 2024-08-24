@@ -742,6 +742,17 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             struct rename_entry *entry = sb_new(settings->rename_list);
             entry->n = value - 1;
             entry->name = name;
+        } else if (strcmp(argv[cursor], "--renamen") == 0) {
+            ++cursor;
+            if (cursor + 1 >= argc) {
+                error("--renamen requires 2 arguments");
+                exit(EXIT_FAILURE);
+            }
+            const char *old_name = argv[cursor++];
+            const char *name = argv[cursor++];
+            struct rename_entry *entry = sb_new(settings->rename_list);
+            entry->name = name;
+            entry->old_name = old_name;
         } else if (opt_arg(argv, &cursor, "--rename-all", &str)) {
             const char **list = parse_comma_separated_list(str);
             for (size_t i = 0; i < sb_len(list); ++i) {

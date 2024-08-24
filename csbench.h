@@ -392,6 +392,7 @@ struct output_anchor {
 // when variable is not used, otherwise it refers to benchmark group.
 struct rename_entry {
     size_t n;
+    const char *old_name;
     const char *name;
 };
 
