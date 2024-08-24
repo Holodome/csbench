@@ -101,6 +101,7 @@ const char *g_out_dir = ".csbench";
 const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
+const char *g_override_bin_name = NULL;
 // XXX: This is hack to use short names for files found in directory specified
 // with --inputd. When opening files and this variable is not null open it
 // relative to this directory.
@@ -920,9 +921,14 @@ void free_bench_data(struct bench_data *data) {
 }
 
 static bool do_save_bin(const struct bench_data *data) {
-    FILE *f = open_file_fmt("wb", "%s/data.csbench", g_out_dir);
+    char name_buf[4096];
+    if (!g_override_bin_name)
+        snprintf(name_buf, sizeof(name_buf), "%s/data.csbench", g_out_dir);
+    else
+        snprintf(name_buf, sizeof(name_buf), "%s", g_override_bin_name);
+    FILE *f = fopen(name_buf, "wb");
     if (f == NULL) {
-        csfmtperror("failed to create file '%s/data.csbench'", g_out_dir);
+        csfmtperror("failed to create file '%s'", name_buf);
         return false;
     }
     bool success = save_bench_data_binary(data, f);

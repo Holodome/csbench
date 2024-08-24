@@ -784,6 +784,7 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             settings->has_var = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
+        } else if (opt_arg(argv, &cursor, "--save-bin-name", &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {

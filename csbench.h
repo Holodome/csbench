@@ -521,6 +521,7 @@ extern const char *g_shell;
 extern const char *g_common_argstring;
 extern const char *g_prepare;
 extern const char *g_inputd;
+extern const char *g_override_bin_name;
 
 void free_bench_data(struct bench_data *data);
 
