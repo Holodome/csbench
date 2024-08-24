@@ -986,13 +986,15 @@ static bool do_save_bin(const struct bench_data *data) {
     return success;
 }
 
-static bool do_app_bench(const struct cli_settings *cli) {
+static bool do_app_bench(const struct cli_settings *settings) {
     bool success = false;
     struct run_info info = {0};
-    if (!init_run_info(cli, &info))
+    if (!init_run_info(settings, &info))
         return false;
     struct bench_data data;
-    init_bench_data(cli->meas, sb_len(cli->meas), &info, &data);
+    init_bench_data(settings->meas, sb_len(settings->meas), &info, &data);
+    if (!do_bench_renames(settings->rename_list, &data, NULL))
+        goto err;
     if (!initialize_global_variables(&data))
         goto err;
     if (!run_benches(info.params, data.benches, data.bench_count))
