@@ -750,6 +750,7 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
                 entry->name = list[i];
             }
             sb_free(list);
+            g_rename_all_used = true;
         } else if (opt_arg(argv, &cursor, "--scan", &str)) {
             if (settings->has_var) {
                 error("multiple benchmark variables are forbidden");

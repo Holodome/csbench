@@ -447,7 +447,8 @@ enum sort_mode {
     (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
 #define sb_reserve(_a, _n)                                                     \
     ((_a) != NULL                                                              \
-         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n)-sb_capacity(_a)) : 0)  \
+         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a))     \
+                                   : 0)                                        \
          : sb_grow((_a), (_n)))
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 #define sb_ensure(_a, _n)                                                      \
@@ -505,6 +506,7 @@ extern bool g_progress_bar;
 extern bool g_regr;
 extern bool g_python_output;
 extern bool g_save_bin;
+extern bool g_rename_all_used;
 extern enum sort_mode g_sort_mode;
 
 // Index of benchmark that should be used as baseline or -1.

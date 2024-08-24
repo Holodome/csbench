@@ -85,6 +85,7 @@ bool g_progress_bar = false;
 bool g_regr = false;
 bool g_python_output = false;
 bool g_save_bin = false;
+bool g_rename_all_used = false;
 enum sort_mode g_sort_mode = SORT_DEFAULT;
 int g_baseline = -1;
 enum app_mode g_mode = APP_BENCH;
@@ -747,6 +748,51 @@ static bool initialize_global_variables(struct bench_data *data) {
     return true;
 }
 
+static bool validate_rename_list(const struct rename_entry *rename_list,
+                                 size_t bench_count, size_t group_count) {
+    if (group_count == 0) {
+        if (g_rename_all_used) {
+            if (sb_len(rename_list) != bench_count) {
+                error("number (%zu) of benchmarks to be renamed (supplied with "
+                      "--rename-all) does not match number of benchmarks (%zu)",
+                      sb_len(rename_list), bench_count);
+                return false;
+            }
+        } else {
+            for (size_t i = 0; i < sb_len(rename_list); ++i) {
+                if (rename_list[i].n >= bench_count) {
+                    error(
+                        "number (%zu) of benchmark to be renamed ('%s') is too "
+                        "high",
+                        rename_list[i].n + 1, rename_list[i].name);
+                    return false;
+                }
+            }
+        }
+    } else {
+        if (g_rename_all_used) {
+            if (sb_len(rename_list) != group_count) {
+                error("number (%zu) of benchmark groups to be renamed "
+                      "(supplied with --rename-all) does not match number of "
+                      "benchmark groups (%zu)",
+                      sb_len(rename_list), group_count);
+                return false;
+            }
+        } else {
+            for (size_t i = 0; i < sb_len(rename_list); ++i) {
+                if (rename_list[i].n >= group_count) {
+                    error(
+                        "number (%zu) of benchmark to be renamed ('%s') is too "
+                        "high",
+                        rename_list[i].n + 1, rename_list[i].name);
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
 static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
                            const char **name) {
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
@@ -758,11 +804,32 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
     return false;
 }
 
-static bool attempt_groupped_rename(const struct rename_entry *rename_list,
-                                    size_t bench_idx,
-                                    const struct bench_var_group *groups,
-                                    const struct bench_var *var,
-                                    const char **name) {
+static bool do_bench_renames(const struct rename_entry *rename_list,
+                             struct bench_data *data,
+                             struct bench_binary_data_storage *storage) {
+    if (!validate_rename_list(rename_list, data->bench_count,
+                              data->group_count))
+        return false;
+    if (!data->group_count) {
+        for (size_t i = 0; i < data->bench_count; ++i) {
+            struct bench *bench = data->benches + i;
+            (void)attempt_rename(rename_list, i, &bench->name);
+        }
+    }
+    if (storage) {
+        for (size_t i = 0; i < storage->group_count; ++i) {
+            struct bench_var_group *group = storage->groups + i;
+            (void)attempt_group_rename(rename_list, storage->group_count,
+                                       group);
+        }
+    }
+    return true;
+}
+
+static bool attempt_rename_with_variable_value(
+    const struct rename_entry *rename_list, size_t bench_idx,
+    const struct bench_var_group *groups, const struct bench_var *var,
+    const char **name) {
     assert(var);
     assert(groups);
     size_t value_count = var->value_count;
@@ -788,39 +855,13 @@ static void set_param_names(const struct cli_settings *cli,
                             struct run_info *info) {
     for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
         struct bench_params *params = info->params + bench_idx;
-        if (sb_len(info->groups) == 0) {
-            attempt_rename(cli->rename_list, bench_idx, &params->name);
-        } else {
+        if (sb_len(info->groups) != 0) {
             assert(cli->has_var);
-            attempt_groupped_rename(cli->rename_list, bench_idx, info->groups,
-                                    &cli->var, &params->name);
+            attempt_rename_with_variable_value(cli->rename_list, bench_idx,
+                                               info->groups, &cli->var,
+                                               &params->name);
         }
     }
-}
-
-static bool validate_rename_list(const struct rename_entry *rename_list,
-                                 size_t bench_count,
-                                 const struct bench_var_group *groups) {
-    if (sb_len(groups) == 0) {
-        for (size_t i = 0; i < sb_len(rename_list); ++i) {
-            if (rename_list[i].n >= bench_count) {
-                error("number (%zu) of benchmark to be renamed ('%s') is too "
-                      "high",
-                      rename_list[i].n + 1, rename_list[i].name);
-                return false;
-            }
-        }
-    } else {
-        for (size_t i = 0; i < sb_len(rename_list); ++i) {
-            if (rename_list[i].n >= sb_len(groups)) {
-                error("number (%zu) of benchmark to be renamed ('%s') is too "
-                      "high",
-                      rename_list[i].n + 1, rename_list[i].name);
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 static bool init_run_info(const struct cli_settings *cli,
@@ -858,10 +899,6 @@ static bool init_run_info(const struct cli_settings *cli,
         }
     }
 
-    if (!validate_rename_list(cli->rename_list, sb_len(info->params),
-                              info->groups))
-        goto err;
-
     set_param_names(cli, info);
 
     return true;
@@ -891,7 +928,6 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
 }
 
 static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
-                                const struct rename_entry *rename_list,
                                 const char **file_list,
                                 struct bench_data *data) {
     memset(data, 0, sizeof(*data));
@@ -903,8 +939,7 @@ static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
         struct bench *bench = data->benches + i;
         bench->meas_count = data->meas_count;
         bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
-        if (!attempt_rename(rename_list, i, &bench->name))
-            bench->name = file_list[i];
+        bench->name = file_list[i];
     }
 }
 
@@ -961,18 +996,15 @@ err:
 static bool do_app_load_csv(const struct cli_settings *settings) {
     bool success = false;
     const char **file_list = settings->args;
-    // We know that each CSV file should belong to separate benchmark,
-    // so we can validate rename list before we actually initialize benchmarks
-    if (!validate_rename_list(settings->rename_list, sb_len(file_list), NULL))
-        return false;
     struct meas *meas_list = NULL;
     if (!load_meas_csv(settings->meas, sb_len(settings->meas), file_list,
                        &meas_list))
         return false;
     struct bench_data data;
-    init_bench_data_csv(meas_list, sb_len(meas_list), settings->rename_list,
-                        file_list, &data);
+    init_bench_data_csv(meas_list, sb_len(meas_list), file_list, &data);
     if (!load_bench_data_csv(file_list, &data))
+        goto err;
+    if (!do_bench_renames(settings->rename_list, &data, NULL))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
@@ -1015,10 +1047,10 @@ static bool get_bin_name(const char *src, const char **name, bool silent) {
 }
 
 static const char **calculate_bin_names(const char **args) {
-    // args is a list where each element can either be a directory name which
-    // should contain data file with default name (as generated by csbench), or
-    // a file itself. This dichotomy is OK because it is quite intuitive and I
-    // can't think of a case where it would pose a problem.
+    // args is a list where each element can either be a directory name
+    // which should contain data file with default name (as generated by
+    // csbench), or a file itself. This dichotomy is OK because it is quite
+    // intuitive and I can't think of a case where it would pose a problem.
     const char **names = NULL;
     for (size_t i = 0; i < sb_len(args); ++i) {
         const char *arg = args[i];
@@ -1046,6 +1078,8 @@ static bool do_app_load_bin(const struct cli_settings *cli) {
     struct bench_binary_data_storage storage;
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
+        goto err;
+    if (!do_bench_renames(cli->rename_list, &data, &storage))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
