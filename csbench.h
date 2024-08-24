@@ -404,7 +404,6 @@ struct cli_settings {
     enum output_kind output;
     bool has_var;
     struct bench_var var;
-    int baseline;
     struct rename_entry *rename_list;
 };
 

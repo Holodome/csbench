@@ -699,29 +699,51 @@ err:
     return success;
 }
 
-static bool validate_and_set_baseline(int baseline,
-                                      const struct run_info *info) {
-    if (baseline > 0) {
-        // Adjust number from human-readable to indexable
-        size_t b = baseline - 1;
-        size_t grp_count = sb_len(info->groups);
-        size_t cmd_count = sb_len(info->params);
-        if (grp_count <= 1) {
-            // No parameterized benchmarks specified, just select the
-            // command
-            if (b >= cmd_count) {
-                error("baseline number is too big");
-                return false;
-            }
-        } else {
-            // Multiple parameterized benchmarks
-            if (b >= grp_count) {
-                error("baseline number is too big");
-                return false;
-            }
+static bool validate_and_set_baseline(size_t grp_count, size_t bench_count) {
+    if (g_baseline < 1)
+        return true;
+
+    // Adjust number from human-readable to indexable
+    size_t b = g_baseline - 1;
+    if (grp_count <= 1) {
+        // No parameterized benchmarks specified, just select the
+        // benchmark
+        if (b >= bench_count) {
+            error("baseline number is too big");
+            return false;
         }
-        g_baseline = b;
+    } else {
+        // Multiple parameterized benchmarks
+        if (b >= grp_count) {
+            error("baseline number is too big");
+            return false;
+        }
     }
+    g_baseline = b;
+    return true;
+}
+
+static void set_sort_mode(void) {
+    if (g_sort_mode == SORT_DEFAULT) {
+        if (g_baseline == -1)
+            g_sort_mode = SORT_SPEED;
+        else
+            g_sort_mode = SORT_BASELINE_RAW;
+        return;
+    }
+    assert(g_sort_mode == SORT_RAW || g_sort_mode == SORT_SPEED);
+    if (g_baseline != -1) {
+        if (g_sort_mode == SORT_RAW)
+            g_sort_mode = SORT_BASELINE_RAW;
+        else
+            g_sort_mode = SORT_BASELINE_SPEED;
+    }
+}
+
+static bool initialize_global_variables(struct bench_data *data) {
+    if (!validate_and_set_baseline(data->group_count, data->bench_count))
+        return false;
+    set_sort_mode();
     return true;
 }
 
@@ -801,23 +823,6 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
     return true;
 }
 
-static void set_sort_mode(void) {
-    if (g_sort_mode == SORT_DEFAULT) {
-        if (g_baseline == -1)
-            g_sort_mode = SORT_SPEED;
-        else
-            g_sort_mode = SORT_BASELINE_RAW;
-        return;
-    }
-    assert(g_sort_mode == SORT_RAW || g_sort_mode == SORT_SPEED);
-    if (g_baseline != -1) {
-        if (g_sort_mode == SORT_RAW)
-            g_sort_mode = SORT_BASELINE_RAW;
-        else
-            g_sort_mode = SORT_BASELINE_SPEED;
-    }
-}
-
 static bool init_run_info(const struct cli_settings *cli,
                           struct run_info *info) {
     info->meas = cli->meas;
@@ -852,11 +857,6 @@ static bool init_run_info(const struct cli_settings *cli,
                 goto err;
         }
     }
-
-    if (!validate_and_set_baseline(cli->baseline, info))
-        goto err;
-
-    set_sort_mode();
 
     if (!validate_rename_list(cli->rename_list, sb_len(info->params),
                               info->groups))
@@ -922,10 +922,10 @@ void free_bench_data(struct bench_data *data) {
 
 static bool do_save_bin(const struct bench_data *data) {
     char name_buf[4096];
-    if (!g_override_bin_name)
-        snprintf(name_buf, sizeof(name_buf), "%s/data.csbench", g_out_dir);
-    else
+    if (g_override_bin_name)
         snprintf(name_buf, sizeof(name_buf), "%s", g_override_bin_name);
+    else
+        snprintf(name_buf, sizeof(name_buf), "%s/data.csbench", g_out_dir);
     FILE *f = fopen(name_buf, "wb");
     if (f == NULL) {
         csfmtperror("failed to create file '%s'", name_buf);
@@ -943,6 +943,8 @@ static bool do_app_bench(const struct cli_settings *cli) {
         return false;
     struct bench_data data;
     init_bench_data(cli->meas, sb_len(cli->meas), &info, &data);
+    if (!initialize_global_variables(&data))
+        goto err;
     if (!run_benches(info.params, data.benches, data.bench_count))
         goto err;
     if (g_save_bin && !do_save_bin(&data))
@@ -972,7 +974,8 @@ static bool do_app_load_csv(const struct cli_settings *settings) {
                         file_list, &data);
     if (!load_bench_data_csv(file_list, &data))
         goto err;
-    set_sort_mode();
+    if (!initialize_global_variables(&data))
+        goto err;
     if (!do_analysis_and_make_report(&data))
         goto err;
     success = true;
@@ -980,6 +983,35 @@ err:
     sb_free(meas_list);
     free_bench_data(&data);
     return success;
+}
+
+static bool get_bin_name(const char *src, const char **name, bool silent) {
+    struct stat st;
+    if (stat(src, &st) == -1) {
+        if (!silent)
+            csfmtperror("failed to get information about file/directory '%s'",
+                        src);
+        return false;
+    }
+    if (S_ISREG(st.st_mode)) {
+        *name = src;
+    } else if (S_ISDIR(st.st_mode)) {
+        const char *in_dir = csfmt("%s/data.csbench", src);
+        if (access(in_dir, R_OK) == -1) {
+            if (!silent)
+                csfmtperror("'%s' is not a csbench data directory (file "
+                            "data.csbench not found)",
+                            src);
+            return false;
+        }
+        *name = in_dir;
+    } else {
+        if (!silent)
+            error("file '%s' is invalid (expected regular file or directory)",
+                  src);
+        return false;
+    }
+    return true;
 }
 
 static const char **calculate_bin_names(const char **args) {
@@ -990,29 +1022,16 @@ static const char **calculate_bin_names(const char **args) {
     const char **names = NULL;
     for (size_t i = 0; i < sb_len(args); ++i) {
         const char *arg = args[i];
-        struct stat st;
-        if (stat(arg, &st) == -1) {
-            csfmtperror("failed to get information about file/directory '%s'",
-                        arg);
+        const char *name = NULL;
+        if (!get_bin_name(arg, &name, false))
             goto err;
-        }
-        if (S_ISREG(st.st_mode)) {
-            sb_push(names, arg);
-        } else if (S_ISDIR(st.st_mode)) {
-            const char *in_dir = csfmt("%s/data.csbench", arg);
-            if (access(in_dir, R_OK) == -1) {
-                csfmtperror("'%s' is not a csbench data directory (file "
-                            "data.csbench not found)",
-                            arg);
-                goto err;
-            }
-            sb_push(names, in_dir);
-        } else {
-            error("file '%s' is invalid (expected regular file or directory)",
-                  arg);
-            goto err;
-        }
+        sb_push(names, name);
     }
+    const char *name = NULL;
+    if (names == NULL && get_bin_name(g_out_dir, &name, true))
+        sb_push(names, name);
+    if (names == NULL)
+        error("no source csbench binary data files found");
     return names;
 err:
     sb_free(names);
@@ -1028,7 +1047,8 @@ static bool do_app_load_bin(const struct cli_settings *cli) {
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
         goto err;
-    set_sort_mode();
+    if (!initialize_global_variables(&data))
+        goto err;
     if (!do_analysis_and_make_report(&data))
         goto err;
     success = true;

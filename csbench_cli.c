@@ -592,7 +592,6 @@ static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
     (const char *[]) { __VA_ARGS__, NULL }
 
 void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
-    settings->baseline = -1;
     bool no_wall = false;
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
@@ -784,7 +783,8 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
             settings->has_var = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
-        } else if (opt_arg(argv, &cursor, "--save-bin-name", &g_override_bin_name)) {
+        } else if (opt_arg(argv, &cursor, "--save-bin-name",
+                           &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
@@ -837,7 +837,7 @@ void parse_cli_args(int argc, char **argv, struct cli_settings *settings) {
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--baseline"),
-                               "baseline number", &settings->baseline)) {
+                               "baseline number", &g_baseline)) {
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
             if (strcmp(str, "auto") == 0) {
                 if (isatty(STDIN_FILENO))
