@@ -989,168 +989,187 @@ static size_t ith_bench_idx(int i, const struct meas_analysis *al)
     return 0;
 }
 
-static void print_cmd_comparison(const struct meas_analysis *al)
+static void print_bench_comparison(const struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
-    if (base->bench_count == 1)
-        return;
-
-    if (base->primary_meas_count != 1) {
-        printf("measurement ");
-        printf_colored(ANSI_YELLOW, "%s\n", al->meas->name);
+    const struct bench_analysis *reference =
+        base->bench_analyses + reference_bench_idx(al);
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_SPEED:
+        printf("fastest command ");
+        printf_colored(ANSI_BOLD, "%s\n", reference->name);
+        break;
+    case SORT_BASELINE_RAW:
+    case SORT_BASELINE_SPEED:
+        printf("baseline command ");
+        printf_colored(ANSI_BOLD, "%s\n", reference->name);
+        break;
+    case SORT_DEFAULT:
+        assert(0);
     }
-
-    if (base->group_count <= 1) {
-        const struct bench_analysis *reference =
-            base->bench_analyses + reference_bench_idx(al);
-        switch (g_sort_mode) {
-        case SORT_RAW:
-        case SORT_SPEED:
-            printf("fastest command ");
-            printf_colored(ANSI_BOLD, "%s\n", reference->name);
-            break;
-        case SORT_BASELINE_RAW:
-        case SORT_BASELINE_SPEED:
-            printf("baseline command ");
-            printf_colored(ANSI_BOLD, "%s\n", reference->name);
-            break;
-        case SORT_DEFAULT:
-            assert(0);
+    for (size_t i = 0; i < base->bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
+        if (bench == reference)
+            continue;
+        const struct speedup *speedup = al->speedup + bench_idx;
+        if (g_baseline != -1)
+            printf_colored(ANSI_BOLD, "  %s", bench->name);
+        else
+            printf_colored(ANSI_BOLD, "  %s", reference->name);
+        printf(" is ");
+        if (speedup->is_slower) {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
+            printf(" times slower than ");
+        } else {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+            printf(" times faster than ");
         }
-        for (size_t i = 0; i < base->bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, al);
-            const struct bench_analysis *bench =
-                base->bench_analyses + bench_idx;
-            if (bench == reference)
+        if (g_baseline == -1)
+            printf_colored(ANSI_BOLD, "%s", bench->name);
+        else
+            printf("baseline");
+        printf(" (p=%.2f)", al->p_values[bench_idx]);
+        printf("\n");
+    }
+    if (base->group_count == 1 && g_regr) {
+        const struct group_analysis *grp = al->group_analyses;
+        if (grp->values_are_doubles)
+            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
+                   grp->regress.a);
+    }
+}
+
+static void print_group_per_value_speedups(const struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t value_count = var->value_count;
+    for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+        const char *value = var->values[val_idx];
+        size_t reference_idx;
+        if (g_baseline == -1)
+            reference_idx = al->fastest_val[val_idx];
+        else
+            reference_idx = g_baseline;
+
+        printf("%s=%s:\t", var->name, value);
+        if (g_baseline == -1) {
+            printf("%c is ", (int)('A' + reference_idx));
+        }
+        const char *ident = "";
+        if (base->group_count > 2) {
+            printf("\n");
+            ident = "  ";
+        }
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+            if (grp_idx == reference_idx)
                 continue;
-            const struct speedup *speedup = al->speedup + bench_idx;
+            const struct speedup *speedup = al->var_speedup[val_idx] + grp_idx;
+            printf("%s", ident);
             if (g_baseline != -1)
-                printf_colored(ANSI_BOLD, "  %s", bench->name);
-            else
-                printf_colored(ANSI_BOLD, "  %s", reference->name);
-            printf(" is ");
+                printf("%c is ", (int)('A' + grp_idx));
             if (speedup->is_slower) {
-                printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
+                printf_colored(ANSI_BOLD_GREEN, "%6.3f",
+                               speedup->inv_est.point);
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
                 printf(" times slower than ");
             } else {
-                printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+                printf_colored(ANSI_BOLD_GREEN, "%6.3f", speedup->est.point);
                 printf(" ± ");
                 printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
                 printf(" times faster than ");
             }
             if (g_baseline == -1)
-                printf_colored(ANSI_BOLD, "%s", bench->name);
+                printf("%c", (int)('A' + grp_idx));
             else
                 printf("baseline");
-            printf(" (p=%.2f)", al->p_values[bench_idx]);
+            printf(" (p=%.2f)", al->var_p_values[val_idx][grp_idx]);
             printf("\n");
         }
-        if (base->group_count == 1 && g_regr) {
-            const struct group_analysis *grp = al->group_analyses;
-            if (grp->values_are_doubles)
+    }
+}
+
+static void print_group_average_speedups(const struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    printf("on average ");
+    const char *ident = "";
+    if (base->group_count > 2) {
+        printf("\n");
+        ident = "  ";
+    }
+    for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+        if (grp_idx == (size_t)g_baseline)
+            continue;
+        const struct speedup *speedup = al->group_baseline_speedup + grp_idx;
+        printf("%s%c is ", ident, (int)('A' + grp_idx));
+        if (speedup->is_slower) {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
+            printf(" times slower than baseline\n");
+        } else {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+            printf(" times faster than baseline\n");
+        }
+    }
+}
+
+static void print_group_comparison(const struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+        printf("%c = ", (int)('A' + grp_idx));
+        printf_colored(ANSI_BOLD, "%s",
+                       al->group_analyses[grp_idx].group->name);
+        if (g_baseline != -1 && (size_t)g_baseline == grp_idx)
+            printf(" (baseline)");
+        printf("\n");
+    }
+
+    print_group_per_value_speedups(al);
+
+    if (g_baseline != -1 && base->group_count > 1)
+        print_group_average_speedups(al);
+
+    if (g_regr) {
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+            const struct group_analysis *grp = al->group_analyses + grp_idx;
+            if (grp->values_are_doubles) {
+                printf_colored(ANSI_BOLD, "%s ", grp->group->name);
                 printf("%s complexity (%g)\n",
                        big_o_str(grp->regress.complexity), grp->regress.a);
-        }
-    } else {
-        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-            printf("%c = ", (int)('A' + grp_idx));
-            printf_colored(ANSI_BOLD, "%s",
-                           al->group_analyses[grp_idx].group->name);
-            if (g_baseline == (int)grp_idx)
-                printf(" (baseline)");
-            printf("\n");
-        }
-
-        const struct bench_var *var = base->var;
-        size_t value_count = var->value_count;
-        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-            const char *value = var->values[val_idx];
-            size_t reference_idx;
-            if (g_baseline == -1)
-                reference_idx = al->fastest_val[val_idx];
-            else
-                reference_idx = g_baseline;
-
-            printf("%s=%s:\t", var->name, value);
-            if (g_baseline == -1) {
-                printf("%c is ", (int)('A' + reference_idx));
-            }
-            const char *ident = "";
-            if (base->group_count > 2) {
-                printf("\n");
-                ident = "  ";
-            }
-            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-                if (grp_idx == reference_idx)
-                    continue;
-                const struct speedup *speedup =
-                    al->var_speedup[val_idx] + grp_idx;
-                printf("%s", ident);
-                if (g_baseline != -1)
-                    printf("%c is ", (int)('A' + grp_idx));
-                if (speedup->is_slower) {
-                    printf_colored(ANSI_BOLD_GREEN, "%6.3f",
-                                   speedup->inv_est.point);
-                    printf(" ± ");
-                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f",
-                                   speedup->inv_est.err);
-                    printf(" times slower than ");
-                } else {
-                    printf_colored(ANSI_BOLD_GREEN, "%6.3f",
-                                   speedup->est.point);
-                    printf(" ± ");
-                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
-                    printf(" times faster than ");
-                }
-                if (g_baseline == -1)
-                    printf("%c", (int)('A' + grp_idx));
-                else
-                    printf("baseline");
-                printf(" (p=%.2f)", al->var_p_values[val_idx][grp_idx]);
-                printf("\n");
-            }
-        }
-        if (g_baseline != -1 && base->group_count > 1) {
-            printf("on average ");
-            const char *ident = "";
-            if (base->group_count > 2) {
-                printf("\n");
-                ident = "  ";
-            }
-            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-                if (grp_idx == (size_t)g_baseline)
-                    continue;
-                const struct speedup *speedup =
-                    al->group_baseline_speedup + grp_idx;
-                printf("%s%c is ", ident, (int)('A' + grp_idx));
-                if (speedup->is_slower) {
-                    printf_colored(ANSI_BOLD_GREEN, "%.3f",
-                                   speedup->inv_est.point);
-                    printf(" ± ");
-                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f",
-                                   speedup->inv_est.err);
-                    printf(" times slower than baseline\n");
-                } else {
-                    printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
-                    printf(" ± ");
-                    printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
-                    printf(" times faster than baseline\n");
-                }
-            }
-        }
-        if (g_regr) {
-            for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-                const struct group_analysis *grp = al->group_analyses + grp_idx;
-                if (grp->values_are_doubles) {
-                    printf_colored(ANSI_BOLD, "%s ", grp->group->name);
-                    printf("%s complexity (%g)\n",
-                           big_o_str(grp->regress.complexity), grp->regress.a);
-                }
             }
         }
     }
+}
+
+static void print_comparisons(const struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    if (base->bench_count == 1)
+        return;
+
+    // If there is only one measurement, print it only once on top. Otherwise
+    // each measurement will be printed separately in each benchmark displayed.
+    if (base->primary_meas_count != 1) {
+        printf("measurement ");
+        printf_colored(ANSI_YELLOW, "%s\n", al->meas->name);
+    }
+
+    if (base->group_count <= 1)
+        print_bench_comparison(al);
+    else
+        print_group_comparison(al);
 }
 
 static void print_analysis(const struct analysis *al)
@@ -1173,7 +1192,7 @@ static void print_analysis(const struct analysis *al)
         const struct meas *meas = al->meas + i;
         if (meas->is_secondary)
             continue;
-        print_cmd_comparison(al->meas_analyses + i);
+        print_comparisons(al->meas_analyses + i);
     }
 }
 
