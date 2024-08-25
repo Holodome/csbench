@@ -415,7 +415,7 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
     if (al->base->bench_count == 1)
         return;
 
-    if (!al->base->var || g_baseline == -1 || g_regr)
+    if (!al->base->var || g_baseline == -1)
         return;
 
     size_t grp_count = al->base->group_count;

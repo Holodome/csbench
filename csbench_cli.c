@@ -767,6 +767,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             entry->name = name;
             entry->old_name = old_name;
         } else if (opt_arg(argv, &cursor, "--rename-all", &str)) {
+            if (g_rename_all_used) {
+                sb_free(settings->rename_list);
+                settings->rename_list = NULL;
+            }
             const char **list = parse_comma_separated_list(str);
             for (size_t i = 0; i < sb_len(list); ++i) {
                 struct rename_entry *entry = sb_new(settings->rename_list);
