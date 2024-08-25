@@ -109,8 +109,8 @@ const char *g_override_bin_name = NULL;
 const char *g_inputd = NULL;
 
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
-                            const char *name, const char *value,
-                            bool *replaced) {
+                            const char *name, const char *value, bool *replaced)
+{
     const char *buf_end = buf + buf_size;
     size_t var_name_len = strlen(name);
     char *wr_cursor = buf;
@@ -138,7 +138,8 @@ static bool replace_var_str(char *buf, size_t buf_size, const char *src,
     return true;
 }
 
-static char **split_shell_words(const char *cmd) {
+static char **split_shell_words(const char *cmd)
+{
     char **words = NULL;
     char *current_word = NULL;
     enum {
@@ -323,7 +324,8 @@ out:
 }
 
 static bool extract_exec_and_argv(const char *cmd_str, const char **exec,
-                                  const char ***argv) {
+                                  const char ***argv)
+{
     char **words = split_shell_words(cmd_str);
     if (words == NULL) {
         error("invalid command syntax");
@@ -339,7 +341,8 @@ static bool extract_exec_and_argv(const char *cmd_str, const char **exec,
 }
 
 static bool init_cmd_exec(const char *shell, const char *cmd_str,
-                          const char **exec, const char ***argv) {
+                          const char **exec, const char ***argv)
+{
     if (shell != NULL) {
         if (!extract_exec_and_argv(shell, exec, argv))
             return false;
@@ -354,7 +357,8 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str,
     return true;
 }
 
-static void free_run_info(struct run_info *run_info) {
+static void free_run_info(struct run_info *run_info)
+{
     for (size_t i = 0; i < sb_len(run_info->params); ++i) {
         struct bench_params *params = run_info->params + i;
         if (params->stdout_fd != -1)
@@ -372,7 +376,8 @@ static void free_run_info(struct run_info *run_info) {
 }
 
 static bool init_bench_stdin(const struct input_policy *input,
-                             struct bench_params *params) {
+                             struct bench_params *params)
+{
     switch (input->kind) {
     case INPUT_POLICY_NULL:
         params->stdin_fd = -1;
@@ -421,8 +426,8 @@ static bool init_bench_params(const char *name,
                               const struct input_policy *input,
                               enum output_kind output, const struct meas *meas,
                               const char *exec, const char **argv,
-                              const char *cmd_str,
-                              struct bench_params *params) {
+                              const char *cmd_str, struct bench_params *params)
+{
     params->name = name;
     params->output = output;
     params->meas = meas;
@@ -434,7 +439,8 @@ static bool init_bench_params(const char *name,
     return init_bench_stdin(input, params);
 }
 
-static bool init_bench_stdout(struct bench_params *params) {
+static bool init_bench_stdout(struct bench_params *params)
+{
     int fd = tmpfile_fd();
     if (fd == -1)
         return false;
@@ -443,7 +449,8 @@ static bool init_bench_stdout(struct bench_params *params) {
 }
 
 static bool init_command(const struct command_info *cmd, struct run_info *info,
-                         size_t *idx) {
+                         size_t *idx)
+{
     const char *exec = NULL, **argv = NULL;
     if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv))
         return false;
@@ -461,7 +468,8 @@ static bool init_command(const struct command_info *cmd, struct run_info *info,
 }
 
 static bool init_raw_command_infos(const struct settings *settings,
-                                   struct command_info **infos) {
+                                   struct command_info **infos)
+{
     size_t cmd_count = sb_len(settings->args);
     if (cmd_count == 0) {
         error("no commands specified");
@@ -493,7 +501,8 @@ enum cmd_multiplex_result {
 static enum cmd_multiplex_result
 multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
                            const struct bench_var *var,
-                           struct command_info **multiplexed) {
+                           struct command_info **multiplexed)
+{
     // Take first value and try to replace it in the command string
     char buf[4096];
     bool replaced = false;
@@ -529,7 +538,8 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
 static enum cmd_multiplex_result
 multiplex_command_info_input(const struct command_info *src_info,
                              size_t src_idx, const struct bench_var *var,
-                             struct command_info **multiplexed) {
+                             struct command_info **multiplexed)
+{
     if (src_info->input.kind != INPUT_POLICY_FILE &&
         src_info->input.kind != INPUT_POLICY_STRING)
         return CMD_MULTIPLEX_NO_GROUPS;
@@ -582,7 +592,8 @@ multiplex_command_info_input(const struct command_info *src_info,
 
 static enum cmd_multiplex_result
 multiplex_command_infos(const struct bench_var *var,
-                        struct command_info **infos) {
+                        struct command_info **infos)
+{
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
         const struct command_info *src_info = *infos + src_idx;
@@ -623,7 +634,8 @@ err:
 }
 
 static bool validate_rename_list(const struct rename_entry *rename_list,
-                                 const struct bench_data *data) {
+                                 const struct bench_data *data)
+{
     if (data->group_count == 0) {
         if (g_rename_all_used) {
             if (sb_len(rename_list) != data->bench_count) {
@@ -694,7 +706,8 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
 }
 
 static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
-                           const char **name) {
+                           const char **name)
+{
     for (size_t i = 0; i < sb_len(rename_list); ++i) {
         const struct rename_entry *re = rename_list + i;
         bool matches = false;
@@ -712,7 +725,8 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
 
 static bool do_bench_renames(const struct rename_entry *rename_list,
                              struct bench_data *data,
-                             struct bench_binary_data_storage *storage) {
+                             struct bench_binary_data_storage *storage)
+{
     if (!validate_rename_list(rename_list, data))
         return false;
     if (!data->group_count) {
@@ -733,7 +747,8 @@ static bool do_bench_renames(const struct rename_entry *rename_list,
 static bool attempt_rename_with_variable_value(
     const struct rename_entry *rename_list, size_t bench_idx,
     const struct bench_var_group *groups, const struct bench_var *var,
-    const char **name) {
+    const char **name)
+{
     size_t value_count = var->value_count;
     for (size_t grp_idx = 0; grp_idx < sb_len(groups); ++grp_idx) {
         const struct bench_var_group *grp = groups + grp_idx;
@@ -752,7 +767,8 @@ static bool attempt_rename_with_variable_value(
 }
 
 static void set_param_names(const struct settings *settings,
-                            struct run_info *info) {
+                            struct run_info *info)
+{
     for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
         struct bench_params *params = info->params + bench_idx;
         if (sb_len(info->groups) != 0) {
@@ -766,7 +782,8 @@ static void set_param_names(const struct settings *settings,
 
 static bool init_benches(const struct settings *settings,
                          const struct command_info *cmd_infos, bool has_groups,
-                         struct run_info *info) {
+                         struct run_info *info)
+{
     // Short path when there are no groups
     if (!has_groups) {
         for (size_t cmd_idx = 0; cmd_idx < sb_len(cmd_infos); ++cmd_idx) {
@@ -803,7 +820,8 @@ static bool init_benches(const struct settings *settings,
 }
 
 static bool init_commands(const struct settings *settings,
-                          struct run_info *info) {
+                          struct run_info *info)
+{
     bool success = false;
     struct command_info *command_infos = NULL;
     if (!init_raw_command_infos(settings, &command_infos))
@@ -831,7 +849,8 @@ err:
     return success;
 }
 
-static bool validate_and_set_baseline(size_t grp_count, size_t bench_count) {
+static bool validate_and_set_baseline(size_t grp_count, size_t bench_count)
+{
     if (g_baseline < 1)
         return true;
 
@@ -855,7 +874,8 @@ static bool validate_and_set_baseline(size_t grp_count, size_t bench_count) {
     return true;
 }
 
-static void set_sort_mode(void) {
+static void set_sort_mode(void)
+{
     if (g_sort_mode == SORT_DEFAULT) {
         if (g_baseline == -1)
             g_sort_mode = SORT_SPEED;
@@ -872,7 +892,8 @@ static void set_sort_mode(void) {
     }
 }
 
-static bool initialize_global_variables(struct bench_data *data) {
+static bool initialize_global_variables(struct bench_data *data)
+{
     if (!validate_and_set_baseline(data->group_count, data->bench_count))
         return false;
     set_sort_mode();
@@ -880,7 +901,8 @@ static bool initialize_global_variables(struct bench_data *data) {
 }
 
 static bool init_run_info(const struct settings *settings,
-                          struct run_info *info) {
+                          struct run_info *info)
+{
     info->meas = settings->meas;
     if (settings->has_var)
         info->var = &settings->var;
@@ -924,7 +946,8 @@ err:
 
 static void init_bench_data(const struct meas *meas, size_t meas_count,
                             const struct run_info *info,
-                            struct bench_data *data) {
+                            struct bench_data *data)
+{
     assert(info->params);
     memset(data, 0, sizeof(*data));
     data->meas_count = meas_count;
@@ -943,8 +966,8 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
 }
 
 static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
-                                const char **file_list,
-                                struct bench_data *data) {
+                                const char **file_list, struct bench_data *data)
+{
     memset(data, 0, sizeof(*data));
     data->meas_count = meas_count;
     data->meas = meas;
@@ -958,7 +981,8 @@ static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
     }
 }
 
-void free_bench_data(struct bench_data *data) {
+void free_bench_data(struct bench_data *data)
+{
     for (size_t i = 0; i < data->bench_count; ++i) {
         struct bench *bench = data->benches + i;
         sb_free(bench->exit_codes);
@@ -970,7 +994,8 @@ void free_bench_data(struct bench_data *data) {
     free(data->benches);
 }
 
-static bool do_save_bin(const struct bench_data *data) {
+static bool do_save_bin(const struct bench_data *data)
+{
     char name_buf[4096];
     if (g_override_bin_name)
         snprintf(name_buf, sizeof(name_buf), "%s", g_override_bin_name);
@@ -986,7 +1011,8 @@ static bool do_save_bin(const struct bench_data *data) {
     return success;
 }
 
-static bool do_app_bench(const struct settings *settings) {
+static bool do_app_bench(const struct settings *settings)
+{
     bool success = false;
     struct run_info info = {0};
     if (!init_run_info(settings, &info))
@@ -1010,7 +1036,8 @@ err:
     return success;
 }
 
-static bool do_app_load_csv(const struct settings *settings) {
+static bool do_app_load_csv(const struct settings *settings)
+{
     bool success = false;
     const char **file_list = settings->args;
     struct meas *meas_list = NULL;
@@ -1034,7 +1061,8 @@ err:
     return success;
 }
 
-static bool get_bin_name(const char *src, const char **name, bool silent) {
+static bool get_bin_name(const char *src, const char **name, bool silent)
+{
     struct stat st;
     if (stat(src, &st) == -1) {
         if (!silent)
@@ -1063,7 +1091,8 @@ static bool get_bin_name(const char *src, const char **name, bool silent) {
     return true;
 }
 
-static const char **calculate_bin_names(const char **args) {
+static const char **calculate_bin_names(const char **args)
+{
     // args is a list where each element can either be a directory name
     // which should contain data file with default name (as generated by
     // csbench), or a file itself. This dichotomy is OK because it is quite
@@ -1087,7 +1116,8 @@ err:
     return NULL;
 }
 
-static bool do_app_load_bin(const struct settings *settings) {
+static bool do_app_load_bin(const struct settings *settings)
+{
     bool success = false;
     const char **src_list = calculate_bin_names(settings->args);
     if (src_list == NULL)
@@ -1110,7 +1140,8 @@ err:
     return success;
 }
 
-static bool ensure_out_dir_is_created(void) {
+static bool ensure_out_dir_is_created(void)
+{
     if (mkdir(g_out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
@@ -1121,7 +1152,8 @@ static bool ensure_out_dir_is_created(void) {
     return true;
 }
 
-static bool run(const struct settings *settings) {
+static bool run(const struct settings *settings)
+{
     if (!ensure_out_dir_is_created())
         return false;
 
@@ -1136,7 +1168,8 @@ static bool run(const struct settings *settings) {
     return false;
 }
 
-static void sigint_handler(int sig) {
+static void sigint_handler(int sig)
+{
     if (g_use_perf)
         perf_signal_cleanup();
 
@@ -1150,7 +1183,8 @@ static void sigint_handler(int sig) {
     raise(sig);
 }
 
-static void prepare(void) {
+static void prepare(void)
+{
     struct sigaction action;
     memset(&action, 0, sizeof(action));
     action.sa_handler = sigint_handler;
@@ -1168,7 +1202,8 @@ static void prepare(void) {
     init_rng_state();
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     prepare();
 
     int rc = EXIT_FAILURE;

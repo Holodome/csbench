@@ -667,7 +667,8 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param,
 
 void init_rng_state(void);
 
-static inline uint32_t pcg32_fast(uint64_t *state) {
+static inline uint32_t pcg32_fast(uint64_t *state)
+{
     uint64_t x = *state;
     unsigned count = (unsigned)(x >> 61);
     *state = x * UINT64_C(6364136223846793005);

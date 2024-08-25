@@ -78,7 +78,8 @@ static const struct meas BUILTIN_MEASUREMENTS[] = {
     {"bm", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
 };
 
-static void print_help_and_exit(int rc) {
+static void print_help_and_exit(int rc)
+{
     printf( //
         "A commnd line benchmarking tool\n"
         "\n"
@@ -267,14 +268,16 @@ static void print_help_and_exit(int rc) {
     exit(rc);
 }
 
-static void print_version_and_exit(void) {
+static void print_version_and_exit(void)
+{
     printf("csbench 1.2\n");
     exit(EXIT_SUCCESS);
 }
 
 static bool parse_range_scan_settings(const char *settings, const char **namep,
                                       double *lowp, double *highp,
-                                      double *stepp) {
+                                      double *stepp)
+{
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
     char *i_end = strchr(cursor, '/');
@@ -318,7 +321,8 @@ static bool parse_range_scan_settings(const char *settings, const char **namep,
 }
 
 static const char **range_to_var_value_list(double low, double high,
-                                            double step) {
+                                            double step)
+{
     assert(high > low);
     const char **result = NULL;
     for (double cursor = low; cursor <= high + 0.000001; cursor += step) {
@@ -329,7 +333,8 @@ static const char **range_to_var_value_list(double low, double high,
 }
 
 static bool parse_comma_separated_settings(const char *str, const char **namep,
-                                           const char **scan_listp) {
+                                           const char **scan_listp)
+{
     const char *cursor = str;
     const char *str_end = str + strlen(str);
     char *i_end = strchr(cursor, '/');
@@ -350,7 +355,8 @@ static bool parse_comma_separated_settings(const char *str, const char **namep,
     return true;
 }
 
-static void parse_units_str(const char *str, struct units *units) {
+static void parse_units_str(const char *str, struct units *units)
+{
     if (strcmp(str, "s") == 0) {
         units->kind = MU_S;
     } else if (strcmp(str, "ms") == 0) {
@@ -375,7 +381,8 @@ static void parse_units_str(const char *str, struct units *units) {
     }
 }
 
-static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
+static void parse_meas_list(const char *opts, enum meas_kind **meas_list)
+{
     const char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
@@ -413,7 +420,8 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list) {
     sb_free(list);
 }
 
-static size_t simple_get_thread_count(void) {
+static size_t simple_get_thread_count(void)
+{
     int pipe_fd[2];
     if (!pipe_cloexec(pipe_fd))
         return 1;
@@ -441,14 +449,15 @@ static size_t simple_get_thread_count(void) {
     return value;
 }
 
-static int string_cmp(const void *ap, const void *bp) {
+static int string_cmp(const void *ap, const void *bp)
+{
     const char *a = ap;
     const char *b = bp;
     return strcmp(a, b);
 }
 
-static bool get_input_files_from_dir(const char *dirname,
-                                     const char ***filesp) {
+static bool get_input_files_from_dir(const char *dirname, const char ***filesp)
+{
     bool success = false;
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
@@ -486,8 +495,8 @@ err:
     return success;
 }
 
-static bool opt_arg(char **argv, int *cursor, const char *opt,
-                    const char **arg) {
+static bool opt_arg(char **argv, int *cursor, const char *opt, const char **arg)
+{
     if (strcmp(argv[*cursor], opt) == 0) {
         ++(*cursor);
         if (argv[*cursor] == NULL) {
@@ -529,7 +538,8 @@ static bool opt_arg(char **argv, int *cursor, const char *opt,
 }
 
 static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
-                              const char *name, double *valuep) {
+                              const char *name, double *valuep)
+{
     const char *str;
     const char *opt_str = NULL;
     for (;;) {
@@ -554,7 +564,8 @@ static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
 }
 
 static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs,
-                        const char *name, int *valuep) {
+                        const char *name, int *valuep)
+{
     const char *str;
     const char *opt_str = NULL;
     for (;;) {
@@ -579,7 +590,8 @@ static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs,
 }
 
 static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
-                     bool *valuep) {
+                     bool *valuep)
+{
     if (strcmp(argv[*cursorp], opt_str) == 0) {
         *valuep = true;
         ++(*cursorp);
@@ -591,7 +603,8 @@ static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
 #define OPT_ARR(...)                                                           \
     (const char *[]) { __VA_ARGS__, NULL }
 
-void parse_cli_args(int argc, char **argv, struct settings *settings) {
+void parse_cli_args(int argc, char **argv, struct settings *settings)
+{
     bool no_wall = false;
     struct meas *meas_list = NULL;
     enum meas_kind *rusage_opts = NULL;
@@ -911,7 +924,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings) {
     sb_free(meas_list);
 }
 
-void free_settings(struct settings *settings) {
+void free_settings(struct settings *settings)
+{
     if (settings->has_var) {
         struct bench_var *var = &settings->var;
         assert(sb_len(var->values) == var->value_count);

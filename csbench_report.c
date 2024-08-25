@@ -82,7 +82,8 @@ struct plot_walker_args {
     size_t var_value_idx;
 };
 
-static bool json_escape(char *buf, size_t buf_size, const char *src) {
+static bool json_escape(char *buf, size_t buf_size, const char *src)
+{
     if (src == NULL) {
         assert(buf_size);
         *buf = '\0';
@@ -109,7 +110,8 @@ static bool json_escape(char *buf, size_t buf_size, const char *src) {
     return true;
 }
 
-static bool export_json(const struct analysis *al, const char *filename) {
+static bool export_json(const struct analysis *al, const char *filename)
+{
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
         error("failed to open file '%s' for export", filename);
@@ -171,18 +173,21 @@ static bool export_json(const struct analysis *al, const char *filename) {
     return true;
 }
 
-static bool do_export(const struct analysis *al) {
+static bool do_export(const struct analysis *al)
+{
     if (g_json_export_filename == NULL)
         return true;
 
     return export_json(al, g_json_export_filename);
 }
 
-static bool python_found(void) {
+static bool python_found(void)
+{
     return shell_execute_and_wait("python3 --version", -1, -1, -1);
 }
 
-static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
+static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp)
+{
     int pipe_fds[2];
     if (!pipe_cloexec(pipe_fds))
         return false;
@@ -219,7 +224,8 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp) {
     return true;
 }
 
-static bool python_has_matplotlib(void) {
+static bool python_has_matplotlib(void)
+{
     FILE *f;
     pid_t pid;
     if (!launch_python_stdin_pipe(&f, &pid))
@@ -230,7 +236,8 @@ static bool python_has_matplotlib(void) {
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
-                        struct plot_walker_args *args) {
+                        struct plot_walker_args *args)
+{
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
     if (base->bench_count > 1) {
@@ -291,7 +298,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
 
 static void format_plot_name(char *buf, size_t buf_size,
                              const struct plot_walker_args *args,
-                             const char *extension) {
+                             const char *extension)
+{
     switch (args->plot_kind) {
     case PLOT_BAR:
         snprintf(buf, buf_size, "%s/bar_%zu.%s", g_out_dir, args->meas_idx,
@@ -328,7 +336,8 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static void write_make_plot(const struct plot_walker_args *args, FILE *f) {
+static void write_make_plot(const struct plot_walker_args *args, FILE *f)
+{
     const struct meas_analysis *al = args->analysis;
     const struct meas *meas = al->meas;
     char svg_buf[4096];
@@ -368,7 +377,8 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f) {
     }
 }
 
-static bool dump_plot_walk(struct plot_walker_args *args) {
+static bool dump_plot_walk(struct plot_walker_args *args)
+{
     char py_buf[4096];
     format_plot_name(py_buf, sizeof(py_buf), args, "py");
     FILE *py_file = fopen(py_buf, "w");
@@ -381,7 +391,8 @@ static bool dump_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool dump_plot_src(const struct analysis *al) {
+static bool dump_plot_src(const struct analysis *al)
+{
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
@@ -394,7 +405,8 @@ static bool dump_plot_src(const struct analysis *al) {
     return true;
 }
 
-static bool make_plot_walk(struct plot_walker_args *args) {
+static bool make_plot_walk(struct plot_walker_args *args)
+{
     FILE *f;
     pid_t pid;
     if (!launch_python_stdin_pipe(&f, &pid)) {
@@ -407,7 +419,8 @@ static bool make_plot_walk(struct plot_walker_args *args) {
     return true;
 }
 
-static bool make_plots(const struct analysis *al) {
+static bool make_plots(const struct analysis *al)
+{
     bool success = true;
     struct plot_walker_args args = {0};
     for (size_t meas_idx = 0; meas_idx < al->meas_count && success;
@@ -429,7 +442,8 @@ static bool make_plots(const struct analysis *al) {
     return success;
 }
 
-static bool make_plots_readme(const struct analysis *al) {
+static bool make_plots_readme(const struct analysis *al)
+{
     FILE *f = open_file_fmt("w", "%s/readme.md", g_out_dir);
     if (f == NULL) {
         error("failed to create file %s/readme.md", g_out_dir);
@@ -472,7 +486,8 @@ static bool make_plots_readme(const struct analysis *al) {
 }
 
 static void export_csv_raw_bench(const struct bench *bench,
-                                 const struct analysis *al, FILE *f) {
+                                 const struct analysis *al, FILE *f)
+{
     for (size_t i = 0; i < al->meas_count; ++i) {
         fprintf(f, "%s", al->meas[i].name);
         if (i != al->meas_count - 1)
@@ -489,7 +504,8 @@ static void export_csv_raw_bench(const struct bench *bench,
     }
 }
 
-static void export_csv_group_results(const struct meas_analysis *al, FILE *f) {
+static void export_csv_group_results(const struct meas_analysis *al, FILE *f)
+{
     const struct analysis *base = al->base;
     assert(base->group_count > 0 && base->var);
     fprintf(f, "%s,", base->var->name);
@@ -513,7 +529,8 @@ static void export_csv_group_results(const struct meas_analysis *al, FILE *f) {
 }
 
 static void export_csv_bench_results(const struct analysis *al, size_t meas_idx,
-                                     FILE *f) {
+                                     FILE *f)
+{
     fprintf(f,
             "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,"
             "median,q1,q3,p1,p5,p95,p99,outl\n");
@@ -532,7 +549,8 @@ static void export_csv_bench_results(const struct analysis *al, size_t meas_idx,
     }
 }
 
-static bool export_csvs(const struct analysis *al) {
+static bool export_csvs(const struct analysis *al)
+{
     char buf[4096];
     for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
         snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", g_out_dir,
@@ -567,7 +585,8 @@ static bool export_csvs(const struct analysis *al) {
 }
 
 static void html_estimate(const char *name, const struct est *est,
-                          const struct units *units, FILE *f) {
+                          const struct units *units, FILE *f)
+{
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
     format_meas(buf2, sizeof(buf2), est->point, units);
@@ -583,7 +602,8 @@ static void html_estimate(const char *name, const struct est *est,
 }
 
 static void html_outliers(const struct outliers *outliers, size_t run_count,
-                          FILE *f) {
+                          FILE *f)
+{
     int outlier_count = outliers->low_mild + outliers->high_mild +
                         outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -612,7 +632,8 @@ static void html_outliers(const struct outliers *outliers, size_t run_count,
 }
 
 static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
-                       size_t meas_idx, const struct analysis *al, FILE *f) {
+                       size_t meas_idx, const struct analysis *al, FILE *f)
+{
     const struct distr *distr = analysis->meas + meas_idx;
     const struct bench *bench = analysis->bench;
     const struct meas *info = al->meas + meas_idx;
@@ -651,7 +672,8 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     fprintf(f, "</div></div></div>");
 }
 
-static void html_compare(const struct analysis *al, FILE *f) {
+static void html_compare(const struct analysis *al, FILE *f)
+{
     if (al->bench_count == 1)
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
@@ -678,7 +700,8 @@ static void html_compare(const struct analysis *al, FILE *f) {
 static void html_bench_group(const struct group_analysis *al,
                              const struct meas *meas, size_t meas_idx,
                              size_t grp_idx, const struct bench_var *var,
-                             FILE *f) {
+                             FILE *f)
+{
     fprintf(f,
             "<h4>measurement %s</h4>"
             "<div class=\"row\"><div class=\"col\">"
@@ -703,7 +726,8 @@ static void html_bench_group(const struct group_analysis *al,
     fprintf(f, "</div></div>");
 }
 
-static void html_var_analysis(const struct analysis *al, FILE *f) {
+static void html_var_analysis(const struct analysis *al, FILE *f)
+{
     if (!al->group_count)
         return;
     fprintf(f, "<div><h2>variable analysis</h2>");
@@ -733,7 +757,8 @@ static void html_var_analysis(const struct analysis *al, FILE *f) {
     fprintf(f, "</div>");
 }
 
-static void html_report(const struct analysis *al, FILE *f) {
+static void html_report(const struct analysis *al, FILE *f)
+{
     fprintf(f,
             "<!DOCTYPE html><html lang=\"en\">"
             "<head><meta charset=\"UTF-8\">"
@@ -767,7 +792,8 @@ static void html_report(const struct analysis *al, FILE *f) {
     fprintf(f, "</body>");
 }
 
-static bool make_html_report(const struct analysis *al) {
+static bool make_html_report(const struct analysis *al)
+{
     FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
         error("failed to create file '%s/index.html'", g_out_dir);
@@ -778,7 +804,8 @@ static bool make_html_report(const struct analysis *al) {
     return true;
 }
 
-static bool do_visualize(const struct analysis *al) {
+static bool do_visualize(const struct analysis *al)
+{
     if (!do_export(al))
         return false;
 
@@ -812,7 +839,8 @@ static bool do_visualize(const struct analysis *al) {
     return true;
 }
 
-static void print_exit_code_info(const struct bench *bench) {
+static void print_exit_code_info(const struct bench *bench)
+{
     if (!bench->exit_codes)
         return;
 
@@ -830,7 +858,8 @@ static void print_exit_code_info(const struct bench *bench) {
     }
 }
 
-static void print_outliers(const struct outliers *outliers, size_t run_count) {
+static void print_outliers(const struct outliers *outliers, size_t run_count)
+{
     int outlier_count = outliers->low_mild + outliers->high_mild +
                         outliers->low_severe + outliers->high_severe;
     if (outlier_count != 0) {
@@ -857,7 +886,8 @@ static void print_outliers(const struct outliers *outliers, size_t run_count) {
 
 static void print_estimate(const char *name, const struct est *est,
                            const struct units *units, const char *prim_color,
-                           const char *sec_color) {
+                           const char *sec_color)
+{
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
     format_meas(buf2, sizeof(buf2), est->point, units);
@@ -869,7 +899,8 @@ static void print_estimate(const char *name, const struct est *est,
     printf_colored(sec_color, " %8s\n", buf3);
 }
 
-static void print_distr(const struct distr *dist, const struct units *units) {
+static void print_distr(const struct distr *dist, const struct units *units)
+{
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), dist->min, units);
     format_meas(buf2, sizeof(buf2), dist->median, units);
@@ -885,7 +916,8 @@ static void print_distr(const struct distr *dist, const struct units *units) {
 }
 
 static void print_benchmark_info(const struct bench_analysis *cur,
-                                 const struct analysis *al) {
+                                 const struct analysis *al)
+{
     const struct bench *bench = cur->bench;
     printf("command ");
     printf_colored(ANSI_BOLD, "%s\n", cur->name);
@@ -924,7 +956,8 @@ static void print_benchmark_info(const struct bench_analysis *cur,
     }
 }
 
-static size_t reference_bench_idx(const struct meas_analysis *al) {
+static size_t reference_bench_idx(const struct meas_analysis *al)
+{
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
@@ -940,7 +973,8 @@ static size_t reference_bench_idx(const struct meas_analysis *al) {
     return 0;
 }
 
-static size_t ith_bench_idx(int i, const struct meas_analysis *al) {
+static size_t ith_bench_idx(int i, const struct meas_analysis *al)
+{
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_BASELINE_RAW:
@@ -955,7 +989,8 @@ static size_t ith_bench_idx(int i, const struct meas_analysis *al) {
     return 0;
 }
 
-static void print_cmd_comparison(const struct meas_analysis *al) {
+static void print_cmd_comparison(const struct meas_analysis *al)
+{
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
         return;
@@ -1118,7 +1153,8 @@ static void print_cmd_comparison(const struct meas_analysis *al) {
     }
 }
 
-static void print_analysis(const struct analysis *al) {
+static void print_analysis(const struct analysis *al)
+{
     if (g_bench_stop.runs != 0)
         printf("%d runs\n", g_bench_stop.runs);
     if (al->primary_meas_count == 1) {
@@ -1141,7 +1177,8 @@ static void print_analysis(const struct analysis *al) {
     }
 }
 
-bool make_report(const struct analysis *al) {
+bool make_report(const struct analysis *al)
+{
     print_analysis(al);
     return do_visualize(al);
 }

@@ -6,6 +6,7 @@ AllowShortBlocksOnASingleLine: Never
 AllowShortFunctionsOnASingleLine: All
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
+BreakBeforeBraces: Linux
 StatementMacros: 
   - 'ols'
   - 'bootstrap'

@@ -78,7 +78,8 @@ struct analyze_task_queue {
 };
 
 static void init_analyze_task_queue(struct bench_analysis *als, size_t count,
-                                    struct analyze_task_queue *q) {
+                                    struct analyze_task_queue *q)
+{
     memset(q, 0, sizeof(*q));
     q->task_count = count;
     q->tasks = calloc(count, sizeof(*q->tasks));
@@ -88,11 +89,13 @@ static void init_analyze_task_queue(struct bench_analysis *als, size_t count,
     }
 }
 
-static void free_analyze_task_queue(struct analyze_task_queue *q) {
+static void free_analyze_task_queue(struct analyze_task_queue *q)
+{
     free(q->tasks);
 }
 
-static struct analyze_task *get_analyze_task(struct analyze_task_queue *q) {
+static struct analyze_task *get_analyze_task(struct analyze_task_queue *q)
+{
     size_t idx = atomic_fetch_inc(&q->cursor);
     if (idx >= q->task_count)
         return NULL;
@@ -100,9 +103,11 @@ static struct analyze_task *get_analyze_task(struct analyze_task_queue *q) {
 }
 
 #ifdef __linux__
-static int bench_sort_cmp(const void *ap, const void *bp, void *statep) {
+static int bench_sort_cmp(const void *ap, const void *bp, void *statep)
+{
 #elif defined(__APPLE__)
-static int bench_sort_cmp(void *statep, const void *ap, const void *bp) {
+static int bench_sort_cmp(void *statep, const void *ap, const void *bp)
+{
 #else
 #error
 #endif
@@ -117,7 +122,8 @@ static int bench_sort_cmp(void *statep, const void *ap, const void *bp) {
     return va > vb;
 }
 
-static void compare_benches(struct analysis *al) {
+static void compare_benches(struct analysis *al)
+{
     if (al->bench_count == 1)
         return;
     size_t bench_count = al->bench_count;
@@ -150,7 +156,8 @@ static void compare_benches(struct analysis *al) {
 
 static void analyze_group(struct meas_analysis *al,
                           const struct bench_var_group *grp,
-                          struct group_analysis *grp_al) {
+                          struct group_analysis *grp_al)
+{
     const struct bench_var *var = al->base->var;
 
     memset(grp_al, 0, sizeof(*grp_al));
@@ -200,7 +207,8 @@ static void analyze_group(struct meas_analysis *al,
     }
 }
 
-static void analyze_groups(struct meas_analysis *al) {
+static void analyze_groups(struct meas_analysis *al)
+{
     size_t grp_count = al->base->group_count;
     if (grp_count == 0)
         return;
@@ -212,7 +220,8 @@ static void analyze_groups(struct meas_analysis *al) {
     }
 }
 
-static void calculate_fastest_bench_per_value(struct meas_analysis *al) {
+static void calculate_fastest_bench_per_value(struct meas_analysis *al)
+{
     size_t grp_count = al->base->group_count;
     if (grp_count == 0)
         return;
@@ -233,7 +242,8 @@ static void calculate_fastest_bench_per_value(struct meas_analysis *al) {
 }
 
 static const struct distr *reference_bench(struct meas_analysis *al,
-                                           bool *flipp) {
+                                           bool *flipp)
+{
     bool flip = false;
     const struct distr *reference = NULL;
     if (g_baseline != -1) {
@@ -248,7 +258,8 @@ static const struct distr *reference_bench(struct meas_analysis *al,
 }
 
 static const struct distr *reference_group(struct meas_analysis *al,
-                                           size_t val_idx, bool *flipp) {
+                                           size_t val_idx, bool *flipp)
+{
     bool flip = false;
     const struct group_analysis *reference_group = NULL;
     if (g_baseline != -1) {
@@ -262,7 +273,8 @@ static const struct distr *reference_group(struct meas_analysis *al,
     return reference_group->data[val_idx].distr;
 }
 
-static void calculate_per_bench_p_values(struct meas_analysis *al) {
+static void calculate_per_bench_p_values(struct meas_analysis *al)
+{
     const struct distr *reference = reference_bench(al, NULL);
     for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
@@ -274,7 +286,8 @@ static void calculate_per_bench_p_values(struct meas_analysis *al) {
     }
 }
 
-static void calculate_per_group_p_values(struct meas_analysis *al) {
+static void calculate_per_group_p_values(struct meas_analysis *al)
+{
     size_t grp_count = al->base->group_count;
     if (grp_count <= 1)
         return;
@@ -295,7 +308,8 @@ static void calculate_per_group_p_values(struct meas_analysis *al) {
 }
 
 static void ref_speed(double u1, double sigma1, double u2, double sigma2,
-                      double *ref_u, double *ref_sigma) {
+                      double *ref_u, double *ref_sigma)
+{
     // propagate standard deviation for formula (t1 / t2)
     double ref = u1 / u2;
     double a = sigma1 / u1;
@@ -307,7 +321,8 @@ static void ref_speed(double u1, double sigma1, double u2, double sigma2,
 
 static void calculate_ref_speed(const struct distr *reference,
                                 const struct distr *distr, bool flip,
-                                struct point_err_est *est) {
+                                struct point_err_est *est)
+{
     if (flip)
         ref_speed(distr->mean.point, distr->st_dev.point, reference->mean.point,
                   reference->st_dev.point, &est->point, &est->err);
@@ -317,7 +332,8 @@ static void calculate_ref_speed(const struct distr *reference,
                   &est->err);
 }
 
-static void calculate_bench_speedups(struct meas_analysis *al) {
+static void calculate_bench_speedups(struct meas_analysis *al)
+{
     size_t bench_count = al->base->bench_count;
     if (bench_count == 1)
         return;
@@ -338,7 +354,8 @@ static void calculate_bench_speedups(struct meas_analysis *al) {
     }
 }
 
-static void calculate_group_speedups(struct meas_analysis *al) {
+static void calculate_group_speedups(struct meas_analysis *al)
+{
     if (al->base->bench_count == 1)
         return;
 
@@ -369,7 +386,8 @@ static void calculate_group_speedups(struct meas_analysis *al) {
 
 static void calculate_per_value_speedup(struct speedup **speedups, size_t count,
                                         size_t grp_idx, bool flip,
-                                        struct point_err_est *dst) {
+                                        struct point_err_est *dst)
+{
     // This uses hand-written error propagation formula for geometric mean,
     // for reference see
     // https://en.wikipedia.org/wiki/Propagation_of_uncertainty
@@ -392,7 +410,8 @@ static void calculate_per_value_speedup(struct speedup **speedups, size_t count,
     dst->err = dst->point / n * sqrt(st_dev_accum);
 }
 
-static void calculate_average_per_value_speedups(struct meas_analysis *al) {
+static void calculate_average_per_value_speedups(struct meas_analysis *al)
+{
     if (al->base->bench_count == 1)
         return;
 
@@ -420,7 +439,8 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al) {
 }
 
 static void init_meas_analysis(struct analysis *base, size_t meas_idx,
-                               struct meas_analysis *al) {
+                               struct meas_analysis *al)
+{
     al->base = base;
     al->meas = base->meas + meas_idx;
     al->fastest = calloc(base->bench_count, sizeof(*al->fastest));
@@ -449,7 +469,8 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
     }
 }
 
-static void analyze_bench(struct bench_analysis *analysis) {
+static void analyze_bench(struct bench_analysis *analysis)
+{
     const struct bench *bench = analysis->bench;
     size_t count = bench->run_count;
     assert(count != 0);
@@ -459,7 +480,8 @@ static void analyze_bench(struct bench_analysis *analysis) {
     }
 }
 
-static void *analyze_bench_worker(void *raw) {
+static void *analyze_bench_worker(void *raw)
+{
     struct analyze_task_queue *q = raw;
     init_rng_state();
     for (;;) {
@@ -471,7 +493,8 @@ static void *analyze_bench_worker(void *raw) {
     return NULL;
 }
 
-static bool execute_analyze_tasks(struct bench_analysis *als, size_t count) {
+static bool execute_analyze_tasks(struct bench_analysis *als, size_t count)
+{
     size_t thread_count = g_threads;
     if (count < thread_count)
         thread_count = count;
@@ -492,7 +515,8 @@ static bool execute_analyze_tasks(struct bench_analysis *als, size_t count) {
     return success;
 }
 
-static bool analyze_benches(struct analysis *al) {
+static bool analyze_benches(struct analysis *al)
+{
     if (!execute_analyze_tasks(al->bench_analyses, al->bench_count))
         return false;
 
@@ -528,7 +552,8 @@ static bool analyze_benches(struct analysis *al) {
     return true;
 }
 
-static void init_analysis(const struct bench_data *data, struct analysis *al) {
+static void init_analysis(const struct bench_data *data, struct analysis *al)
+{
     memset(al, 0, sizeof(*al));
     al->meas = data->meas;
     al->meas_count = data->meas_count;
@@ -547,7 +572,8 @@ static void init_analysis(const struct bench_data *data, struct analysis *al) {
     }
 }
 
-static void free_bench_meas_analysis(struct meas_analysis *al) {
+static void free_bench_meas_analysis(struct meas_analysis *al)
+{
     free(al->fastest);
     free(al->benches);
     if (al->group_analyses) {
@@ -571,7 +597,8 @@ static void free_bench_meas_analysis(struct meas_analysis *al) {
     }
 }
 
-static void free_analysis(struct analysis *al) {
+static void free_analysis(struct analysis *al)
+{
     if (al->bench_analyses) {
         for (size_t i = 0; i < al->bench_count; ++i) {
             const struct bench_analysis *analysis = al->bench_analyses + i;
@@ -586,7 +613,8 @@ static void free_analysis(struct analysis *al) {
     }
 }
 
-bool do_analysis_and_make_report(const struct bench_data *data) {
+bool do_analysis_and_make_report(const struct bench_data *data)
+{
     bool success = false;
     struct analysis al;
     init_analysis(data, &al);

@@ -77,7 +77,8 @@ struct string_ll {
 
 static struct string_ll *string_ll = NULL;
 
-void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
+void *sb_grow_impl(void *arr, size_t inc, size_t stride)
+{
     if (arr == NULL) {
         void *result = calloc(sizeof(struct sb_header) + stride * inc, 1);
         struct sb_header *header = result;
@@ -98,7 +99,8 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride) {
     return header + 1;
 }
 
-bool units_is_time(const struct units *units) {
+bool units_is_time(const struct units *units)
+{
     switch (units->kind) {
     case MU_S:
     case MU_MS:
@@ -111,7 +113,8 @@ bool units_is_time(const struct units *units) {
     return false;
 }
 
-int format_time(char *dst, size_t sz, double t) {
+int format_time(char *dst, size_t sz, double t)
+{
     int count = 0;
     if (t < 0) {
         t = -t;
@@ -147,7 +150,8 @@ int format_time(char *dst, size_t sz, double t) {
     return count;
 }
 
-int format_memory(char *dst, size_t sz, double t) {
+int format_memory(char *dst, size_t sz, double t)
+{
     int count = 0;
     // how memory can be negative? anyway..
     if (t < 0) {
@@ -184,7 +188,8 @@ int format_memory(char *dst, size_t sz, double t) {
 }
 
 void format_meas(char *buf, size_t buf_size, double value,
-                 const struct units *units) {
+                 const struct units *units)
+{
     switch (units->kind) {
     case MU_S:
         format_time(buf, buf_size, value);
@@ -219,7 +224,8 @@ void format_meas(char *buf, size_t buf_size, double value,
     }
 }
 
-const char *outliers_variance_str(double fraction) {
+const char *outliers_variance_str(double fraction)
+{
     if (fraction < 0.01)
         return "no";
     else if (fraction < 0.1)
@@ -229,7 +235,8 @@ const char *outliers_variance_str(double fraction) {
     return "severe";
 }
 
-const char *units_str(const struct units *units) {
+const char *units_str(const struct units *units)
+{
     switch (units->kind) {
     case MU_S:
         return "s";
@@ -255,7 +262,8 @@ const char *units_str(const struct units *units) {
     return NULL;
 }
 
-const char *big_o_str(enum big_o complexity) {
+const char *big_o_str(enum big_o complexity)
+{
     switch (complexity) {
     case O_1:
         return "constant (O(1))";
@@ -282,7 +290,8 @@ const char *big_o_str(enum big_o complexity) {
 
 #define ols(_name, _fitting)                                                   \
     static double ols_##_name(const double *x, const double *y, size_t count,  \
-                              double adjust_y, double *rmsp) {                 \
+                              double adjust_y, double *rmsp)                   \
+    {                                                                          \
         (void)x;                                                               \
         double sigma_gn_sq = 0.0;                                              \
         double sigma_t = 0.0;                                                  \
@@ -352,7 +361,8 @@ void ols(const double *x, const double *y, size_t count,
     result->complexity = best_fit;
 }
 
-double ols_approx(const struct ols_regress *regress, double n) {
+double ols_approx(const struct ols_regress *regress, double n)
+{
     double f = 1.0;
     n -= regress->c;
     switch (regress->complexity) {
@@ -378,7 +388,8 @@ double ols_approx(const struct ols_regress *regress, double n) {
     return regress->a * f + regress->b;
 }
 
-static int compare_doubles(const void *a, const void *b) {
+static int compare_doubles(const void *a, const void *b)
+{
     double arg1 = *(const double *)a;
     double arg2 = *(const double *)b;
     if (arg1 < arg2)
@@ -388,7 +399,8 @@ static int compare_doubles(const void *a, const void *b) {
     return 0;
 }
 
-static void resample(const double *src, size_t count, double *dst) {
+static void resample(const double *src, size_t count, double *dst)
+{
     uint64_t entropy = pcg32_fast(&g_rng_state);
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
@@ -398,7 +410,8 @@ static void resample(const double *src, size_t count, double *dst) {
 
 static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
                                   size_t nresamp, struct est *meane,
-                                  struct est *st_deve) {
+                                  struct est *st_deve)
+{
     double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
     double *tmp_rss = tmp_means + nresamp;
     double sum = 0;
@@ -436,7 +449,8 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
 }
 
 // Fisher–Yates shuffle algorithm implementation
-void shuffle(size_t *arr, size_t count) {
+void shuffle(size_t *arr, size_t count)
+{
     for (size_t i = 0; i < count - 1; ++i) {
         size_t mod = count - i;
         size_t j = pcg32_fast(&g_rng_state) % mod + i;
@@ -448,7 +462,8 @@ void shuffle(size_t *arr, size_t count) {
 
 // Performs Mann–Whitney U test.
 // Returns p-value.
-double mwu(const double *a, size_t n1, const double *b, size_t n2) {
+double mwu(const double *a, size_t n1, const double *b, size_t n2)
+{
     double *sorted_a = calloc(n1, sizeof(*sorted_a));
     double *sorted_b = calloc(n2, sizeof(*sorted_b));
     for (size_t i = 0; i < n1; ++i)
@@ -498,7 +513,8 @@ double mwu(const double *a, size_t n1, const double *b, size_t n2) {
 }
 
 static double c_max(double x, double u_a, double a, double sigma_b_2,
-                    double sigma_g_2) {
+                    double sigma_g_2)
+{
     double k = u_a - x;
     double d = k * k;
     double ad = a * d;
@@ -508,12 +524,14 @@ static double c_max(double x, double u_a, double a, double sigma_b_2,
     return floor(-2.0 * k0 / (k1 + sqrt(det)));
 }
 
-static double var_out(double c, double a, double sigma_b_2, double sigma_g_2) {
+static double var_out(double c, double a, double sigma_b_2, double sigma_g_2)
+{
     double ac = a - c;
     return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
 }
 
-static double outlier_variance(double mean, double st_dev, double a) {
+static double outlier_variance(double mean, double st_dev, double a)
+{
     double sigma_b = st_dev;
     double u_a = mean / a;
     double u_g_min = u_a / 2.0;
@@ -529,7 +547,8 @@ static double outlier_variance(double mean, double st_dev, double a) {
     return var_out_min;
 }
 
-static void classify_outliers(struct distr *distr) {
+static void classify_outliers(struct distr *distr)
+{
     struct outliers *outliers = &distr->outliers;
     double q1 = distr->q1;
     double q3 = distr->q3;
@@ -559,7 +578,8 @@ static void classify_outliers(struct distr *distr) {
 }
 
 void estimate_distr(const double *data, size_t count, size_t nresamp,
-                    struct distr *distr) {
+                    struct distr *distr)
+{
     double *tmp = malloc(sizeof(*tmp) * count);
     distr->data = data;
     distr->count = count;
@@ -580,7 +600,8 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
     free(tmp);
 }
 
-bool process_wait_finished_correctly(pid_t pid) {
+bool process_wait_finished_correctly(pid_t pid)
+{
     int status = 0;
     pid_t wpid;
     for (;;) {
@@ -599,7 +620,8 @@ bool process_wait_finished_correctly(pid_t pid) {
     return false;
 }
 
-bool check_and_handle_err_pipe(int read_end, int timeout) {
+bool check_and_handle_err_pipe(int read_end, int timeout)
+{
     struct pollfd pfd;
     pfd.fd = read_end;
     pfd.events = POLLIN;
@@ -631,8 +653,8 @@ bool check_and_handle_err_pipe(int read_end, int timeout) {
 }
 
 static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
-                                   int stderr_fd, int err_pipe[2],
-                                   pid_t *pidp) {
+                                   int stderr_fd, int err_pipe[2], pid_t *pidp)
+{
     char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -678,7 +700,8 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
 }
 
 bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   pid_t *pid) {
+                   pid_t *pid)
+{
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return -1;
@@ -690,7 +713,8 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
 }
 
 bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
-                            int stderr_fd) {
+                            int stderr_fd)
+{
     pid_t pid;
     bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
     if (success) {
@@ -699,7 +723,8 @@ bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
     return success;
 }
 
-size_t csstrlcpy(char *dst, const char *src, size_t size) {
+size_t csstrlcpy(char *dst, const char *src, size_t size)
+{
     size_t ret = strlen(src);
     if (size) {
         size_t len = (ret >= size) ? size - 1 : ret;
@@ -712,14 +737,16 @@ size_t csstrlcpy(char *dst, const char *src, size_t size) {
 #if defined(__APPLE__)
 double get_time(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9; }
 #else
-double get_time(void) {
+double get_time(void)
+{
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 #endif
 
-FILE *open_file_fmt(const char *mode, const char *fmt, ...) {
+FILE *open_file_fmt(const char *mode, const char *fmt, ...)
+{
     char buf[4096];
     va_list args;
     va_start(args, fmt);
@@ -728,7 +755,8 @@ FILE *open_file_fmt(const char *mode, const char *fmt, ...) {
     return fopen(buf, mode);
 }
 
-int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...) {
+int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...)
+{
     char buf[4096];
     va_list args;
     va_start(args, fmt);
@@ -737,7 +765,8 @@ int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...) {
     return open(buf, flags, mode);
 }
 
-int tmpfile_fd(void) {
+int tmpfile_fd(void)
+{
     char path[] = "/tmp/csbench_XXXXXX";
     int fd = mkstemp(path);
     if (fd == -1) {
@@ -752,8 +781,8 @@ int tmpfile_fd(void) {
     return fd;
 }
 
-bool spawn_threads(void *(*worker_fn)(void *), void *param,
-                   size_t thread_count) {
+bool spawn_threads(void *(*worker_fn)(void *), void *param, size_t thread_count)
+{
     bool success = false;
     pthread_t *thread_ids = calloc(thread_count, sizeof(*thread_ids));
     // Create worker threads that do running.
@@ -785,7 +814,8 @@ out:
     return success;
 }
 
-void cs_free_strings(void) {
+void cs_free_strings(void)
+{
     for (struct string_ll *lc = string_ll; lc;) {
         free(lc->str);
         struct string_ll *next = lc->next;
@@ -794,7 +824,8 @@ void cs_free_strings(void) {
     }
 }
 
-char *csstralloc(size_t len) {
+char *csstralloc(size_t len)
+{
     struct string_ll *lc = calloc(1, sizeof(*lc));
     char *str = malloc(len + 1);
     lc->str = str;
@@ -803,7 +834,8 @@ char *csstralloc(size_t len) {
     return str;
 }
 
-const char *csmkstr(const char *src, size_t len) {
+const char *csmkstr(const char *src, size_t len)
+{
     char *str = csstralloc(len);
     memcpy(str, src, len);
     str[len] = '\0';
@@ -813,7 +845,8 @@ const char *csmkstr(const char *src, size_t len) {
 const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
 
 // TODO: Remove this function and do the same thing in place it is called
-const char *csstripend(const char *src) {
+const char *csstripend(const char *src)
+{
     size_t len = strlen(src);
     char *str = (char *)csmkstr(src, len);
     // XXX: I don't remember why this exists...
@@ -822,7 +855,8 @@ const char *csstripend(const char *src) {
     return str;
 }
 
-const char *csfmt(const char *fmt, ...) {
+const char *csfmt(const char *fmt, ...)
+{
     char buf[4096];
     va_list args;
     va_start(args, fmt);
@@ -831,7 +865,8 @@ const char *csfmt(const char *fmt, ...) {
     return csstrdup(buf);
 }
 
-void init_rng_state(void) {
+void init_rng_state(void)
+{
     pthread_t pt = pthread_self();
     if (sizeof(pt) >= sizeof(uint64_t)) {
         uint64_t entropy;
@@ -842,7 +877,8 @@ void init_rng_state(void) {
     }
 }
 
-const char **parse_comma_separated_list(const char *str) {
+const char **parse_comma_separated_list(const char *str)
+{
     const char **value_list = NULL;
     const char *cursor = str;
     const char *end = str + strlen(str);
@@ -861,7 +897,8 @@ const char **parse_comma_separated_list(const char *str) {
     return value_list;
 }
 
-void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
+void fprintf_colored(FILE *f, const char *how, const char *fmt, ...)
+{
     if (g_colored_output) {
         fprintf(f, "\x1b[%sm", how);
         va_list args;
@@ -877,7 +914,8 @@ void fprintf_colored(FILE *f, const char *how, const char *fmt, ...) {
     }
 }
 
-void errorv(const char *fmt, va_list args) {
+void errorv(const char *fmt, va_list args)
+{
     pthread_t tid = pthread_self();
     for (size_t i = 0; i < sb_len(g_output_anchors); ++i) {
         // Implicitly discard all messages but the first. This should not be an
@@ -898,14 +936,16 @@ void errorv(const char *fmt, va_list args) {
     putc('\n', stderr);
 }
 
-void error(const char *fmt, ...) {
+void error(const char *fmt, ...)
+{
     va_list args;
     va_start(args, fmt);
     errorv(fmt, args);
     va_end(args);
 }
 
-char *csstrerror(char *buf, size_t buf_size, int err) {
+char *csstrerror(char *buf, size_t buf_size, int err)
+{
     char *err_msg;
 #ifdef _GNU_SOURCE
     err_msg = strerror_r(err, buf, buf_size);
@@ -916,14 +956,16 @@ char *csstrerror(char *buf, size_t buf_size, int err) {
     return err_msg;
 }
 
-void csperror(const char *msg) {
+void csperror(const char *msg)
+{
     int err = errno;
     char errbuf[4096];
     char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
     error("%s: %s", msg, err_msg);
 }
 
-void csfmtperror(const char *fmt, ...) {
+void csfmtperror(const char *fmt, ...)
+{
     int err = errno;
     char errbuf[4096];
     char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
@@ -936,7 +978,8 @@ void csfmtperror(const char *fmt, ...) {
     error("%s: %s", buf, err_msg);
 }
 
-void csfdperror(int fd, const char *msg) {
+void csfdperror(int fd, const char *msg)
+{
     int err = errno;
     char errbuf[4096];
     char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
@@ -946,7 +989,8 @@ void csfdperror(int fd, const char *msg) {
         _exit(-1);
 }
 
-bool pipe_cloexec(int fd[2]) {
+bool pipe_cloexec(int fd[2])
+{
     if (pipe(fd) == -1) {
         csperror("pipe");
         return false;
