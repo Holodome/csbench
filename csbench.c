@@ -801,9 +801,9 @@ static bool init_benches(const struct settings *settings,
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
         struct bench_var_group group = {0};
-        if (!attempt_rename(settings->rename_list, sb_len(info->groups),
-                            &group.name))
-            group.name = cmd_cursor->grp_name;
+        group.name = cmd_cursor->grp_name;
+        (void)attempt_rename(settings->rename_list, sb_len(info->groups),
+                             &group.name);
         group.cmd_count = var->value_count;
         group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
         for (size_t val_idx = 0; val_idx < var->value_count;

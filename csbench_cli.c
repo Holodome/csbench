@@ -753,6 +753,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 exit(EXIT_FAILURE);
             }
             struct rename_entry *entry = sb_new(settings->rename_list);
+            entry->old_name = NULL;
             entry->n = value - 1;
             entry->name = name;
         } else if (strcmp(argv[cursor], "--renamen") == 0) {
@@ -774,6 +775,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             const char **list = parse_comma_separated_list(str);
             for (size_t i = 0; i < sb_len(list); ++i) {
                 struct rename_entry *entry = sb_new(settings->rename_list);
+                entry->old_name = NULL;
                 entry->n = i;
                 entry->name = list[i];
             }

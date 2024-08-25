@@ -1062,8 +1062,26 @@ static bool should_abbreviate_names(const struct meas_analysis *al)
 static const char *group_name(const struct meas_analysis *al, size_t idx,
                               bool abbreviate_names)
 {
-    if (abbreviate_names)
-        return csfmt("%c", (int)('A' + idx));
+    if (abbreviate_names) {
+        // Algorithm below does not handle zeroes on its own
+        if (idx == 0)
+            return "A";
+
+        size_t base = 'Z' - 'A' + 1;
+        size_t power = 0;
+        for (size_t t = idx; t != 0; t /= base, ++power)
+            ;
+
+        char buf[256];
+        assert(power < sizeof(buf));
+        buf[power] = '\0';
+        char *cursor = buf + power - 1;
+        while (idx != 0) {
+            *cursor-- = 'A' + (idx % base);
+            idx /= base;
+        }
+        return csstrdup(buf);
+    }
 
     return al->group_analyses[idx].group->name;
 }
@@ -1158,7 +1176,7 @@ static void print_group_comparison(const struct meas_analysis *al)
     bool abbreviate_names = should_abbreviate_names(al);
     if (abbreviate_names) {
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-            printf("%c = ", (int)('A' + grp_idx));
+            printf("%s = ", group_name(al, grp_idx, true));
             printf_colored(ANSI_BOLD, "%s",
                            al->group_analyses[grp_idx].group->name);
             if (g_baseline != -1 && (size_t)g_baseline == grp_idx)
