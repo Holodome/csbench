@@ -318,8 +318,10 @@ struct meas_analysis {
     size_t *fastest_grp_per_val;           // [val_count]
     struct group_analysis *group_analyses; // [group_count]
     // Comparison
-    struct speedup *bench_speedups;      // [bench_count]
-    struct speedup **val_bench_speedups; // [val_count][group_count]
+    size_t bench_speedups_reference;
+    struct speedup *bench_speedups;        // [bench_count]
+    size_t *val_bench_speedups_references; // [val_count]
+    struct speedup **val_bench_speedups;   // [val_count][group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
     struct speedup *grp_baseline_speedup; // [group_count]

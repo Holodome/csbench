@@ -957,23 +957,6 @@ static void print_benchmark_info(const struct bench_analysis *cur,
     }
 }
 
-static size_t reference_bench_idx(const struct meas_analysis *al)
-{
-    switch (g_sort_mode) {
-    case SORT_RAW:
-    case SORT_SPEED:
-        return al->bench_by_mean_time[0];
-    case SORT_BASELINE_RAW:
-    case SORT_BASELINE_SPEED:
-        assert(g_baseline != -1);
-        return g_baseline;
-    case SORT_DEFAULT:
-        assert(0);
-    }
-    assert(0);
-    return 0;
-}
-
 static size_t ith_bench_idx(int i, const struct meas_analysis *al)
 {
     switch (g_sort_mode) {
@@ -994,7 +977,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
     const struct bench_analysis *reference =
-        base->bench_analyses + reference_bench_idx(al);
+        base->bench_analyses + al->bench_speedups_reference;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
@@ -1099,11 +1082,7 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
     size_t value_count = var->value_count;
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         const char *value = var->values[val_idx];
-        size_t reference_idx;
-        if (g_baseline == -1)
-            reference_idx = al->fastest_grp_per_val[val_idx];
-        else
-            reference_idx = g_baseline;
+        size_t reference_idx = al->val_bench_speedups_references[val_idx];
 
         printf("%s=%s:\t", var->name, value);
         if (g_baseline == -1) {
