@@ -313,16 +313,16 @@ struct meas_analysis {
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
     // Indexes of commands sorted by their time (first is the fastest)
-    size_t *fastest; // [bench_count]
+    size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
-    size_t *fastest_val;                   // [val_count]
+    size_t *fastest_grp_per_val;           // [val_count]
     struct group_analysis *group_analyses; // [group_count]
     // Comparison
-    struct speedup *speedup;      // [bench_count]
-    struct speedup **var_speedup; // [val_count][group_count]
+    struct speedup *bench_speedups;      // [bench_count]
+    struct speedup **val_bench_speedups; // [val_count][group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
-    struct speedup *group_baseline_speedup; // [group_count]
+    struct speedup *grp_baseline_speedup; // [group_count]
     // P-values in reference to either fastests command or baseline
     double *p_values;      // [bench_count]
     double **var_p_values; // [val_count][group_count]
