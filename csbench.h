@@ -339,7 +339,7 @@ struct meas_analysis {
 struct analysis {
     // This pointer is const because respective memory is owned by 'struct
     // run_info' instance'
-    const struct bench_var_group *var_groups; // [group_count]
+    const struct bench_var_group *groups; // [group_count]
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;

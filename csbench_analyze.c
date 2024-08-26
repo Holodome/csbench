@@ -204,7 +204,7 @@ static void analyze_groups(struct meas_analysis *al)
         return;
 
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
-        const struct bench_var_group *grp = al->base->var_groups + grp_idx;
+        const struct bench_var_group *grp = al->base->groups + grp_idx;
         struct group_analysis *grp_al = al->group_analyses + grp_idx;
         analyze_group(al, grp, grp_al);
     }
@@ -360,10 +360,9 @@ static void calculate_bench_speedups(struct meas_analysis *al)
 
         struct speedup *sp = al->bench_speedups + bench_idx;
         calculate_ref_speed(reference, distr, flip, &sp->est);
-        if (sp->est.point < 1.0) {
+        calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
+        if (sp->est.point < 1.0)
             sp->is_slower = true;
-            calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
-        }
     }
 }
 
@@ -392,10 +391,9 @@ static void calculate_group_speedups(struct meas_analysis *al)
 
             struct speedup *sp = al->val_bench_speedups[val_idx] + grp_idx;
             calculate_ref_speed(reference, distr, flip, &sp->est);
-            if (sp->est.point < 1.0) {
+            calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
+            if (sp->est.point < 1.0)
                 sp->is_slower = true;
-                calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
-            }
         }
     }
 }
@@ -446,11 +444,10 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
         struct speedup *sp = al->grp_baseline_speedup + grp_idx;
         calculate_per_value_speedup(al->val_bench_speedups, value_count,
                                     grp_idx, false, &sp->est);
-        if (sp->est.point < 1.0) {
+        calculate_per_value_speedup(al->val_bench_speedups, value_count,
+                                    grp_idx, true, &sp->inv_est);
+        if (sp->est.point < 1.0)
             sp->is_slower = true;
-            calculate_per_value_speedup(al->val_bench_speedups, value_count,
-                                        grp_idx, true, &sp->inv_est);
-        }
     }
 }
 
@@ -585,7 +582,7 @@ static void init_analysis(const struct bench_data *data, struct analysis *al)
     al->bench_analyses = calloc(data->bench_count, sizeof(*al->bench_analyses));
     al->var = data->var;
     al->group_count = data->group_count;
-    al->var_groups = data->groups;
+    al->groups = data->groups;
     for (size_t i = 0; i < al->bench_count; ++i) {
         struct bench_analysis *analysis = al->bench_analyses + i;
         analysis->meas = calloc(al->meas_count, sizeof(*analysis->meas));

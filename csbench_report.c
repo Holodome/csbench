@@ -1074,6 +1074,23 @@ static const char *group_name(const struct meas_analysis *al, size_t idx,
     return al->group_analyses[idx].group->name;
 }
 
+static size_t ith_group_idx(int i, size_t val_idx,
+                            const struct meas_analysis *al)
+{
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_BASELINE_RAW:
+        return i;
+    case SORT_SPEED:
+    case SORT_BASELINE_SPEED:
+        return al->val_benches_by_mean_time[val_idx][i];
+    case SORT_DEFAULT:
+        assert(0);
+    }
+    assert(0);
+    return 0;
+}
+
 static void print_group_per_value_speedups(const struct meas_analysis *al,
                                            bool abbreviate_names)
 {
@@ -1083,24 +1100,50 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         const char *value = var->values[val_idx];
         size_t reference_idx = al->val_bench_speedups_references[val_idx];
+        printf("%s=%s:\n", var->name, value);
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            printf("  slowest is ");
+            printf_colored(
+                ANSI_BOLD, "%s\n",
+                group_name(al,
+                           al->val_benches_by_mean_time[val_idx]
+                                                       [base->group_count - 1],
+                           abbreviate_names));
+            printf("  fastest is ");
+            printf_colored(ANSI_BOLD, "%s\n",
+                           group_name(al, reference_idx, abbreviate_names));
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            printf("  baseline is ");
+            printf_colored(ANSI_BOLD, "%s\n",
+                           group_name(al, reference_idx, abbreviate_names));
+            break;
+        case SORT_DEFAULT:
+            assert(0);
+        }
 
-        printf("%s=%s:\t", var->name, value);
         if (g_baseline == -1) {
-            printf("%s is ", group_name(al, reference_idx, abbreviate_names));
+            printf_colored(ANSI_BOLD, "  %s ",
+                           group_name(al, reference_idx, abbreviate_names));
+            printf("is\n");
         }
-        const char *ident = "";
-        if (base->group_count > 2) {
-            printf("\n");
-            ident = "  ";
-        }
-        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+
+        for (size_t i = 0; i < base->group_count; ++i) {
+            size_t grp_idx = ith_group_idx(i, val_idx, al);
             if (grp_idx == reference_idx)
                 continue;
             const struct speedup *speedup =
                 al->val_bench_speedups[val_idx] + grp_idx;
-            printf("%s", ident);
-            if (g_baseline != -1)
-                printf("%s is ", group_name(al, grp_idx, abbreviate_names));
+            if (g_baseline != -1) {
+                printf_colored(ANSI_BOLD, "  %s ",
+                               group_name(al, grp_idx, abbreviate_names));
+                printf("is ");
+            } else {
+                printf("  ");
+            }
             if (speedup->is_slower) {
                 printf_colored(ANSI_BOLD_GREEN, "%6.3f",
                                speedup->inv_est.point);
