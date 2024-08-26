@@ -1003,3 +1003,15 @@ bool pipe_cloexec(int fd[2])
     }
     return true;
 }
+
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
+                void *arg)
+{
+#ifdef __linux__
+    qsort_r(base, nmemb, size, compar, arg);
+#elif defined(__APPLE__)
+    qsort_r(base, nmemb, size, arg, compar);
+#else
+#error
+#endif
+}

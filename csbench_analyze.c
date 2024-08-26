@@ -66,6 +66,11 @@ struct bench_sort_state {
     const struct bench_analysis *analyses;
 };
 
+struct val_bench_sort_state {
+    size_t val_idx;
+    const struct group_analysis *group_analyses;
+};
+
 struct analyze_task {
     struct analyze_task_queue *q;
     struct bench_analysis *al;
@@ -102,15 +107,8 @@ static struct analyze_task *get_analyze_task(struct analyze_task_queue *q)
     return q->tasks + idx;
 }
 
-#ifdef __linux__
-static int bench_sort_cmp(const void *ap, const void *bp, void *statep)
+static cssort_compar(bench_sort_cmp)
 {
-#elif defined(__APPLE__)
-static int bench_sort_cmp(void *statep, const void *ap, const void *bp)
-{
-#else
-#error
-#endif
     const struct bench_sort_state *state = statep;
     size_t a_idx = *(const size_t *)ap;
     size_t b_idx = *(const size_t *)bp;
@@ -140,17 +138,9 @@ static void compare_benches(struct analysis *al)
         // Initialize array with indexes for sorting
         for (size_t i = 0; i < bench_count; ++i)
             al->meas_analyses[meas_idx].bench_by_mean_time[i] = i;
-#ifdef __linux__
-        qsort_r(al->meas_analyses[meas_idx].bench_by_mean_time, bench_count,
-                sizeof(*al->meas_analyses[meas_idx].bench_by_mean_time),
-                bench_sort_cmp, &state);
-#elif defined(__APPLE__)
-        qsort_r(al->meas_analyses[meas_idx].bench_by_mean_time, bench_count,
-                sizeof(*al->meas_analyses[meas_idx].bench_by_mean_time), &state,
-                bench_sort_cmp);
-#else
-#error
-#endif
+        cssort_ext(al->meas_analyses[meas_idx].bench_by_mean_time, bench_count,
+                   sizeof(*al->meas_analyses[meas_idx].bench_by_mean_time),
+                   bench_sort_cmp, &state);
     }
 }
 
@@ -220,6 +210,20 @@ static void analyze_groups(struct meas_analysis *al)
     }
 }
 
+static cssort_compar(val_bench_sort_cmp)
+{
+    const struct val_bench_sort_state *state = statep;
+    size_t val_idx = state->val_idx;
+    size_t a_idx = *(const size_t *)ap;
+    size_t b_idx = *(const size_t *)bp;
+    if (a_idx == b_idx)
+        return 0;
+
+    double va = state->group_analyses[a_idx].data[val_idx].mean;
+    double vb = state->group_analyses[b_idx].data[val_idx].mean;
+    return va > vb;
+}
+
 static void calculate_fastest_bench_per_value(struct meas_analysis *al)
 {
     size_t grp_count = al->base->group_count;
@@ -228,16 +232,16 @@ static void calculate_fastest_bench_per_value(struct meas_analysis *al)
 
     const struct bench_var *var = al->base->var;
     for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-        double fastest_mean = al->group_analyses[0].data[val_idx].mean;
-        for (size_t grp_idx = 1; grp_idx < grp_count; ++grp_idx) {
-            // analyze_var_groups has to be called before this function
-            assert(al->group_analyses[grp_idx].data);
-            double t = al->group_analyses[grp_idx].data[val_idx].mean;
-            if (t < fastest_mean) {
-                fastest_mean = t;
-                al->fastest_grp_per_val[val_idx] = grp_idx;
-            }
-        }
+        // Initialize array with indices before sorting
+        struct val_bench_sort_state state = {0};
+        state.val_idx = val_idx;
+        state.group_analyses = al->group_analyses;
+        // Initialize array with indexes for sorting
+        for (size_t i = 0; i < al->base->group_count; ++i)
+            al->val_benches_by_mean_time[val_idx][i] = i;
+        cssort_ext(al->val_benches_by_mean_time[val_idx], al->base->group_count,
+                   sizeof(*al->val_benches_by_mean_time[val_idx]),
+                   val_bench_sort_cmp, &state);
     }
 }
 
@@ -264,7 +268,7 @@ static size_t reference_group_idx(struct meas_analysis *al, size_t val_idx)
 {
     if (g_baseline != -1)
         return g_baseline;
-    return al->fastest_grp_per_val[val_idx];
+    return al->val_benches_by_mean_time[val_idx][0];
 }
 
 static const struct distr *reference_group(struct meas_analysis *al,
@@ -454,6 +458,7 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
                                struct meas_analysis *al)
 {
     al->base = base;
+    al->meas_idx = meas_idx;
     al->meas = base->meas + meas_idx;
     al->bench_by_mean_time =
         calloc(base->bench_count, sizeof(*al->bench_by_mean_time));
@@ -467,8 +472,11 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
     al->p_values = calloc(base->bench_count, sizeof(*al->p_values));
     const struct bench_var *var = base->var;
     if (var) {
-        al->fastest_grp_per_val =
-            calloc(var->value_count, sizeof(*al->fastest_grp_per_val));
+        al->val_benches_by_mean_time =
+            calloc(var->value_count, sizeof(*al->val_benches_by_mean_time));
+        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx)
+            al->val_benches_by_mean_time[val_idx] = calloc(
+                base->bench_count, sizeof(**al->val_benches_by_mean_time));
         al->val_bench_speedups_references = calloc(
             base->var->value_count, sizeof(*al->val_bench_speedups_references));
         al->val_bench_speedups =
@@ -599,7 +607,11 @@ static void free_bench_meas_analysis(struct meas_analysis *al)
     free(al->bench_speedups);
     free(al->grp_baseline_speedup);
     free(al->p_values);
-    free(al->fastest_grp_per_val);
+    if (al->val_benches_by_mean_time) {
+        for (size_t i = 0; i < al->base->var->value_count; ++i)
+            free(al->val_benches_by_mean_time[i]);
+    }
+    free(al->val_benches_by_mean_time);
     free(al->val_bench_speedups_references);
     if (al->val_bench_speedups) {
         for (size_t i = 0; i < al->base->var->value_count; ++i)

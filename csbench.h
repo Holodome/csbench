@@ -310,12 +310,13 @@ struct meas_analysis {
     // Make it easy to pass this structure around as base is always needed
     struct analysis *base;
     const struct meas *meas;
+    size_t meas_idx;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
     // Indexes of commands sorted by their time (first is the fastest)
     size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
-    size_t *fastest_grp_per_val;           // [val_count]
+    size_t **val_benches_by_mean_time;     // [val_count][group_count]
     struct group_analysis *group_analyses; // [group_count]
     // Comparison
     size_t bench_speedups_reference;
@@ -694,5 +695,18 @@ const char *csmkstr(const char *str, size_t len);
 const char *csstripend(const char *str);
 char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
+
+#ifdef __linux__
+#define cssort_compar(_name)                                                   \
+    int _name(const void *ap, const void *bp, void *statep)
+#elif defined(__APPLE__)
+#define cssort_compar(_name)                                                   \
+    int _name(void *statep, const void *ap, const void *bp)
+#else
+#error
+#endif
+typedef cssort_compar(cssort_compar_fn);
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
+                void *arg);
 
 #endif // CSBENCH_H
