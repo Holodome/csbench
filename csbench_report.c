@@ -920,7 +920,7 @@ static void print_benchmark_info(const struct bench_analysis *cur,
                                  const struct analysis *al)
 {
     const struct bench *bench = cur->bench;
-    printf("command ");
+    printf("benchmark ");
     printf_colored(ANSI_BOLD, "%s\n", cur->name);
     // Print runs count only if it not explicitly specified, otherwise it is
     // printed in 'print_analysis'
@@ -998,12 +998,16 @@ static void print_bench_comparison(const struct meas_analysis *al)
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
-        printf("fastest command ");
+        printf("slowest is ");
+        printf_colored(
+            ANSI_BOLD, "%s\n",
+            base->bench_analyses[al->fastest[base->bench_count - 1]].name);
+        printf("fastest is ");
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
-        printf("baseline command ");
+        printf("baseline is ");
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
         break;
     case SORT_DEFAULT:
