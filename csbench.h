@@ -323,6 +323,8 @@ struct meas_analysis {
     struct speedup *bench_speedups;        // [bench_count]
     size_t *val_bench_speedups_references; // [val_count]
     struct speedup **val_bench_speedups;   // [val_count][group_count]
+    // Group indexes sorted by relative speed
+    size_t *groups_by_speed; // [group_count]
     // Geometric mean of speedup of each benchmark group when baseline is
     // specified
     struct speedup *grp_baseline_speedup; // [group_count]

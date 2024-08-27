@@ -777,10 +777,9 @@ bool load_bench_data_binary(const char **file_list, struct bench_data *data,
     bool success = false;
     size_t src_count = sb_len(file_list);
     assert(src_count > 0);
-    if (src_count == 1) {
+    if (src_count == 1)
         success = load_bench_data_binary_file(file_list[0], data, storage);
-    } else {
+    else
         success = load_bench_data_binary_merge(file_list, data, storage);
-    }
     return success;
 }

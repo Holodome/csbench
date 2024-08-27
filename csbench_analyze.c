@@ -82,6 +82,11 @@ struct analyze_task_queue {
     volatile size_t cursor;
 };
 
+struct accum_idx {
+    double accum;
+    size_t idx;
+};
+
 static void init_analyze_task_queue(struct bench_analysis *als, size_t count,
                                     struct analyze_task_queue *q)
 {
@@ -199,12 +204,13 @@ static void analyze_group(struct meas_analysis *al,
 
 static void analyze_groups(struct meas_analysis *al)
 {
-    size_t grp_count = al->base->group_count;
+    struct analysis *base = al->base;
+    size_t grp_count = base->group_count;
     if (grp_count == 0)
         return;
 
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
-        const struct bench_var_group *grp = al->base->groups + grp_idx;
+        const struct bench_var_group *grp = base->groups + grp_idx;
         struct group_analysis *grp_al = al->group_analyses + grp_idx;
         analyze_group(al, grp, grp_al);
     }
@@ -226,20 +232,21 @@ static cssort_compar(val_bench_sort_cmp)
 
 static void calculate_fastest_bench_per_value(struct meas_analysis *al)
 {
-    size_t grp_count = al->base->group_count;
+    struct analysis *base = al->base;
+    size_t grp_count = base->group_count;
     if (grp_count == 0)
         return;
 
-    const struct bench_var *var = al->base->var;
+    const struct bench_var *var = base->var;
     for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
         // Initialize array with indices before sorting
         struct val_bench_sort_state state = {0};
         state.val_idx = val_idx;
         state.group_analyses = al->group_analyses;
         // Initialize array with indexes for sorting
-        for (size_t i = 0; i < al->base->group_count; ++i)
+        for (size_t i = 0; i < base->group_count; ++i)
             al->val_benches_by_mean_time[val_idx][i] = i;
-        cssort_ext(al->val_benches_by_mean_time[val_idx], al->base->group_count,
+        cssort_ext(al->val_benches_by_mean_time[val_idx], base->group_count,
                    sizeof(*al->val_benches_by_mean_time[val_idx]),
                    val_bench_sort_cmp, &state);
     }
@@ -299,11 +306,12 @@ static void calculate_per_bench_p_values(struct meas_analysis *al)
 
 static void calculate_per_group_p_values(struct meas_analysis *al)
 {
-    size_t grp_count = al->base->group_count;
+    struct analysis *base = al->base;
+    size_t grp_count = base->group_count;
     if (grp_count <= 1)
         return;
 
-    size_t var_value_count = al->base->var->value_count;
+    size_t var_value_count = base->var->value_count;
     for (size_t val_idx = 0; val_idx < var_value_count; ++val_idx) {
         const struct distr *reference = reference_group(al, val_idx, NULL);
         for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
@@ -368,14 +376,15 @@ static void calculate_bench_speedups(struct meas_analysis *al)
 
 static void calculate_group_speedups(struct meas_analysis *al)
 {
-    if (al->base->bench_count == 1)
+    struct analysis *base = al->base;
+    if (base->bench_count == 1)
         return;
 
-    size_t grp_count = al->base->group_count;
-    if (!al->base->var || grp_count <= 1)
+    size_t grp_count = base->group_count;
+    if (!base->var || grp_count <= 1)
         return;
 
-    size_t value_count = al->base->var->value_count;
+    size_t value_count = base->var->value_count;
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         al->val_bench_speedups_references[val_idx] =
             reference_group_idx(al, val_idx);
@@ -426,14 +435,15 @@ static void calculate_per_value_speedup(struct speedup **speedups, size_t count,
 
 static void calculate_average_per_value_speedups(struct meas_analysis *al)
 {
-    if (al->base->bench_count == 1)
+    struct analysis *base = al->base;
+    if (base->bench_count == 1)
         return;
 
-    if (!al->base->var || g_baseline == -1)
+    if (!base->var || g_baseline == -1)
         return;
 
-    size_t grp_count = al->base->group_count;
-    size_t value_count = al->base->var->value_count;
+    size_t grp_count = base->group_count;
+    size_t value_count = base->var->value_count;
     const struct group_analysis *baseline_group =
         al->group_analyses + g_baseline;
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
@@ -449,6 +459,80 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
         if (sp->est.point < 1.0)
             sp->is_slower = true;
     }
+}
+
+static cssort_compar(accum_idx_sort_cmp)
+{
+    (void)statep;
+    const struct accum_idx *a = ap;
+    const struct accum_idx *b = bp;
+    if (a->idx == b->idx)
+        return 0;
+
+    return a->accum > b->accum;
+}
+
+static void calculate_groups_by_speed(struct meas_analysis *al)
+{
+    struct analysis *base = al->base;
+    if (!base->var || base->group_count < 2)
+        return;
+
+    size_t grp_count = base->group_count;
+    size_t val_count = base->var->value_count;
+    size_t grp_count2 = grp_count * grp_count;
+    double *bench_ref_matrix =
+        calloc(grp_count2 * val_count, sizeof(*bench_ref_matrix));
+
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        for (size_t i = 0; i < grp_count; ++i) {
+            double a = al->group_analyses[i].data[val_idx].distr->mean.point;
+            for (size_t j = 0; j < grp_count; ++j) {
+                if (i == j)
+                    continue;
+                double b =
+                    al->group_analyses[j].data[val_idx].distr->mean.point;
+                size_t idx = val_idx * grp_count2 + i * grp_count + j;
+                bench_ref_matrix[idx] = a / b;
+            }
+        }
+    }
+
+    double *group_ref_matrix = calloc(grp_count2, sizeof(*group_ref_matrix));
+    for (size_t i = 0; i < grp_count; ++i) {
+        for (size_t j = 0; j < grp_count; ++j) {
+            if (i == j)
+                continue;
+            size_t idx = i * grp_count + j;
+            double accum = 1.0;
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+                accum *= bench_ref_matrix[val_idx * grp_count2 + idx];
+            group_ref_matrix[idx] = accum;
+        }
+    }
+
+    struct accum_idx *group_total_accum =
+        calloc(grp_count, sizeof(*group_total_accum));
+    for (size_t i = 0; i < grp_count; ++i) {
+        double accum = 1.0;
+        for (size_t j = 0; j < grp_count; ++j) {
+            if (i == j)
+                continue;
+            accum *= group_ref_matrix[i * grp_count + j];
+        }
+
+        group_total_accum[i].accum = accum;
+        group_total_accum[i].idx = i;
+    }
+
+    cssort_ext(group_total_accum, grp_count, sizeof(*group_total_accum),
+               accum_idx_sort_cmp, NULL);
+    for (size_t i = 0; i < grp_count; ++i)
+        al->groups_by_speed[i] = group_total_accum[i].idx;
+
+    free(bench_ref_matrix);
+    free(group_ref_matrix);
+    free(group_total_accum);
 }
 
 static void init_meas_analysis(struct analysis *base, size_t meas_idx,
@@ -482,6 +566,8 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
             al->val_bench_speedups[val_idx] =
                 calloc(base->group_count, sizeof(**al->val_bench_speedups));
         }
+        al->groups_by_speed =
+            calloc(base->group_count, sizeof(*al->groups_by_speed));
         al->var_p_values = calloc(var->value_count, sizeof(*al->var_p_values));
         for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx)
             al->var_p_values[val_idx] =
@@ -568,6 +654,7 @@ static bool analyze_benches(struct analysis *al)
         calculate_bench_speedups(mal);
         calculate_group_speedups(mal);
         calculate_average_per_value_speedups(mal);
+        calculate_groups_by_speed(mal);
     }
     return true;
 }
@@ -594,29 +681,31 @@ static void init_analysis(const struct bench_data *data, struct analysis *al)
 
 static void free_bench_meas_analysis(struct meas_analysis *al)
 {
-    free(al->bench_by_mean_time);
+    struct analysis *base = al->base;
     free(al->benches);
+    free(al->bench_by_mean_time);
+    if (al->val_benches_by_mean_time) {
+        for (size_t i = 0; i < base->var->value_count; ++i)
+            free(al->val_benches_by_mean_time[i]);
+    }
+    free(al->val_benches_by_mean_time);
     if (al->group_analyses) {
-        for (size_t i = 0; i < al->base->group_count; ++i)
+        for (size_t i = 0; i < base->group_count; ++i)
             free(al->group_analyses[i].data);
         free(al->group_analyses);
     }
     free(al->bench_speedups);
-    free(al->grp_baseline_speedup);
-    free(al->p_values);
-    if (al->val_benches_by_mean_time) {
-        for (size_t i = 0; i < al->base->var->value_count; ++i)
-            free(al->val_benches_by_mean_time[i]);
-    }
-    free(al->val_benches_by_mean_time);
     free(al->val_bench_speedups_references);
     if (al->val_bench_speedups) {
-        for (size_t i = 0; i < al->base->var->value_count; ++i)
+        for (size_t i = 0; i < base->var->value_count; ++i)
             free(al->val_bench_speedups[i]);
         free(al->val_bench_speedups);
     }
+    free(al->groups_by_speed);
+    free(al->grp_baseline_speedup);
+    free(al->p_values);
     if (al->var_p_values) {
-        for (size_t i = 0; i < al->base->var->value_count; ++i)
+        for (size_t i = 0; i < base->var->value_count; ++i)
             free(al->var_p_values[i]);
         free(al->var_p_values);
     }

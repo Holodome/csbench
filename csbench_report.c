@@ -340,6 +340,7 @@ static void format_plot_name(char *buf, size_t buf_size,
 static void write_make_plot(const struct plot_walker_args *args, FILE *f)
 {
     const struct meas_analysis *al = args->analysis;
+    const struct analysis *base = al->base;
     const struct meas *meas = al->meas;
     char svg_buf[4096];
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
@@ -351,12 +352,12 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
         group_bar_plot(al, svg_buf, f);
         break;
     case PLOT_GROUP_SINGLE:
-        group_plot(al->group_analyses + args->grp_idx, 1, meas, al->base->var,
+        group_plot(al->group_analyses + args->grp_idx, 1, meas, base->var,
                    svg_buf, f);
         break;
     case PLOT_GROUP:
-        group_plot(al->group_analyses, al->base->group_count, meas,
-                   al->base->var, svg_buf, f);
+        group_plot(al->group_analyses, base->group_count, meas, base->var,
+                   svg_buf, f);
         break;
     case PLOT_KDE:
         kde_plot(al->benches[args->bench_idx], meas, svg_buf, f);
@@ -1100,6 +1101,7 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
     const struct bench_var *var = base->var;
     size_t value_count = var->value_count;
 
+    // Align all var=value strings
     size_t max_var_desc_len = 0;
     for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
         const char *value = var->values[val_idx];
