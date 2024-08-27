@@ -1191,31 +1191,48 @@ static void print_group_average_speedups(const struct meas_analysis *al,
                                          bool abbreviate_names)
 {
     const struct analysis *base = al->base;
+    if (base->group_count <= 1)
+        return;
     printf("on average ");
     const char *ident = "";
     if (base->group_count > 2) {
         printf("\n");
         ident = "  ";
     }
+    size_t reference_idx = al->groups_speedup_reference;
+    if (g_baseline == -1) {
+        printf_colored(ANSI_BOLD, "  %s ",
+                       group_name(al, reference_idx, abbreviate_names));
+        printf("is");
+        if (base->group_count > 2)
+            printf("\n");
+    }
     for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-        if (grp_idx == (size_t)g_baseline)
+        if (grp_idx == reference_idx)
             continue;
-        const struct speedup *speedup = al->grp_baseline_speedup + grp_idx;
+        const struct speedup *speedup = al->group_speedups + grp_idx;
         printf("%s", ident);
-        printf_colored(ANSI_BOLD, "%s",
-                       group_name(al, grp_idx, abbreviate_names));
-        printf(" is ");
+        if (g_baseline != -1) {
+            printf_colored(ANSI_BOLD, "%s",
+                           group_name(al, grp_idx, abbreviate_names));
+            printf(" is ");
+        }
         if (speedup->is_slower) {
             printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
             printf(" ± ");
             printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
-            printf(" times slower than baseline\n");
+            printf(" times slower than ");
         } else {
             printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
             printf(" ± ");
             printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
-            printf(" times faster than baseline\n");
+            printf(" times faster than ");
         }
+        if (g_baseline == -1)
+            printf("%s", group_name(al, grp_idx, abbreviate_names));
+        else
+            printf("baseline");
+        printf("\n");
     }
 }
 
@@ -1241,9 +1258,7 @@ static void print_group_comparison(const struct meas_analysis *al)
     }
 
     print_group_per_value_speedups(al, abbreviate_names);
-
-    if (g_baseline != -1 && base->group_count > 1)
-        print_group_average_speedups(al, abbreviate_names);
+    print_group_average_speedups(al, abbreviate_names);
 
     if (g_regr) {
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
