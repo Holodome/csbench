@@ -646,7 +646,7 @@ void ols(const double *x, const double *y, size_t count,
 
 void shuffle(size_t *arr, size_t count);
 
-bool process_wait_finished_correctly(pid_t pid);
+bool process_wait_finished_correctly(pid_t pid, bool silent);
 bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
                    pid_t *pid);
 bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,

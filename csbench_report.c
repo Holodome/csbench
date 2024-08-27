@@ -233,7 +233,7 @@ static bool python_has_matplotlib(void)
         return false;
     fprintf(f, "import matplotlib\n");
     fclose(f);
-    return process_wait_finished_correctly(pid);
+    return process_wait_finished_correctly(pid, true);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
@@ -434,7 +434,7 @@ static bool make_plots(const struct analysis *al)
             success = false;
     }
     for (size_t i = 0; i < sb_len(args.pids); ++i) {
-        if (!process_wait_finished_correctly(args.pids[i])) {
+        if (!process_wait_finished_correctly(args.pids[i], true)) {
             error("python finished with non-zero exit code");
             success = false;
         }
@@ -981,13 +981,15 @@ static void print_bench_comparison(const struct meas_analysis *al)
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
-        printf("slowest is ");
-        printf_colored(
-            ANSI_BOLD, "%s\n",
-            base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
-                .name);
-        printf("fastest is ");
-        printf_colored(ANSI_BOLD, "%s\n", reference->name);
+        if (base->bench_count > 2) {
+            printf("slowest is ");
+            printf_colored(ANSI_BOLD, "%s\n",
+                           base->bench_analyses
+                               [al->bench_by_mean_time[base->bench_count - 1]]
+                                   .name);
+            printf("fastest is ");
+            printf_colored(ANSI_BOLD, "%s\n", reference->name);
+        }
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
@@ -1097,29 +1099,44 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
     size_t value_count = var->value_count;
+
+    size_t max_var_desc_len = 0;
+    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+        const char *value = var->values[val_idx];
+        size_t len = snprintf(NULL, 0, "%s=%s:", var->name, value);
+        if (len > max_var_desc_len)
+            max_var_desc_len = len;
+    }
+
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
         const char *value = var->values[val_idx];
         size_t reference_idx = al->val_bench_speedups_references[val_idx];
-        printf("%s=%s:\n", var->name, value);
+        size_t len = printf("%s=%s:", var->name, value);
+        for (; len < max_var_desc_len; ++len)
+            printf(" ");
+        if (base->group_count > 2)
+            printf("\n");
+
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
-            printf("  slowest is ");
-            printf_colored(
-                ANSI_BOLD, "%s\n",
-                group_name(al,
-                           al->val_benches_by_mean_time[val_idx]
-                                                       [base->group_count - 1],
-                           abbreviate_names));
-            printf("  fastest is ");
-            printf_colored(ANSI_BOLD, "%s\n",
-                           group_name(al, reference_idx, abbreviate_names));
+            if (base->group_count > 2) {
+                printf("  slowest is ");
+                printf_colored(
+                    ANSI_BOLD, "%s\n",
+                    group_name(
+                        al,
+                        al->val_benches_by_mean_time[val_idx]
+                                                    [base->group_count - 1],
+                        abbreviate_names));
+                printf("  fastest is ");
+                printf_colored(ANSI_BOLD, "%s\n",
+                               group_name(al, reference_idx, abbreviate_names));
+            }
             break;
         case SORT_BASELINE_RAW:
         case SORT_BASELINE_SPEED:
-            printf("  baseline is ");
-            printf_colored(ANSI_BOLD, "%s\n",
-                           group_name(al, reference_idx, abbreviate_names));
+            // Baseline is aleady printed above, do nothing here
             break;
         case SORT_DEFAULT:
             assert(0);
@@ -1128,7 +1145,9 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
         if (g_baseline == -1) {
             printf_colored(ANSI_BOLD, "  %s ",
                            group_name(al, reference_idx, abbreviate_names));
-            printf("is\n");
+            printf("is");
+            if (base->group_count > 2)
+                printf("\n");
         }
 
         for (size_t i = 0; i < base->group_count; ++i) {

@@ -101,10 +101,11 @@ struct progress_bar_bench {
         uint64_t u;
         double d;
     } time_passed;
+    uint64_t runs;
     union {
         uint64_t u;
         double d;
-    } metric;
+    } time;
     pthread_t id;
 } __attribute__((aligned(64)));
 
@@ -662,6 +663,8 @@ static void progress_bar_start(struct progress_bar_bench *bench, double time)
     memcpy(&u, &time, sizeof(u));
     atomic_store(&bench->start_time.u, u);
     atomic_store(&bench->warmup, false);
+    atomic_store(&bench->time.u, 0);
+    atomic_store(&bench->runs, 0);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench)
@@ -690,7 +693,8 @@ static void progress_bar_update_time(struct progress_bar_bench *bench,
     atomic_store(&bench->bar, percent);
     uint64_t metric;
     memcpy(&metric, &t, sizeof(metric));
-    atomic_store(&bench->metric.u, metric);
+    atomic_store(&bench->time.u, metric);
+    atomic_fetch_inc(&bench->runs);
 }
 
 static void progress_bar_update_runs(struct progress_bar_bench *bench,
@@ -699,7 +703,7 @@ static void progress_bar_update_runs(struct progress_bar_bench *bench,
     if (!g_progress_bar)
         return;
     atomic_store(&bench->bar, percent);
-    atomic_store(&bench->metric.u, runs);
+    atomic_store(&bench->runs, runs);
 }
 
 static void progress_bar_suspend(struct progress_bar_bench *bench,
@@ -834,7 +838,7 @@ static bool run_benches_single_threaded(struct run_task_queue *q)
     g_q = q;
     // Tasks are switched round-robin. For this, store in each runner index of
     // next task that should be processed.
-    size_t task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
+    size_t task_cursor = 0;
     for (;;) {
         struct run_task *task = get_run_task(q, &task_cursor);
         if (task == NULL)
@@ -891,7 +895,8 @@ static void redraw_progress_bar(struct progress_bar *bar)
         data.aborted = atomic_load(&bar->bar_benches[i].aborted);
         data.suspended = atomic_load(&bar->bar_benches[i].suspended);
         data.warmup = atomic_load(&bar->bar_benches[i].warmup);
-        data.metric.u = atomic_load(&bar->bar_benches[i].metric.u);
+        data.runs = atomic_load(&bar->bar_benches[i].runs);
+        data.time.u = atomic_load(&bar->bar_benches[i].time.u);
         data.start_time.u = atomic_load(&bar->bar_benches[i].start_time.u);
         data.time_passed.u = atomic_load(&bar->bar_benches[i].time_passed.u);
         if (abbr_names)
@@ -942,10 +947,10 @@ static void redraw_progress_bar(struct progress_bar *bar)
             if (data.start_time.d != 0 &&
                 (data.suspended || data.warmup || data.finished)) {
                 if (bar->states[i].last_running ||
-                    (bar->states[i].runs != data.metric.u)) {
-                    bar->states[i].eta = (g_bench_stop.runs - data.metric.u) *
-                                         data.time_passed.d / data.metric.u;
-                    bar->states[i].runs = data.metric.u;
+                    (bar->states[i].runs != data.runs)) {
+                    bar->states[i].eta = (g_bench_stop.runs - data.runs) *
+                                         data.time_passed.d / data.runs;
+                    bar->states[i].runs = data.runs;
                 }
                 double eta = bar->states[i].eta;
                 if (isfinite(eta))
@@ -955,13 +960,13 @@ static void redraw_progress_bar(struct progress_bar *bar)
                 // Check if the benchmark updated progress bar since
                 // last time we checked and recalculate ETA accordingly
                 if (!bar->states[i].last_running ||
-                    bar->states[i].runs != data.metric.u) {
+                    bar->states[i].runs != data.runs) {
                     double passed_time =
                         data.time_passed.d + current_time - data.start_time.d;
-                    bar->states[i].eta = (g_bench_stop.runs - data.metric.u) *
-                                         passed_time / data.metric.u;
+                    bar->states[i].eta = (g_bench_stop.runs - data.runs) *
+                                         passed_time / data.runs;
                     bar->states[i].time = current_time;
-                    bar->states[i].runs = data.metric.u;
+                    bar->states[i].runs = data.runs;
                 }
                 // Adjust ETA using time that has passed in current run
                 double eta =
@@ -973,21 +978,21 @@ static void redraw_progress_bar(struct progress_bar *bar)
             char total_buf[256];
             snprintf(total_buf, sizeof(total_buf), "%zu",
                      (size_t)g_bench_stop.runs);
-            printf(" %*zu/%s eta %s", (int)strlen(total_buf),
-                   (size_t)data.metric.u, total_buf, eta_buf);
+            printf(" %*zu/%s eta %s", (int)strlen(total_buf), (size_t)data.runs,
+                   total_buf, eta_buf);
         } else {
             char buf1[256], buf2[256];
-            format_time(buf1, sizeof(buf1), data.metric.d);
+            format_time(buf1, sizeof(buf1), data.time.d);
             format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
             printf(" %s/ %s", buf1, buf2);
         }
 
-        if (data.suspended) {
-            printf_colored(ANSI_YELLOW, " S  ");
-        } else if (data.warmup) {
+        if (data.warmup) {
             printf_colored(ANSI_MAGENTA, " W  ");
         } else if (data.finished) {
             printf_colored(ANSI_BLUE, " F  ");
+        } else if (data.suspended || (data.time.u == 0 && data.runs == 0)) {
+            printf_colored(ANSI_YELLOW, " S  ");
         } else {
             printf_colored(ANSI_GREEN, " R  ");
         }

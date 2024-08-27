@@ -600,7 +600,7 @@ void estimate_distr(const double *data, size_t count, size_t nresamp,
     free(tmp);
 }
 
-bool process_wait_finished_correctly(pid_t pid)
+bool process_wait_finished_correctly(pid_t pid, bool silent)
 {
     int status = 0;
     pid_t wpid;
@@ -616,7 +616,8 @@ bool process_wait_finished_correctly(pid_t pid)
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
         return true;
-    error("process finished with non-zero exit code");
+    if (!silent)
+        error("process finished with non-zero exit code");
     return false;
 }
 
@@ -717,9 +718,8 @@ bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
 {
     pid_t pid;
     bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
-    if (success) {
-        success = process_wait_finished_correctly(pid);
-    }
+    if (success)
+        success = process_wait_finished_correctly(pid, false);
     return success;
 }
 
