@@ -565,11 +565,11 @@ multiplex_command_info_input(const struct command_info *src_info,
     for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
         const char *var_value = var->values[val_idx];
         if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var_value,
-                             &replaced)) {
+                             &replaced) ||
+            !replaced) {
             error("Failed to substitute variable");
             return CMD_MULTIPLEX_ERROR;
         }
-        assert(replaced);
         struct command_info info;
         memcpy(&info, src_info, sizeof(info));
         info.cmd = src_info->cmd;
@@ -808,7 +808,6 @@ static bool init_benches(const struct settings *settings,
         group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
         for (size_t val_idx = 0; val_idx < var->value_count;
              ++val_idx, ++cmd_cursor) {
-            assert(cmd_cursor->grp_idx == grp_idx);
             if (!init_command(cmd_cursor, info, group.cmd_idxs + val_idx)) {
                 free(group.cmd_idxs);
                 return false;
@@ -948,7 +947,6 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
                             const struct run_info *info,
                             struct bench_data *data)
 {
-    assert(info->params);
     memset(data, 0, sizeof(*data));
     data->meas_count = meas_count;
     data->meas = meas;
