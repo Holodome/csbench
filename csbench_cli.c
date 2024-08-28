@@ -869,6 +869,9 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             parse_meas_list(str, &rusage_opts);
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--baseline"),
                                "baseline number", &g_baseline)) {
+            g_baseline_name = NULL;
+        } else if (opt_arg(argv, &cursor, "--baseline-name", &g_baseline_name)) {
+            g_baseline = -1;
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
             if (strcmp(str, "auto") == 0) {
                 if (isatty(STDIN_FILENO))

@@ -103,6 +103,7 @@ const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
 const char *g_override_bin_name = NULL;
+const char *g_baseline_name = NULL;
 // XXX: This is hack to use short names for files found in directory specified
 // with --inputd. When opening files and this variable is not null open it
 // relative to this directory.
@@ -848,16 +849,46 @@ err:
     return success;
 }
 
-static bool validate_and_set_baseline(size_t grp_count, size_t bench_count)
+static bool validate_and_set_baseline(const struct bench_data *data)
 {
-    if (g_baseline < 1)
+    size_t grp_count = data->group_count;
+    size_t bench_count = data->bench_count;
+    if (g_baseline == -1) {
+        if (g_baseline_name != NULL) {
+            if (grp_count <= 1) {
+                for (size_t i = 0; i < bench_count; ++i) {
+                    if (strcmp(data->benches[i].name, g_baseline_name) == 0) {
+                        g_baseline = i;
+                        break;
+                    }
+                }
+                if (g_baseline == -1) {
+                    error("there is no benchmark with name '%s' (specified as "
+                          "baseline using --baseline-name)",
+                          g_baseline_name);
+                    return false;
+                }
+            } else {
+                for (size_t i = 0; i < grp_count; ++i) {
+                    if (strcmp(data->groups[i].name, g_baseline_name) == 0) {
+                        g_baseline = i;
+                        break;
+                    }
+                }
+                if (g_baseline == -1) {
+                    error("there is no benchmark group with name '%s' "
+                          "(specified as baseline using --baseline-name)",
+                          g_baseline_name);
+                    return false;
+                }
+            }
+        }
         return true;
+    }
 
-    // Adjust number from human-readable to indexable
+    assert(g_baseline > 1);
     size_t b = g_baseline - 1;
     if (grp_count <= 1) {
-        // No parameterized benchmarks specified, just select the
-        // benchmark
         if (b >= bench_count) {
             error("baseline number is too big");
             return false;
@@ -891,9 +922,9 @@ static void set_sort_mode(void)
     }
 }
 
-static bool initialize_global_variables(struct bench_data *data)
+static bool initialize_global_variables(const struct bench_data *data)
 {
-    if (!validate_and_set_baseline(data->group_count, data->bench_count))
+    if (!validate_and_set_baseline(data))
         return false;
     set_sort_mode();
     return true;
