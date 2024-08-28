@@ -1007,7 +1007,7 @@ static void *progress_bar_thread_worker(void *arg)
     bool is_finished = false;
     redraw_progress_bar(bar);
     do {
-        usleep(100000);
+        usleep(g_progress_bar_interval_us);
         redraw_progress_bar(bar);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i)
@@ -1272,8 +1272,7 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 // order of tasks in parallel execution can degrade performance (queueing
 // theory).
 //
-// Parallel execution is controlled using 'g_threads' global
-// variable.
+// Parallel execution is controlled using 'g_threads' global variable.
 //
 // This function also optionally spawns the thread printing interactive
 // progress bar. Logic conserning progress bar may be cumbersome:

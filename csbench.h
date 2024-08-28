@@ -507,6 +507,7 @@ extern bool g_plot_src;
 extern int g_nresamp;
 extern bool g_use_perf;
 extern bool g_progress_bar;
+extern int g_progress_bar_interval_us;
 // Use linear regression to estimate slope when doing parameterized benchmark.
 extern bool g_regr;
 extern bool g_python_output;

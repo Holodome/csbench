@@ -266,25 +266,26 @@ Use <UNITS\-NAME> as name
 .IP
 Do not use default measurements (which are "wall", "stime", "utime").
 .SS Parameterization options
-\fB\-\-scan\fR \fISTR\fP
+.HP
+\fB\-\-param\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add variable with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 2.
+\fISTR\fP is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is a comma\-separated list of values. Parameter can be substituted in any command string, in strings supplied to --input, --inputs and --common-args options.
 .IP
 .RS
 Example:
 .RS
-\fBcsbench\fR \fB\-\-scan\fR n/100/500/100 'python3 quicksort.py {n}'
+\fBcsbench\fR \fB\-\-param\fR n/100,200,400,800 'python3 quicksort.py {n}'
 .RE
 .RE
 .HP
-\fB\-\-scanl\fR \fISTR\fP
+\fB\-\-param-range\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<v>. Add variable with name <i>. <v> is a comma\-separated list of values.
+\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 2.
 .IP
 .RS
 Example:
 .RS
-\fBcsbench\fR \fB\-\-scanl\fR n/100,200,400,800 'python3 quicksort.py {n}'
+\fBcsbench\fR \fB\-\-param-range\fR n/100/500/100 'python3 quicksort.py {n}'
 .RE
 .RE
 .SS Analysis options
@@ -371,6 +372,10 @@ Use colored output. Possible values for \fIWHEN\fP are "never", "auto", "always"
 \fB\-\-progress\-bar\fR \fIWHEN\fP
 .IP
 Display dynamically updated progress bar when running benchmarks. Possible values for \fIWHEN\fP are "never", "auto", "always".
+.HP
+\fB\-\-progress\-bar-interval\fR \fIUS\fP
+.IP
+Set redraw interval of progress bar to \fIUS\fP microseconds. Default is 100000 (100 milliseconds).
 .HP
 .B \-\-python\-output
 .IP

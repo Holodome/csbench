@@ -732,7 +732,7 @@ static void html_var_analysis(const struct analysis *al, FILE *f)
 {
     if (!al->group_count)
         return;
-    fprintf(f, "<div><h2>variable analysis</h2>");
+    fprintf(f, "<div><h2>parameter analysis</h2>");
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;

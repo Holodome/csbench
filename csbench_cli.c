@@ -96,7 +96,7 @@ static void print_help_and_exit(int rc)
         "          The command to benchmark. Can be a shell command line, like "
         "'ls $(pwd) && echo 1', or a direct executable invocation, like 'sleep "
         "0.5'. Former is not available when --shell none is specified. Can "
-        "contain variables in the form 'sleep {n}', see --scan family of "
+        "contain parameters in the form 'sleep {n}', see --param-* family of "
         "options. If multiple commands are given, their comparison will be "
         "performed.\n "
         "\n"
@@ -192,12 +192,12 @@ static void print_help_and_exit(int rc)
         "'ms','us', 'ns', or memory units 'b', 'kb', 'mb', 'gb', in which case "
         "results will pretty printed. If <units> is 'none', no units are "
         "printed. Alternatively <units> can be any string.\n"
-        "  --scan <i>/<n>/<m>[/<s>]\n"
-        "          Add variable with name <i> running in range from <n> to <m> "
+        "  --param-range <i>/<n>/<m>[/<s>]\n"
+        "          Add parameter with name <i> running in range from <n> to <m> "
         "with step <s>. <s> is optional, default is 1. Can be used from "
         "command in the form '{<i>}'.\n"
-        "  --scanl <i>/v[,...]\n"
-        "          Add variable with name <i> running values from "
+        "  --param <i>/v[,...]\n"
+        "          Add parameter with name <i> running values from "
         "comma-separated list <v>.\n"
         "  -j, --jobs <n>\n"
         "          Execute benchmarks in parallel with <n> threads. Default "
@@ -211,7 +211,7 @@ static void print_help_and_exit(int rc)
     printf( //
         "  --plot\n"
         "          Generate plots. For each benchmark KDE is generated in two "
-        "variants. For each variable (--scan and --scanl) variable values are "
+        "variants. For each parameter (--param-range and --param) values are "
         "plotted against mean time. Single violin plot is produced if multiple "
         "commands are specified. For each measurement (--custom and others) "
         "its own group of plots is generated. Also readme.md file is "
@@ -243,7 +243,7 @@ static void print_help_and_exit(int rc)
         "          Can be one of the 'never', 'always', 'auto', works similar "
         "to --color option.\n"
         "  --regr\n"
-        "          Do linear regression based on benchmark variables.\n"
+        "          Do linear regression based on benchmark parameters.\n"
         "  --baseline <n>\n"
         "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
         "as baseline in comparison. If this option is not set, baseline will "
@@ -274,9 +274,8 @@ static void print_version_and_exit(void)
     exit(EXIT_SUCCESS);
 }
 
-static bool parse_range_scan_settings(const char *settings, const char **namep,
-                                      double *lowp, double *highp,
-                                      double *stepp)
+static bool parse_param_range_string(const char *settings, const char **namep,
+                                     double *lowp, double *highp, double *stepp)
 {
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
@@ -333,7 +332,7 @@ static const char **range_to_var_value_list(double low, double high,
 }
 
 static bool parse_comma_separated_settings(const char *str, const char **namep,
-                                           const char **scan_listp)
+                                           const char **param_listp)
 {
     const char *cursor = str;
     const char *str_end = str + strlen(str);
@@ -348,10 +347,10 @@ static bool parse_comma_separated_settings(const char *str, const char **namep,
     if (cursor == str_end)
         return false;
 
-    const char *scan_list = cursor;
+    const char *param_list = cursor;
 
     *namep = name;
-    *scan_listp = scan_list;
+    *param_listp = param_list;
     return true;
 }
 
@@ -685,11 +684,11 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
             if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
+                error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
             // XXX: To reuse old code, --inputd is more like a macro to
-            // --input '{file}' with --scanl file/... having list of files.
+            // --input '{file}' with --param file/... having list of files.
             const char **files;
             if (!get_input_files_from_dir(str, &files))
                 exit(EXIT_FAILURE);
@@ -781,15 +780,15 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             }
             sb_free(list);
             g_rename_all_used = true;
-        } else if (opt_arg(argv, &cursor, "--scan", &str)) {
+        } else if (opt_arg(argv, &cursor, "--param-range", &str)) {
             if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
+                error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
             double low, high, step;
             const char *name;
-            if (!parse_range_scan_settings(str, &name, &low, &high, &step)) {
-                error("invalid --scan argument");
+            if (!parse_param_range_string(str, &name, &low, &high, &step)) {
+                error("invalid --param-range argument");
                 exit(EXIT_FAILURE);
             }
             const char **value_list = range_to_var_value_list(low, high, step);
@@ -797,23 +796,27 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             settings->var.values = value_list;
             settings->var.value_count = sb_len(value_list);
             settings->has_var = true;
-        } else if (opt_arg(argv, &cursor, "--scanl", &str)) {
+        } else if (opt_arg(argv, &cursor, "--param", &str)) {
             if (settings->has_var) {
-                error("multiple benchmark variables are forbidden");
+                error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
-            const char *name, *scan_list;
-            if (!parse_comma_separated_settings(str, &name, &scan_list)) {
-                error("invalid --scanl argument");
+            const char *name, *param_list;
+            if (!parse_comma_separated_settings(str, &name, &param_list)) {
+                error("invalid --param argument");
                 exit(EXIT_FAILURE);
             }
-            const char **value_list = parse_comma_separated_list(scan_list);
+            const char **value_list = parse_comma_separated_list(param_list);
             settings->var.name = name;
             settings->var.values = value_list;
             settings->var.value_count = sb_len(value_list);
             settings->has_var = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
+        } else if (opt_int_pos(argv, &cursor,
+                               OPT_ARR("--progress-bar-interval"),
+                               "progress bar redraw interval",
+                               &g_progress_bar_interval_us)) {
         } else if (opt_arg(argv, &cursor, "--save-bin-name",
                            &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {

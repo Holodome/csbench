@@ -82,6 +82,7 @@ bool g_plot_src = false;
 int g_nresamp = 10000;
 bool g_use_perf = false;
 bool g_progress_bar = false;
+int g_progress_bar_interval_us = 100000;
 bool g_regr = false;
 bool g_python_output = false;
 bool g_save_bin = false;
@@ -509,7 +510,9 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
     bool replaced = false;
     if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
                          var->values[0], &replaced)) {
-        error("Failed to substitute variable");
+        error("failed to substitute parameter '%s' in string '%s' with value "
+              "'%s'",
+              var->name, src_info->cmd, var->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
@@ -522,7 +525,10 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
         const char *var_value = var->values[val_idx];
         if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name,
                              var_value, &replaced)) {
-            error("Failed to substitute variable");
+            error(
+                "failed to substitute parameter '%s' in string '%s' with value "
+                "'%s'",
+                var->name, src_info->cmd, var_value);
             return CMD_MULTIPLEX_ERROR;
         }
         assert(replaced);
@@ -556,7 +562,9 @@ multiplex_command_info_input(const struct command_info *src_info,
     bool replaced = false;
     if (!replace_var_str(buf, sizeof(buf), src_string, var->name,
                          var->values[0], &replaced)) {
-        error("Failed to substitute variable");
+        error("failed to substitute parameter '%s' in string '%s' with value "
+              "'%s'",
+              var->name, src_info->cmd, var->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
@@ -568,7 +576,10 @@ multiplex_command_info_input(const struct command_info *src_info,
         if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var_value,
                              &replaced) ||
             !replaced) {
-            error("Failed to substitute variable");
+            error(
+                "failed to substitute parameter '%s' in string '%s' with value "
+                "'%s'",
+                var->name, src_info->cmd, var_value);
             return CMD_MULTIPLEX_ERROR;
         }
         struct command_info info;
@@ -621,8 +632,7 @@ multiplex_command_infos(const struct bench_var *var,
             break;
         }
 
-        error("command '%s' does not contain variable substitutions",
-              src_info->cmd);
+        error("command '%s' does not contain parameters", src_info->cmd);
         goto err;
     }
 
@@ -745,7 +755,7 @@ static bool do_bench_renames(const struct rename_entry *rename_list,
     return true;
 }
 
-static bool attempt_rename_with_variable_value(
+static bool attempt_rename_with_param_value(
     const struct rename_entry *rename_list, size_t bench_idx,
     const struct bench_var_group *groups, const struct bench_var *var,
     const char **name)
@@ -774,7 +784,7 @@ static void set_param_names(const struct settings *settings,
         struct bench_params *params = info->params + bench_idx;
         if (sb_len(info->groups) != 0) {
             assert(settings->has_var);
-            attempt_rename_with_variable_value(settings->rename_list, bench_idx,
+            attempt_rename_with_param_value(settings->rename_list, bench_idx,
                                                info->groups, &settings->var,
                                                &params->name);
         }
@@ -886,7 +896,7 @@ static bool validate_and_set_baseline(const struct bench_data *data)
         return true;
     }
 
-    assert(g_baseline > 1);
+    assert(g_baseline > 0);
     size_t b = g_baseline - 1;
     if (grp_count <= 1) {
         if (b >= bench_count) {

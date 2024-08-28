@@ -116,7 +116,7 @@ start = timer()
 quicksort(arr)
 end = timer()
 print(end - start)
-$ csbench 'python3 quicksort.py' --custom t --inputs '{n}' --scan n/100/10000/1000 --html --no-default-meas --regr
+$ csbench 'python3 quicksort.py' --custom t --inputs '{n}' --param-range n/100/10000/1000 --html --no-default-meas --regr
 ...
 linearithmic (O(N*log(N))) complexity (1.12172e-07)
 ```
@@ -146,7 +146,7 @@ If you want to see example of advanced csbench usage, try running the following 
 csbench 'python3 tests/quicksort.py' \
         'python3 tests/bubble.py' \
         --rename-all quicksort,bubble \
-        --scanl n/64,128,256,512,1024,2048 \
+        --param n/64,128,256,512,1024,2048 \
         --no-default-meas --custom t --inputs '{n}' \
         -W 0.1 -j$(nproc) -R10 \
         --plot --plot-src --csv --regr 

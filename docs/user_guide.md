@@ -56,8 +56,8 @@ $ csbench ls exa --html
 ```
 #### run parameterized benchmark 
 ```sh
-$ csbench 'ls {what}' --scanl what/a/b
-$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1
+$ csbench 'ls {what}' --param what/a/b
+$ csbench 'sleep {t}' --param-range t/0.1/0.5/0.1
 ```
 #### benchmark using custom parameter acquired from command output
 ```sh
@@ -73,7 +73,7 @@ $ cat test.py # not actual code
 start = time()
 n = fib(int(input())) # do something
 print(time() - start)
-$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --scan n/1/100/10
+$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --param-range n/1/100/10
 ```
 
 ## How to understand and use `csbench` output
@@ -119,7 +119,7 @@ How outliers are decided:
 Here q1 and q3 are first and third quartiles, and iqr is interquartile range.
 
 ```
-$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1 --runs 10
+$ csbench 'sleep {t}' --param-range t/0.1/0.5/0.1 --runs 10
 ...
 Fastest command 'sleep 0.1'                 # 1
 1.911 ± 0.051 times faster than 'sleep 0.2' # 2
