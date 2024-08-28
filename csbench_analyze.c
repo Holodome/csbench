@@ -425,6 +425,7 @@ static void calculate_per_value_ref_speed(const struct meas_analysis *al,
                                           size_t reference_idx, size_t grp_idx,
                                           bool flip, struct point_err_est *dst)
 {
+    assert(reference_idx != grp_idx);
     struct analysis *base = al->base;
     size_t val_count = base->var->value_count;
 
@@ -547,7 +548,7 @@ static void calculate_groups_by_speed(struct meas_analysis *al)
 static void calculate_average_per_value_speedups(struct meas_analysis *al)
 {
     struct analysis *base = al->base;
-    if (base->bench_count == 1 || !base->var)
+    if (base->group_count == 1 || !base->var)
         return;
 
     size_t reference_idx = reference_group_idx(al);
