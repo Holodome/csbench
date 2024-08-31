@@ -1,6 +1,6 @@
 .TH CSBENCH 1
 .SH NAME
-csbench \- batteries\-included command\-line benchmarking tool
+csbench \- batteries included command\-line benchmarking tool
 .SH SYNOPSIS
 .NM csbench
 .B csbench
@@ -71,7 +71,7 @@ Run each benchmark at least \fINUM\fP times.
 Run each benchmark at most \fINUM\fP times.
 .SS Warmup options
 .HP
-\fB\-W\fR, \fB\-\-warmup\-runs\fR \fINUM\fP
+\fB\-\-warmup\-runs\fR \fINUM\fP
 .IP
 Perform exactly \fINUM\fP warmup runs. When set, \fB\-\-warmup\fR, \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR have no effect.
 .HP
@@ -98,7 +98,7 @@ In a single round perform exactly \fINUM\fP runs. When set, \fB\-\-round\-time\f
 .HP
 \fB\-\-round\-time\fR \fINUM\fP
 .IP
-Each benchmark will be run at least \fINUM\fP seconds in a row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR.
+Each benchmark will be run for at least \fINUM\fP seconds in row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR.
 .HP
 \fB\-\-min\-round\-runs\fR \fINUM\fP
 .IP
@@ -126,7 +126,7 @@ Example:
 .HP
 \fB\-S\fR, \fB\-\-shell\fR \fISHELL\fP
 .IP
-Set the shell be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
+Set the shell to be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
 .HP
 .B \-N
 .IP
@@ -145,28 +145,28 @@ Example:
 .HP
 \fB\-j\fR, \fB\-\-jobs\fR \fINUM\fP
 .IP
-Executed benchmarks asynchronously using \fINUM\fP system threads. By default, benchmarks are executed only in one thread.
+Executed benchmarks in parallel using \fINUM\fP system threads. By default, benchmarks are executed only in one thread.
 .HP
 \fB\-i\fR, \fB\-\-ignore\-failure\fR
 .IP
-Do not abort benchmarking when benchmark commands finish with non\-zero exit code.
+Do not abort benchmarking when benchmark commands finishes with non\-zero exit code.
 .HP
 \fB\-s\fR, \fB\-\-simple\fR
 .IP
-Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and without rounds.
+Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and rounds.
 .SS Command input and output options
 .HP
 \fB\-\-input\fR \fIFILE\fP
 .IP
-Specify input file for each benchmark command. \fIFILE\fP can include variable substitutions.
+Specify file that will be used as input for all benchmark commands. \fIFILE\fP can include variable substitutions.
 .HP
 \fB\-\-inputs\fR \fISTR\fP
 .IP
-Specify string, which will be piped to each benchmark command. \fISTR\fP can include variable substitutions.
+Specify string that will be used as input for all benchmark commands. \fISTR\fP can include variable substitutions.
 .HP
 \fB\-\-inputd\fR \fIDIR\fP
 .IP
-Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-param\fR file/...", where "\fB\-\-param\fR" option is passed a list of files contained in \fIDIR\fP.
+Specify directory, all files from which will be used as input for all benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-param\fR file/...", where "\fB\-\-param\fR" option is passed a list of files contained in \fIDIR\fP.
 .HP
 .B \-\-no\-input
 .IP
@@ -228,15 +228,15 @@ Example:
 .HP
 \fB\-\-custom\fR \fINAME\fP
 .IP
-Add custom measurement with name \fINAME\fP. This measurement interprets each command's stdout as a single real number and interprets it as seconds.
+Add custom measurement with name \fINAME\fP. This measurement parses stdout of each benchmark command and interprets it in seconds.
 .HP
 \fB\-\-custom\-t\fR \fINAME\fP \fICMD\fP
 .IP
-Add custom measurement with name \fINAME\fP. This measurement pipes each command's stdout to \fICMD\fP and interprets its output as a single real number and interprets it as seconds.
+Add custom measurement with name \fINAME\fP. This measurement pipes stdout of each command to \fICMD\fP, parses its output as a single real number and interprets it in seconds.
 .HP
 \fB\-\-custom\-x\fR \fINAME\fP \fIUNITS\fP \fICMD\fP
 .IP
-Add custom measurement with name \fINAME\fP. This measurement pipes each command's stdout to \fICMD\fP and interprets its output as a single real number and interprets it as \fIUNITS\fP.
+Add custom measurement with name \fINAME\fP. This measurement pipes stdout of each command to \fICMD\fP, interprets its output as a single real number and interprets it in \fIUNITS\fP.
 .IP
 \fIUNITS\fP can be one of the following:
 .RS
@@ -269,7 +269,7 @@ Do not use default measurements (which are "wall", "stime", "utime").
 .HP
 \fB\-\-param\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is a comma\-separated list of values. Parameter can be substituted in any command string, in strings supplied to \fB\-\-input\fR, \fB\-\-inputs\fR and \fB\-\-common\-args\fR options.
+\fISTR\fP is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is a comma\-separated list of parameter values. Parameter can be substituted in any command string, in strings supplied to \fB\-\-input\fR, \fB\-\-inputs\fR and \fB\-\-common\-args\fR options.
 .IP
 .RS
 Example:
@@ -280,7 +280,7 @@ Example:
 .HP
 \fB\-\-param-range\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name <i>, which is in range from <n> to <m> with step <s>. Value of <s> is optional, default is 2.
+\fISTR\fP is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name <i>, whose values are in range from <n> to <m> with step <s>. <s> is optional, default is 1.
 .IP
 .RS
 Example:
@@ -292,7 +292,7 @@ Example:
 .HP
 .B \-\-load\-csv
 .IP
-Load output from CSV files listed in command-line. CSV can either be generated by \fBcsbench\fR using \fB\-\-csv\fR option, or any external source. This option changes interpretation of \fBcommand...\fR from list of commands to benchmark to list of CSV file names.
+Load benchmark data from CSV files listed in command-line. CSV can either be generated by \fBcsbench\fR using \fB\-\-csv\fR option, or any external source. This option changes interpretation of \fBcommand...\fR from list of commands to benchmark to list of CSV file names.
 .IP
 Format of CSV files is the same as generated by csbench for "bench_raw_*.csv" files. First line should contain measurement names, all other lines should contain values for these measurements.
 .RS
@@ -340,11 +340,11 @@ Note that all options listed above in this man page are not usable in this mode.
 .HP
 \fB\-\-nrs\fR \fINUM\fP
 .IP
-Use \fINUM\fP resamples when computing 95% confidence interval using bootstrapping. Default value is 10000.
+Use \fINUM\fP resamples when computing 95% confidence intervals using bootstrapping. Default value is 10000.
 .HP
 \fB\-\-stat\-test\fR \fITEST\fP
 .IP
-Specify statistical test to use when calculating p-values. Possible values for \fITEST\fP are:
+Specify statistical test to be used to calculate p-values. Possible values for \fITEST\fP are:
 .RS
 .IP mwu
 Mann-Whitney U-test (default).
@@ -356,12 +356,12 @@ Note that none of these tests is generally better. Welch's t-test (with null hyp
 .HP
 \fB\-\-regr\fR
 .IP
-Perform linear regression of measurements in terms of variables.
+Perform linear regression of measurements in terms of benchmark parameters.
 .SS Output options
 .HP
 \fB\-\-baseline\fR \fINUM\fP
 .IP
-Use benchmark with number (starting from 1) \fINUM\fP as baseline in comparisons.
+Use benchmark with number \fINUM\fP (starting from 1) as baseline in comparisons.
 .HP
 \fB\-\-baseline-name\fR \fINAME\fP
 .IP
@@ -397,7 +397,7 @@ sort by speed if baseline is not set, keep original order otherwise (default).
 .IP command
 keep original order.
 .IP mean-time
-sort by speed.
+sort by mean time.
 .RE
 .HP
 \fB\-o\fR, \fB\-\-out\-dir\fR \fIDIR\fP
@@ -414,7 +414,7 @@ Save python sources used to generate plots to output directory.
 .HP
 .B \-\-html
 .IP
-Generate html report. Implies \fB\-\-plot\fR.
+Generate HTML report. Implies \fB\-\-plot\fR.
 .HP
 .B \-\-csv
 .IP
@@ -426,7 +426,7 @@ Export benchmark results to \fIFILE\fP in JSON format.
 .HP
 .B \-\-save\-bin
 .IP
-Save data in binary format. If \fB\-\-save\-bin\-name\fR option is not used, data is saved to file \fBdata.csbench\fR placed in directory specified with \fB\-\-out\-dir\fR. For additional information see \fB\-\-load\-bin\fR option.
+Save data in custom binary format. If \fB\-\-save\-bin\-name\fR option is not used, data is saved to file \fBdata.csbench\fR placed in directory specified with \fB\-\-out\-dir\fR. For additional information see \fB\-\-load\-bin\fR option.
 .HP
 \fB\-\-save\-bin\-name\fR \fINAME\fP
 .IP
@@ -448,6 +448,14 @@ Set redraw interval of progress bar to \fIUS\fP microseconds. Default is 100000 
 .B \-\-python\-output
 .IP
 Do not silence python output. This can be used for debugging.
+.HP
+.B \-\-help
+.IP
+Print help message.
+.HP
+.B \-\-version
+.IP
+Print version.
 .SH EXAMPLES
 .LP
 Basic benchmark of 'ls':

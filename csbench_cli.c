@@ -61,6 +61,9 @@
 #include <dirent.h>
 #include <unistd.h>
 
+#define OPT_ARR(...)                                                           \
+    (const char *[]) { __VA_ARGS__, NULL }
+
 static const struct meas BUILTIN_MEASUREMENTS[] = {
     /* MEAS_CUSTOM */ {"", NULL, {0}, 0, false, 0},
     /* MEAS_LOADED */ {"", NULL, {0}, 0, false, 0},
@@ -78,194 +81,236 @@ static const struct meas BUILTIN_MEASUREMENTS[] = {
     {"bm", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
 };
 
+static void print_tabulated(const char *s)
+{
+    int tab_width = 10;
+    int line_limit = 100;
+    const char *tab = "          ";
+
+    int current_len = tab_width;
+    const char *cursor = s;
+    const char *end_of_word = cursor;
+    printf("%s", tab);
+    for (;;) {
+        end_of_word = cursor + 1;
+        while (*end_of_word && !isspace(*end_of_word))
+            ++end_of_word;
+        int len = end_of_word - cursor;
+        if (!*end_of_word) {
+            if (current_len + len > line_limit) {
+                while (isspace(*cursor)) {
+                    ++cursor;
+                    --len;
+                }
+                printf("\n%s", tab);
+            }
+            printf("%.*s\n", len, cursor);
+            break;
+        }
+        if (current_len + len > line_limit) {
+            while (isspace(*cursor)) {
+                ++cursor;
+                --len;
+            }
+            printf("\n");
+            printf("%s", tab);
+            printf("%.*s", len, cursor);
+            current_len = tab_width + len;
+        } else {
+            printf("%.*s", len, cursor);
+            current_len += len;
+        }
+        cursor = end_of_word;
+    }
+}
+
+static void print_opt(const char *opt, const char **vars, const char *desc)
+{
+    printf("  ");
+    printf_colored(ANSI_BOLD, "%s", opt);
+
+    for (; *vars != NULL; ++vars) {
+        printf(" <%s>", *vars);
+    }
+    printf("\n");
+
+    print_tabulated(desc);
+}
+
 static void print_help_and_exit(int rc)
 {
-    printf( //
-        "A commnd line benchmarking tool\n"
-        "\n"
-        "Usage: csbench [subcommand] [OPTIONS] <command>...\n"
-        "\n"
-        "Arguments:\n"
-        "          If first argument is one of the following: 'load', then "
-        "consider it a subcommand name. 'load' means not to run benchmarks and "
-        "instead load raw benchmark results from csv files. Each file "
-        "correspons to a single benchmark, and has the following structure: "
-        "the first line optionally contains measurement names, all other lines "
-        "contain double values corresponding to measurements.\n"
-        "  <command>...\n"
-        "          The command to benchmark. Can be a shell command line, like "
+    printf("A batteries included command-line benchmarking tool\n");
+    printf("\n");
+    printf_colored(ANSI_BOLD_UNDERLINE, "Usage:");
+    printf_colored(ANSI_BOLD, " csbench");
+    printf(" [OPTIONS] <command>...\n");
+    printf("\n");
+    printf_colored(ANSI_BOLD_UNDERLINE, "Arguments:\n");
+    printf("  <command>...\n");
+    print_tabulated(
+        "The command to benchmark. Can be a shell command line, like "
         "'ls $(pwd) && echo 1', or a direct executable invocation, like 'sleep "
         "0.5'. Former is not available when --shell none is specified. Can "
         "contain parameters in the form 'sleep {n}', see --param-* family of "
         "options. If multiple commands are given, their comparison will be "
-        "performed.\n "
-        "\n"
-        "Options:\n");
-    printf( //
-        "  -T, --time-limit <t>\n"
-        "          Run each benchmark for at least <t> seconds. Affected by "
-        "--min-runs and --max-runs. Benchmark can be suspended during "
-        "execution using round settings.\n"
-        "  -R, --runs <n>\n"
-        "          Perform exactly <n> benchmark runs of each command. With "
-        "this option set options --time-limit, --min-runs and --max-runs are "
-        "ignored.\n"
-        "  --min-runs <n>\n"
-        "          Run each benchmark at least <n> times. Can be used with "
-        "--time-limit and --max-runs.\n"
-        "  --max-runs <n>\n"
-        "          Run each benchmark at most <n> times. Can be used with "
-        "--time-limit and --min-runs.\n");
-    printf( //
-        "  -W, --warmup <t>\n"
-        "          Perform warmup for at least <t> seconds without recording "
-        "results before each round. Affected by --min-warmup-runs and "
-        "--max-warmup-runs.\n"
-        "  --warmup-runs <n>\n"
-        "          Perform exactly <n> warmup runs. With this option set "
-        "options --warmup, --min-warmup-runs and --max-warmup-runs are "
-        "ignored.\n"
-        "  --min-warmup-runs <n>\n"
-        "          During warmup run command at least <n> times. Can be used "
-        "with --warmup and --max-warmup-runs.\n"
-        "  --max-warmup-runs <n>\n"
-        "          During warmup run command at most <n> times. Can be used "
-        "with --warmup and --min-warmup-runs.\n"
-        "  --no-warmup\n"
-        "          Disable warmup.\n");
-    printf( //
-        "  --round-time <t>\n"
-        "          Benchmark will be run at last <t> seconds in a row. After "
-        "that it will be suspended and other benchmark will be executed. "
-        "Affected by --min-round-runs and --max-round-runs.\n"
-        "  --round-runs <n>\n"
-        "          In a single round perform exactly <n> runs. With this "
-        "option set options --round-time, --min-round-runs and "
-        "--max-round-runs are ignored.\n"
-        "  --min-round-runs <n>\n"
-        "          In a single round perform at least <n> runs. Can be used "
-        "with --round-time and --max-round-time.\n"
-        "  --max-round-runs <n>\n"
-        "          In a single round perform at most <n> runs. Can be used "
-        "with --round-time and --min-round-time.\n"
-        "  --no-rounds\n"
-        "          Do not split execution into rounds.\n");
-    printf( //
-        "  -P, --prepare <cmd>\n"
-        "          Execute <cmd> in default shell before each benchmark run.\n"
-        "  --nrs <n>\n"
-        "          Specify number of resamples used in bootstrapping. Default "
-        "value is 10000.\n"
-        "  --common-args <s>\n"
-        "          Append string <s> to each command. Useful when executing "
-        "different versions of same executable with same flags.\n");
-    printf( //
-        "  -S, --shell <cmd>\n"
-        "          Specify shell used for executing commands. Can be both "
-        "shell name, like 'bash', or command line like 'bash --norc'. Either "
-        "way, '-c' and benchmarked command are appended to argument list. "
-        "<cmd> can also be none specifying that commands should be executed "
-        "without a shell directly with exec.\n"
-        "  --output <where>\n"
-        "          Specify what to do with benchmarked commands' stdout and "
-        "stdder. Can be set to 'inherit' - output will be printed to terminal, "
-        "or 'none' - output will be piped to /dev/null. The latter is the "
-        "default option.\n"
-        "  --input <where>\n"
-        "          Specify how each command should receive its input.\n"
-        "  --inputs <str>\n"
-        "          Use <str> as input for each benchmark (it is piped to "
-        "stdin).\n"
-        "  --custom <name>\n"
-        "          Add custom measurement with <name>. Attempts to parse real "
-        "number from each command's stdout and interprets it in seconds.\n"
-        "  --custom-t <name> <cmd>\n"
-        "          Add custom measurement with <name>. Pipes each commands "
-        "stdout to <cmd> and tries to parse real value from its output and "
-        "interprets it in seconds. This can be used to extract a number, for "
-        "example, using grep. Alias for --custom-x <name> 's' <cmd>.\n");
-    printf( //
-        "  --custom-x <name> <units> <cmd>\n"
-        "          Add custom measurement with <name>. Pipes each commands "
-        "stdout to <cmd> and tries to parse real value from its output and "
-        "interprets it in <units>. <units> can be one of the time units 's', "
-        "'ms','us', 'ns', or memory units 'b', 'kb', 'mb', 'gb', in which case "
-        "results will pretty printed. If <units> is 'none', no units are "
-        "printed. Alternatively <units> can be any string.\n"
-        "  --param-range <i>/<n>/<m>[/<s>]\n"
-        "          Add parameter with name <i> running in range from <n> to "
-        "<m> "
-        "with step <s>. <s> is optional, default is 1. Can be used from "
-        "command in the form '{<i>}'.\n"
-        "  --param <i>/v[,...]\n"
-        "          Add parameter with name <i> running values from "
-        "comma-separated list <v>.\n"
-        "  -j, --jobs <n>\n"
-        "          Execute benchmarks in parallel with <n> threads. Default "
-        "option is to execute all benchmarks sequentially.\n"
-        "  --json <f>\n"
-        "          Export benchmark results without analysis as json.\n"
-        "  -o, --out-dir <d>\n"
-        "          Specify directory where plots, html report and other "
-        "analysis results will be placed. Default is '.csbench' in current "
-        "directory.\n");
-    printf( //
-        "  --plot\n"
-        "          Generate plots. For each benchmark KDE is generated in two "
-        "variants. For each parameter (--param-range and --param) values are "
-        "plotted against mean time. Single violin plot is produced if multiple "
-        "commands are specified. For each measurement (--custom and others) "
-        "its own group of plots is generated. Also readme.md file is "
-        "generated, which helps to decipher plot file names.\n"
-        "  --plot-src\n"
-        "          Next to each plot file place python script used to produce "
-        "it. Can be used to quickly patch up plots for presentation.\n"
-        "  --html\n"
-        "          Generate html report. Implies --plot.\n"
-        "  --no-default-meas\n"
-        "          Exclude wall clock information from command line output, "
-        "plots, html report. Commonly used with custom measurements (--custom "
-        "and others) when wall clock information is excessive.\n"
-        "  -i, --ignore-failure\n"
-        "          Accept commands with non-zero exit code. Default behavior "
-        "is to abort benchmarking.\n"
-        "  --meas <opt>[,...]\n"
-        "          List of 'struct rusage' fields or performance counters "
-        "(PMC) to include to analysis. Default (if --no-default-meas is not "
-        "specified) "
-        "are cpu time (stime and utime). Possible rusage values are 'stime', "
-        "'utime', 'maxrss', 'minflt', 'majflt', 'nvcsw', 'nivcsw'. See your "
-        "system's 'man 2 getrusage' for additional information. Possible PMC "
-        "values are 'cycles', 'instructions', 'branches', 'branch-misses'.\n"
-        "  --color <when>\n"
-        "          Can be one of the 'never', 'always', 'auto', similar to GNU "
-        "ls.\n"
-        "  --progress-bar <when>\n"
-        "          Can be one of the 'never', 'always', 'auto', works similar "
-        "to --color option.\n"
-        "  --regr\n"
-        "          Do linear regression based on benchmark parameters.\n"
-        "  --baseline <n>\n"
-        "          Specify benchmark <n>, from 1 to <benchmark count> to serve "
-        "as baseline in comparison. If this option is not set, baseline will "
-        "be chosen automatically.\n");
-    printf( //
-        "  --python-output\n"
-        "          Do not silence python output. Intended for evelopers, as "
-        "users should not have to see python output as it should always work "
-        "correctly.\n"
-        "  --rename <n> <name>\n"
-        "          Rename benchmark with number <n> to <name>. This name will "
-        "be used in reports instead of default one, which is command "
-        "name. \n"
-        "   -s, --simple\n"
-        "          Preset to run benchmarks in parallel for one second without "
-        "warmup. Useful for quickly checking something.\n");
-    printf( //
-        "  --help\n"
-        "          Print help.\n"
-        "  --version\n"
-        "          Print version.\n");
+        "performed.");
+    printf("\n");
+    printf_colored(ANSI_BOLD_UNDERLINE, "Options:\n");
+    print_opt("-R, --runs", OPT_ARR("NUM"),
+              "Run each benchmark exactly <NUM> times in total (not "
+              "including warmup).");
+    print_opt("-T, --time-limit", OPT_ARR("NUM"),
+              "Run each benchmark for at least <NUM> seconds in total.");
+    print_opt("--min-runs", OPT_ARR("NUM"),
+              "Run each benchmark at least <NUM> times.");
+    print_opt("--max-runs", OPT_ARR("NUM"),
+              "Run each benchmark at most <NUM> times.");
+    print_opt("--warmup-runs", OPT_ARR("NUM"),
+              "Perform exactly <NUM> warmup runs.");
+    print_opt("-W, --warmup", OPT_ARR("NUM"),
+              "Perform warmup for at least <NUM> seconds.");
+    print_opt("--min-warmup-runs", OPT_ARR("NUM"),
+              "Perform at least <NUM> warmup runs.");
+    print_opt("--max-warmup-runs", OPT_ARR("NUM"),
+              "Perform at most <NUM> warmup runs.");
+    print_opt("--no-warmup", OPT_ARR(NULL), "Disable warmup.");
+    print_opt("--round-runs", OPT_ARR("NUM"),
+              "In a single round perform exactly <NUM> warmup runs.");
+    print_opt(
+        "--round-time", OPT_ARR("NUM"),
+        "Each benchmark will will be run for at least <NUM> seconds in row.");
+    print_opt("--min-round-runs", OPT_ARR("NUM"),
+              "In a single round perform at least <NUM> warmup runs.");
+    print_opt("--max-round-runs", OPT_ARR("NUM"),
+              "In a single round perform at most <NUM> warmup runs.");
+    print_opt("--no-round", OPT_ARR(NULL),
+              "Do not split execution into rounds.");
+    print_opt("--common-args", OPT_ARR("STR"),
+              "Append <STR> to each benchmark command.");
+    print_opt(
+        "-S, --shell", OPT_ARR("SHELL"),
+        "Set the shell to be used for executing benchmark commands. Can be "
+        "both name of shell executable, like \"bash\", or a command like "
+        "\"bash --norc\". Either way, arguments \"-c\" and benchmark command "
+        "string are appended to shell argument list. Alternatively, "
+        "<SHELL> can be set to \"none\". This way commands will be "
+        "executed directly using execve(2) system call, avoiding shell process "
+        "startup time overhead.");
+    print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none");
+    print_opt("-P, --prepare", OPT_ARR("CMD"),
+              "Execute <CMD> before each benchmark run.");
+    print_opt("-j, --jobs", OPT_ARR("NUM"),
+              "Execute benchmarks in parallel using <NUM> system threads "
+              "(default: 1).");
+    print_opt(
+        "-i, --ignore-failure", OPT_ARR(NULL),
+        "Do not abort benchmarking when command finishes with non-zero exit "
+        "code.");
+    print_opt("-s, --simple", OPT_ARR(NULL),
+              "Preset to run benchmark using all available processors for 1 "
+              "second without warmup and rounds.");
+    print_opt(
+        "--input", OPT_ARR("FILE"),
+        "Specify file that will be used as input for all benchmark commands.");
+    print_opt("--inputs", OPT_ARR("STR"),
+              "Specify string that will be used as input for all benchmark "
+              "commands.");
+    print_opt("--inputd", OPT_ARR("DIR"),
+              "Specify directory, all files from which will be used as input "
+              "for all benchmark commands.");
+    print_opt("--no-input", OPT_ARR(NULL), "Disable input (default).");
+    print_opt("--output", OPT_ARR("KIND"),
+              "Control where stdout and stderr of benchmark commands is "
+              "redirected. <KIND> can be \"null\", or \"inherit\"");
+    print_opt("--meas", OPT_ARR("MEAS"),
+              "Specify list of built-in measurement to collect. <MEAS> is a "
+              "comma-separated list of measurement names, which can be of the "
+              "following: \"wall\", \"stime\", \"utime\", \"maxrss\", "
+              "\"minflt\", \"majflt\", \"nvcsw\", \"nivcsw\", \"cycles\", "
+              "\"branches\", \"branch-misses\"");
+    print_opt("--custom", OPT_ARR("NAME"),
+              "Add custom measurement with name <NAME>. This measurement "
+              "parses stdout of each command as a single real number and "
+              "interprets it in seconds.");
+    print_opt("--custom-t", OPT_ARR("NAME", "CMD"),
+              "Add custom measurement with name <NAME>, This measurement pipes "
+              "stdout of each command to <CMD>, parses its output as a single "
+              "real number and interprets it in seconds.");
+    print_opt("--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
+              "Add custom measurement with name <NAME>, This measurement pipes "
+              "stdout of each command to <CMD>, parses its output as a single "
+              "real number and interprets it in <UNITS>.");
+    print_opt("--no-default-meas", OPT_ARR(NULL),
+              "Do not use default measurements.");
+    print_opt("--param", OPT_ARR("STR"),
+              "<STR> is of the format <i>/<v>. Add benchmark parameter with "
+              "name <i>. <v> is a comma-separated list of parameter values.");
+    print_opt("--param-range", OPT_ARR("STR"),
+              "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark "
+              "parameter with name <i>, whose values are in range from <n> to "
+              "<m> with step <s>. <s> is optional, default is 1.");
+    print_opt("--load-csv", OPT_ARR(NULL),
+              "Load benchmark data from CSV files listed in command-line. "
+              "<command>... is interpreted as a list of CSV files.");
+    print_opt("--load-bin", OPT_ARR(NULL),
+              "Load benchmark data from files in custom binary format. "
+              "<command>... is interpreted as a list of files, or directories "
+              "which contain file \"data.csbench\".");
+    print_opt("--nrs", OPT_ARR("NUM"),
+              "Use <NUM> resamples when computing confidence intervals using "
+              "bootstrapping.");
+    print_opt("--stat-test", OPT_ARR("TEST"),
+              "Specify statistical test to be used to calculate p-values. "
+              "Possible values for <TEST> are \"mwu\" and \"t-test\". Default "
+              "is \"mwu\".");
+    print_opt("--regr", OPT_ARR(NULL),
+              "Perform linear regression of measurements in terms of benchmark "
+              "parameters.");
+    print_opt("--baseline", OPT_ARR("NUM"),
+              "Use benchmark with number <NUM> (starting from 1) as baseline "
+              "in comparisons.");
+    print_opt("--baseline-name", OPT_ARR("NAME"),
+              "Use benchmark with name <NAME> as baseline in comparisons.");
+    print_opt(
+        "--rename", OPT_ARR("NUM", "NAME"),
+        "Rename benchmark with number <NUM> (starting from 1) to <NAME>.");
+    print_opt("--rename-name", OPT_ARR("OLD_NAME", "NAME"),
+              "Rename benchmark with name <OLD_NAME> to <NAME>.");
+    print_opt("--rename-all", OPT_ARR("NAMES"),
+              "Rename all benchmarks. <NAMES> is a comma-separated list of new "
+              "names.");
+    print_opt("--sort", OPT_ARR("METHOD"),
+              "Specify order of benchmarks in reports. Possible values for "
+              "<METHOD> are: \"auto\" - sort by speed if baseline is not set, "
+              "keep original order otherwise; \"command\" - keep original "
+              "order, \"mean-time\" - sort by mean time (default: \"auto\").");
+    print_opt("-o, --out-dir", OPT_ARR("DIR"),
+              "Place all outputs to directory <DIR> (default: \".csbench\").");
+    print_opt("--plot", OPT_ARR(NULL), "Generate plots.");
+    print_opt("--plot-src", OPT_ARR(NULL),
+              "Save python sources used to generate plots.");
+    print_opt("--html", OPT_ARR(NULL), "Generate HTML report.");
+    print_opt("--csv", OPT_ARR(NULL), "Save benchmark results to CSV files.");
+    print_opt("--json", OPT_ARR("FILE"),
+              "Export benchmark results to <FILE> in JSON format.");
+    print_opt("--save-bin", OPT_ARR(NULL),
+              "Save data in custom binary format. It can be later loaded with "
+              "--load-bin.");
+    print_opt("--save-bin-name", OPT_ARR("NAME"),
+              "Override file that --save-bin will save to. <NAME> is new file "
+              "name (default: \".csbench/data.csbench\").");
+    print_opt("--color", OPT_ARR("WHEN"),
+              "Use colored output. Possible values for <WHEN> are \"never\", "
+              "\"auto\", \"always\" (default: \"auto\")");
+    print_opt("--progress-bar", OPT_ARR("WHEN"),
+              "Display dynamically updated progress bar when running "
+              "benchmarks. Possible values for <WHEN> are \"never\", "
+              "\"auto\", \"always\" (default: \"auto\").");
+    print_opt("--progress-bar-interval", OPT_ARR("US"),
+              "Set redraw interval of progress bar to <US> microseconds "
+              "(default: 100000).");
+    print_opt("--help", OPT_ARR(NULL), "Print help message.");
+    print_opt("--version", OPT_ARR(NULL), "Print version.");
     exit(rc);
 }
 
@@ -599,9 +644,6 @@ static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
     }
     return false;
 }
-
-#define OPT_ARR(...)                                                           \
-    (const char *[]) { __VA_ARGS__, NULL }
 
 void parse_cli_args(int argc, char **argv, struct settings *settings)
 {

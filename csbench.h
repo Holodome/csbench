@@ -490,6 +490,7 @@ enum statistical_test {
 #define ANSI_BOLD_BLUE "34;1"
 #define ANSI_BOLD_MAGENTA "35;1"
 #define ANSI_BOLD_CYAN "36;1"
+#define ANSI_BOLD_UNDERLINE "1;4"
 
 #define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
