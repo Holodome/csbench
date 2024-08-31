@@ -89,7 +89,7 @@ static void print_tabulated(const char *s)
 
     int current_len = tab_width;
     const char *cursor = s;
-    const char *end_of_word = cursor;
+    const char *end_of_word;
     printf("%s", tab);
     for (;;) {
         end_of_word = cursor + 1;

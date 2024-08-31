@@ -232,7 +232,7 @@ static cssort_compar(val_bench_sort_cmp)
 
 static void calculate_fastest_bench_per_value(struct meas_analysis *al)
 {
-    struct analysis *base = al->base;
+    const struct analysis *base = al->base;
     size_t grp_count = base->group_count;
     if (grp_count == 0)
         return;
@@ -478,7 +478,7 @@ static void calculate_per_value_ref_speed(const struct meas_analysis *al,
     dst->err = dst->point / n * sqrt(st_dev_accum);
 }
 
-static void calculate_per_value_speedup(struct meas_analysis *al,
+static void calculate_per_value_speedup(const struct meas_analysis *al,
                                         size_t reference_idx, size_t grp_idx,
                                         struct speedup *sp)
 {
@@ -565,7 +565,7 @@ static void calculate_groups_by_speed(struct meas_analysis *al)
 
 static void calculate_average_per_value_speedups(struct meas_analysis *al)
 {
-    struct analysis *base = al->base;
+    const struct analysis *base = al->base;
     if (base->group_count == 1 || !base->var)
         return;
 
@@ -727,7 +727,7 @@ static void init_analysis(const struct bench_data *data, struct analysis *al)
 
 static void free_bench_meas_analysis(struct meas_analysis *al)
 {
-    struct analysis *base = al->base;
+    const struct analysis *base = al->base;
     free(al->benches);
     free(al->bench_by_mean_time);
     if (al->val_benches_by_mean_time) {

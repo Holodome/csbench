@@ -1133,10 +1133,9 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
         size_t len = printf("%s=%s:", var->name, value);
         for (; len < max_var_desc_len; ++len)
             printf(" ");
-        if (base->group_count > 2)
-            printf("\n");
 
         if (base->group_count > 2) {
+            printf("\n");
             size_t fastest_idx = al->val_benches_by_mean_time[val_idx][0];
             printf_colored(ANSI_BLUE, "  fastest");
             printf(" is ");

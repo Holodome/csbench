@@ -344,9 +344,8 @@ static void apply_output_policy(enum output_kind policy, int err_pipe_end)
     }
 }
 
-static void exec_cmd_child(const struct bench_params *params,
-                           struct perf_cnt *pmc, bool is_warmup,
-                           int err_pipe_end)
+static void exec_cmd_child(const struct bench_params *params, bool use_pmc,
+                           bool is_warmup, int err_pipe_end)
 {
     apply_input_policy(params->stdin_fd, err_pipe_end);
     if (is_warmup) {
@@ -367,7 +366,7 @@ static void exec_cmd_child(const struct bench_params *params,
     } else {
         apply_output_policy(params->output, err_pipe_end);
     }
-    if (pmc != NULL) {
+    if (use_pmc) {
         sigset_t set;
         sigemptyset(&set);
         sigaddset(&set, SIGUSR1);
@@ -387,7 +386,7 @@ static void exec_cmd_child(const struct bench_params *params,
 
 static bool exec_cmd_internal(const struct bench_params *params,
                               struct rusage *rusage, struct perf_cnt *pmc,
-                              bool is_warmup, int err_pipe[2], int *rc)
+                              bool is_warmup, const int err_pipe[2], int *rc)
 {
     bool success = true;
 
@@ -398,7 +397,8 @@ static bool exec_cmd_internal(const struct bench_params *params,
     }
 
     if (pid == 0)
-        exec_cmd_child(params, pmc, is_warmup, err_pipe[1]);
+        exec_cmd_child(params, pmc != NULL ? true : false, is_warmup,
+                       err_pipe[1]);
 
     if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
         success = false;
@@ -444,7 +444,7 @@ static bool exec_cmd(const struct bench_params *params, struct rusage *rusage,
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
-        return -1;
+        return false;
     bool success =
         exec_cmd_internal(params, rusage, pmc, is_warmup, err_pipe, rc);
     close(err_pipe[0]);

@@ -710,7 +710,7 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
     }
     if (ret == 1 && pfd.revents & POLLIN) {
         char buf[4096];
-        int ret = read(read_end, buf, sizeof(buf));
+        ret = read(read_end, buf, sizeof(buf));
         if (ret == -1) {
             csperror("read");
             return false;
@@ -726,7 +726,6 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
 static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
                                    int stderr_fd, int err_pipe[2], pid_t *pidp)
 {
-    char *exec = "/bin/sh";
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
 
@@ -760,7 +759,7 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
             close(fd);
         if (write(err_pipe[1], "", 1) < 0)
             _exit(-1);
-        if (execv(exec, argv) == -1) {
+        if (execv("/bin/sh", argv) == -1) {
             csfdperror(err_pipe[1], "execv");
             _exit(-1);
         }
@@ -775,7 +774,7 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
-        return -1;
+        return false;
     bool success = shell_execute_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
                                           err_pipe, pid);
     close(err_pipe[0]);
@@ -786,7 +785,7 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
 bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
                             int stderr_fd)
 {
-    pid_t pid;
+    pid_t pid = 0;
     bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
     if (success)
         success = process_wait_finished_correctly(pid, false);
@@ -1052,7 +1051,7 @@ void csfdperror(int fd, const char *msg)
 {
     int err = errno;
     char errbuf[4096];
-    char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
+    const char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
     char buf[4096];
     int len = snprintf(buf, sizeof(buf), "%s: %s", msg, err_msg);
     if (write(fd, buf, len + 1) < 0)
