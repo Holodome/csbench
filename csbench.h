@@ -298,25 +298,35 @@ struct point_err_est {
     double err;
 };
 
+struct speedup {
+    struct point_err_est est;
+    struct point_err_est inv_est;
+    bool is_slower;
+};
+
 // Analysis for a single measurement kind for all benchmarks. We don't do
 // inter-measurement analysis, so this is more or less self-contained.
 struct meas_analysis {
     // Make it easy to pass this structure around as base is always needed
     struct analysis *base;
     const struct meas *meas;
+    size_t meas_idx;
     // Array of bench_analysis->meas[meas_idx]
     const struct distr **benches; // [bench_count]
-    // Indexes of commands sorted by their time
-    size_t *fastest; // [bench_count]
+    // Indexes of commands sorted by their time (first is the fastest)
+    size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
-    size_t *fastest_val;                   // [val_count]
+    size_t **val_benches_by_mean_time;     // [val_count][group_count]
     struct group_analysis *group_analyses; // [group_count]
     // Comparison
-    struct point_err_est *speedup;      // [bench_count]
-    struct point_err_est **var_speedup; // [val_count][group_count]
-    // Geometric mean of speedup of each benchmark group when baseline is
-    // specified
-    struct point_err_est *group_baseline_speedup; // [group_count]
+    size_t bench_speedups_reference;
+    struct speedup *bench_speedups;        // [bench_count]
+    size_t *val_bench_speedups_references; // [val_count]
+    struct speedup **val_bench_speedups;   // [val_count][group_count]
+    // Group indexes sorted by relative speed
+    size_t *groups_by_speed; // [group_count]
+    size_t groups_speedup_reference;
+    struct speedup *group_speedups; // [group_count]
     // P-values in reference to either fastests command or baseline
     double *p_values;      // [bench_count]
     double **var_p_values; // [val_count][group_count]
@@ -330,7 +340,7 @@ struct meas_analysis {
 struct analysis {
     // This pointer is const because respective memory is owned by 'struct
     // run_info' instance'
-    const struct bench_var_group *var_groups; // [group_count]
+    const struct bench_var_group *groups; // [group_count]
     const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
@@ -386,19 +396,19 @@ struct output_anchor {
 // when variable is not used, otherwise it refers to benchmark group.
 struct rename_entry {
     size_t n;
+    const char *old_name;
     const char *name;
 };
 
 // This structure contains all information
 // supplied by user prior to benchmark start.
-struct cli_settings {
+struct settings {
     const char **args;
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
     bool has_var;
     struct bench_var var;
-    int baseline;
     struct rename_entry *rename_list;
 };
 
@@ -417,6 +427,24 @@ struct bench_binary_data_storage {
     struct bench_var_group *groups; // [group_count]
 };
 
+// Decide how output should be sorted
+enum sort_mode {
+    // This is sentinel value. We expand it to one of the following values
+    // during initialization
+    SORT_DEFAULT,
+    // --sort=command
+    SORT_RAW,
+    // --sort=mean-time
+    SORT_SPEED,
+    SORT_BASELINE_RAW,
+    SORT_BASELINE_SPEED,
+};
+
+enum statistical_test {
+    STAT_TEST_MWU,
+    STAT_TEST_TTEST,
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -429,7 +457,8 @@ struct bench_binary_data_storage {
     (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
 #define sb_reserve(_a, _n)                                                     \
     ((_a) != NULL                                                              \
-         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n)-sb_capacity(_a)) : 0)  \
+         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a))     \
+                                   : 0)                                        \
          : sb_grow((_a), (_n)))
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 #define sb_ensure(_a, _n)                                                      \
@@ -461,6 +490,7 @@ struct bench_binary_data_storage {
 #define ANSI_BOLD_BLUE "34;1"
 #define ANSI_BOLD_MAGENTA "35;1"
 #define ANSI_BOLD_CYAN "36;1"
+#define ANSI_BOLD_UNDERLINE "1;4"
 
 #define atomic_load(_at) __atomic_load_n(_at, __ATOMIC_SEQ_CST)
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
@@ -474,21 +504,25 @@ struct bench_binary_data_storage {
 extern __thread uint64_t g_rng_state;
 extern bool g_colored_output;
 extern bool g_ignore_failure;
-extern int g_threads;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
 extern bool g_plot_src;
-// Number of resamples to use in bootstrapping when estimating distributions.
-extern int g_nresamp;
 extern bool g_use_perf;
 extern bool g_progress_bar;
 // Use linear regression to estimate slope when doing parameterized benchmark.
 extern bool g_regr;
 extern bool g_python_output;
 extern bool g_save_bin;
+extern bool g_rename_all_used;
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
+extern int g_progress_bar_interval_us;
+extern int g_threads;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
+extern enum sort_mode g_sort_mode;
+extern enum statistical_test g_stat_test;
 extern enum app_mode g_mode;
 extern struct bench_stop_policy g_warmup_stop;
 extern struct bench_stop_policy g_bench_stop;
@@ -500,6 +534,8 @@ extern const char *g_shell;
 extern const char *g_common_argstring;
 extern const char *g_prepare;
 extern const char *g_inputd;
+extern const char *g_override_bin_name;
+extern const char *g_baseline_name;
 
 void free_bench_data(struct bench_data *data);
 
@@ -507,8 +543,8 @@ void free_bench_data(struct bench_data *data);
 // csbench_cli.c
 //
 
-void parse_cli_args(int argc, char **argv, struct cli_settings *settings);
-void free_cli_settings(struct cli_settings *settings);
+void parse_cli_args(int argc, char **argv, struct settings *settings);
+void free_settings(struct settings *settings);
 
 //
 // csbench_serialize.c
@@ -611,15 +647,21 @@ const char *big_o_str(enum big_o complexity);
 void estimate_distr(const double *data, size_t count, size_t nresamp,
                     struct distr *distr);
 
+// Statistical testing routines. Return p-values.
+// Welch's t-test
+double ttest(const double *a, size_t n1, const double *b, size_t n2,
+             size_t nresamp);
+// Mann–Whitney U test
 double mwu(const double *a, size_t n1, const double *b, size_t n2);
 
 double ols_approx(const struct ols_regress *regress, double n);
 void ols(const double *x, const double *y, size_t count,
          struct ols_regress *result);
 
+// Fisher–Yates shuffle algorithm
 void shuffle(size_t *arr, size_t count);
 
-bool process_wait_finished_correctly(pid_t pid);
+bool process_wait_finished_correctly(pid_t pid, bool silent);
 bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
                    pid_t *pid);
 bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
@@ -643,7 +685,8 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param,
 
 void init_rng_state(void);
 
-static inline uint32_t pcg32_fast(uint64_t *state) {
+static inline uint32_t pcg32_fast(uint64_t *state)
+{
     uint64_t x = *state;
     unsigned count = (unsigned)(x >> 61);
     *state = x * UINT64_C(6364136223846793005);
@@ -667,5 +710,18 @@ const char *csmkstr(const char *str, size_t len);
 const char *csstripend(const char *str);
 char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
+
+#ifdef __linux__
+#define cssort_compar(_name)                                                   \
+    int _name(const void *ap, const void *bp, void *statep)
+#elif defined(__APPLE__)
+#define cssort_compar(_name)                                                   \
+    int _name(void *statep, const void *ap, const void *bp)
+#else
+#error
+#endif
+typedef cssort_compar(cssort_compar_fn);
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
+                void *arg);
 
 #endif // CSBENCH_H

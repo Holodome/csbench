@@ -80,7 +80,8 @@ struct csbench_binary_header {
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
 
-static bool load_meas_names_csv(const char *file, const char ***meas_names) {
+static bool load_meas_names_csv(const char *file, const char ***meas_names)
+{
     bool success = false;
     FILE *f = fopen(file, "r");
     if (f == NULL)
@@ -108,7 +109,8 @@ out:
 
 static bool load_meas_csv_file(const struct meas *user_specified_meas,
                                size_t user_specified_meas_count,
-                               const char *file, struct meas **meas_list) {
+                               const char *file, struct meas **meas_list)
+{
     bool success = false;
     const char **file_meas_names = NULL;
     if (!load_meas_names_csv(file, &file_meas_names)) {
@@ -170,7 +172,8 @@ out:
 
 bool load_meas_csv(const struct meas *user_specified_meas,
                    size_t user_specified_meas_count, const char **file_list,
-                   struct meas **meas_list) {
+                   struct meas **meas_list)
+{
     for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
         const char *file = file_list[file_idx];
         if (!load_meas_csv_file(user_specified_meas, user_specified_meas_count,
@@ -181,7 +184,8 @@ bool load_meas_csv(const struct meas *user_specified_meas,
 }
 
 static bool load_bench_run_meas_csv_line(const char *str, double **meas,
-                                         size_t meas_count) {
+                                         size_t meas_count)
+{
     size_t cursor = 0;
     while (cursor < meas_count) {
         char *end = NULL;
@@ -200,7 +204,8 @@ static bool load_bench_run_meas_csv_line(const char *str, double **meas,
     return cursor == meas_count ? true : false;
 }
 
-static bool load_bench_result_csv(const char *file, struct bench *bench) {
+static bool load_bench_result_csv(const char *file, struct bench *bench)
+{
     bool success = false;
     FILE *f = fopen(file, "r");
     if (f == NULL)
@@ -237,7 +242,8 @@ out:
     return success;
 }
 
-bool load_bench_data_csv(const char **files, struct bench_data *data) {
+bool load_bench_data_csv(const char **files, struct bench_data *data)
+{
     for (size_t i = 0; i < data->bench_count; ++i) {
         struct bench *bench = data->benches + i;
         const char *file = files[i];
@@ -273,7 +279,8 @@ bool load_bench_data_csv(const char **files, struct bench_data *data) {
         }                                                                      \
     } while (0)
 
-bool save_bench_data_binary(const struct bench_data *data, FILE *f) {
+bool save_bench_data_binary(const struct bench_data *data, FILE *f)
+{
     struct csbench_binary_header header = {0};
     header.magic = CSBENCH_MAGIC;
     header.version = 1;
@@ -424,9 +431,11 @@ err:
         (_dst) = (const char *)CSUNIQIFY(res);                                 \
     } while (0)
 
-static bool load_bench_data_binary_file_internal(
-    FILE *f, const char *filename, struct bench_data *data,
-    struct bench_binary_data_storage *storage) {
+static bool
+load_bench_data_binary_file_internal(FILE *f, const char *filename,
+                                     struct bench_data *data,
+                                     struct bench_binary_data_storage *storage)
+{
     memset(storage, 0, sizeof(*storage));
     memset(data, 0, sizeof(*data));
 
@@ -589,7 +598,8 @@ err_raw:
 
 static bool
 load_bench_data_binary_file(const char *filename, struct bench_data *data,
-                            struct bench_binary_data_storage *storage) {
+                            struct bench_binary_data_storage *storage)
+{
     FILE *f = fopen(filename, "rb");
     if (f == NULL) {
         csfmtperror("failed to open benchmark data file '%s'", filename);
@@ -601,7 +611,8 @@ load_bench_data_binary_file(const char *filename, struct bench_data *data,
     return success;
 }
 
-void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
+void free_bench_binary_data_storage(struct bench_binary_data_storage *storage)
+{
     if (storage->has_var) {
         sb_free(storage->var.values);
     }
@@ -615,7 +626,8 @@ void free_bench_binary_data_storage(struct bench_binary_data_storage *storage) {
     }
 }
 
-static bool meas_match(const struct meas *a, const struct meas *b) {
+static bool meas_match(const struct meas *a, const struct meas *b)
+{
     if (strcmp(a->name, b->name) != 0)
         return false;
     if ((a->cmd != NULL) != (b->cmd != NULL))
@@ -633,7 +645,8 @@ static bool meas_match(const struct meas *a, const struct meas *b) {
     return true;
 }
 
-static bool vars_match(const struct bench_var *a, const struct bench_var *b) {
+static bool vars_match(const struct bench_var *a, const struct bench_var *b)
+{
     if (strcmp(a->name, b->name) != 0)
         return false;
     if (a->value_count != b->value_count)
@@ -645,7 +658,8 @@ static bool vars_match(const struct bench_var *a, const struct bench_var *b) {
 }
 
 static bool bench_data_match(const struct bench_data *a,
-                             const struct bench_data *b) {
+                             const struct bench_data *b)
+{
     if (a->meas_count != b->meas_count)
         return false;
     for (size_t j = 0; j < a->meas_count; ++j)
@@ -661,7 +675,8 @@ static bool bench_data_match(const struct bench_data *a,
 static bool merge_bench_data(struct bench_data *src_datas,
                              struct bench_binary_data_storage *src_storages,
                              size_t src_count, struct bench_data *data,
-                             struct bench_binary_data_storage *storage) {
+                             struct bench_binary_data_storage *storage)
+{
     assert(src_count >= 2);
     size_t total_bench_count = src_datas[0].bench_count;
     size_t total_group_count = src_datas[0].group_count;
@@ -730,7 +745,8 @@ static bool merge_bench_data(struct bench_data *src_datas,
 
 static bool
 load_bench_data_binary_merge(const char **file_list, struct bench_data *data,
-                             struct bench_binary_data_storage *storage) {
+                             struct bench_binary_data_storage *storage)
+{
     bool success = false;
     size_t src_count = sb_len(file_list);
     struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
@@ -756,14 +772,14 @@ err:
 }
 
 bool load_bench_data_binary(const char **file_list, struct bench_data *data,
-                            struct bench_binary_data_storage *storage) {
+                            struct bench_binary_data_storage *storage)
+{
     bool success = false;
     size_t src_count = sb_len(file_list);
     assert(src_count > 0);
-    if (src_count == 1) {
+    if (src_count == 1)
         success = load_bench_data_binary_file(file_list[0], data, storage);
-    } else {
+    else
         success = load_bench_data_binary_merge(file_list, data, storage);
-    }
     return success;
 }

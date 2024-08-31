@@ -44,20 +44,20 @@ For further information look at the `--help` output.
 
 #### compare execution time of two commands
 ```sh
-$ csbench ls exa
+$ csbench ls lsd
 ```
 #### compare execution time of two commands and generate plots
 ```sh
-$ csbench ls exa --plot
+$ csbench ls lsd --plot
 ```
 #### compare execution time of two commands and generate html report
 ```sh
-$ csbench ls exa --html
+$ csbench ls lsd --html
 ```
 #### run parameterized benchmark 
 ```sh
-$ csbench 'ls {what}' --scanl what/a/b
-$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1
+$ csbench 'ls {what}' --param what/a/b
+$ csbench 'sleep {t}' --param-range t/0.1/0.5/0.1
 ```
 #### benchmark using custom parameter acquired from command output
 ```sh
@@ -73,33 +73,30 @@ $ cat test.py # not actual code
 start = time()
 n = fib(int(input())) # do something
 print(time() - start)
-$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --scan n/1/100/10
+$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --param-range n/1/100/10
 ```
 
 ## How to understand and use `csbench` output
 
 ```
-$ csbench ls --shell none --html
-command 'ls'
-3475 runs                                            # 1
-min 2.691 ms                                         # 2
-max 5.893 ms
-   mean 2.860 ms 2.867 ms 2.873 ms                   # 3
- st dev 86.22 μs 128.2 μs 172.6 μs
-systime 1.438 ms 1.440 ms 1.443 ms                  
-usrtime 675.0 μs 676.1 μs 677.4 μs
-found 364 outliers across 3475 measurements (10.47%) # 4
-20 (0.58%) low severe                                
-150 (4.32%) low mild
-79 (2.27%) high mild
-115 (3.31%) high severe                              
-outlying measurements have a severe (96.3%)          # 5
-    effect on estimated standard deviation 
+$ csbench ls --shell=none --html
+measurement wall clock time
+benchmark ls
+3090 runs                                               # 1
+ q{024} 1.449 ms 1.583 ms 2.920 ms                      # 2
+   mean 1.607 ms 1.611 ms 1.615 ms                      # 3
+ st dev 97.13 μs 107.5 μs 118.1 μs
+systime 936.7 μs 939.0 μs 941.3 μs
+usrtime 277.4 μs 278.2 μs 279.0 μs
+336 outliers (10.87%) severe (98.1%) effect on st dev   # 4
+  2 (0.06%) low mild
+  170 (5.50%) high mild
+  164 (5.31%) high severe
 ```
 1. `csbench` automatically determines how many times to run benchmark. 
     By default it makes at least 10 runs and runs for at least of 5 seconds of wall clock time. 
     Default behavior can be changed with options `--time-limit`, `--runs`, `--min-runs`, `--max-runs`.
-2. Minimum and maximum of observed values. 
+2. Minimum, median and maximum of observed values.
     Typically when benchmarking big programs these tend to range dramatically, so it is important to take a loot at them.
 3. [Bootstrap](https://en.wikipedia.org/wiki/Bootstrapping_(statistics)) estimates of mean wall clock time, standard deviation of wall clock time and mean of CPU time.
     Number of bootstrap resamples can be changed with option `--nrs`.
@@ -108,8 +105,6 @@ outlying measurements have a severe (96.3%)          # 5
     Typically big difference in mean time indicates high skew of data.
 4. Outliers here are chosen in somewhat arbitrary way, but do indicate how much of heavily outlying measurements there is. 
     Look below for additional information.
-5. Somewhat arbitrary value which indicates how much outliers affect standard deviation.
-    Typically when timing shell programs this will be close to 100%.
 
 How outliers are decided:
 |X < q1 - 3 iqr|X < q1 - 1.5 iqr|others|X > q3 + 1.5 iqr|X > q3 + 3 iqr|
@@ -119,18 +114,15 @@ How outliers are decided:
 Here q1 and q3 are first and third quartiles, and iqr is interquartile range.
 
 ```
-$ csbench 'sleep {t}' --scan t/0.1/0.5/0.1 --runs 10
+$ csbench 'sleep {t}' --param-range t/0.1/0.5/0.1 --runs=10 --regr
 ...
-Fastest command 'sleep 0.1'                 # 1
-1.911 ± 0.051 times faster than 'sleep 0.2' # 2
-2.807 ± 0.071 times faster than 'sleep 0.3'
-3.687 ± 0.093 times faster than 'sleep 0.4'
-4.587 ± 0.116 times faster than 'sleep 0.5'
-command group 'sleep {t}' with parameter t  # 3
-lowest time 113.0 ms with t=0.1             
-highest time 518.2 ms with t=0.5
-mean time is most likely linear (O(N)) in terms of parameter 
-linear coef 1.046 rms 0.017                 # 4
+fastest is sleep 0.1                                                # 1
+slowest is sleep 0.5
+  sleep 0.1 is 1.880 ± 0.030 times faster than sleep 0.2 (p=0.00)   # 2
+  sleep 0.1 is 2.782 ± 0.042 times faster than sleep 0.3 (p=0.00)
+  sleep 0.1 is 3.660 ± 0.067 times faster than sleep 0.4 (p=0.00)
+  sleep 0.1 is 4.576 ± 0.068 times faster than sleep 0.5 (p=0.00)
+linear (O(N)) complexity (1.00488)                                  # 3
 ```
 
 1. Executing parameterized benchmark is partially equivalent to running same benchmark with explicitly generating all commands:
@@ -138,11 +130,10 @@ linear coef 1.046 rms 0.017                 # 4
     $ csbench 'sleep 0.1' 'sleep 0.2' 'sleep 0.3' 'sleep 0.4' 'sleep 0.5' --runs 10
     ```
 2. Time comparison as ration between means of wall clock time, and ± range using [propagation of uncertainty](https://en.wikipedia.org/wiki/Propagation_of_uncertainty).
-3. Each input parameter is considered generating a group of commands.
-4. Commonly be executing parameterized benchmark user wants to find dependency between values.
+3. Sometimes be executing parameterized benchmark user wants to find dependency between values.
     `csbench` applies linear regression to try to guess complexity in terms parameter. 
     It considers following complexities: O(1), O(N), O(N^2), O(N^3), O(logN), O(NlogN).
-    Linear coefficient is a linear multiplier, rms is [root mean square](https://en.wikipedia.org/wiki/Root_mean_square).
+    Number given is a linear multiplier of complexity.
     It becomes most evident and useful when plotted.
 
 Now let's look at some of the plots. 

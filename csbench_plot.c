@@ -92,7 +92,8 @@ struct prettify_plot {
 };
 
 static void prettify_plot(const struct units *units, double min, double max,
-                          struct prettify_plot *plot) {
+                          struct prettify_plot *plot)
+{
     if (log10(max / min) > 2.5)
         plot->logscale = 1;
 
@@ -131,7 +132,8 @@ static void prettify_plot(const struct units *units, double min, double max,
 }
 
 void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
-              FILE *f) {
+              FILE *f)
+{
     size_t count = analysis->base->bench_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
@@ -170,7 +172,8 @@ void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
 
 void group_plot(const struct group_analysis *analyses, size_t count,
                 const struct meas *meas, const struct bench_var *var,
-                const char *output_filename, FILE *f) {
+                const char *output_filename, FILE *f)
+{
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         for (size_t i = 0; i < var->value_count; ++i) {
@@ -250,7 +253,8 @@ void group_plot(const struct group_analysis *analyses, size_t count,
 }
 
 static void construct_kde(const struct distr *distr, double *kde,
-                          size_t kde_size, double lower, double step) {
+                          size_t kde_size, double lower, double step)
+{
     size_t count = distr->count;
     double st_dev = distr->st_dev.point;
     double iqr = distr->q3 - distr->q1;
@@ -271,7 +275,8 @@ static void construct_kde(const struct distr *distr, double *kde,
 }
 
 static double linear_interpolate(double lower, double step, const double *y,
-                                 size_t count, double x) {
+                                 size_t count, double x)
+{
     for (size_t i = 0; i < count - 1; ++i) {
         double x1 = lower + i * step;
         double x2 = lower + (i + 1) * step;
@@ -291,7 +296,8 @@ static double linear_interpolate(double lower, double step, const double *y,
 static void init_kde_plot_internal(const struct distr *distr,
                                    const struct meas *meas, bool is_ext,
                                    const char *output_filename,
-                                   struct kde_plot *plot) {
+                                   struct kde_plot *plot)
+{
     size_t kde_points = 200;
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
@@ -322,7 +328,8 @@ static void init_kde_plot_internal(const struct distr *distr,
 static void init_kde_cmp_plot(const struct distr *a, const struct distr *b,
                               const struct meas *meas,
                               const char *output_filename,
-                              struct kde_cmp_plot *plot) {
+                              struct kde_cmp_plot *plot)
+{
     size_t kde_points = 200;
     double lower = fmin(fmax(a->mean.point - 3.0 * a->st_dev.point, a->p5),
                         fmax(b->mean.point - 3.0 * b->st_dev.point, b->p5));
@@ -349,7 +356,8 @@ static void init_kde_cmp_plot(const struct distr *a, const struct distr *b,
     plot->output_filename = output_filename;
 }
 
-static void make_kde_plot(const struct kde_plot *plot, FILE *f) {
+static void make_kde_plot(const struct kde_plot *plot, FILE *f)
+{
     assert(!plot->is_ext);
     double min = plot->lower;
     double max = plot->lower + plot->step * (plot->count - 1);
@@ -379,7 +387,8 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f) {
             prettify.units_str, plot->output_filename);
 }
 
-static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
+static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f)
+{
     assert(plot->is_ext);
     double min = plot->lower;
     double max = plot->lower + plot->step * (plot->count - 1);
@@ -468,7 +477,8 @@ static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f) {
             plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
-static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f) {
+static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
+{
     double min = plot->lower;
     double max = plot->lower + (plot->count - 1) * plot->step;
     struct prettify_plot prettify = {0};
@@ -507,13 +517,15 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f) {
 
 static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
 
-static void free_kde_cmp_plot(struct kde_cmp_plot *plot) {
+static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
+{
     free(plot->a_data);
     free(plot->b_data);
 }
 
 void group_bar_plot(const struct meas_analysis *analysis,
-                    const char *output_filename, FILE *f) {
+                    const char *output_filename, FILE *f)
+{
     const struct bench_var *var = analysis->base->var;
     size_t count = analysis->base->group_count;
     double max = -INFINITY, min = INFINITY;
@@ -567,7 +579,8 @@ void group_bar_plot(const struct meas_analysis *analysis,
 }
 
 void kde_plot(const struct distr *distr, const struct meas *meas,
-              const char *output_filename, FILE *f) {
+              const char *output_filename, FILE *f)
+{
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, output_filename, &plot);
     make_kde_plot(&plot, f);
@@ -575,7 +588,8 @@ void kde_plot(const struct distr *distr, const struct meas *meas,
 }
 
 void kde_plot_ext(const struct distr *distr, const struct meas *meas,
-                  const char *output_filename, FILE *f) {
+                  const char *output_filename, FILE *f)
+{
     struct kde_plot plot = {0};
     init_kde_plot_ext(distr, meas, output_filename, &plot);
     make_kde_plot_ext(&plot, f);
@@ -583,8 +597,8 @@ void kde_plot_ext(const struct distr *distr, const struct meas *meas,
 }
 
 void kde_cmp_plot(const struct distr *a, const struct distr *b,
-                  const struct meas *meas, const char *output_filename,
-                  FILE *f) {
+                  const struct meas *meas, const char *output_filename, FILE *f)
+{
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_plot(a, b, meas, output_filename, &plot);
     make_kde_cmp_plot(&plot, f);

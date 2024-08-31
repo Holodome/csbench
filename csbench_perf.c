@@ -78,7 +78,8 @@ struct perf_events {
 };
 
 static struct perf_events *open_counters(const int *config, size_t count,
-                                         pid_t pid) {
+                                         pid_t pid)
+{
     struct perf_events *events = calloc(1, sizeof(*events));
     events->count = count;
     events->fds = calloc(count, sizeof(*events->fds));
@@ -120,7 +121,8 @@ static struct perf_events *open_counters(const int *config, size_t count,
     return events;
 }
 
-static void free_counters(struct perf_events *events) {
+static void free_counters(struct perf_events *events)
+{
     for (size_t i = 0; i < events->count; ++i)
         close(events->fds[i]);
     free(events->ids);
@@ -128,7 +130,8 @@ static void free_counters(struct perf_events *events) {
     free(events->read_buf);
 }
 
-static bool start_counting(struct perf_events *events) {
+static bool start_counting(struct perf_events *events)
+{
     if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) ==
         -1) {
         error("failed to reset pmc");
@@ -142,7 +145,8 @@ static bool start_counting(struct perf_events *events) {
     return true;
 }
 
-static int stop_counting(struct perf_events *events) {
+static int stop_counting(struct perf_events *events)
+{
     if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) ==
         -1) {
         error("failed to stop pmc counting");
@@ -166,7 +170,8 @@ static int stop_counting(struct perf_events *events) {
     return true;
 }
 
-static uint64_t get_counter(struct perf_events *events, size_t idx) {
+static uint64_t get_counter(struct perf_events *events, size_t idx)
+{
     uint64_t id = events->ids[idx];
     const uint64_t *cursor = events->read_buf + 1;
     const uint64_t *end = events->read_buf + events->read_buf_len;
@@ -177,7 +182,8 @@ static uint64_t get_counter(struct perf_events *events, size_t idx) {
     return 0;
 }
 
-bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
+bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
+{
     static const int config[] = {
         PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
         PERF_COUNT_HW_BRANCH_INSTRUCTIONS, PERF_COUNT_HW_BRANCH_MISSES};
@@ -306,14 +312,16 @@ static uint64_t (*kperf_ns_to_ticks)(uint64_t ns);
 static uint64_t (*kperf_ticks_to_ns)(uint64_t ticks);
 static uint64_t (*kperf_tick_frequency)(void);
 
-__attribute__((used)) static int kperf_lightweight_pet_get(uint32_t *enabled) {
+__attribute__((used)) static int kperf_lightweight_pet_get(uint32_t *enabled)
+{
     if (!enabled)
         return -1;
     size_t size = 4;
     return sysctlbyname("kperf.lightweight_pet", enabled, &size, NULL, 0);
 }
 
-static int kperf_lightweight_pet_set(uint32_t enabled) {
+static int kperf_lightweight_pet_set(uint32_t enabled)
+{
     return sysctlbyname("kperf.lightweight_pet", NULL, NULL, &enabled, 4);
 }
 
@@ -411,7 +419,8 @@ static const char *kpep_config_error_names[KPEP_CONFIG_ERROR_MAX] = {
     "event unavailable",
     "check errno"};
 
-static const char *kpep_config_error_desc(int code) {
+static const char *kpep_config_error_desc(int code)
+{
     if (0 <= code && code < KPEP_CONFIG_ERROR_MAX) {
         return kpep_config_error_names[code];
     }
@@ -461,8 +470,7 @@ struct perf_lib_symbol {
 };
 
 #define perf_lib_nelems(x) (sizeof(x) / sizeof((x)[0]))
-#define perf_lib_symbol_def(name)                                              \
-    { #name, (void **)&name }
+#define perf_lib_symbol_def(name) {#name, (void **)&name}
 
 static const struct perf_lib_symbol perf_lib_symbols_kperf[] = {
     perf_lib_symbol_def(kpc_pmu_version),
@@ -535,7 +543,8 @@ static const struct perf_lib_symbol perf_lib_symbols_kperfdata[] = {
 static void *perf_lib_handle_kperf = NULL;
 static void *perf_lib_handle_kperfdata = NULL;
 
-static void perf_lib_deinit(void) {
+static void perf_lib_deinit(void)
+{
     if (perf_lib_handle_kperf)
         dlclose(perf_lib_handle_kperf);
     if (perf_lib_handle_kperfdata)
@@ -552,7 +561,8 @@ static void perf_lib_deinit(void) {
     }
 }
 
-static bool perf_lib_init(void) {
+static bool perf_lib_init(void)
+{
     perf_lib_handle_kperf = dlopen(perf_lib_path_kperf, RTLD_LAZY);
     if (!perf_lib_handle_kperf) {
         error("failed to load kperf.framework: %s.", dlerror());
@@ -633,33 +643,39 @@ struct kbufinfo_t {
     int bufid;
 };
 
-static int kdebug_reset(void) {
+static int kdebug_reset(void)
+{
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDREMOVE};
     return sysctl(mib, 3, NULL, NULL, NULL, 0);
 }
 
-static int kdebug_reinit(void) {
+static int kdebug_reinit(void)
+{
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDSETUP};
     return sysctl(mib, 3, NULL, NULL, NULL, 0);
 }
 
-static int kdebug_setreg(struct kd_regtype *kdr) {
+static int kdebug_setreg(struct kd_regtype *kdr)
+{
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDSETREG};
     size_t size = sizeof(struct kd_regtype);
     return sysctl(mib, 3, kdr, &size, NULL, 0);
 }
 
-static int kdebug_trace_setbuf(int nbufs) {
+static int kdebug_trace_setbuf(int nbufs)
+{
     int mib[4] = {CTL_KERN, KERN_KDEBUG, KERN_KDSETBUF, nbufs};
     return sysctl(mib, 4, NULL, NULL, NULL, 0);
 }
 
-static int kdebug_trace_enable(int enable) {
+static int kdebug_trace_enable(int enable)
+{
     int mib[4] = {CTL_KERN, KERN_KDEBUG, KERN_KDENABLE, enable};
     return sysctl(mib, 4, NULL, 0, NULL, 0);
 }
 
-__attribute__((used)) static int kdebug_get_bufinfo(struct kbufinfo_t *info) {
+__attribute__((used)) static int kdebug_get_bufinfo(struct kbufinfo_t *info)
+{
     if (!info)
         return -1;
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDGETBUF};
@@ -667,7 +683,8 @@ __attribute__((used)) static int kdebug_get_bufinfo(struct kbufinfo_t *info) {
     return sysctl(mib, 3, info, &needed, NULL, 0);
 }
 
-static int kdebug_trace_read(void *buf, size_t len, size_t *count) {
+static int kdebug_trace_read(void *buf, size_t len, size_t *count)
+{
     if (count)
         *count = 0;
     if (!buf || !len)
@@ -682,7 +699,8 @@ static int kdebug_trace_read(void *buf, size_t len, size_t *count) {
     return 0;
 }
 
-__attribute__((used)) static int kdebug_wait(size_t timeout_ms, int *suc) {
+__attribute__((used)) static int kdebug_wait(size_t timeout_ms, int *suc)
+{
     if (timeout_ms == 0)
         return -1;
     int mib[3] = {CTL_KERN, KERN_KDEBUG, KERN_KDBUFWAIT};
@@ -723,7 +741,8 @@ static const struct event_alias profile_events[] = {
 };
 
 static struct kpep_event *get_event(struct kpep_db *db,
-                                    const struct event_alias *alias) {
+                                    const struct event_alias *alias)
+{
     for (size_t j = 0; j < EVENT_NAME_MAX; j++) {
         const char *name = alias->names[j];
         if (!name)
@@ -738,7 +757,8 @@ static struct kpep_event *get_event(struct kpep_db *db,
 #define PERF_KPC (6)
 #define PERF_KPC_DATA_THREAD (8)
 
-bool init_perf(void) {
+bool init_perf(void)
+{
     if (!perf_lib_init())
         return false;
 
@@ -756,7 +776,8 @@ bool init_perf(void) {
 
 void deinit_perf(void) { perf_lib_deinit(); }
 
-bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt) {
+bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
+{
     int ret;
     // check permission
     int force_ctrs = 0;
@@ -1072,7 +1093,8 @@ err_free_db:
     return false;
 }
 
-void perf_signal_cleanup(void) {
+void perf_signal_cleanup(void)
+{
     kdebug_trace_enable(0);
     kdebug_reset();
     kperf_sample_set(0);

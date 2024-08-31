@@ -67,7 +67,7 @@ $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 #
 
 distclean 
-$b 'echo {n}' --plot --scanl n/1,2 > /dev/null || die
+$b 'echo {n}' --plot --param n/1,2 > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
@@ -88,7 +88,7 @@ distclean
 $b ls --html --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ -f "$dist_dir/index.html" ] || die
 distclean 
-$b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
+$b 'echo {n}' --html --param n/1,2 > /dev/null || die
 [ -f "$dist_dir/index.html" ] || die
 
 #
@@ -96,7 +96,7 @@ $b 'echo {n}' --html --scanl n/1,2 > /dev/null || die
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 23 ] || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
@@ -112,7 +112,7 @@ done
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --no-default-meas > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --no-default-meas > /dev/null || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
 bar_0.svg readme.md"
@@ -126,7 +126,7 @@ done
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --plot-src > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --plot-src > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 45 ] || die
 files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
@@ -173,7 +173,7 @@ fi
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --custom t --scan n/100/500/100 --plot --regr > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --regr > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 25 ] || die
 
 #
@@ -191,7 +191,7 @@ $b ls --plot --shell=none > /dev/null || die
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --scan n/100/500/100 --plot --no-default-meas --regr > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --param-range n/100/500/100 --plot --no-default-meas --regr > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 30 ] && \
 [ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
 
@@ -200,7 +200,7 @@ $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' 
 #
 
 distclean
-$b '{cmd}' --scanl=cmd/ls,pwd --plot > /dev/null || die
+$b '{cmd}' --param=cmd/ls,pwd --plot > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
 [ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
@@ -222,9 +222,9 @@ $b ls pwd --csv > /dev/null || die
 #
 
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=1 > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/200/50 --baseline=1 > /dev/null || die
 distclean
-$b 'echo {n} | python3 tests/quicksort.py' --scan n/100/200/50 --baseline=3 > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/200/50 --baseline=3 > /dev/null || die
 
 #
 # check that renaming works
@@ -250,7 +250,7 @@ $b --load-csv $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=o
 #
 
 distclean
-out=$($b 'echo {n} | python3 tests/quicksort.py' --scan n/100/500/100 --rename-all quick)
+out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename-all quick)
 echo "$out" | grep -qv 'quicksort.py' || die 
 echo "$out" | grep -q quick || die 
 
@@ -273,7 +273,7 @@ $b 'python3 tests/quicksort.py' --inputs 100 > /dev/null || die
 # measurement with time units specified
 #
 
-$b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --scan n/100/500/100 > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t s cat --param-range n/100/500/100 > /dev/null || die
 
 #
 # measurement with utime and stime measurements hand-specified
@@ -285,7 +285,7 @@ $b ls --no-default-meas --meas stime,utime > /dev/null || die
 # custom measurement units
 #
 
-$b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --scan n/100/500/100 > /dev/null || die
+$b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --param-range n/100/500/100 > /dev/null || die
 
 #
 # check --python-output option
@@ -298,7 +298,7 @@ $b ls --plot --python-output > /dev/null || die
 #
 
 distclean
-$b cat --inputs 'hello {t}' --scanl t/1,2,3 --csv > /dev/null || die
+$b cat --inputs 'hello {t}' --param t/1,2,3 --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 7 ]
 
 #
@@ -308,7 +308,7 @@ $b cat --inputs 'hello {t}' --scanl t/1,2,3 --csv > /dev/null || die
 distclean
 touch /tmp/a
 touch /tmp/b
-$b cat --input '/tmp/{t}' --scanl t/a,b --csv > /dev/null || die
+$b cat --input '/tmp/{t}' --param t/a,b --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 6 ]
 
 #
