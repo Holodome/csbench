@@ -193,7 +193,8 @@ static void print_help_and_exit(int rc)
         "results will pretty printed. If <units> is 'none', no units are "
         "printed. Alternatively <units> can be any string.\n"
         "  --param-range <i>/<n>/<m>[/<s>]\n"
-        "          Add parameter with name <i> running in range from <n> to <m> "
+        "          Add parameter with name <i> running in range from <n> to "
+        "<m> "
         "with step <s>. <s> is optional, default is 1. Can be used from "
         "command in the form '{<i>}'.\n"
         "  --param <i>/v[,...]\n"
@@ -669,6 +670,15 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 settings->output = OUTPUT_POLICY_INHERIT;
             } else {
                 error("invalid --output option");
+                exit(EXIT_FAILURE);
+            }
+        } else if (opt_arg(argv, &cursor, "--stat-test", &str)) {
+            if (strcmp(str, "mwu") == 0) {
+                g_stat_test = STAT_TEST_MWU;
+            } else if (strcmp(str, "t-test") == 0) {
+                g_stat_test = STAT_TEST_TTEST;
+            } else {
+                error("invalid --stat-test option");
                 exit(EXIT_FAILURE);
             }
         } else if (strcmp(argv[cursor], "--no-input") == 0) {

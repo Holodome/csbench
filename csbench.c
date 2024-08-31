@@ -74,21 +74,22 @@ struct command_info {
 __thread uint64_t g_rng_state;
 bool g_colored_output = false;
 bool g_ignore_failure = false;
-int g_threads = 1;
 bool g_plot = false;
 bool g_html = false;
 bool g_csv = false;
 bool g_plot_src = false;
-int g_nresamp = 10000;
 bool g_use_perf = false;
 bool g_progress_bar = false;
-int g_progress_bar_interval_us = 100000;
 bool g_regr = false;
 bool g_python_output = false;
 bool g_save_bin = false;
 bool g_rename_all_used = false;
-enum sort_mode g_sort_mode = SORT_DEFAULT;
+int g_nresamp = 10000;
+int g_progress_bar_interval_us = 100000;
+int g_threads = 1;
 int g_baseline = -1;
+enum sort_mode g_sort_mode = SORT_DEFAULT;
+enum statistical_test g_stat_test = STAT_TEST_MWU;
 enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
@@ -103,12 +104,13 @@ const char *g_out_dir = ".csbench";
 const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
+// XXX: This is hack to use short names for files found in directory specified
+// with --inputd (otherwise because we create variable values which are full
+// names). When opening files and this variable is not null open it relative to
+// this directory.
+const char *g_inputd = NULL;
 const char *g_override_bin_name = NULL;
 const char *g_baseline_name = NULL;
-// XXX: This is hack to use short names for files found in directory specified
-// with --inputd. When opening files and this variable is not null open it
-// relative to this directory.
-const char *g_inputd = NULL;
 
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
                             const char *name, const char *value, bool *replaced)
@@ -755,10 +757,11 @@ static bool do_bench_renames(const struct rename_entry *rename_list,
     return true;
 }
 
-static bool attempt_rename_with_param_value(
-    const struct rename_entry *rename_list, size_t bench_idx,
-    const struct bench_var_group *groups, const struct bench_var *var,
-    const char **name)
+static bool
+attempt_rename_with_param_value(const struct rename_entry *rename_list,
+                                size_t bench_idx,
+                                const struct bench_var_group *groups,
+                                const struct bench_var *var, const char **name)
 {
     size_t value_count = var->value_count;
     for (size_t grp_idx = 0; grp_idx < sb_len(groups); ++grp_idx) {
@@ -785,8 +788,8 @@ static void set_param_names(const struct settings *settings,
         if (sb_len(info->groups) != 0) {
             assert(settings->has_var);
             attempt_rename_with_param_value(settings->rename_list, bench_idx,
-                                               info->groups, &settings->var,
-                                               &params->name);
+                                            info->groups, &settings->var,
+                                            &params->name);
         }
     }
 }

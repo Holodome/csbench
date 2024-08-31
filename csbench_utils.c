@@ -424,7 +424,7 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
         double a = src[i] - mean;
         rss += a * a;
     }
-    st_deve->point = sqrt(rss / count);
+    st_deve->point = sqrt(rss / (count - 1));
     for (size_t sample = 0; sample < nresamp; ++sample) {
         resample(src, count, tmp);
         sum = 0;
@@ -443,12 +443,11 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
     qsort(tmp_rss, nresamp, sizeof(*tmp_rss), compare_doubles);
     meane->lower = tmp_means[25 * nresamp / 1000];
     meane->upper = tmp_means[975 * nresamp / 1000];
-    st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / count);
-    st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / count);
+    st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / (count - 1));
+    st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / (count - 1));
     free(tmp_means);
 }
 
-// Fisher–Yates shuffle algorithm implementation
 void shuffle(size_t *arr, size_t count)
 {
     for (size_t i = 0; i < count - 1; ++i) {
@@ -460,8 +459,79 @@ void shuffle(size_t *arr, size_t count)
     }
 }
 
-// Performs Mann–Whitney U test.
-// Returns p-value.
+static double t_statistic(const double *a, size_t n1, const double *b,
+                          size_t n2)
+{
+    double a_mean = 0;
+    for (size_t i = 0; i < n1; ++i)
+        a_mean += a[i];
+    a_mean /= n1;
+    double b_mean = 0;
+    for (size_t i = 0; i < n2; ++i)
+        b_mean += b[i];
+    b_mean /= n2;
+
+    double a_s2 = 0;
+    for (size_t i = 0; i < n1; ++i) {
+        double v = (a[i] - a_mean);
+        a_s2 += v * v;
+    }
+    a_s2 /= (n1 - 1);
+    double b_s2 = 0;
+    for (size_t i = 0; i < n2; ++i) {
+        double v = (b[i] - b_mean);
+        b_s2 += v * v;
+    }
+    b_s2 /= (n2 - 1);
+
+    double t = (a_mean - b_mean) / sqrt(a_s2 / n1 + b_s2 / n2);
+    return t;
+}
+
+double ttest(const double *a, size_t n1, const double *b, size_t n2,
+             size_t nresamp)
+{
+    // This uses algorithm as described in
+    // https://en.wikipedia.org/wiki/Bootstrapping_(statistics)#Bootstrap_hypothesis_testing
+    double t = t_statistic(a, n1, b, n2);
+    double a_mean = 0, b_mean = 0, z_mean = 0;
+    for (size_t i = 0; i < n1; ++i) {
+        a_mean += a[i];
+        z_mean += a[i];
+    }
+    for (size_t i = 0; i < n2; ++i) {
+        b_mean += b[i];
+        z_mean += b[i];
+    }
+    a_mean /= n1;
+    b_mean /= n2;
+    z_mean /= n1 + n2;
+    double *a_new_sample = calloc(n1, sizeof(*a_new_sample));
+    double *b_new_sample = calloc(n2, sizeof(*b_new_sample));
+    for (size_t i = 0; i < n1; ++i)
+        a_new_sample[i] = a[i] - a_mean + z_mean;
+    for (size_t i = 0; i < n2; ++i)
+        b_new_sample[i] = b[i] - b_mean + z_mean;
+
+    double *a_tmp = calloc(n1, sizeof(*a_tmp));
+    double *b_tmp = calloc(n2, sizeof(*b_tmp));
+
+    size_t count = 0;
+    for (size_t i = 0; i < nresamp; ++i) {
+        resample(a_new_sample, n1, a_tmp);
+        resample(b_new_sample, n2, b_tmp);
+        double t_resampled = t_statistic(a_tmp, n1, b_tmp, n2);
+        if (fabs(t_resampled) >= fabs(t))
+            ++count;
+    }
+    double p = (double)count / nresamp;
+    free(b_tmp);
+    free(a_tmp);
+    free(b_new_sample);
+    free(a_new_sample);
+    return p;
+}
+
 double mwu(const double *a, size_t n1, const double *b, size_t n2)
 {
     double *sorted_a = calloc(n1, sizeof(*sorted_a));

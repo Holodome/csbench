@@ -299,6 +299,24 @@ static size_t reference_group_idx(struct meas_analysis *al)
     return al->groups_by_speed[0];
 }
 
+static double p_value(const double *a, size_t n1, const double *b, size_t n2)
+{
+    double p = 0;
+    switch (g_stat_test) {
+    case STAT_TEST_MWU:
+        p = mwu(a, n1, b, n2);
+        break;
+    case STAT_TEST_TTEST:
+        // Note that we use g_nresamp count here, instead of creating separate
+        // configurable parameter.
+        p = ttest(a, n1, b, n2, g_nresamp);
+        break;
+    default:
+        assert(0);
+    }
+    return p;
+}
+
 static void calculate_per_bench_p_values(struct meas_analysis *al)
 {
     const struct distr *reference = reference_bench(al, NULL);
@@ -307,8 +325,8 @@ static void calculate_per_bench_p_values(struct meas_analysis *al)
         if (reference == distr)
             continue;
 
-        al->p_values[bench_idx] =
-            mwu(reference->data, reference->count, distr->data, distr->count);
+        al->p_values[bench_idx] = p_value(reference->data, reference->count,
+                                          distr->data, distr->count);
     }
 }
 
@@ -329,7 +347,7 @@ static void calculate_per_group_p_values(struct meas_analysis *al)
             if (reference == distr)
                 continue;
 
-            al->var_p_values[val_idx][grp_idx] = mwu(
+            al->var_p_values[val_idx][grp_idx] = p_value(
                 reference->data, reference->count, distr->data, distr->count);
         }
     }

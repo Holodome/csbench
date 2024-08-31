@@ -166,7 +166,7 @@ Specify string, which will be piped to each benchmark command. \fISTR\fP can inc
 .HP
 \fB\-\-inputd\fR \fIDIR\fP
 .IP
-Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-scanl\fR file/...", where "\fB\-\-scanl\fR" option is passed a list of files contained in \fIDIR\fP.
+Specify directory, all files from which will be used as input for benchmark commands. This effectively works as macro, specifying "\fB\-\-input\fR {file} \fB\-\-param\fR file/...", where "\fB\-\-param\fR" option is passed a list of files contained in \fIDIR\fP.
 .HP
 .B \-\-no\-input
 .IP
@@ -179,7 +179,7 @@ Control where stdout and stderr of benchmark commands is redirected.
 \fIKIND\fP can be:
 .RS
 .IP null
-Redirect output to \fI\,/dev/null\/\fP (the default).
+Redirect output to \fI\,/dev/null\/\fP (default).
 .IP inherit
 Don't redirect the output at all.
 .RE
@@ -294,6 +294,18 @@ Example:
 .IP
 Use \fINUM\fP resamples when computing 95% confidence interval using bootstrapping. Default value is 10000.
 .HP
+\fB\-\-stat\-test\fR \fITEST\fP
+.IP
+Specify statistical test to use when calculating p-values. Possible values for \fITEST\fP are:
+.RS
+.IP mwu
+Mann-Whitney U-test (default).
+.IP t-test
+Welch's t-test.
+.RE
+.IP
+Note that none of this tests is generally better. Welch's t-test (with null hypothesis u1=u2) is more correct statistically, but provides bad results when run count is small (less than 20-30), however becomes increasingly better with bigger run counts. MWU (with null hypothesis that distributions are the same), on the other hand, provides consistent results up to big run counts (~1000). Note that number of resamples used to calculate Welch's t-test p-value is controlled by \fB\-\-nrs\fR option. 
+.HP
 \fB\-\-regr\fR
 .IP
 Perform linear regression of measurements in terms of variables.
@@ -332,12 +344,12 @@ Specify order of benchmarks in reports.
 .IP
 \fIMETHOD\fP can be one of the following:
 .RS
-.IP auto (default)
-sort by speed if baseline is not set, keep original order otherwise
+.IP auto
+sort by speed if baseline is not set, keep original order otherwise (default).
 .IP command
-keep original order 
+keep original order.
 .IP mean-time
-sort by speed
+sort by speed.
 .RE
 .HP
 \fB\-o\fR, \fB\-\-out\-dir\fR \fIDIR\fP

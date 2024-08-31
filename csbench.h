@@ -440,6 +440,11 @@ enum sort_mode {
     SORT_BASELINE_SPEED,
 };
 
+enum statistical_test {
+    STAT_TEST_MWU,
+    STAT_TEST_TTEST,
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -498,25 +503,25 @@ enum sort_mode {
 extern __thread uint64_t g_rng_state;
 extern bool g_colored_output;
 extern bool g_ignore_failure;
-extern int g_threads;
 extern bool g_plot;
 extern bool g_html;
 extern bool g_csv;
 extern bool g_plot_src;
-// Number of resamples to use in bootstrapping when estimating distributions.
-extern int g_nresamp;
 extern bool g_use_perf;
 extern bool g_progress_bar;
-extern int g_progress_bar_interval_us;
 // Use linear regression to estimate slope when doing parameterized benchmark.
 extern bool g_regr;
 extern bool g_python_output;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
-extern enum sort_mode g_sort_mode;
-
+// Number of resamples to use in bootstrapping when estimating distributions.
+extern int g_nresamp;
+extern int g_progress_bar_interval_us;
+extern int g_threads;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
+extern enum sort_mode g_sort_mode;
+extern enum statistical_test g_stat_test;
 extern enum app_mode g_mode;
 extern struct bench_stop_policy g_warmup_stop;
 extern struct bench_stop_policy g_bench_stop;
@@ -641,12 +646,18 @@ const char *big_o_str(enum big_o complexity);
 void estimate_distr(const double *data, size_t count, size_t nresamp,
                     struct distr *distr);
 
+// Statistical testing routines. Return p-values.
+// Welch's t-test
+double ttest(const double *a, size_t n1, const double *b, size_t n2,
+             size_t nresamp);
+// Mann–Whitney U test
 double mwu(const double *a, size_t n1, const double *b, size_t n2);
 
 double ols_approx(const struct ols_regress *regress, double n);
 void ols(const double *x, const double *y, size_t count,
          struct ols_regress *result);
 
+// Fisher–Yates shuffle algorithm
 void shuffle(size_t *arr, size_t count);
 
 bool process_wait_finished_correctly(pid_t pid, bool silent);
