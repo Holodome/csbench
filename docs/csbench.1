@@ -126,7 +126,7 @@ Example:
 .HP
 \fB\-S\fR, \fB\-\-shell\fR \fISHELL\fP
 .IP
-Set the shell be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash --norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
+Set the shell be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
 .HP
 .B \-N
 .IP
@@ -154,7 +154,7 @@ Do not abort benchmarking when benchmark commands finish with non\-zero exit cod
 \fB\-s\fR, \fB\-\-simple\fR
 .IP
 Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and without rounds.
-.SS Input and output options
+.SS Command input and output options
 .HP
 \fB\-\-input\fR \fIFILE\fP
 .IP
@@ -269,7 +269,7 @@ Do not use default measurements (which are "wall", "stime", "utime").
 .HP
 \fB\-\-param\fR \fISTR\fP
 .IP
-\fISTR\fP is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is a comma\-separated list of values. Parameter can be substituted in any command string, in strings supplied to --input, --inputs and --common-args options.
+\fISTR\fP is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is a comma\-separated list of values. Parameter can be substituted in any command string, in strings supplied to \fB\-\-input\fR, \fB\-\-inputs\fR and \fB\-\-common\-args\fR options.
 .IP
 .RS
 Example:
