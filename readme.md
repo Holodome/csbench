@@ -41,33 +41,30 @@ Also see [user guide](docs/user_guide.md).
 `csbench` can be used to compare execution time of multiple commands.
 Also see [generated html report](https://holodome.github.io/csbench/cmp).
 ```
-$ csbench ls exa --shell=none --html
+$ csbench ls lsd --shell=none --html
 measurement wall clock time
 command ls
-1681 runs
-min/max 2.632 ms          3.609 ms
-   mean 2.953 ms 2.964 ms 2.974 ms
- st dev 86.78 μs 96.56 μs 107.0 μs
-systime 1.963 ms 1.971 ms 1.978 ms
-usrtime 416.7 μs 417.7 μs 418.8 μs
-236 outliers (14.04%) severe (87.0%) effect on st dev
-  14 (0.83%) low severe
-  190 (11.30%) low mild
-  26 (1.55%) high mild
-  6 (0.36%) high severe
-command exa
-674 runs
-min/max 7.011 ms          14.45 ms
-   mean 7.349 ms 7.415 ms 7.527 ms
- st dev 102.0 μs 591.7 μs 1.010 ms
-systime 2.387 ms 2.410 ms 2.449 ms
-usrtime 3.557 ms 3.583 ms 3.631 ms
-45 outliers (6.68%) severe (94.2%) effect on st dev
-  13 (1.93%) low mild
-  18 (2.67%) high mild
-  14 (2.08%) high severe
+557 runs
+ q{024} 1.547 ms 1.732 ms 3.963 ms
+   mean 1.772 ms 1.789 ms 1.808 ms
+ st dev 162.3 μs 214.7 μs 266.1 μs
+systime 1.019 ms 1.029 ms 1.039 ms
+usrtime 324.4 μs 328.1 μs 332.2 μs
+64 outliers (11.49%) severe (96.9%) effect on st dev
+  37 (6.64%) high mild
+  27 (4.85%) high severe
+command lsd
+232 runs
+ q{024} 3.672 ms 3.889 ms 75.46 ms
+   mean 3.980 ms 4.316 ms 4.948 ms
+ st dev 253.1 μs 4.690 ms 8.080 ms
+systime 1.522 ms 1.539 ms 1.559 ms
+usrtime 1.375 ms 1.384 ms 1.393 ms
+17 outliers (7.33%) severe (99.6%) effect on st dev
+  12 (5.17%) high mild
+  5 (2.16%) high severe
 fastest command ls
-  2.502 ± 0.216 times faster than exa (p=0.00)
+  ls is 2.412 ± 2.637 times faster than lsd (p=0.00)
 ```
 
 But just measuring execution time of commands is not very interesting. 
@@ -77,15 +74,15 @@ Here we add custom measurement named `exec`, which uses shell command to extract
 
 ```
 $ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' -R 100 --no-default-meas
-command psql postgres -f 8q.sql
 100 runs
 measurement exec
-min/max 14.38 ms          14.78 ms
-   mean 14.41 ms 14.42 ms 14.45 ms
- st dev 14.21 μs 46.76 μs 94.13 μs
-10 outliers (10.00%) no (1.0%) effect on st dev
-4 (4.00%) high mild
-6 (6.00%) high severe
+benchmark psql postgres -f $HOME/study/bmstu/sem5_db/lab_03/8q.sql
+ q{024} 14.14 ms 14.65 ms 19.66 ms
+   mean 14.65 ms 14.73 ms 14.86 ms
+ st dev 102.4 μs 547.5 μs 916.3 μs
+3 outliers (3.00%) moderate (33.6%) effect on st dev
+  1 (1.00%) low severe
+  2 (2.00%) high severe
 ```
 
 Parameterized benchmarking is shown in the following example.
@@ -124,21 +121,21 @@ linearithmic (O(N*log(N))) complexity (1.12172e-07)
 In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.
 This is similar to `perf stat -r`.
 ```
-$ csbench ls exa --meas cycles,instructions,stime,utime,maxrss --shell=none
-command ls
+$ csbench ls lsd --meas=cycles,instructions,stime,utime,maxrss --no-default-meas --shell=none
+benchmark ls
+16 runs
+ cycles 2.95e+06 3.12e+06  3.3e+06
+    ins 7.19e+06 7.52e+06 7.86e+06
+systime 3.139 ms 3.286 ms 3.445 ms
+usrtime 1.277 ms 1.318 ms 1.362 ms
+ maxrss 1.375 MB 1.375 MB 1.375 MB
+benchmark lsd
 15 runs
- cycles 2.05e+06 2.97e+06 4.71e+06
-    ins 5.45e+06 6.92e+06 8.29e+06
-systime 2.678 ms 3.104 ms 3.920 ms
-usrtime 776.8 μs 951.0 μs 1.296 ms
- maxrss 1.344 MB 1.361 MB 1.424 MB
-command exa
-15 runs
- cycles 1.02e+07 1.15e+07  1.4e+07
-    ins 3.56e+07 3.67e+07 3.81e+07
-systime 3.506 ms 4.356 ms 5.354 ms
-usrtime 5.190 ms 6.550 ms 7.795 ms
- maxrss 3.562 MB 3.562 MB 3.562 MB
+ cycles 7.45e+06 7.79e+06 8.19e+06
+    ins 2.24e+07 2.32e+07  2.4e+07
+systime 3.713 ms 3.911 ms 4.121 ms
+usrtime 4.009 ms 4.229 ms 4.456 ms
+ maxrss 3.938 MB 3.938 MB 3.938 MB
 ```
 
 If you want to see example of advanced csbench usage, try running the following command and explore the outputs:
@@ -149,7 +146,7 @@ csbench 'python3 tests/quicksort.py' \
         --param n/64,128,256,512,1024,2048 \
         --no-default-meas --custom t --inputs '{n}' \
         -W 0.1 -j$(nproc) -R10 \
-        --plot --plot-src --csv --regr 
+        --plot --plot-src --regr
 ```
 
 ## License 

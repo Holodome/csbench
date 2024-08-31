@@ -450,12 +450,16 @@ static void parse_meas_list(const char *opts, enum meas_kind **meas_list)
             kind = MEAS_RUSAGE_NIVCSW;
         } else if (strcmp(opt, "cycles") == 0) {
             kind = MEAS_PERF_CYCLES;
+            g_use_perf = true;
         } else if (strcmp(opt, "instructions") == 0) {
             kind = MEAS_PERF_INS;
+            g_use_perf = true;
         } else if (strcmp(opt, "branches") == 0) {
             kind = MEAS_PERF_BRANCH;
+            g_use_perf = true;
         } else if (strcmp(opt, "branch-misses") == 0) {
             kind = MEAS_PERF_BRANCHM;
+            g_use_perf = true;
         } else {
             error("invalid measurement name: '%s'", opt);
             exit(EXIT_FAILURE);
