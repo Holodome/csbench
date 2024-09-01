@@ -67,10 +67,10 @@ enum plot_kind {
     PLOT_GROUP_BAR,
     PLOT_GROUP_SINGLE,
     PLOT_GROUP,
+    PLOT_KDE_SMALL,
     PLOT_KDE,
-    PLOT_KDE_EXT,
+    PLOT_KDE_CMP_SMALL,
     PLOT_KDE_CMP,
-    PLOT_KDE_CMP_EXT,
     PLOT_KDE_CMPG
 };
 
@@ -232,11 +232,11 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     for (size_t bench_idx = 0; bench_idx < base->bench_count; ++bench_idx) {
-        args->plot_kind = PLOT_KDE;
+        args->plot_kind = PLOT_KDE_SMALL;
         args->bench_idx = bench_idx;
         if (!walk(args))
             return false;
-        args->plot_kind = PLOT_KDE_EXT;
+        args->plot_kind = PLOT_KDE;
         args->bench_idx = bench_idx;
         if (!walk(args))
             return false;
@@ -250,10 +250,10 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                 return false;
         }
     } else if (base->bench_count == 2) {
-        args->plot_kind = PLOT_KDE_CMP;
+        args->plot_kind = PLOT_KDE_CMP_SMALL;
         if (!walk(args))
             return false;
-        args->plot_kind = PLOT_KDE_CMP_EXT;
+        args->plot_kind = PLOT_KDE_CMP;
         if (!walk(args))
             return false;
     }
@@ -281,25 +281,25 @@ static void format_plot_name(char *buf, size_t buf_size,
         snprintf(buf, buf_size, "%s/group_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
         break;
+    case PLOT_KDE_SMALL:
+        snprintf(buf, buf_size, "%s/kde_small_%zu_%zu.%s", g_out_dir,
+                 args->bench_idx, args->meas_idx, extension);
+        break;
     case PLOT_KDE:
         snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", g_out_dir, args->bench_idx,
                  args->meas_idx, extension);
-        break;
-    case PLOT_KDE_EXT:
-        snprintf(buf, buf_size, "%s/kde_ext_%zu_%zu.%s", g_out_dir,
-                 args->bench_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMPG:
         snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", g_out_dir,
                  args->var_value_idx, args->meas_idx, extension);
         break;
+    case PLOT_KDE_CMP_SMALL:
+        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu.%s", g_out_dir,
+                 args->meas_idx, extension);
+        break;
     case PLOT_KDE_CMP:
         snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
-        break;
-    case PLOT_KDE_CMP_EXT:
-        snprintf(buf, buf_size, "%s/kde_cmp_ext_%zu.%s", g_out_dir,
-                 args->meas_idx, extension);
         break;
     }
 }
@@ -327,27 +327,27 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
         plot_maker->group(al->group_analyses, base->group_count, meas,
                           base->var, svg_buf, f);
         break;
+    case PLOT_KDE_SMALL:
+        plot_maker->kde_small(al->benches[args->bench_idx], meas, svg_buf, f);
+        break;
     case PLOT_KDE:
         plot_maker->kde(al->benches[args->bench_idx], meas, svg_buf, f);
-        break;
-    case PLOT_KDE_EXT:
-        plot_maker->kde_ext(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
     case PLOT_KDE_CMPG: {
         const struct group_analysis *a = al->group_analyses;
         const struct group_analysis *b = al->group_analyses + 1;
-        plot_maker->kde_cmp(
+        plot_maker->kde_cmp_small(
             al->benches[a->group->cmd_idxs[args->var_value_idx]],
             al->benches[b->group->cmd_idxs[args->var_value_idx]], meas, svg_buf,
             f);
         break;
     }
+    case PLOT_KDE_CMP_SMALL:
+        plot_maker->kde_cmp_small(al->benches[0], al->benches[1], meas, svg_buf,
+                                  f);
+        break;
     case PLOT_KDE_CMP:
         plot_maker->kde_cmp(al->benches[0], al->benches[1], meas, svg_buf, f);
-        break;
-    case PLOT_KDE_CMP_EXT:
-        plot_maker->kde_cmp_ext(al->benches[0], al->benches[1], meas, svg_buf,
-                                f);
         break;
     }
 }

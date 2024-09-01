@@ -448,7 +448,6 @@ enum statistical_test {
 enum plot_backend {
     PLOT_BACKEND_DEFAULT,
     PLOT_BACKEND_MATPLOTLIB,
-    PLOT_BACKEND_SEABORN,
 };
 
 struct plot_maker {
@@ -459,16 +458,16 @@ struct plot_maker {
     void (*group)(const struct group_analysis *analyses, size_t count,
                   const struct meas *meas, const struct bench_var *var,
                   const char *output_filename, FILE *f);
+    void (*kde_small)(const struct distr *distr, const struct meas *meas,
+                      const char *output_filename, FILE *f);
     void (*kde)(const struct distr *distr, const struct meas *meas,
                 const char *output_filename, FILE *f);
-    void (*kde_ext)(const struct distr *distr, const struct meas *meas,
-                    const char *output_filename, FILE *f);
+    void (*kde_cmp_small)(const struct distr *a, const struct distr *b,
+                          const struct meas *meas, const char *output_filename,
+                          FILE *f);
     void (*kde_cmp)(const struct distr *a, const struct distr *b,
                     const struct meas *meas, const char *output_filename,
                     FILE *f);
-    void (*kde_cmp_ext)(const struct distr *a, const struct distr *b,
-                        const struct meas *meas, const char *output_filename,
-                        FILE *f);
 };
 
 #define sb_header(_a)                                                          \

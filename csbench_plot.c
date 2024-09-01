@@ -670,9 +670,9 @@ static void group_bar_plot_matplotlib(const struct meas_analysis *analysis,
             analysis->meas->name, prettify.units_str, output_filename);
 }
 
-static void kde_plot_matplotlib(const struct distr *distr,
-                                const struct meas *meas,
-                                const char *output_filename, FILE *f)
+static void kde_small_plot_matplotlib(const struct distr *distr,
+                                      const struct meas *meas,
+                                      const char *output_filename, FILE *f)
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, output_filename, &plot);
@@ -680,14 +680,25 @@ static void kde_plot_matplotlib(const struct distr *distr,
     free_kde_plot(&plot);
 }
 
-static void kde_ext_plot_matplotlib(const struct distr *distr,
-                                    const struct meas *meas,
-                                    const char *output_filename, FILE *f)
+static void kde_plot_matplotlib(const struct distr *distr,
+                                const struct meas *meas,
+                                const char *output_filename, FILE *f)
 {
     struct kde_plot plot = {0};
     init_kde_ext_plot(distr, meas, output_filename, &plot);
     make_kde_ext_plot(&plot, f);
     free_kde_plot(&plot);
+}
+
+static void kde_cmp_small_plot_matplotlib(const struct distr *a,
+                                          const struct distr *b,
+                                          const struct meas *meas,
+                                          const char *output_filename, FILE *f)
+{
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_plot(a, b, meas, output_filename, &plot);
+    make_kde_cmp_plot(&plot, f);
+    free_kde_cmp_plot(&plot);
 }
 
 static void kde_cmp_plot_matplotlib(const struct distr *a,
@@ -696,49 +707,9 @@ static void kde_cmp_plot_matplotlib(const struct distr *a,
                                     const char *output_filename, FILE *f)
 {
     struct kde_cmp_plot plot = {0};
-    init_kde_cmp_plot(a, b, meas, output_filename, &plot);
-    make_kde_cmp_plot(&plot, f);
-    free_kde_cmp_plot(&plot);
-}
-
-static void kde_cmp_ext_plot_matplotlib(const struct distr *a,
-                                        const struct distr *b,
-                                        const struct meas *meas,
-                                        const char *output_filename, FILE *f)
-{
-    struct kde_cmp_plot plot = {0};
     init_kde_cmp_ext_plot(a, b, meas, output_filename, &plot);
     make_kde_cmp_ext_plot(&plot, f);
     free_kde_cmp_plot(&plot);
-}
-
-static void kde_plot_seaborn(const struct distr *distr, const struct meas *meas,
-                             const char *output_filename, FILE *f)
-{
-    double lower, upper;
-    kde_limits(distr, false, &lower, &upper);
-    struct prettify_plot prettify = {0};
-    prettify_plot(&meas->units, lower, upper, &prettify);
-    fprintf(f, "import seaborn as sns\n"
-               "import pandas as pd\n"
-               "import numpy as np\n"
-               "sns.set_style('whitegrid')\n");
-    fprintf(f, "times = np.array([");
-    for (size_t i = 0; i < distr->count; ++i)
-        fprintf(f, "%g, ", distr->data[i] * prettify.multiplier);
-    fprintf(f, "])\n");
-    fprintf(f, "columns = ['time']\n");
-    fprintf(f, "ds = pd.DataFrame(times, columns=columns)\n");
-    fprintf(
-        f,
-        "plot = sns.kdeplot(data=ds, legend=False, clip=(%g, %g), fill=True)\n",
-        lower * prettify.multiplier, upper * prettify.multiplier);
-    fprintf(f, "plot.axvline(%g)\n", distr->mean.point * prettify.multiplier);
-    fprintf(f, "plot.tick_params(left=False, labelleft=False)\n");
-    fprintf(f, "plot.set(ylabel='probability density', xlabel='%s [%s]')\n",
-            meas->name, prettify.units_str);
-    fprintf(f, "plot.figure.savefig('%s', bbox_inches='tight')\n",
-            output_filename);
 }
 
 static bool python_found(void)
@@ -759,17 +730,6 @@ static bool python_has_matplotlib(void)
     return process_wait_finished_correctly(pid, true);
 }
 
-static bool python_has_seaborn(void)
-{
-    FILE *f;
-    pid_t pid;
-    if (!shell_launch_stdin_pipe(g_python_executable, &f, -1, -1, &pid))
-        return false;
-    fprintf(f, "import seaborn\n");
-    fclose(f);
-    return process_wait_finished_correctly(pid, true);
-}
-
 bool get_plot_backend(enum plot_backend *backend)
 {
     bool found_backend = false;
@@ -786,18 +746,9 @@ bool get_plot_backend(enum plot_backend *backend)
         error("selected plot backend (matplotlib) is not available");
         return false;
     }
-    if (python_has_seaborn()) {
-        *backend = PLOT_BACKEND_SEABORN;
-        found_backend = true;
-        if (g_plot_backend_override == PLOT_BACKEND_SEABORN)
-            return true;
-    } else if (g_plot_backend_override == PLOT_BACKEND_SEABORN) {
-        error("selected plot backend (seaborn) is not available");
-        return false;
-    }
     if (!found_backend) {
-        error("Failed to find backend to use to make plots. 'matplotlib' or "
-              "'seaborn' have to be installed for '%s' python executable",
+        error("Failed to find backend to use to make plots. 'matplotlib' "
+              "has to be installed for '%s' python executable",
               g_python_executable);
         return false;
     }
@@ -811,19 +762,10 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->bar = bar_plot_matplotlib;
         maker->group_bar = group_bar_plot_matplotlib;
         maker->group = group_plot_matplotlib;
+        maker->kde_small = kde_small_plot_matplotlib;
         maker->kde = kde_plot_matplotlib;
-        maker->kde_ext = kde_ext_plot_matplotlib;
+        maker->kde_cmp_small = kde_cmp_small_plot_matplotlib;
         maker->kde_cmp = kde_cmp_plot_matplotlib;
-        maker->kde_cmp_ext = kde_cmp_ext_plot_matplotlib;
-        break;
-    case PLOT_BACKEND_SEABORN:
-        maker->bar = bar_plot_matplotlib;
-        maker->group_bar = group_bar_plot_matplotlib;
-        maker->group = group_plot_matplotlib;
-        maker->kde = kde_plot_seaborn;
-        maker->kde_ext = kde_ext_plot_matplotlib;
-        maker->kde_cmp = kde_cmp_plot_matplotlib;
-        maker->kde_cmp_ext = kde_cmp_ext_plot_matplotlib;
         break;
     default:
         ASSERT_UNREACHABLE();
