@@ -567,6 +567,7 @@ extern const char *g_prepare;
 extern const char *g_inputd;
 extern const char *g_override_bin_name;
 extern const char *g_baseline_name;
+extern const char *g_python_executable;
 
 void free_bench_data(struct bench_data *data);
 
@@ -684,8 +685,7 @@ bool process_wait_finished_correctly(pid_t pid, bool silent);
 bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
                   pid_t *pid);
 bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pid);
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd,
-                            int stderr_fd);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent);
 
 int tmpfile_fd(void);
 

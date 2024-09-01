@@ -612,14 +612,16 @@ static void kde_cmp_plot_matplotlib(const struct distr *a,
 
 static bool python_found(void)
 {
-    return shell_execute("python3 --version", -1, -1, -1);
+    char buffer[4096];
+    snprintf(buffer, sizeof(buffer), "%s --version", g_python_executable);
+    return shell_execute(buffer, -1, -1, -1, true);
 }
 
 static bool python_has_matplotlib(void)
 {
     FILE *f;
     pid_t pid;
-    if (!shell_launch_stdin_pipe("python3", &f, &pid))
+    if (!shell_launch_stdin_pipe(g_python_executable, &f, &pid))
         return false;
     fprintf(f, "import matplotlib\n");
     fclose(f);
@@ -629,7 +631,7 @@ static bool python_has_matplotlib(void)
 bool get_plot_backend(enum plot_backend *backend)
 {
     if (!python_found()) {
-        error("failed to find python3 executable");
+        error("failed to find python executable '%s'", g_python_executable);
         return false;
     }
     if (!python_has_matplotlib()) {

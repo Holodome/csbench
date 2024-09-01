@@ -817,12 +817,13 @@ bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pidp)
     return true;
 }
 
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd)
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                   bool silent)
 {
     pid_t pid = 0;
     bool success = shell_launch(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
     if (success)
-        success = process_wait_finished_correctly(pid, false);
+        success = process_wait_finished_correctly(pid, silent);
     return success;
 }
 

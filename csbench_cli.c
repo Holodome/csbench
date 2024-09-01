@@ -309,6 +309,11 @@ static void print_help_and_exit(int rc)
     print_opt("--progress-bar-interval", OPT_ARR("US"),
               "Set redraw interval of progress bar to <US> microseconds "
               "(default: 100000).");
+    print_opt("--python-output", OPT_ARR(NULL),
+              "Do not silence python output when making plots.");
+    print_opt("--python-executable", OPT_ARR("EXE"),
+              "Use <EXE> as python executable when making plots (default: "
+              "\"python3\").");
     print_opt("--help", OPT_ARR(NULL), "Print help message.");
     print_opt("--version", OPT_ARR(NULL), "Print version.");
     exit(rc);
@@ -475,7 +480,7 @@ static size_t simple_get_thread_count(void)
     if (!pipe_cloexec(pipe_fd))
         return 1;
 
-    if (!shell_execute("nproc", -1, pipe_fd[1], -1)) {
+    if (!shell_execute("nproc", -1, pipe_fd[1], -1, false)) {
         close(pipe_fd[0]);
         close(pipe_fd[1]);
         return 1;
@@ -876,6 +881,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (opt_arg(argv, &cursor, "--save-bin-name",
                            &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
+        } else if (opt_arg(argv, &cursor, "--python-executable",
+                           &g_python_executable)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
         } else if (opt_arg(argv, &cursor, "--sort", &str)) {

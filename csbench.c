@@ -111,6 +111,7 @@ const char *g_prepare = NULL;
 const char *g_inputd = NULL;
 const char *g_override_bin_name = NULL;
 const char *g_baseline_name = NULL;
+const char *g_python_executable = "python3";
 
 static bool replace_var_str(char *buf, size_t buf_size, const char *src,
                             const char *name, const char *value, bool *replaced)

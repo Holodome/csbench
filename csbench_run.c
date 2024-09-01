@@ -718,7 +718,7 @@ static void progress_bar_suspend(struct progress_bar_bench *bench,
 
 static bool run_prepare_if_needed(void)
 {
-    if (g_prepare && !shell_execute(g_prepare, -1, -1, -1)) {
+    if (g_prepare && !shell_execute(g_prepare, -1, -1, -1, true)) {
         error("failed to execute prepare command");
         return false;
     }
@@ -1120,7 +1120,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
         return false;
     }
 
-    if (!shell_execute(custom->cmd, input_fd, output_fd, -1))
+    if (!shell_execute(custom->cmd, input_fd, output_fd, -1, false))
         return false;
 
     if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
