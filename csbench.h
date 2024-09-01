@@ -466,6 +466,9 @@ struct plot_maker {
     void (*kde_cmp)(const struct distr *a, const struct distr *b,
                     const struct meas *meas, const char *output_filename,
                     FILE *f);
+    void (*kde_cmp_ext)(const struct distr *a, const struct distr *b,
+                        const struct meas *meas, const char *output_filename,
+                        FILE *f);
 };
 
 #define sb_header(_a)                                                          \

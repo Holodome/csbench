@@ -79,10 +79,11 @@ struct kde_cmp_plot {
     size_t count;
     double lower;
     double step;
-    double *a_data, *b_data;
+    double *a_kde, *b_kde;
     double a_mean, b_mean;
     double a_mean_y, b_mean_y;
     const char *output_filename;
+    bool is_ext;
 };
 
 struct prettify_plot {
@@ -290,9 +291,23 @@ static double linear_interpolate(double lower, double step, const double *y,
     return 0.0;
 }
 
+static void kde_limits(const struct distr *distr, bool is_ext, double *lower,
+                       double *upper)
+{
+    double st_dev = distr->st_dev.point;
+    double mean = distr->mean.point;
+    if (!is_ext) {
+        *lower = fmax(mean - 3.0 * st_dev, distr->p5);
+        *upper = fmin(mean + 3.0 * st_dev, distr->p95);
+    } else {
+        *lower = fmax(mean - 6.0 * st_dev, distr->p1);
+        *upper = fmin(mean + 6.0 * st_dev, distr->p99);
+    }
+}
+
 #define init_kde_plot(_distr, _meas, _output_filename, _plot)                  \
     init_kde_plot_internal(_distr, _meas, false, _output_filename, _plot)
-#define init_kde_plot_ext(_distr, _meas, _output_filename, _plot)              \
+#define init_kde_ext_plot(_distr, _meas, _output_filename, _plot)              \
     init_kde_plot_internal(_distr, _meas, true, _output_filename, _plot)
 static void init_kde_plot_internal(const struct distr *distr,
                                    const struct meas *meas, bool is_ext,
@@ -300,16 +315,8 @@ static void init_kde_plot_internal(const struct distr *distr,
                                    struct kde_plot *plot)
 {
     size_t kde_points = 200;
-    double st_dev = distr->st_dev.point;
-    double mean = distr->mean.point;
     double lower, upper;
-    if (!is_ext) {
-        lower = fmax(mean - 3.0 * st_dev, distr->p5);
-        upper = fmin(mean + 3.0 * st_dev, distr->p95);
-    } else {
-        lower = fmax(mean - 6.0 * st_dev, distr->p1);
-        upper = fmin(mean + 6.0 * st_dev, distr->p99);
-    }
+    kde_limits(distr, is_ext, &lower, &upper);
     double step = (upper - lower) / kde_points;
 
     plot->is_ext = is_ext;
@@ -326,16 +333,25 @@ static void init_kde_plot_internal(const struct distr *distr,
         linear_interpolate(lower, step, plot->data, kde_points, plot->mean);
 }
 
-static void init_kde_cmp_plot(const struct distr *a, const struct distr *b,
-                              const struct meas *meas,
-                              const char *output_filename,
-                              struct kde_cmp_plot *plot)
+#define init_kde_cmp_plot(_a, _b, _meas, _output_filename, _plot)              \
+    init_kde_cmp_plot_internal(_a, _b, _meas, false, _output_filename, _plot)
+#define init_kde_cmp_ext_plot(_a, _b, _meas, _output_filename, _plot)          \
+    init_kde_cmp_plot_internal(_a, _b, _meas, true, _output_filename, _plot)
+static void init_kde_cmp_plot_internal(const struct distr *a,
+                                       const struct distr *b,
+                                       const struct meas *meas, bool is_ext,
+                                       const char *output_filename,
+                                       struct kde_cmp_plot *plot)
 {
     size_t kde_points = 200;
-    double lower = fmin(fmax(a->mean.point - 3.0 * a->st_dev.point, a->p5),
-                        fmax(b->mean.point - 3.0 * b->st_dev.point, b->p5));
-    double upper = fmax(fmin(a->mean.point + 3.0 * a->st_dev.point, a->p95),
-                        fmin(b->mean.point + 3.0 * b->st_dev.point, b->p95));
+    double lower, upper;
+    {
+        double a_lower, b_lower, a_upper, b_upper;
+        kde_limits(a, false, &a_lower, &a_upper);
+        kde_limits(b, false, &b_lower, &b_upper);
+        lower = fmin(a_lower, b_lower);
+        upper = fmax(a_upper, b_upper);
+    }
     double step = (upper - lower) / kde_points;
 
     plot->a = a;
@@ -344,17 +360,18 @@ static void init_kde_cmp_plot(const struct distr *a, const struct distr *b,
     plot->count = kde_points;
     plot->lower = lower;
     plot->step = step;
-    plot->a_data = malloc(sizeof(*plot->a_data) * plot->count);
-    plot->b_data = malloc(sizeof(*plot->b_data) * plot->count);
-    construct_kde(a, plot->a_data, plot->count, lower, step);
-    construct_kde(b, plot->b_data, plot->count, lower, step);
+    plot->a_kde = malloc(sizeof(*plot->a_kde) * plot->count);
+    plot->b_kde = malloc(sizeof(*plot->b_kde) * plot->count);
+    construct_kde(a, plot->a_kde, plot->count, lower, step);
+    construct_kde(b, plot->b_kde, plot->count, lower, step);
     plot->a_mean = a->mean.point;
     plot->b_mean = b->mean.point;
     plot->a_mean_y =
-        linear_interpolate(lower, step, plot->a_data, kde_points, plot->a_mean);
+        linear_interpolate(lower, step, plot->a_kde, kde_points, plot->a_mean);
     plot->b_mean_y =
-        linear_interpolate(lower, step, plot->b_data, kde_points, plot->b_mean);
+        linear_interpolate(lower, step, plot->b_kde, kde_points, plot->b_mean);
     plot->output_filename = output_filename;
+    plot->is_ext = is_ext;
 }
 
 static void make_kde_plot(const struct kde_plot *plot, FILE *f)
@@ -388,7 +405,7 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             prettify.units_str, plot->output_filename);
 }
 
-static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f)
+static void make_kde_ext_plot(const struct kde_plot *plot, FILE *f)
 {
     assert(plot->is_ext);
     double min = plot->lower;
@@ -480,6 +497,7 @@ static void make_kde_plot_ext(const struct kde_plot *plot, FILE *f)
 
 static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
 {
+    assert(!plot->is_ext);
     double min = plot->lower;
     double max = plot->lower + (plot->count - 1) * plot->step;
     struct prettify_plot prettify = {0};
@@ -492,36 +510,109 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
     fprintf(f, "]\n");
     fprintf(f, "ay = [");
     for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->a_data[i]);
+        fprintf(f, "%g, ", plot->a_kde[i]);
     fprintf(f, "]\n");
     fprintf(f, "by = [");
     for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->b_data[i]);
+        fprintf(f, "%g, ", plot->b_kde[i]);
     fprintf(f, "]\n");
-    fprintf(
-        f,
-        "import matplotlib as mpl\n"
-        "mpl.use('svg')\n"
-        "import matplotlib.pyplot as plt\n"
-        "plt.fill_between(x, ay, interpolate=True, alpha=0.25)\n"
-        "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='r')\n"
-        "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
-        "plt.vlines(%g, [0], [%g], color='r')\n"
-        "plt.tick_params(left=False, labelleft=False)\n"
-        "plt.xlabel('%s [%s]')\n"
-        "plt.ylabel('probability density')\n"
-        "plt.savefig('%s', bbox_inches='tight')\n",
-        plot->a_mean * prettify.multiplier, plot->a_mean_y,
-        plot->b_mean * prettify.multiplier, plot->b_mean_y, plot->meas->name,
-        prettify.units_str, plot->output_filename);
+    fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
+            "color='tab:blue')\n"
+            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
+            "facecolor='tab:orange')\n"
+            "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
+            "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('%s [%s]')\n"
+            "plt.ylabel('probability density')\n"
+            "plt.savefig('%s', bbox_inches='tight')\n",
+            plot->a_mean * prettify.multiplier, plot->a_mean_y,
+            plot->b_mean * prettify.multiplier, plot->b_mean_y,
+            plot->meas->name, prettify.units_str, plot->output_filename);
+}
+
+static void make_kde_cmp_ext_plot(const struct kde_cmp_plot *plot, FILE *f)
+{
+    assert(plot->is_ext);
+    double min = plot->lower;
+    double max = plot->lower + (plot->count - 1) * plot->step;
+    struct prettify_plot prettify = {0};
+    prettify_plot(&plot->meas->units, min, max, &prettify);
+
+    double max_y = -INFINITY;
+    for (size_t i = 0; i < plot->count; ++i) {
+        if (plot->a_kde[i] > max_y)
+            max_y = plot->a_kde[i];
+        if (plot->b_kde[i] > max_y)
+            max_y = plot->b_kde[i];
+    }
+
+    fprintf(f, "x = [");
+    for (size_t i = 0; i < plot->count; ++i)
+        fprintf(f, "%g, ",
+                (plot->lower + plot->step * i) * prettify.multiplier);
+    fprintf(f, "]\n");
+    fprintf(f, "ay = [");
+    for (size_t i = 0; i < plot->count; ++i)
+        fprintf(f, "%g, ", plot->a_kde[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "by = [");
+    for (size_t i = 0; i < plot->count; ++i)
+        fprintf(f, "%g, ", plot->b_kde[i]);
+    fprintf(f, "]\n");
+    fprintf(f, "a_points = [");
+    for (size_t i = 0; i < plot->a->count; ++i) {
+        double v = plot->a->data[i];
+        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+            continue;
+        fprintf(f, "(%g, %g), ", v * prettify.multiplier,
+                (double)(i + 1) / plot->a->count * max_y);
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "b_points = [");
+    for (size_t i = 0; i < plot->b->count; ++i) {
+        double v = plot->b->data[i];
+        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+            continue;
+        fprintf(f, "(%g, %g), ", v * prettify.multiplier,
+                (double)(i + 1) / plot->b->count * max_y);
+    }
+    fprintf(f, "]\n");
+    fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
+            "color='tab:blue')\n"
+            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
+            "facecolor='tab:orange')\n"
+            "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
+            "color='tab:blue')\n"
+            "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
+            "color='tab:orange')\n"
+            "plt.axvline(%g, color='tab:blue')\n"
+            "plt.axvline(%g, color='tab:orange')\n"
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('%s [%s]')\n"
+            "plt.ylabel('probability density')\n"
+            "figure = plt.gcf()\n"
+            "figure.set_size_inches(13, 9)\n"
+            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+            plot->a_mean * prettify.multiplier,
+            plot->b_mean * prettify.multiplier, plot->meas->name,
+            prettify.units_str, plot->output_filename);
 }
 
 static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
 {
-    free(plot->a_data);
-    free(plot->b_data);
+    free(plot->a_kde);
+    free(plot->b_kde);
 }
 
 static void group_bar_plot_matplotlib(const struct meas_analysis *analysis,
@@ -594,8 +685,8 @@ static void kde_ext_plot_matplotlib(const struct distr *distr,
                                     const char *output_filename, FILE *f)
 {
     struct kde_plot plot = {0};
-    init_kde_plot_ext(distr, meas, output_filename, &plot);
-    make_kde_plot_ext(&plot, f);
+    init_kde_ext_plot(distr, meas, output_filename, &plot);
+    make_kde_ext_plot(&plot, f);
     free_kde_plot(&plot);
 }
 
@@ -608,6 +699,46 @@ static void kde_cmp_plot_matplotlib(const struct distr *a,
     init_kde_cmp_plot(a, b, meas, output_filename, &plot);
     make_kde_cmp_plot(&plot, f);
     free_kde_cmp_plot(&plot);
+}
+
+static void kde_cmp_ext_plot_matplotlib(const struct distr *a,
+                                        const struct distr *b,
+                                        const struct meas *meas,
+                                        const char *output_filename, FILE *f)
+{
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_ext_plot(a, b, meas, output_filename, &plot);
+    make_kde_cmp_ext_plot(&plot, f);
+    free_kde_cmp_plot(&plot);
+}
+
+static void kde_plot_seaborn(const struct distr *distr, const struct meas *meas,
+                             const char *output_filename, FILE *f)
+{
+    double lower, upper;
+    kde_limits(distr, false, &lower, &upper);
+    struct prettify_plot prettify = {0};
+    prettify_plot(&meas->units, lower, upper, &prettify);
+    fprintf(f, "import seaborn as sns\n"
+               "import pandas as pd\n"
+               "import numpy as np\n"
+               "sns.set_style('whitegrid')\n");
+    fprintf(f, "times = np.array([");
+    for (size_t i = 0; i < distr->count; ++i)
+        fprintf(f, "%g, ", distr->data[i] * prettify.multiplier);
+    fprintf(f, "])\n");
+    fprintf(f, "columns = ['time']\n");
+    fprintf(f, "ds = pd.DataFrame(times, columns=columns)\n");
+    fprintf(
+        f,
+        "plot = sns.kdeplot(data=ds, legend=False, clip=(%g, %g), fill=True)\n",
+        lower * prettify.multiplier, upper * prettify.multiplier);
+    fprintf(f, "plot.axvline(%g)\n", distr->mean.point * prettify.multiplier);
+    fprintf(f, "plot.tick_params(left=False, labelleft=False)\n");
+    fprintf(f, "plot.set(ylabel='probability density', xlabel='%s [%s]')\n",
+            meas->name, prettify.units_str);
+    fprintf(f, "plot.figure.savefig('%s', bbox_inches='tight')\n",
+            output_filename);
 }
 
 static bool python_found(void)
@@ -683,14 +814,16 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde = kde_plot_matplotlib;
         maker->kde_ext = kde_ext_plot_matplotlib;
         maker->kde_cmp = kde_cmp_plot_matplotlib;
+        maker->kde_cmp_ext = kde_cmp_ext_plot_matplotlib;
         break;
     case PLOT_BACKEND_SEABORN:
         maker->bar = bar_plot_matplotlib;
         maker->group_bar = group_bar_plot_matplotlib;
         maker->group = group_plot_matplotlib;
-        maker->kde = kde_plot_matplotlib;
+        maker->kde = kde_plot_seaborn;
         maker->kde_ext = kde_ext_plot_matplotlib;
         maker->kde_cmp = kde_cmp_plot_matplotlib;
+        maker->kde_cmp_ext = kde_cmp_ext_plot_matplotlib;
         break;
     default:
         ASSERT_UNREACHABLE();

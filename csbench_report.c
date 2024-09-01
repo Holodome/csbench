@@ -70,6 +70,7 @@ enum plot_kind {
     PLOT_KDE,
     PLOT_KDE_EXT,
     PLOT_KDE_CMP,
+    PLOT_KDE_CMP_EXT,
     PLOT_KDE_CMPG
 };
 
@@ -191,7 +192,8 @@ static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp)
         stdout_fd = STDOUT_FILENO;
         stderr_fd = STDERR_FILENO;
     }
-    return shell_launch_stdin_pipe(g_python_executable, inp, stdout_fd, stderr_fd, pidp);
+    return shell_launch_stdin_pipe(g_python_executable, inp, stdout_fd,
+                                   stderr_fd, pidp);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
@@ -251,6 +253,9 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         args->plot_kind = PLOT_KDE_CMP;
         if (!walk(args))
             return false;
+        args->plot_kind = PLOT_KDE_CMP_EXT;
+        if (!walk(args))
+            return false;
     }
     return true;
 }
@@ -291,6 +296,10 @@ static void format_plot_name(char *buf, size_t buf_size,
     case PLOT_KDE_CMP:
         snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
+        break;
+    case PLOT_KDE_CMP_EXT:
+        snprintf(buf, buf_size, "%s/kde_cmp_ext_%zu.%s", g_out_dir,
+                 args->meas_idx, extension);
         break;
     }
 }
@@ -335,6 +344,10 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
     }
     case PLOT_KDE_CMP:
         plot_maker->kde_cmp(al->benches[0], al->benches[1], meas, svg_buf, f);
+        break;
+    case PLOT_KDE_CMP_EXT:
+        plot_maker->kde_cmp_ext(al->benches[0], al->benches[1], meas, svg_buf,
+                                f);
         break;
     }
 }
