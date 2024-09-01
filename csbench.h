@@ -445,6 +445,27 @@ enum statistical_test {
     STAT_TEST_TTEST,
 };
 
+enum plot_backend {
+    PLOT_BACKEND_MATPLOTLIB,
+};
+
+struct plot_maker {
+    void (*bar)(const struct meas_analysis *analysis,
+                const char *output_filename, FILE *f);
+    void (*group_bar)(const struct meas_analysis *analysis,
+                      const char *output_filename, FILE *f);
+    void (*group)(const struct group_analysis *analyses, size_t count,
+                  const struct meas *meas, const struct bench_var *var,
+                  const char *output_filename, FILE *f);
+    void (*kde)(const struct distr *distr, const struct meas *meas,
+                const char *output_filename, FILE *f);
+    void (*kde_ext)(const struct distr *distr, const struct meas *meas,
+                    const char *output_filename, FILE *f);
+    void (*kde_cmp)(const struct distr *a, const struct distr *b,
+                    const struct meas *meas, const char *output_filename,
+                    FILE *f);
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -496,6 +517,16 @@ enum statistical_test {
 #define atomic_store(_at, _x) __atomic_store_n(_at, _x, __ATOMIC_SEQ_CST)
 #define atomic_fetch_inc(_at) __atomic_fetch_add(_at, 1, __ATOMIC_SEQ_CST)
 #define atomic_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+
+// We use this macro to facilitate two kinds of behaviour:
+// On release control should never reach it, but luckily on MacOS even then we
+// get abort. On debug with UBSan we get nice printout to terminal.
+// Also the compiler knows that this code path is unreachable, so we don't have
+// to make useless returns to make compiler happy.
+#define ASSERT_UNREACHABLE()                                                   \
+    do {                                                                       \
+        __builtin_unreachable();                                               \
+    } while (0)
 
 //
 // csbench.c
@@ -597,6 +628,9 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 //
 // csbench_plot.c
 //
+
+bool best_plot_backend(enum plot_backend *backend);
+void initialize_plot_maker(enum plot_backend backend, struct plot_maker *maker);
 
 void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
               FILE *f);

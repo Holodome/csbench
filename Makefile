@@ -2,8 +2,10 @@ CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -Werror
 LDFLAGS += -lm -lpthread 
 
 ifdef DEBUG
-	CFLAGS += -O0 -g -fsanitize=address
-	LDFLAGS += -fsanitize=address
+	CFLAGS += -O0 -g -fsanitize=address,undefined
+	LDFLAGS += -fsanitize=address,undefined
+else
+	CFLAGS += -DNDEBUG
 endif 
 ifdef DEBUG_THREAD
 	CFLAGS += -O0 -g -fsanitize=thread

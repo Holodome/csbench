@@ -967,11 +967,9 @@ static size_t ith_bench_idx(int i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->bench_by_mean_time[i];
-    case SORT_DEFAULT:
-        assert(0);
+    default:
+        ASSERT_UNREACHABLE();
     }
-    assert(0);
-    return 0;
 }
 
 static void print_bench_comparison(const struct meas_analysis *al)
@@ -999,7 +997,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
         break;
     case SORT_DEFAULT:
-        assert(0);
+        ASSERT_UNREACHABLE();
     }
     for (size_t i = 0; i < base->bench_count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
@@ -1088,11 +1086,9 @@ static size_t ith_per_val_group_idx(size_t i, size_t val_idx,
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->val_benches_by_mean_time[val_idx][i];
-    case SORT_DEFAULT:
-        assert(0);
+    default:
+        ASSERT_UNREACHABLE();
     }
-    assert(0);
-    return 0;
 }
 
 static size_t ith_group_idx(size_t i, const struct meas_analysis *al)
@@ -1104,11 +1100,9 @@ static size_t ith_group_idx(size_t i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->groups_by_speed[i];
-    case SORT_DEFAULT:
-        assert(0);
+    default:
+        ASSERT_UNREACHABLE();
     }
-    assert(0);
-    return 0;
 }
 
 static void print_group_per_value_speedups(const struct meas_analysis *al,

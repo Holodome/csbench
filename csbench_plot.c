@@ -112,7 +112,7 @@ static void prettify_plot(const struct units *units, double min, double max,
             plot->multiplier = 1e-9;
             break;
         default:
-            assert(0);
+            ASSERT_UNREACHABLE();
         }
         if (max < 1e-6 * 5) {
             plot->units_str = "ns";
@@ -603,4 +603,21 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
     init_kde_cmp_plot(a, b, meas, output_filename, &plot);
     make_kde_cmp_plot(&plot, f);
     free_kde_cmp_plot(&plot);
+}
+
+bool best_plot_backend(enum plot_backend *backend)
+{
+    *backend = PLOT_BACKEND_MATPLOTLIB;
+    return true;
+}
+
+void initialize_plot_maker(enum plot_backend backend, struct plot_maker *maker)
+{
+    (void)maker;
+    switch (backend) {
+    case PLOT_BACKEND_MATPLOTLIB:
+        break;
+    default:
+        ASSERT_UNREACHABLE();
+    }
 }

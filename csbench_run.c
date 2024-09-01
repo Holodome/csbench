@@ -637,10 +637,9 @@ static bool exec_and_measure(const struct bench_params *params,
             val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
-            assert(0);
-            break;
         case MEAS_LOADED:
-            assert(0);
+        default:
+            ASSERT_UNREACHABLE();
         }
         sb_push(bench->meas[meas_idx], val);
     }
