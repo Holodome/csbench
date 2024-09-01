@@ -71,7 +71,8 @@ enum plot_kind {
     PLOT_KDE,
     PLOT_KDE_CMP_SMALL,
     PLOT_KDE_CMP,
-    PLOT_KDE_CMPG
+    PLOT_KDE_CMPG,
+    PLOT_KDE_CMP_ALL_GROUPS
 };
 
 struct plot_walker_args {
@@ -82,6 +83,7 @@ struct plot_walker_args {
     size_t bench_idx;
     size_t grp_idx;
     size_t var_value_idx;
+    size_t a_idx, b_idx;
     struct plot_maker plot_maker;
 };
 
@@ -201,8 +203,11 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
 {
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
-    if (base->bench_count > 1) {
-        if (base->group_count <= 1) {
+    size_t bench_count = base->bench_count;
+    size_t val_count = base->var->value_count;
+    size_t grp_count = base->group_count;
+    if (bench_count > 1) {
+        if (grp_count <= 1) {
             args->plot_kind = PLOT_BAR;
             if (!walk(args))
                 return false;
@@ -213,7 +218,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     if (g_regr) {
-        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
             const struct group_analysis *grp = al->group_analyses + grp_idx;
             if (!grp->values_are_doubles)
                 break;
@@ -231,7 +236,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             }
         }
     }
-    for (size_t bench_idx = 0; bench_idx < base->bench_count; ++bench_idx) {
+    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         args->plot_kind = PLOT_KDE_SMALL;
         args->bench_idx = bench_idx;
         if (!walk(args))
@@ -242,10 +247,18 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             return false;
     }
     if (base->group_count == 2) {
-        size_t value_count = base->var->value_count;
-        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             args->plot_kind = PLOT_KDE_CMPG;
             args->var_value_idx = val_idx;
+            if (!walk(args))
+                return false;
+        }
+        args->a_idx = al->groups_speedup_reference;
+        for (size_t i = 0; i < grp_count; ++i) {
+            if (i == args->a_idx)
+                continue;
+            args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
+            args->b_idx = i;
             if (!walk(args))
                 return false;
         }
@@ -292,6 +305,11 @@ static void format_plot_name(char *buf, size_t buf_size,
     case PLOT_KDE_CMPG:
         snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", g_out_dir,
                  args->var_value_idx, args->meas_idx, extension);
+        break;
+    case PLOT_KDE_CMP_ALL_GROUPS:
+        snprintf(buf, buf_size, "%s/kde_cmp_all_groups_%zu_%zu_%zu.%s",
+                 g_out_dir, args->a_idx, args->b_idx, args->meas_idx,
+                 extension);
         break;
     case PLOT_KDE_CMP_SMALL:
         snprintf(buf, buf_size, "%s/kde_cmp_small_%zu.%s", g_out_dir,
@@ -366,6 +384,8 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
                             svg_buf, f);
         break;
     }
+    case PLOT_KDE_CMP_ALL_GROUPS:
+        plot_maker->kde_cmp_group(al, args->a_idx, args->b_idx, svg_buf, f);
     }
 }
 
