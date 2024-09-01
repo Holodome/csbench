@@ -57,32 +57,50 @@
 #include <math.h>
 #include <stdlib.h>
 
+#define KDE_POINTS 200
+
+struct kde_data {
+    size_t point_count;
+    double min, step, max;
+    double *data;
+    double mean_x;
+    double mean_y;
+};
+
 // data needed to construct kde plot. Points here are computed from original
 // timings.
 struct kde_plot {
     const struct distr *distr;
     const struct meas *meas;
+    struct kde_data kde;
     const char *title;
-    size_t count;
-    double lower;
-    double step;
-    double *data;
-    double mean;
-    double mean_y;
     const char *output_filename;
     bool is_small;
 };
 
 struct kde_cmp_plot {
     const struct kde_cmp_params *params;
-    size_t count;
-    double lower;
-    double step;
-    double *a_kde, *b_kde;
-    double a_mean, b_mean;
-    double a_mean_y, b_mean_y;
+    size_t point_count;
+    double min, step, max;
+    struct kde_data a_kde, b_kde;
     const char *output_filename;
     bool is_small;
+};
+
+struct kde_cmp_val {
+    double min, step, max;
+    struct kde_data a_kde;
+    struct kde_data b_kde;
+};
+
+struct kde_cmp_group_plot {
+    const struct meas_analysis *al;
+    size_t a_idx;
+    size_t b_idx;
+    size_t val_count;
+    size_t point_count;
+    struct kde_cmp_val *cmps;
+    const char *output_filename;
 };
 
 struct prettify_plot {
@@ -290,19 +308,45 @@ static double linear_interpolate(double lower, double step, const double *y,
     return 0.0;
 }
 
-static void kde_limits(const struct distr *distr, bool is_small, double *lower,
-                       double *upper)
+static void kde_limits(const struct distr *distr, bool is_small, double *min,
+                       double *max)
 {
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
     if (is_small) {
-        *lower = fmax(mean - 3.0 * st_dev, distr->p5);
-        *upper = fmin(mean + 3.0 * st_dev, distr->p95);
+        *min = fmax(mean - 3.0 * st_dev, distr->p5);
+        *max = fmin(mean + 3.0 * st_dev, distr->p95);
     } else {
-        *lower = fmax(mean - 6.0 * st_dev, distr->p1);
-        *upper = fmin(mean + 6.0 * st_dev, distr->p99);
+        *min = fmax(mean - 6.0 * st_dev, distr->p1);
+        *max = fmin(mean + 6.0 * st_dev, distr->p99);
     }
 }
+
+static void kde_cmp_limits(const struct distr *a, const struct distr *b,
+                           double *min, double *max)
+{
+    double a_min, b_min, a_max, b_max;
+    kde_limits(a, false, &a_min, &a_max);
+    kde_limits(b, false, &b_min, &b_max);
+    *min = fmin(a_min, b_min);
+    *max = fmax(a_max, b_max);
+}
+
+static void init_kde_data(const struct distr *distr, bool is_small, double min,
+                          double max, size_t point_count, struct kde_data *kde)
+{
+    kde->point_count = point_count;
+    kde->min = min;
+    kde->max = max;
+    kde->step = (kde->max - kde->min) / kde->point_count;
+    kde->data = calloc(kde->point_count, sizeof(*kde->data));
+    construct_kde(distr, kde->data, kde->point_count, kde->min, kde->step);
+    kde->mean_x = distr->mean.point;
+    kde->mean_y = linear_interpolate(kde->min, kde->step, kde->data,
+                                     kde->point_count, kde->mean_x);
+}
+
+static void free_kde_data(struct kde_data *kde) { free(kde->data); }
 
 #define init_kde_small_plot(_distr, _meas, _output_filename, _plot)            \
     init_kde_plot_internal(_distr, _meas, true, NULL, _output_filename, _plot)
@@ -314,25 +358,17 @@ static void init_kde_plot_internal(const struct distr *distr,
                                    const char *output_filename,
                                    struct kde_plot *plot)
 {
-    size_t kde_points = 200;
-    double lower, upper;
-    kde_limits(distr, is_small, &lower, &upper);
-    double step = (upper - lower) / kde_points;
-
+    double min, max;
+    kde_limits(distr, is_small, &min, &max);
     plot->is_small = is_small;
     plot->title = name;
     plot->output_filename = output_filename;
     plot->meas = meas;
     plot->distr = distr;
-    plot->count = kde_points;
-    plot->lower = lower;
-    plot->step = step;
-    plot->data = malloc(sizeof(*plot->data) * plot->count);
-    construct_kde(distr, plot->data, plot->count, lower, step);
-    plot->mean = distr->mean.point;
-    plot->mean_y =
-        linear_interpolate(lower, step, plot->data, kde_points, plot->mean);
+    init_kde_data(distr, is_small, KDE_POINTS, min, max, &plot->kde);
 }
+
+static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
 
 #define init_kde_cmp_small_plot(_params, _output_filename, _plot)              \
     init_kde_cmp_plot_internal(_params, true, _output_filename, _plot)
@@ -343,51 +379,43 @@ static void init_kde_cmp_plot_internal(const struct kde_cmp_params *params,
                                        const char *output_filename,
                                        struct kde_cmp_plot *plot)
 {
-    size_t kde_points = 200;
-    double lower, upper;
-    {
-        double a_lower, b_lower, a_upper, b_upper;
-        kde_limits(params->a, false, &a_lower, &a_upper);
-        kde_limits(params->b, false, &b_lower, &b_upper);
-        lower = fmin(a_lower, b_lower);
-        upper = fmax(a_upper, b_upper);
-    }
-    double step = (upper - lower) / kde_points;
+    size_t kde_points = KDE_POINTS;
+    double min, max;
+    kde_cmp_limits(params->a, params->b, &min, &max);
 
     plot->params = params;
-    plot->count = kde_points;
-    plot->lower = lower;
-    plot->step = step;
-    plot->a_kde = malloc(sizeof(*plot->a_kde) * plot->count);
-    plot->b_kde = malloc(sizeof(*plot->b_kde) * plot->count);
-    construct_kde(params->a, plot->a_kde, plot->count, lower, step);
-    construct_kde(params->b, plot->b_kde, plot->count, lower, step);
-    plot->a_mean = params->a->mean.point;
-    plot->b_mean = params->b->mean.point;
-    plot->a_mean_y =
-        linear_interpolate(lower, step, plot->a_kde, kde_points, plot->a_mean);
-    plot->b_mean_y =
-        linear_interpolate(lower, step, plot->b_kde, kde_points, plot->b_mean);
+    plot->min = min;
+    plot->max = max;
+    plot->point_count = kde_points;
+    plot->step = (max - min) / kde_points;
+    init_kde_data(params->a, false, kde_points, min, max, &plot->a_kde);
+    init_kde_data(params->b, false, kde_points, min, max, &plot->b_kde);
     plot->output_filename = output_filename;
     plot->is_small = is_small;
+}
+
+static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
+{
+    free_kde_data(&plot->a_kde);
+    free_kde_data(&plot->b_kde);
 }
 
 static void make_kde_small_plot(const struct kde_plot *plot, FILE *f)
 {
     assert(plot->is_small);
-    double min = plot->lower;
-    double max = plot->lower + plot->step * (plot->count - 1);
+    double min = plot->kde.min;
+    double max = plot->kde.max;
     struct prettify_plot prettify = {0};
     prettify_plot(&plot->meas->units, min, max, &prettify);
 
     fprintf(f, "y = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->data[i]);
+    for (size_t i = 0; i < plot->kde.point_count; ++i)
+        fprintf(f, "%g, ", plot->kde.data[i]);
     fprintf(f, "]\n");
     fprintf(f, "x = [");
-    for (size_t i = 0; i < plot->count; ++i)
+    for (size_t i = 0; i < plot->kde.point_count; ++i)
         fprintf(f, "%g, ",
-                (plot->lower + plot->step * i) * prettify.multiplier);
+                (plot->kde.min + plot->kde.step * i) * prettify.multiplier);
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib as mpl\n"
@@ -399,28 +427,28 @@ static void make_kde_small_plot(const struct kde_plot *plot, FILE *f)
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            plot->mean * prettify.multiplier, plot->mean_y, plot->meas->name,
-            prettify.units_str, plot->output_filename);
+            plot->kde.mean_x * prettify.multiplier, plot->kde.mean_y,
+            plot->meas->name, prettify.units_str, plot->output_filename);
 }
 
 static void make_kde_plot(const struct kde_plot *plot, FILE *f)
 {
     assert(!plot->is_small);
-    double min = plot->lower;
-    double max = plot->lower + plot->step * (plot->count - 1);
+    double min = plot->kde.min;
+    double max = plot->kde.max;
     struct prettify_plot prettify = {0};
     prettify_plot(&plot->meas->units, min, max, &prettify);
 
     double max_y = -INFINITY;
-    for (size_t i = 0; i < plot->count; ++i)
-        if (plot->data[i] > max_y)
-            max_y = plot->data[i];
+    for (size_t i = 0; i < plot->kde.point_count; ++i)
+        if (plot->kde.data[i] > max_y)
+            max_y = plot->kde.data[i];
 
     double max_point_x = 0;
     fprintf(f, "points = [");
     for (size_t i = 0; i < plot->distr->count; ++i) {
         double v = plot->distr->data[i];
-        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+        if (v < plot->kde.min || v > plot->kde.max)
             continue;
         if (v > max_point_x)
             max_point_x = v;
@@ -446,8 +474,8 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             plot->distr->outliers.high_mild_x * prettify.multiplier);
     size_t kde_count = 0;
     fprintf(f, "x = [");
-    for (size_t i = 0; i < plot->count; ++i, ++kde_count) {
-        double x = plot->lower + plot->step * i;
+    for (size_t i = 0; i < plot->kde.point_count; ++i, ++kde_count) {
+        double x = plot->kde.min + plot->kde.step * i;
         if (x > max_point_x)
             break;
         fprintf(f, "%g, ", x * prettify.multiplier);
@@ -455,7 +483,7 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     fprintf(f, "]\n");
     fprintf(f, "y = [");
     for (size_t i = 0; i < kde_count; ++i)
-        fprintf(f, "%g, ", plot->data[i]);
+        fprintf(f, "%g, ", plot->kde.data[i]);
     fprintf(f, "]\n");
     fprintf(
         f,
@@ -470,19 +498,17 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
         "color='orange', label='mild outliers')\n"
         "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
         "color='red', label='severe outliers')\n",
-        plot->mean * prettify.multiplier);
-    if (plot->distr->outliers.low_mild_x > plot->lower)
+        plot->kde.mean_x * prettify.multiplier);
+    if (plot->distr->outliers.low_mild_x > plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.low_mild_x * prettify.multiplier);
-    if (plot->distr->outliers.low_severe_x > plot->lower)
+    if (plot->distr->outliers.low_severe_x > plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.low_severe_x * prettify.multiplier);
-    if (plot->distr->outliers.high_mild_x <
-        plot->lower + plot->count * plot->step)
+    if (plot->distr->outliers.high_mild_x < plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.high_mild_x * prettify.multiplier);
-    if (plot->distr->outliers.high_severe_x <
-        plot->lower + plot->count * plot->step)
+    if (plot->distr->outliers.high_severe_x < plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.high_severe_x * prettify.multiplier);
     fprintf(f,
@@ -501,23 +527,23 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
 static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
 {
     assert(plot->is_small);
-    double min = plot->lower;
-    double max = plot->lower + (plot->count - 1) * plot->step;
+    double min = plot->min;
+    double max = plot->max;
     struct prettify_plot prettify = {0};
     prettify_plot(&plot->params->meas->units, min, max, &prettify);
 
     fprintf(f, "x = [");
-    for (size_t i = 0; i < plot->count; ++i)
+    for (size_t i = 0; i < plot->point_count; ++i)
         fprintf(f, "%g, ",
-                (plot->lower + plot->step * i) * prettify.multiplier);
+                (plot->a_kde.min + plot->step * i) * prettify.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "ay = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->a_kde[i]);
+    for (size_t i = 0; i < plot->a_kde.point_count; ++i)
+        fprintf(f, "%g, ", plot->a_kde.data[i]);
     fprintf(f, "]\n");
     fprintf(f, "by = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->b_kde[i]);
+    for (size_t i = 0; i < plot->b_kde.point_count; ++i)
+        fprintf(f, "%g, ", plot->b_kde.data[i]);
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib as mpl\n"
@@ -532,8 +558,8 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            plot->a_mean * prettify.multiplier, plot->a_mean_y,
-            plot->b_mean * prettify.multiplier, plot->b_mean_y,
+            plot->a_kde.mean_x * prettify.multiplier, plot->a_kde.mean_y,
+            plot->b_kde.mean_x * prettify.multiplier, plot->b_kde.mean_y,
             plot->params->meas->name, prettify.units_str,
             plot->output_filename);
 }
@@ -541,36 +567,35 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
 static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
 {
     assert(!plot->is_small);
-    double min = plot->lower;
-    double max = plot->lower + (plot->count - 1) * plot->step;
+    double min = plot->min;
+    double max = plot->max;
     struct prettify_plot prettify = {0};
     prettify_plot(&plot->params->meas->units, min, max, &prettify);
 
     double max_y = -INFINITY;
-    for (size_t i = 0; i < plot->count; ++i) {
-        if (plot->a_kde[i] > max_y)
-            max_y = plot->a_kde[i];
-        if (plot->b_kde[i] > max_y)
-            max_y = plot->b_kde[i];
+    for (size_t i = 0; i < plot->point_count; ++i) {
+        if (plot->a_kde.data[i] > max_y)
+            max_y = plot->a_kde.data[i];
+        if (plot->b_kde.data[i] > max_y)
+            max_y = plot->b_kde.data[i];
     }
 
     fprintf(f, "x = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ",
-                (plot->lower + plot->step * i) * prettify.multiplier);
+    for (size_t i = 0; i < plot->point_count; ++i)
+        fprintf(f, "%g, ", (plot->min + plot->step * i) * prettify.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "ay = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->a_kde[i]);
+    for (size_t i = 0; i < plot->a_kde.point_count; ++i)
+        fprintf(f, "%g, ", plot->a_kde.data[i]);
     fprintf(f, "]\n");
     fprintf(f, "by = [");
-    for (size_t i = 0; i < plot->count; ++i)
-        fprintf(f, "%g, ", plot->b_kde[i]);
+    for (size_t i = 0; i < plot->b_kde.point_count; ++i)
+        fprintf(f, "%g, ", plot->b_kde.data[i]);
     fprintf(f, "]\n");
     fprintf(f, "a_points = [");
     for (size_t i = 0; i < plot->params->a->count; ++i) {
         double v = plot->params->a->data[i];
-        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+        if (v < plot->min || v > plot->max)
             continue;
         fprintf(f, "(%g, %g), ", v * prettify.multiplier,
                 (double)(i + 1) / plot->params->a->count * max_y);
@@ -579,7 +604,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
     fprintf(f, "b_points = [");
     for (size_t i = 0; i < plot->params->b->count; ++i) {
         double v = plot->params->b->data[i];
-        if (v < plot->lower || v > plot->lower + plot->step * plot->count)
+        if (v < plot->min || v > plot->max)
             continue;
         fprintf(f, "(%g, %g), ", v * prettify.multiplier,
                 (double)(i + 1) / plot->params->b->count * max_y);
@@ -608,19 +633,11 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             plot->params->a_name, plot->params->a_name,
-            plot->a_mean * prettify.multiplier, plot->params->a_name,
+            plot->a_kde.mean_x * prettify.multiplier, plot->params->a_name,
             plot->params->b_name, plot->params->b_name,
-            plot->b_mean * prettify.multiplier, plot->params->b_name,
+            plot->b_kde.mean_x * prettify.multiplier, plot->params->b_name,
             plot->params->meas->name, prettify.units_str, plot->params->title,
             plot->output_filename);
-}
-
-static void free_kde_plot(struct kde_plot *plot) { free(plot->data); }
-
-static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
-{
-    free(plot->a_kde);
-    free(plot->b_kde);
 }
 
 static void group_bar_plot_matplotlib(const struct meas_analysis *analysis,
@@ -715,6 +732,63 @@ static void kde_cmp_plot_matplotlib(const struct kde_cmp_params *params,
     free_kde_cmp_plot(&plot);
 }
 
+static void init_kde_cmp_group_plot(const struct meas_analysis *al,
+                                    size_t a_idx, size_t b_idx,
+                                    const char *output_filename,
+                                    struct kde_cmp_group_plot *plot)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    size_t kde_points = KDE_POINTS;
+    plot->al = al;
+    plot->a_idx = a_idx;
+    plot->b_idx = b_idx;
+    plot->output_filename = output_filename;
+    plot->cmps = calloc(val_count, sizeof(*plot->cmps));
+    plot->point_count = kde_points;
+    const struct group_analysis *a_grp = al->group_analyses + a_idx;
+    const struct group_analysis *b_grp = al->group_analyses + b_idx;
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        struct kde_cmp_val *cmp = plot->cmps + val_idx;
+        const struct distr *a = a_grp->data[val_idx].distr;
+        const struct distr *b = b_grp->data[val_idx].distr;
+        double min, max;
+        kde_cmp_limits(a, b, &min, &max);
+        double step = (max - min) / kde_points;
+        cmp->min = min;
+        cmp->max = max;
+        cmp->step = step;
+        init_kde_data(a, false, kde_points, min, max, &cmp->a_kde);
+        init_kde_data(b, false, kde_points, min, max, &cmp->b_kde);
+    }
+}
+
+static void free_kde_cmp_group_plot(struct kde_cmp_group_plot *plot)
+{
+    for (size_t i = 0; i < plot->val_count; ++i) {
+        free_kde_data(&plot->cmps[i].a_kde);
+        free_kde_data(&plot->cmps[i].b_kde);
+    }
+    free(plot->cmps);
+}
+
+static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
+                                    FILE *f)
+{
+    //
+}
+
+static void kde_cmp_group_plot_matplotlib(const struct meas_analysis *al,
+                                          size_t a_idx, size_t b_idx,
+                                          const char *output_filename, FILE *f)
+{
+    struct kde_cmp_group_plot plot = {0};
+    init_kde_cmp_group_plot(al, a_idx, b_idx, output_filename, &plot);
+    make_kde_cmp_group_plot(&plot, f);
+    free_kde_cmp_group_plot(&plot);
+}
+
 static bool python_found(void)
 {
     char buffer[4096];
@@ -769,6 +843,7 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde = kde_plot_matplotlib;
         maker->kde_cmp_small = kde_cmp_small_plot_matplotlib;
         maker->kde_cmp = kde_cmp_plot_matplotlib;
+        maker->kde_cmp_group = kde_cmp_group_plot_matplotlib;
         break;
     default:
         ASSERT_UNREACHABLE();

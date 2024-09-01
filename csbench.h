@@ -312,12 +312,12 @@ struct meas_analysis {
     const struct meas *meas;
     size_t meas_idx;
     // Array of bench_analysis->meas[meas_idx]
-    const struct distr **benches; // [bench_count]
+    const struct distr **benches;          // [bench_count]
+    struct group_analysis *group_analyses; // [group_count]
     // Indexes of commands sorted by their time (first is the fastest)
     size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
-    size_t **val_benches_by_mean_time;     // [val_count][group_count]
-    struct group_analysis *group_analyses; // [group_count]
+    size_t **val_benches_by_mean_time; // [val_count][group_count]
     // Comparison
     size_t bench_speedups_reference;
     struct speedup *bench_speedups;        // [bench_count]
@@ -461,6 +461,12 @@ struct kde_cmp_params {
     const char *title;
 };
 
+struct kde_cmps_params {
+    const struct analysis *al;
+    size_t a_idx;
+    size_t b_idx;
+};
+
 struct plot_maker {
     void (*bar)(const struct meas_analysis *analysis,
                 const char *output_filename, FILE *f);
@@ -477,6 +483,8 @@ struct plot_maker {
                           const char *output_filename, FILE *f);
     void (*kde_cmp)(const struct kde_cmp_params *params,
                     const char *output_filename, FILE *f);
+    void (*kde_cmp_group)(const struct meas_analysis *al, size_t a_idx,
+                          size_t b_idx, const char *output_filename, FILE *f);
 };
 
 #define sb_header(_a)                                                          \
