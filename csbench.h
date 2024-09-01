@@ -321,15 +321,14 @@ struct meas_analysis {
     // Comparison
     size_t bench_speedups_reference;
     struct speedup *bench_speedups;        // [bench_count]
+    double *p_values;                      // [bench_count]
     size_t *val_bench_speedups_references; // [val_count]
     struct speedup **val_bench_speedups;   // [val_count][group_count]
+    double **var_p_values;                 // [val_count][group_count]
     // Group indexes sorted by relative speed
     size_t *groups_by_speed; // [group_count]
     size_t groups_speedup_reference;
     struct speedup *group_speedups; // [group_count]
-    // P-values in reference to either fastests command or baseline
-    double *p_values;      // [bench_count]
-    double **var_p_values; // [val_count][group_count]
 };
 
 // This structure hold results of benchmarking across all measurements and
@@ -450,6 +449,18 @@ enum plot_backend {
     PLOT_BACKEND_MATPLOTLIB,
 };
 
+#define make_kde_cmp_small_params(_a, _b, _meas)                               \
+    (struct kde_cmp_params) { _a, _b, _meas, NULL, NULL, NULL }
+#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)           \
+    (struct kde_cmp_params) { _a, _b, _meas, _a_name, _b_name, _title }
+
+struct kde_cmp_params {
+    const struct distr *a, *b;
+    const struct meas *meas;
+    const char *a_name, *b_name;
+    const char *title;
+};
+
 struct plot_maker {
     void (*bar)(const struct meas_analysis *analysis,
                 const char *output_filename, FILE *f);
@@ -461,13 +472,11 @@ struct plot_maker {
     void (*kde_small)(const struct distr *distr, const struct meas *meas,
                       const char *output_filename, FILE *f);
     void (*kde)(const struct distr *distr, const struct meas *meas,
-                const char *output_filename, FILE *f);
-    void (*kde_cmp_small)(const struct distr *a, const struct distr *b,
-                          const struct meas *meas, const char *output_filename,
-                          FILE *f);
-    void (*kde_cmp)(const struct distr *a, const struct distr *b,
-                    const struct meas *meas, const char *output_filename,
-                    FILE *f);
+                const char *name, const char *output_filename, FILE *f);
+    void (*kde_cmp_small)(const struct kde_cmp_params *params,
+                          const char *output_filename, FILE *f);
+    void (*kde_cmp)(const struct kde_cmp_params *params,
+                    const char *output_filename, FILE *f);
 };
 
 #define sb_header(_a)                                                          \

@@ -331,24 +331,41 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
         plot_maker->kde_small(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
     case PLOT_KDE:
-        plot_maker->kde(al->benches[args->bench_idx], meas, svg_buf, f);
+        plot_maker->kde(al->benches[args->bench_idx], meas,
+                        base->bench_analyses[args->bench_idx].name, svg_buf, f);
         break;
     case PLOT_KDE_CMPG: {
         const struct group_analysis *a = al->group_analyses;
         const struct group_analysis *b = al->group_analyses + 1;
         plot_maker->kde_cmp_small(
-            al->benches[a->group->cmd_idxs[args->var_value_idx]],
-            al->benches[b->group->cmd_idxs[args->var_value_idx]], meas, svg_buf,
-            f);
+            &make_kde_cmp_small_params(
+                al->benches[a->group->cmd_idxs[args->var_value_idx]],
+                al->benches[b->group->cmd_idxs[args->var_value_idx]], meas),
+            svg_buf, f);
         break;
     }
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al->benches[0], al->benches[1], meas, svg_buf,
-                                  f);
+        plot_maker->kde_cmp_small(
+            &make_kde_cmp_small_params(al->benches[0], al->benches[1], meas),
+            svg_buf, f);
         break;
-    case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al->benches[0], al->benches[1], meas, svg_buf, f);
+    case PLOT_KDE_CMP: {
+        const char *a_name = base->bench_analyses[0].name;
+        const char *b_name = base->bench_analyses[1].name;
+        double p_value = al->bench_speedups_reference == 0 ? al->p_values[1]
+                                                           : al->p_values[0];
+        double diff = al->bench_speedups_reference == 0
+                          ? al->bench_speedups[1].est.point
+                          : al->bench_speedups[0].est.point;
+        char title_buf[4096];
+        snprintf(title_buf, sizeof(title_buf), "%s vs %s p=%.2f diff=%.3f",
+                 a_name, b_name, p_value, diff);
+        plot_maker->kde_cmp(&make_kde_cmp_params(al->benches[0], al->benches[1],
+                                                 meas, a_name, b_name,
+                                                 title_buf),
+                            svg_buf, f);
         break;
+    }
     }
 }
 
