@@ -185,7 +185,13 @@ static bool do_export(const struct analysis *al)
 
 static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp)
 {
-    return shell_launch_stdin_pipe(g_python_executable, inp, pidp);
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    if (g_python_output) {
+        stdout_fd = STDOUT_FILENO;
+        stderr_fd = STDERR_FILENO;
+    }
+    return shell_launch_stdin_pipe(g_python_executable, inp, stdout_fd, stderr_fd, pidp);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),

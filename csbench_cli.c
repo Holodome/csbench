@@ -289,6 +289,10 @@ static void print_help_and_exit(int rc)
     print_opt("--plot", OPT_ARR(NULL), "Generate plots.");
     print_opt("--plot-src", OPT_ARR(NULL),
               "Save python sources used to generate plots.");
+    print_opt(
+        "--plot-backend", OPT_ARR("BACKEND"),
+        "Select backend used to generate plots. Possible values for <BACKEND> "
+        "are: \"auto\", \"matplotlib\", \"seaborn\" (default: \"auto\").");
     print_opt("--html", OPT_ARR(NULL), "Generate HTML report.");
     print_opt("--csv", OPT_ARR(NULL), "Save benchmark results to CSV files.");
     print_opt("--json", OPT_ARR("FILE"),
@@ -952,6 +956,14 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             } else {
                 error("invalid --color option");
                 exit(EXIT_FAILURE);
+            }
+        } else if (opt_arg(argv, &cursor, "--plot-backend", &str)) {
+            if (strcmp(str, "auto") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_DEFAULT;
+            } else if (strcmp(str, "matplotlib") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_MATPLOTLIB;
+            } else if (strcmp(str, "seaborn") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_SEABORN;
             }
         } else if (opt_arg(argv, &cursor, "--progress-bar", &str)) {
             if (strcmp(str, "auto") == 0) {

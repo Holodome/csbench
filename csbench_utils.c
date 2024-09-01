@@ -780,18 +780,13 @@ bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
     return success;
 }
 
-bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pidp)
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd,
+                             int stderr_fd, pid_t *pidp)
 {
     int pipe_fds[2];
     if (!pipe_cloexec(pipe_fds))
         return false;
 
-    int stdout_fd = -1;
-    int stderr_fd = -1;
-    if (g_python_output) {
-        stdout_fd = STDOUT_FILENO;
-        stderr_fd = STDERR_FILENO;
-    }
     bool success = shell_launch(cmd, pipe_fds[0], stdout_fd, stderr_fd, pidp);
     if (!success) {
         close(pipe_fds[0]);

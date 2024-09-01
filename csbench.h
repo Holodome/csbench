@@ -446,7 +446,9 @@ enum statistical_test {
 };
 
 enum plot_backend {
+    PLOT_BACKEND_DEFAULT,
     PLOT_BACKEND_MATPLOTLIB,
+    PLOT_BACKEND_SEABORN,
 };
 
 struct plot_maker {
@@ -554,6 +556,7 @@ extern int g_threads;
 extern int g_baseline;
 extern enum sort_mode g_sort_mode;
 extern enum statistical_test g_stat_test;
+extern enum plot_backend g_plot_backend_override;
 extern enum app_mode g_mode;
 extern struct bench_stop_policy g_warmup_stop;
 extern struct bench_stop_policy g_bench_stop;
@@ -684,8 +687,10 @@ void shuffle(size_t *arr, size_t count);
 bool process_wait_finished_correctly(pid_t pid, bool silent);
 bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
                   pid_t *pid);
-bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pid);
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent);
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd,
+                             int stderr_fd, pid_t *pid);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                   bool silent);
 
 int tmpfile_fd(void);
 

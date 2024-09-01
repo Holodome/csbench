@@ -621,32 +621,70 @@ static bool python_has_matplotlib(void)
 {
     FILE *f;
     pid_t pid;
-    if (!shell_launch_stdin_pipe(g_python_executable, &f, &pid))
+    if (!shell_launch_stdin_pipe(g_python_executable, &f, -1, -1, &pid))
         return false;
     fprintf(f, "import matplotlib\n");
     fclose(f);
     return process_wait_finished_correctly(pid, true);
 }
 
+static bool python_has_seaborn(void)
+{
+    FILE *f;
+    pid_t pid;
+    if (!shell_launch_stdin_pipe(g_python_executable, &f, -1, -1, &pid))
+        return false;
+    fprintf(f, "import seaborn\n");
+    fclose(f);
+    return process_wait_finished_correctly(pid, true);
+}
+
 bool get_plot_backend(enum plot_backend *backend)
 {
+    bool found_backend = false;
     if (!python_found()) {
         error("failed to find python executable '%s'", g_python_executable);
         return false;
     }
-    if (!python_has_matplotlib()) {
-        error("python does not have matplotlib installed");
+    if (python_has_matplotlib()) {
+        *backend = PLOT_BACKEND_MATPLOTLIB;
+        found_backend = true;
+        if (g_plot_backend_override == PLOT_BACKEND_MATPLOTLIB)
+            return true;
+    } else if (g_plot_backend_override == PLOT_BACKEND_MATPLOTLIB) {
+        error("selected plot backend (matplotlib) is not available");
         return false;
     }
-    *backend = PLOT_BACKEND_MATPLOTLIB;
+    if (python_has_seaborn()) {
+        *backend = PLOT_BACKEND_SEABORN;
+        found_backend = true;
+        if (g_plot_backend_override == PLOT_BACKEND_SEABORN)
+            return true;
+    } else if (g_plot_backend_override == PLOT_BACKEND_SEABORN) {
+        error("selected plot backend (seaborn) is not available");
+        return false;
+    }
+    if (!found_backend) {
+        error("Failed to find backend to use to make plots. 'matplotlib' or "
+              "'seaborn' have to be installed for '%s' python executable",
+              g_python_executable);
+        return false;
+    }
     return true;
 }
 
 void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
 {
-    (void)maker;
     switch (backend) {
     case PLOT_BACKEND_MATPLOTLIB:
+        maker->bar = bar_plot_matplotlib;
+        maker->group_bar = group_bar_plot_matplotlib;
+        maker->group = group_plot_matplotlib;
+        maker->kde = kde_plot_matplotlib;
+        maker->kde_ext = kde_ext_plot_matplotlib;
+        maker->kde_cmp = kde_cmp_plot_matplotlib;
+        break;
+    case PLOT_BACKEND_SEABORN:
         maker->bar = bar_plot_matplotlib;
         maker->group_bar = group_bar_plot_matplotlib;
         maker->group = group_plot_matplotlib;

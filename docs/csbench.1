@@ -274,6 +274,8 @@ Do not use default measurements (which are "wall", "stime", "utime").
 .RS
 Example:
 .RS
+.IP auto 
+select 
 \fBcsbench\fR \fB\-\-param\fR n/100,200,400,800 'python3 quicksort.py {n}'
 .RE
 .RE
@@ -411,6 +413,18 @@ Generate plots to output directory. "python3" with "matplotlib" installed must b
 .B \-\-plot\-src
 .IP
 Save python sources used to generate plots to output directory.
+.HP
+\fB\-\-plot\-backend\fR \fIBACKEND\fP
+.IP
+Select backend used to generate plots. Possible values for \fIBACKEND\fP are:
+.RS
+.IP auto 
+Select best available backend (default).
+.IP matplotlib 
+Use python with "matplotlib" library.
+.IP seaborn 
+Use python with "seaborn" library. Provies nicer looking plots than "matplotlib".
+.RE
 .HP
 .B \-\-html
 .IP

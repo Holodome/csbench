@@ -90,6 +90,7 @@ int g_threads = 1;
 int g_baseline = -1;
 enum sort_mode g_sort_mode = SORT_DEFAULT;
 enum statistical_test g_stat_test = STAT_TEST_MWU;
+enum plot_backend g_plot_backend_override = PLOT_BACKEND_DEFAULT;
 enum app_mode g_mode = APP_BENCH;
 struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
