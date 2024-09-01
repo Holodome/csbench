@@ -45,11 +45,11 @@ $b ls --plot > /dev/null || die
 
 distclean
 $b ls pwd --plot > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] || die
+[ -f "$dist_dir/kde_cmp_0.svg" ] && [ -f "$dist_dir/kde_cmp_ext_0.svg" ] || die
 
 #
 # check that plots are generated for custom measurement
@@ -68,11 +68,11 @@ $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 
 distclean 
 $b 'echo {n}' --plot --param n/1,2 > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
 [ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] || die
+[ -f "$dist_dir/kde_cmp_0.svg" ] && [ -f "$dist_dir/kde_cmp_ext_0.svg" ] || die
 
 #
 # check that html report is generated in all basic cases
@@ -201,9 +201,10 @@ $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' 
 
 distclean
 $b '{cmd}' --param=cmd/ls,pwd --plot > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
 [ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
 [ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_ext_0.svg" ] && \
 [ -f "$dist_dir/kde_ext_0_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] || die
 
 #
