@@ -475,7 +475,7 @@ static size_t simple_get_thread_count(void)
     if (!pipe_cloexec(pipe_fd))
         return 1;
 
-    if (!shell_execute_and_wait("nproc", -1, pipe_fd[1], -1)) {
+    if (!shell_execute("nproc", -1, pipe_fd[1], -1)) {
         close(pipe_fd[0]);
         close(pipe_fd[1]);
         return 1;

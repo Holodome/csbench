@@ -131,8 +131,8 @@ static void prettify_plot(const struct units *units, double min, double max,
     }
 }
 
-void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
-              FILE *f)
+static void bar_plot_matplotlib(const struct meas_analysis *analysis,
+                                const char *output_filename, FILE *f)
 {
     size_t count = analysis->base->bench_count;
     double max = -INFINITY, min = INFINITY;
@@ -170,9 +170,10 @@ void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
             analysis->meas->name, prettify.units_str, output_filename);
 }
 
-void group_plot(const struct group_analysis *analyses, size_t count,
-                const struct meas *meas, const struct bench_var *var,
-                const char *output_filename, FILE *f)
+static void group_plot_matplotlib(const struct group_analysis *analyses,
+                                  size_t count, const struct meas *meas,
+                                  const struct bench_var *var,
+                                  const char *output_filename, FILE *f)
 {
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
@@ -523,8 +524,8 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
     free(plot->b_data);
 }
 
-void group_bar_plot(const struct meas_analysis *analysis,
-                    const char *output_filename, FILE *f)
+static void group_bar_plot_matplotlib(const struct meas_analysis *analysis,
+                                      const char *output_filename, FILE *f)
 {
     const struct bench_var *var = analysis->base->var;
     size_t count = analysis->base->group_count;
@@ -578,8 +579,9 @@ void group_bar_plot(const struct meas_analysis *analysis,
             analysis->meas->name, prettify.units_str, output_filename);
 }
 
-void kde_plot(const struct distr *distr, const struct meas *meas,
-              const char *output_filename, FILE *f)
+static void kde_plot_matplotlib(const struct distr *distr,
+                                const struct meas *meas,
+                                const char *output_filename, FILE *f)
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, output_filename, &plot);
@@ -587,8 +589,9 @@ void kde_plot(const struct distr *distr, const struct meas *meas,
     free_kde_plot(&plot);
 }
 
-void kde_plot_ext(const struct distr *distr, const struct meas *meas,
-                  const char *output_filename, FILE *f)
+static void kde_ext_plot_matplotlib(const struct distr *distr,
+                                    const struct meas *meas,
+                                    const char *output_filename, FILE *f)
 {
     struct kde_plot plot = {0};
     init_kde_plot_ext(distr, meas, output_filename, &plot);
@@ -596,8 +599,10 @@ void kde_plot_ext(const struct distr *distr, const struct meas *meas,
     free_kde_plot(&plot);
 }
 
-void kde_cmp_plot(const struct distr *a, const struct distr *b,
-                  const struct meas *meas, const char *output_filename, FILE *f)
+static void kde_cmp_plot_matplotlib(const struct distr *a,
+                                    const struct distr *b,
+                                    const struct meas *meas,
+                                    const char *output_filename, FILE *f)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_plot(a, b, meas, output_filename, &plot);
@@ -605,17 +610,47 @@ void kde_cmp_plot(const struct distr *a, const struct distr *b,
     free_kde_cmp_plot(&plot);
 }
 
-bool best_plot_backend(enum plot_backend *backend)
+static bool python_found(void)
 {
+    return shell_execute("python3 --version", -1, -1, -1);
+}
+
+static bool python_has_matplotlib(void)
+{
+    FILE *f;
+    pid_t pid;
+    if (!shell_launch_stdin_pipe("python3", &f, &pid))
+        return false;
+    fprintf(f, "import matplotlib\n");
+    fclose(f);
+    return process_wait_finished_correctly(pid, true);
+}
+
+bool get_plot_backend(enum plot_backend *backend)
+{
+    if (!python_found()) {
+        error("failed to find python3 executable");
+        return false;
+    }
+    if (!python_has_matplotlib()) {
+        error("python does not have matplotlib installed");
+        return false;
+    }
     *backend = PLOT_BACKEND_MATPLOTLIB;
     return true;
 }
 
-void initialize_plot_maker(enum plot_backend backend, struct plot_maker *maker)
+void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
 {
     (void)maker;
     switch (backend) {
     case PLOT_BACKEND_MATPLOTLIB:
+        maker->bar = bar_plot_matplotlib;
+        maker->group_bar = group_bar_plot_matplotlib;
+        maker->group = group_plot_matplotlib;
+        maker->kde = kde_plot_matplotlib;
+        maker->kde_ext = kde_ext_plot_matplotlib;
+        maker->kde_cmp = kde_cmp_plot_matplotlib;
         break;
     default:
         ASSERT_UNREACHABLE();

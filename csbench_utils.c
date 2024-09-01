@@ -55,6 +55,7 @@
 
 #include <errno.h>
 #include <math.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -314,17 +315,14 @@ const char *big_o_str(enum big_o complexity)
         return coef;                                                           \
     }
 
-ols(1, fitting_curve_1)
-ols(n, fitting_curve_n)
-ols(n_sq, fitting_curve_n_sq)
-ols(n_cube, fitting_curve_n_cube)
-ols(logn, fitting_curve_logn)
-ols(nlogn, fitting_curve_nlogn)
+ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
+    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn)
+        ols(nlogn, fitting_curve_nlogn)
 
 #undef ols
 
-void ols(const double *x, const double *y, size_t count,
-         struct ols_regress *result)
+            void ols(const double *x, const double *y, size_t count,
+                     struct ols_regress *result)
 {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
@@ -723,8 +721,8 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
     return true;
 }
 
-static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
-                                   int stderr_fd, int err_pipe[2], pid_t *pidp)
+static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
+                                  int stderr_fd, int err_pipe[2], pid_t *pidp)
 {
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -769,24 +767,60 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
     return check_and_handle_err_pipe(err_pipe[0], -1);
 }
 
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   pid_t *pid)
+bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                  pid_t *pid)
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return false;
-    bool success = shell_execute_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
-                                          err_pipe, pid);
+    bool success = shell_launch_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
+                                         err_pipe, pid);
     close(err_pipe[0]);
     close(err_pipe[1]);
     return success;
 }
 
-bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
-                            int stderr_fd)
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pidp)
+{
+    int pipe_fds[2];
+    if (!pipe_cloexec(pipe_fds))
+        return false;
+
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    if (g_python_output) {
+        stdout_fd = STDOUT_FILENO;
+        stderr_fd = STDERR_FILENO;
+    }
+    bool success = shell_launch(cmd, pipe_fds[0], stdout_fd, stderr_fd, pidp);
+    if (!success) {
+        close(pipe_fds[0]);
+        close(pipe_fds[1]);
+        return false;
+    }
+    close(pipe_fds[0]);
+    FILE *f = fdopen(pipe_fds[1], "w");
+    if (f == NULL) {
+        csperror("fdopen");
+        // Not a very nice way of handling errors, but it seems correct.
+        close(pipe_fds[1]);
+        kill(*pidp, SIGKILL);
+        for (;;) {
+            int err = waitpid(*pidp, NULL, 0);
+            if (err == -1 && errno == EINTR)
+                continue;
+            break;
+        }
+        return false;
+    }
+    *in_pipe = f;
+    return true;
+}
+
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd)
 {
     pid_t pid = 0;
-    bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
+    bool success = shell_launch(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
     if (success)
         success = process_wait_finished_correctly(pid, false);
     return success;

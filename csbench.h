@@ -629,23 +629,8 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 // csbench_plot.c
 //
 
-bool best_plot_backend(enum plot_backend *backend);
-void initialize_plot_maker(enum plot_backend backend, struct plot_maker *maker);
-
-void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
-              FILE *f);
-void group_bar_plot(const struct meas_analysis *analysis,
-                    const char *output_filename, FILE *f);
-void group_plot(const struct group_analysis *analyses, size_t count,
-                const struct meas *meas, const struct bench_var *var,
-                const char *output_filename, FILE *f);
-void kde_plot(const struct distr *distr, const struct meas *meas,
-              const char *output_filename, FILE *f);
-void kde_plot_ext(const struct distr *distr, const struct meas *meas,
-                  const char *output_filename, FILE *f);
-void kde_cmp_plot(const struct distr *a, const struct distr *b,
-                  const struct meas *meas, const char *output_filename,
-                  FILE *f);
+bool get_plot_backend(enum plot_backend *backend);
+void init_plot_maker(enum plot_backend backend, struct plot_maker *maker);
 
 //
 // csbench_utils.c
@@ -696,9 +681,10 @@ void ols(const double *x, const double *y, size_t count,
 void shuffle(size_t *arr, size_t count);
 
 bool process_wait_finished_correctly(pid_t pid, bool silent);
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   pid_t *pid);
-bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
+bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                  pid_t *pid);
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, pid_t *pid);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd,
                             int stderr_fd);
 
 int tmpfile_fd(void);

@@ -81,6 +81,7 @@ struct plot_walker_args {
     size_t bench_idx;
     size_t grp_idx;
     size_t var_value_idx;
+    struct plot_maker plot_maker;
 };
 
 static bool json_escape(char *buf, size_t buf_size, const char *src)
@@ -182,58 +183,9 @@ static bool do_export(const struct analysis *al)
     return export_json(al, g_json_export_filename);
 }
 
-static bool python_found(void)
-{
-    return shell_execute_and_wait("python3 --version", -1, -1, -1);
-}
-
 static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp)
 {
-    int pipe_fds[2];
-    if (!pipe_cloexec(pipe_fds))
-        return false;
-
-    int stdout_fd = -1;
-    int stderr_fd = -1;
-    if (g_python_output) {
-        stdout_fd = STDOUT_FILENO;
-        stderr_fd = STDERR_FILENO;
-    }
-    bool success =
-        shell_execute("python3", pipe_fds[0], stdout_fd, stderr_fd, pidp);
-    if (!success) {
-        close(pipe_fds[0]);
-        close(pipe_fds[1]);
-        return false;
-    }
-    close(pipe_fds[0]);
-    FILE *f = fdopen(pipe_fds[1], "w");
-    if (f == NULL) {
-        csperror("fdopen");
-        // Not a very nice way of handling errors, but it seems correct.
-        close(pipe_fds[1]);
-        kill(*pidp, SIGKILL);
-        for (;;) {
-            int err = waitpid(*pidp, NULL, 0);
-            if (err == -1 && errno == EINTR)
-                continue;
-            break;
-        }
-        return false;
-    }
-    *inp = f;
-    return true;
-}
-
-static bool python_has_matplotlib(void)
-{
-    FILE *f;
-    pid_t pid;
-    if (!launch_python_stdin_pipe(&f, &pid))
-        return false;
-    fprintf(f, "import matplotlib\n");
-    fclose(f);
-    return process_wait_finished_correctly(pid, true);
+    return shell_launch_stdin_pipe("python3", inp, pidp);
 }
 
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
@@ -342,39 +294,41 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
     const struct meas *meas = al->meas;
+    const struct plot_maker *plot_maker = &args->plot_maker;
     char svg_buf[4096];
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
     switch (args->plot_kind) {
     case PLOT_BAR:
-        bar_plot(al, svg_buf, f);
+        plot_maker->bar(al, svg_buf, f);
         break;
     case PLOT_GROUP_BAR:
-        group_bar_plot(al, svg_buf, f);
+        plot_maker->group_bar(al, svg_buf, f);
         break;
     case PLOT_GROUP_SINGLE:
-        group_plot(al->group_analyses + args->grp_idx, 1, meas, base->var,
-                   svg_buf, f);
+        plot_maker->group(al->group_analyses + args->grp_idx, 1, meas,
+                          base->var, svg_buf, f);
         break;
     case PLOT_GROUP:
-        group_plot(al->group_analyses, base->group_count, meas, base->var,
-                   svg_buf, f);
+        plot_maker->group(al->group_analyses, base->group_count, meas,
+                          base->var, svg_buf, f);
         break;
     case PLOT_KDE:
-        kde_plot(al->benches[args->bench_idx], meas, svg_buf, f);
+        plot_maker->kde(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
     case PLOT_KDE_EXT:
-        kde_plot_ext(al->benches[args->bench_idx], meas, svg_buf, f);
+        plot_maker->kde_ext(al->benches[args->bench_idx], meas, svg_buf, f);
         break;
     case PLOT_KDE_CMPG: {
         const struct group_analysis *a = al->group_analyses;
         const struct group_analysis *b = al->group_analyses + 1;
-        kde_cmp_plot(al->benches[a->group->cmd_idxs[args->var_value_idx]],
-                     al->benches[b->group->cmd_idxs[args->var_value_idx]], meas,
-                     svg_buf, f);
+        plot_maker->kde_cmp(
+            al->benches[a->group->cmd_idxs[args->var_value_idx]],
+            al->benches[b->group->cmd_idxs[args->var_value_idx]], meas, svg_buf,
+            f);
         break;
     }
     case PLOT_KDE_CMP:
-        kde_cmp_plot(al->benches[0], al->benches[1], meas, svg_buf, f);
+        plot_maker->kde_cmp(al->benches[0], al->benches[1], meas, svg_buf, f);
         break;
     }
 }
@@ -393,12 +347,14 @@ static bool dump_plot_walk(struct plot_walker_args *args)
     return true;
 }
 
-static bool dump_plot_src(const struct analysis *al)
+static bool dump_plot_src(const struct analysis *al,
+                          enum plot_backend plot_backend)
 {
+    struct plot_walker_args args = {0};
+    init_plot_maker(plot_backend, &args.plot_maker);
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
-        struct plot_walker_args args = {0};
         args.analysis = al->meas_analyses + meas_idx;
         args.meas_idx = meas_idx;
         if (!plot_walker(dump_plot_walk, &args))
@@ -421,10 +377,12 @@ static bool make_plot_walk(struct plot_walker_args *args)
     return true;
 }
 
-static bool make_plots(const struct analysis *al)
+static bool make_plots(const struct analysis *al,
+                       enum plot_backend plot_backend)
 {
     bool success = true;
     struct plot_walker_args args = {0};
+    init_plot_maker(plot_backend, &args.plot_maker);
     for (size_t meas_idx = 0; meas_idx < al->meas_count && success;
          ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
@@ -815,18 +773,13 @@ static bool do_visualize(const struct analysis *al)
         return true;
 
     if (g_plot) {
-        if (!python_found()) {
-            error("failed to find python3 executable");
+        enum plot_backend plot_backend;
+        if (!get_plot_backend(&plot_backend))
             return false;
-        }
-        if (!python_has_matplotlib()) {
-            error("python does not have matplotlib installed");
-            return false;
-        }
 
-        if (g_plot_src && !dump_plot_src(al))
+        if (g_plot_src && !dump_plot_src(al, plot_backend))
             return false;
-        if (!make_plots(al))
+        if (!make_plots(al, plot_backend))
             return false;
         if (!make_plots_readme(al))
             return false;
