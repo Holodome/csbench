@@ -57,7 +57,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-#define KDE_POINTS 200
+#define KDE_POINT_COUNT 200
 
 struct kde_data {
     size_t point_count;
@@ -82,6 +82,7 @@ struct kde_plot {
     const char *title;
     const char *output_filename;
     struct plot_view view;
+    double max_y;
     bool is_small;
 };
 
@@ -95,6 +96,7 @@ struct kde_cmp_plot {
     struct kde_data a_kde, b_kde;
     const char *output_filename;
     struct plot_view view;
+    double max_y;
     bool is_small;
 };
 
@@ -104,6 +106,7 @@ struct kde_cmp_val {
     struct kde_data a_kde;
     struct kde_data b_kde;
     struct plot_view view;
+    double max_y;
 };
 
 struct kde_cmp_group_plot {
@@ -379,8 +382,14 @@ static void init_kde_plot_internal(const struct distr *distr,
     plot->output_filename = output_filename;
     plot->meas = meas;
     plot->distr = distr;
-    init_kde_data(distr, min, max, KDE_POINTS, &plot->kde);
+    init_kde_data(distr, min, max, KDE_POINT_COUNT, &plot->kde);
     init_plot_view(&meas->units, min, max, &plot->view);
+
+    double max_y = -INFINITY;
+    for (size_t i = 0; i < plot->kde.point_count; ++i)
+        if (plot->kde.data[i] > max_y)
+            max_y = plot->kde.data[i];
+    plot->max_y = max_y;
 }
 
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
@@ -399,7 +408,7 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
 {
     const struct distr *a = al->benches[a_idx];
     const struct distr *b = al->benches[b_idx];
-    size_t kde_points = KDE_POINTS;
+    size_t point_count = KDE_POINT_COUNT;
     double min, max;
     kde_cmp_limits(a, b, &min, &max);
 
@@ -410,13 +419,22 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     plot->b_idx = b_idx;
     plot->min = min;
     plot->max = max;
-    plot->point_count = kde_points;
-    plot->step = (max - min) / kde_points;
-    init_kde_data(a, min, max, KDE_POINTS, &plot->a_kde);
-    init_kde_data(b, min, max, KDE_POINTS, &plot->b_kde);
+    plot->point_count = point_count;
+    plot->step = (max - min) / point_count;
+    init_kde_data(a, min, max, point_count, &plot->a_kde);
+    init_kde_data(b, min, max, point_count, &plot->b_kde);
     plot->output_filename = output_filename;
     plot->is_small = is_small;
     init_plot_view(&al->meas->units, min, max, &plot->view);
+
+    double max_y = -INFINITY;
+    for (size_t i = 0; i < point_count; ++i) {
+        if (plot->a_kde.data[i] > max_y)
+            max_y = plot->a_kde.data[i];
+        if (plot->b_kde.data[i] > max_y)
+            max_y = plot->b_kde.data[i];
+    }
+    plot->max_y = max_y;
 }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
@@ -467,11 +485,6 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     double step = kde->step;
     size_t point_count = kde->point_count;
 
-    double max_y = -INFINITY;
-    for (size_t i = 0; i < point_count; ++i)
-        if (kde->data[i] > max_y)
-            max_y = kde->data[i];
-
     double max_point_x = 0;
     fprintf(f, "points = [");
     for (size_t i = 0; i < distr->count; ++i) {
@@ -481,7 +494,7 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
         if (v > max_point_x)
             max_point_x = v;
         fprintf(f, "(%g,%g), ", v * view->multiplier,
-                (double)(i + 1) / distr->count * max_y);
+                (double)(i + 1) / distr->count * plot->max_y);
     }
     fprintf(f, "]\n");
     fprintf(f,
@@ -603,14 +616,6 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
     const struct kde_data *b_kde = &plot->b_kde;
     const struct plot_view *view = &plot->view;
 
-    double max_y = -INFINITY;
-    for (size_t i = 0; i < point_count; ++i) {
-        if (a_kde->data[i] > max_y)
-            max_y = a_kde->data[i];
-        if (b_kde->data[i] > max_y)
-            max_y = b_kde->data[i];
-    }
-
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i)
         fprintf(f, "%g,", (min + step * i) * view->multiplier);
@@ -629,7 +634,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
         if (v < min || v > max)
             continue;
         fprintf(f, "(%g, %g),", v * view->multiplier,
-                (double)(i + 1) / plot->a->count * max_y);
+                (double)(i + 1) / plot->a->count * plot->max_y);
     }
     fprintf(f, "]\n");
     fprintf(f, "b_points = [");
@@ -638,7 +643,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
         if (v < plot->min || v > plot->max)
             continue;
         fprintf(f, "(%g, %g),", v * view->multiplier,
-                (double)(i + 1) / plot->b->count * max_y);
+                (double)(i + 1) / plot->b->count * plot->max_y);
     }
     fprintf(f, "]\n");
     const char *a_name = plot->al->base->bench_analyses[plot->a_idx].name;
@@ -791,7 +796,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
     size_t val_count = var->value_count;
-    size_t kde_points = KDE_POINTS;
+    size_t point_count = KDE_POINT_COUNT;
     plot->rows = find_closest_lower_square(val_count);
     if (plot->rows > 5)
         plot->rows = 5;
@@ -802,7 +807,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
     plot->val_count = val_count;
     plot->output_filename = output_filename;
     plot->cmps = calloc(val_count, sizeof(*plot->cmps));
-    plot->point_count = kde_points;
+    plot->point_count = point_count;
     const struct group_analysis *a_grp = al->group_analyses + a_idx;
     const struct group_analysis *b_grp = al->group_analyses + b_idx;
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
@@ -811,15 +816,24 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         const struct distr *b = b_grp->data[val_idx].distr;
         double min, max;
         kde_cmp_limits(a, b, &min, &max);
-        double step = (max - min) / kde_points;
+        double step = (max - min) / point_count;
         cmp->a = a;
         cmp->b = b;
         cmp->min = min;
         cmp->max = max;
         cmp->step = step;
-        init_kde_data(a, min, max, kde_points, &cmp->a_kde);
-        init_kde_data(b, min, max, kde_points, &cmp->b_kde);
+        init_kde_data(a, min, max, point_count, &cmp->a_kde);
+        init_kde_data(b, min, max, point_count, &cmp->b_kde);
         init_plot_view(&al->meas->units, min, max, &cmp->view);
+
+        double max_y = -INFINITY;
+        for (size_t i = 0; i < point_count; ++i) {
+            if (cmp->a_kde.data[i] > max_y)
+                max_y = cmp->a_kde.data[i];
+            if (cmp->b_kde.data[i] > max_y)
+                max_y = cmp->b_kde.data[i];
+        }
+        cmp->max_y = max_y;
     }
 }
 
@@ -871,21 +885,13 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
         const struct kde_cmp_val *cmp = plot->cmps + val_idx;
         const struct distr *a = cmp->a;
-        double max_y = -INFINITY;
-        for (size_t i = 0; i < point_count; ++i) {
-            if (cmp->a_kde.data[i] > max_y)
-                max_y = cmp->a_kde.data[i];
-            if (cmp->b_kde.data[i] > max_y)
-                max_y = cmp->b_kde.data[i];
-        }
-
         fprintf(f, "[");
         for (size_t i = 0; i < a->count; ++i) {
             double v = a->data[i];
             if (v < cmp->min || v > cmp->max)
                 continue;
             fprintf(f, "(%g, %g),", v * cmp->view.multiplier,
-                    (double)(i + 1) / a->count * max_y);
+                    (double)(i + 1) / a->count * cmp->max_y);
         }
         fprintf(f, "],");
     }
@@ -894,21 +900,13 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
     for (size_t val_idx = 0; val_idx < plot->val_count; ++val_idx) {
         const struct kde_cmp_val *cmp = plot->cmps + val_idx;
         const struct distr *b = cmp->b;
-        double max_y = -INFINITY;
-        for (size_t i = 0; i < plot->point_count; ++i) {
-            if (cmp->a_kde.data[i] > max_y)
-                max_y = cmp->a_kde.data[i];
-            if (cmp->b_kde.data[i] > max_y)
-                max_y = cmp->b_kde.data[i];
-        }
-
         fprintf(f, "[");
         for (size_t i = 0; i < b->count; ++i) {
             double v = b->data[i];
             if (v < cmp->min || v > cmp->max)
                 continue;
             fprintf(f, "(%g, %g),", v * cmp->view.multiplier,
-                    (double)(i + 1) / b->count * max_y);
+                    (double)(i + 1) / b->count * cmp->max_y);
         }
         fprintf(f, "],");
     }
