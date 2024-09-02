@@ -626,6 +626,11 @@ bool run_benches(const struct bench_params *params, struct bench *benches,
 
 bool make_report(const struct analysis *al);
 
+size_t ith_bench_idx(int i, const struct meas_analysis *al);
+size_t ith_per_val_group_idx(size_t i, size_t val_idx,
+                             const struct meas_analysis *al);
+size_t ith_group_idx(size_t i, const struct meas_analysis *al);
+
 //
 // csbench_perf.c
 //

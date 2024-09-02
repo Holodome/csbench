@@ -244,23 +244,31 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         if (!walk(args))
             return false;
     }
-    if (base->group_count == 2) {
-        args->a_idx = al->groups_speedup_reference;
-        for (size_t i = 0; i < grp_count; ++i) {
-            if (i == args->a_idx)
+    if (grp_count <= 1) {
+        size_t reference_idx = al->bench_speedups_reference;
+        args->a_idx = reference_idx;
+        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+            if (bench_idx == reference_idx)
                 continue;
-            args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
-            args->b_idx = i;
+            args->b_idx = bench_idx;
+            args->plot_kind = PLOT_KDE_CMP_SMALL;
+            if (!walk(args))
+                return false;
+            args->plot_kind = PLOT_KDE_CMP;
             if (!walk(args))
                 return false;
         }
-    } else if (base->bench_count == 2) {
-        args->plot_kind = PLOT_KDE_CMP_SMALL;
-        if (!walk(args))
-            return false;
-        args->plot_kind = PLOT_KDE_CMP;
-        if (!walk(args))
-            return false;
+    } else {
+        size_t reference_idx = al->groups_speedup_reference;
+        args->a_idx = reference_idx;
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+            if (grp_idx == reference_idx)
+                continue;
+            args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
+            args->b_idx = grp_idx;
+            if (!walk(args))
+                return false;
+        }
     }
     return true;
 }
@@ -300,12 +308,12 @@ static void format_plot_name(char *buf, size_t buf_size,
                  extension);
         break;
     case PLOT_KDE_CMP_SMALL:
-        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu.%s", g_out_dir,
-                 args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu_%zu.%s", g_out_dir,
+                 args->a_idx, args->b_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
-        snprintf(buf, buf_size, "%s/kde_cmp_%zu.%s", g_out_dir, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu_%zu.%s", g_out_dir,
+                 args->a_idx, args->b_idx, args->meas_idx, extension);
         break;
     }
 }
@@ -341,10 +349,10 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
                         base->bench_analyses[args->bench_idx].name, svg_buf, f);
         break;
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al, 0, 1, svg_buf, f);
+        plot_maker->kde_cmp_small(al, args->a_idx, args->b_idx, svg_buf, f);
         break;
     case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al, 0, 1, svg_buf, f);
+        plot_maker->kde_cmp(al, args->a_idx, args->b_idx, svg_buf, f);
         break;
     case PLOT_KDE_CMP_ALL_GROUPS:
         plot_maker->kde_cmp_group(al, args->a_idx, args->b_idx, svg_buf, f);
@@ -619,8 +627,8 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     fprintf(f,
             "<div class=\"row\">"
             "<div class=\"col\"><h3>%s kde plot</h3>"
-            "<a href=\"kde_ext_%zu_%zu.svg\"><img "
-            "src=\"kde_%zu_%zu.svg\"></a></div>",
+            "<a href=\"kde_%zu_%zu.svg\"><img "
+            "src=\"kde_small_%zu_%zu.svg\"></a></div>",
             info->name, bench_idx, meas_idx, bench_idx, meas_idx);
     fprintf(f,
             "<div class=\"col\"><h3>statistics</h3>"
@@ -659,17 +667,33 @@ static void html_compare(const struct analysis *al, FILE *f)
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
+        const struct meas_analysis *mal = al->meas_analyses + meas_idx;
         const struct meas *meas = al->meas + meas_idx;
         fprintf(f,
                 "<div><h3>%s comparison</h3>"
                 "<div class=\"row\"><div class=\"col\">"
                 "<img src=\"bar_%zu.svg\"></div>",
                 meas->name, meas_idx);
-        if (al->bench_count == 2)
-            fprintf(f,
-                    "<div class=\"col\">"
-                    "<img src=\"kde_cmp_%zu.svg\"></div>",
-                    meas_idx);
+        fprintf(f, "<div class=\"col\"><h3>summary</h3>");
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            fprintf(
+                f,
+                "<p>fastest is %s</p>"
+                "<p>slowest is %s</p>",
+                al->bench_analyses[mal->bench_speedups_reference].name,
+                al->bench_analyses[mal->bench_by_mean_time[al->bench_count - 1]]
+                    .name);
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            fprintf(f, "<p>baseline is %s</p>",
+                    al->bench_analyses[g_baseline].name);
+            break;
+        case SORT_DEFAULT:
+            ASSERT_UNREACHABLE();
+        }
         fprintf(f, "</div></div></div>");
     }
     fprintf(f, "</div>");
@@ -929,7 +953,7 @@ static void print_benchmark_info(const struct bench_analysis *cur,
     }
 }
 
-static size_t ith_bench_idx(int i, const struct meas_analysis *al)
+size_t ith_bench_idx(int i, const struct meas_analysis *al)
 {
     switch (g_sort_mode) {
     case SORT_RAW:
@@ -1047,8 +1071,8 @@ static const char *group_name(const struct meas_analysis *al, size_t idx,
     return al->group_analyses[idx].group->name;
 }
 
-static size_t ith_per_val_group_idx(size_t i, size_t val_idx,
-                                    const struct meas_analysis *al)
+size_t ith_per_val_group_idx(size_t i, size_t val_idx,
+                             const struct meas_analysis *al)
 {
     switch (g_sort_mode) {
     case SORT_RAW:
@@ -1062,7 +1086,7 @@ static size_t ith_per_val_group_idx(size_t i, size_t val_idx,
     }
 }
 
-static size_t ith_group_idx(size_t i, const struct meas_analysis *al)
+size_t ith_group_idx(size_t i, const struct meas_analysis *al)
 {
     switch (g_sort_mode) {
     case SORT_RAW:

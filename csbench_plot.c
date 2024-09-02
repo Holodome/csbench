@@ -167,13 +167,13 @@ static void init_plot_view(const struct units *units, double min, double max,
     }
 }
 
-static void bar_plot_matplotlib(const struct meas_analysis *analysis,
+static void bar_plot_matplotlib(const struct meas_analysis *al,
                                 const char *output_filename, FILE *f)
 {
-    size_t count = analysis->base->bench_count;
+    size_t count = al->base->bench_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
-        double v = analysis->benches[i]->mean.point;
+        double v = al->benches[i]->mean.point;
         if (v > max)
             max = v;
         if (v < min)
@@ -181,31 +181,44 @@ static void bar_plot_matplotlib(const struct meas_analysis *analysis,
     }
 
     struct plot_view view = {0};
-    init_plot_view(&analysis->meas->units, min, max, &view);
+    init_plot_view(&al->meas->units, min, max, &view);
     fprintf(f, "data = [");
-    for (size_t i = 0; i < count; ++i)
-        fprintf(f, "%g,", analysis->benches[i]->mean.point * view.multiplier);
+    for (size_t i = 0; i < count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        fprintf(f, "%g,", al->benches[bench_idx]->mean.point * view.multiplier);
+    }
     fprintf(f, "]\n");
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
-        const struct bench_analysis *bench = analysis->base->bench_analyses + i;
-        fprintf(f, "'%s', ", bench->name);
+        size_t bench_idx = ith_bench_idx(i, al);
+        const struct bench_analysis *bench =
+            al->base->bench_analyses + bench_idx;
+        fprintf(f, "'%s',", bench->name);
     }
-    fprintf(f, "]\n"
-               "import matplotlib as mpl\n"
+    fprintf(f, "]\n");
+    fprintf(f, "err = [");
+    for (size_t i = 0; i < count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        fprintf(f, "%g,",
+                al->benches[bench_idx]->st_dev.point * view.multiplier);
+    }
+    fprintf(f, "]\n");
+    fprintf(f, "import matplotlib as mpl\n"
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n");
     if (view.logscale)
         fprintf(f, "plt.xscale('log')\n");
     fprintf(f,
-            "plt.barh(range(len(data)), data)\n"
+            "plt.rc('axes', axisbelow=True)\n"
+            "plt.grid(axis='x')\n"
+            "plt.barh(range(len(data)), data, xerr=err, alpha=0.6)\n"
             "plt.yticks(range(len(data)), names)\n"
-            "plt.xlabel('mean %s [%s]')\n"
+            "plt.xlabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analysis->meas->name, view.units_str, output_filename);
+            al->meas->name, view.units_str, output_filename);
 }
 
-static void group_plot_matplotlib(const struct group_analysis *analyses,
+static void group_plot_matplotlib(const struct group_analysis *als,
                                   size_t count, const struct meas *meas,
                                   const struct bench_var *var,
                                   const char *output_filename, FILE *f)
@@ -213,7 +226,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         for (size_t i = 0; i < var->value_count; ++i) {
-            double v = analyses[grp_idx].data[i].mean;
+            double v = als[grp_idx].data[i].mean;
             if (v > max)
                 max = v;
             if (v < min)
@@ -226,7 +239,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
 
     fprintf(f, "x = [");
     for (size_t i = 0; i < var->value_count; ++i) {
-        double v = analyses[0].data[i].value_double;
+        double v = als[0].data[i].value_double;
         fprintf(f, "%g,", v);
     }
     fprintf(f, "]\n");
@@ -234,7 +247,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f, "[");
         for (size_t i = 0; i < var->value_count; ++i)
-            fprintf(f, "%g,", analyses[grp_idx].data[i].mean * view.multiplier);
+            fprintf(f, "%g,", als[grp_idx].data[i].mean * view.multiplier);
         fprintf(f, "],");
     }
     fprintf(f, "]\n");
@@ -242,10 +255,10 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
     double lowest_x = INFINITY;
     double highest_x = -INFINITY;
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        double low = analyses[grp_idx].data[0].value_double;
+        double low = als[grp_idx].data[0].value_double;
         if (low < lowest_x)
             lowest_x = low;
-        double high = analyses[grp_idx].data[var->value_count - 1].value_double;
+        double high = als[grp_idx].data[var->value_count - 1].value_double;
         if (high > highest_x)
             highest_x = high;
     }
@@ -257,7 +270,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
     fprintf(f, "]\n");
     fprintf(f, "regry = [");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        const struct group_analysis *analysis = analyses + grp_idx;
+        const struct group_analysis *analysis = als + grp_idx;
         fprintf(f, "[");
         for (size_t i = 0; i < nregr + 1; ++i) {
             double regr =
