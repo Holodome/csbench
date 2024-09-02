@@ -879,8 +879,10 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
                 : plot->al->var_p_values[i][plot->a_idx];
         double speedup =
             plot->al->val_bench_speedups_references[i] == plot->a_idx
-                ? plot->al->val_bench_speedups[i][plot->b_idx].est.point
-                : plot->al->val_bench_speedups[i][plot->a_idx].est.point;
+                ? positive_speedup(plot->al->val_bench_speedups[i] +
+                                   plot->b_idx)
+                : positive_speedup(plot->al->val_bench_speedups[i] +
+                                   plot->a_idx);
         fprintf(f, "'%s=%s p=%.2f diff=%.3f',", plot->al->base->var->name,
                 plot->al->base->var->values[i], p_value, speedup);
     }
@@ -899,24 +901,23 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
         fprintf(f, "%g,",
                 plot->cmps[i].b_kde.mean_x * prettifies[i].multiplier);
     fprintf(f, "]\n");
-    fprintf(f,
-            "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
-            "a_name, b_name, title, xlabel, ax):\n"
-            "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "label=a_name + ' PDF')\n"
-            "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-            "color='tab:blue', label=a_name + ' sample')\n"
-            "  ax.axvline(a_mean, color='tab:blue', label=a_name + ' mean')\n"
-            "  ax.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange', label=b_name + ' PDF')\n"
-            "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-            "color='tab:orange', label=b_name + ' sample')\n"
-            "  ax.axvline(b_mean, color='tab:orange', label=b_name + ' mean')\n"
-            "  ax.tick_params(left=False, labelleft=False)\n"
-            "  ax.set_xlabel(xlabel)\n"
-            "  ax.set_ylabel('probability density, runs')\n"
-            "  ax.legend(loc='upper right')\n"
-            "  ax.set_title(title)\n");
+    fprintf(f, "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
+               "a_name, b_name, title, xlabel, ax):\n"
+               "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, "
+               "label=a_name)\n"
+               "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
+               "color='tab:blue')\n"
+               "  ax.axvline(a_mean, color='tab:blue')\n"
+               "  ax.fill_between(x, by, interpolate=True, alpha=0.25, "
+               "facecolor='tab:orange', label=b_name)\n"
+               "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
+               "color='tab:orange')\n"
+               "  ax.axvline(b_mean, color='tab:orange')\n"
+               "  ax.tick_params(left=False, labelleft=False)\n"
+               "  ax.set_xlabel(xlabel)\n"
+               "  ax.set_ylabel('probability density, runs')\n"
+               "  ax.legend(loc='upper right')\n"
+               "  ax.set_title(title)\n");
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"

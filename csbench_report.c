@@ -373,8 +373,8 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
         double p_value = al->bench_speedups_reference == 0 ? al->p_values[1]
                                                            : al->p_values[0];
         double diff = al->bench_speedups_reference == 0
-                          ? al->bench_speedups[1].est.point
-                          : al->bench_speedups[0].est.point;
+                          ? positive_speedup(al->bench_speedups + 1)
+                          : positive_speedup(al->bench_speedups + 0);
         char title_buf[4096];
         snprintf(title_buf, sizeof(title_buf), "%s vs %s p=%.2f diff=%.3f",
                  a_name, b_name, p_value, diff);
