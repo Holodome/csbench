@@ -761,11 +761,4 @@ typedef cssort_compar(cssort_compar_fn);
 void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
                 void *arg);
 
-static inline double positive_speedup(const struct speedup *sp)
-{
-    if (!sp->is_slower)
-        return sp->est.point;
-    return sp->inv_est.point;
-}
-
 #endif // CSBENCH_H
