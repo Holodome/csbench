@@ -454,13 +454,6 @@ enum plot_backend {
 #define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)           \
     (struct kde_cmp_params) { _a, _b, _meas, _a_name, _b_name, _title }
 
-struct kde_cmp_params {
-    const struct distr *a, *b;
-    const struct meas *meas;
-    const char *a_name, *b_name;
-    const char *title;
-};
-
 struct kde_cmps_params {
     const struct analysis *al;
     size_t a_idx;
@@ -479,9 +472,9 @@ struct plot_maker {
                       const char *output_filename, FILE *f);
     void (*kde)(const struct distr *distr, const struct meas *meas,
                 const char *name, const char *output_filename, FILE *f);
-    void (*kde_cmp_small)(const struct kde_cmp_params *params,
-                          const char *output_filename, FILE *f);
-    void (*kde_cmp)(const struct kde_cmp_params *params,
+    void (*kde_cmp_small)(const struct meas_analysis *al, size_t a_idx,
+                          size_t b_idx, const char *output_filename, FILE *f);
+    void (*kde_cmp)(const struct meas_analysis *al, size_t a_idx, size_t b_idx,
                     const char *output_filename, FILE *f);
     void (*kde_cmp_group)(const struct meas_analysis *al, size_t a_idx,
                           size_t b_idx, const char *output_filename, FILE *f);

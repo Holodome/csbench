@@ -36,7 +36,7 @@ $b --version > /dev/null || die
 distclean
 $b ls --plot > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_0_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] || die
 
 #
@@ -46,10 +46,10 @@ $b ls --plot > /dev/null || die
 distclean
 $b ls pwd --plot > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
+[ -f "$dist_dir/kde_small_0_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_1_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] && [ -f "$dist_dir/kde_cmp_ext_0.svg" ] || die
+[ -f "$dist_dir/kde_cmp_small_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] || die
 
 #
 # check that plots are generated for custom measurement
@@ -58,8 +58,8 @@ $b ls pwd --plot > /dev/null || die
 distclean
 $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_0_3.svg" ] && [ -f "$dist_dir/kde_ext_0_3.svg" ] && \
+[ -f "$dist_dir/kde_small_0_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_0_3.svg" ] && [ -f "$dist_dir/kde_0_3.svg" ] && \
 [ -f "$dist_dir/readme.md" ] || die
 
 #
@@ -69,10 +69,10 @@ $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 distclean 
 $b 'echo {n}' --plot --param n/1,2 > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
+[ -f "$dist_dir/kde_small_0_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_1_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] && [ -f "$dist_dir/kde_cmp_ext_0.svg" ] || die
+[ -f "$dist_dir/kde_cmp_small_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] || die
 
 #
 # check that html report is generated in all basic cases
@@ -98,10 +98,10 @@ $b 'echo {n}' --html --param n/1,2 > /dev/null || die
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 23 ] || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
+files="kde_small_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_small_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
 kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
-kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
 bar_0.svg bar_3.svg readme.md"
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
@@ -113,8 +113,8 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --no-default-meas > /dev/null || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
+files="kde_small_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
 bar_0.svg readme.md"
 [ $(ls "$dist_dir" | wc -l) -eq 12 ] || die
 for file in $files ; do
@@ -128,10 +128,10 @@ done
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --plot-src > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 45 ] || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
+files="kde_small_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
+kde_small_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
 kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
-kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
 bar_0.svg bar_3.svg"
 for file in $files ; do
     f=$(echo "$dist_dir/$file" | sed "s/svg/py/")
@@ -183,7 +183,7 @@ $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/10
 distclean
 $b ls --plot --shell=none > /dev/null || die 
 [ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_0_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
 [ -f "$dist_dir/readme.md" ] || die
 
 #
@@ -192,7 +192,7 @@ $b ls --plot --shell=none > /dev/null || die
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --param-range n/100/500/100 --plot --no-default-meas --regr > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 30 ] && \
+[ $(ls "$dist_dir" | wc -l) -eq 26 ] && \
 [ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
 
 #
@@ -202,10 +202,10 @@ $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' 
 distclean
 $b '{cmd}' --param=cmd/ls,pwd --plot > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 8 ] && \
-[ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_ext_0.svg" ] && \
-[ -f "$dist_dir/kde_ext_0_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] || die
+[ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_small_0_0.svg" ] && \
+[ -f "$dist_dir/kde_small_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_0.svg" ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] || die
 
 #
 # check that --csv flag works

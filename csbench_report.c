@@ -71,7 +71,6 @@ enum plot_kind {
     PLOT_KDE,
     PLOT_KDE_CMP_SMALL,
     PLOT_KDE_CMP,
-    PLOT_KDE_CMPG,
     PLOT_KDE_CMP_ALL_GROUPS
 };
 
@@ -204,7 +203,6 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
     size_t bench_count = base->bench_count;
-    size_t val_count = base->var->value_count;
     size_t grp_count = base->group_count;
     if (bench_count > 1) {
         if (grp_count <= 1) {
@@ -247,12 +245,6 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             return false;
     }
     if (base->group_count == 2) {
-        for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-            args->plot_kind = PLOT_KDE_CMPG;
-            args->var_value_idx = val_idx;
-            if (!walk(args))
-                return false;
-        }
         args->a_idx = al->groups_speedup_reference;
         for (size_t i = 0; i < grp_count; ++i) {
             if (i == args->a_idx)
@@ -302,10 +294,6 @@ static void format_plot_name(char *buf, size_t buf_size,
         snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", g_out_dir, args->bench_idx,
                  args->meas_idx, extension);
         break;
-    case PLOT_KDE_CMPG:
-        snprintf(buf, buf_size, "%s/kde_cmpg_%zu_%zu.%s", g_out_dir,
-                 args->var_value_idx, args->meas_idx, extension);
-        break;
     case PLOT_KDE_CMP_ALL_GROUPS:
         snprintf(buf, buf_size, "%s/kde_cmp_all_groups_%zu_%zu_%zu.%s",
                  g_out_dir, args->a_idx, args->b_idx, args->meas_idx,
@@ -352,38 +340,12 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
         plot_maker->kde(al->benches[args->bench_idx], meas,
                         base->bench_analyses[args->bench_idx].name, svg_buf, f);
         break;
-    case PLOT_KDE_CMPG: {
-        const struct group_analysis *a = al->group_analyses;
-        const struct group_analysis *b = al->group_analyses + 1;
-        plot_maker->kde_cmp_small(
-            &make_kde_cmp_small_params(
-                al->benches[a->group->cmd_idxs[args->var_value_idx]],
-                al->benches[b->group->cmd_idxs[args->var_value_idx]], meas),
-            svg_buf, f);
-        break;
-    }
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(
-            &make_kde_cmp_small_params(al->benches[0], al->benches[1], meas),
-            svg_buf, f);
+        plot_maker->kde_cmp_small(al, 0, 1, svg_buf, f);
         break;
-    case PLOT_KDE_CMP: {
-        const char *a_name = base->bench_analyses[0].name;
-        const char *b_name = base->bench_analyses[1].name;
-        double p_value = al->bench_speedups_reference == 0 ? al->p_values[1]
-                                                           : al->p_values[0];
-        double diff = al->bench_speedups_reference == 0
-                          ? positive_speedup(al->bench_speedups + 1)
-                          : positive_speedup(al->bench_speedups + 0);
-        char title_buf[4096];
-        snprintf(title_buf, sizeof(title_buf), "%s vs %s p=%.2f diff=%.3f",
-                 a_name, b_name, p_value, diff);
-        plot_maker->kde_cmp(&make_kde_cmp_params(al->benches[0], al->benches[1],
-                                                 meas, a_name, b_name,
-                                                 title_buf),
-                            svg_buf, f);
+    case PLOT_KDE_CMP:
+        plot_maker->kde_cmp(al, 0, 1, svg_buf, f);
         break;
-    }
     case PLOT_KDE_CMP_ALL_GROUPS:
         plot_maker->kde_cmp_group(al, args->a_idx, args->b_idx, svg_buf, f);
     }
