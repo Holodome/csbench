@@ -546,10 +546,10 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     if (plot->distr->outliers.low_severe_x > plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.low_severe_x * view->multiplier);
-    if (plot->distr->outliers.high_mild_x < plot->kde.min)
+    if (plot->distr->outliers.high_mild_x < plot->kde.max)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.high_mild_x * view->multiplier);
-    if (plot->distr->outliers.high_severe_x < plot->kde.min)
+    if (plot->distr->outliers.high_severe_x < plot->kde.max)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
@@ -960,6 +960,7 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "fig, axes = plt.subplots(%zu, %zu)\n"
+            "if %zu == 1: axes = [axes]\n"
             "row = col = 0\n"
             "for i in range(%zu):\n"
             "  make_plot(x[i], ay[i], by[i], a_means[i], b_means[i], "
@@ -980,7 +981,7 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             "figure.set_size_inches(%zu, %zu)\n"
             "fig.tight_layout()\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->rows, plot->cols, plot->val_count,
+            plot->rows, plot->cols, plot->rows, plot->val_count,
             al->group_analyses[plot->a_idx].group->name,
             al->group_analyses[plot->b_idx].group->name, plot->cols, plot->rows,
             plot->cols, plot->cols * 5, plot->rows * 5, plot->output_filename);
