@@ -67,6 +67,12 @@ struct kde_data {
     double mean_y;
 };
 
+struct plot_view {
+    const char *units_str;
+    double multiplier;
+    bool logscale;
+};
+
 // data needed to construct kde plot. Points here are computed from original
 // timings.
 struct kde_plot {
@@ -75,6 +81,7 @@ struct kde_plot {
     struct kde_data kde;
     const char *title;
     const char *output_filename;
+    struct plot_view view;
     bool is_small;
 };
 
@@ -87,6 +94,7 @@ struct kde_cmp_plot {
     double min, step, max;
     struct kde_data a_kde, b_kde;
     const char *output_filename;
+    struct plot_view view;
     bool is_small;
 };
 
@@ -95,6 +103,7 @@ struct kde_cmp_val {
     double min, step, max;
     struct kde_data a_kde;
     struct kde_data b_kde;
+    struct plot_view view;
 };
 
 struct kde_cmp_group_plot {
@@ -108,12 +117,6 @@ struct kde_cmp_group_plot {
     const char *output_filename;
 };
 
-struct prettify_plot {
-    const char *units_str;
-    double multiplier;
-    bool logscale;
-};
-
 static double positive_speedup(const struct speedup *sp)
 {
     if (!sp->is_slower)
@@ -121,43 +124,43 @@ static double positive_speedup(const struct speedup *sp)
     return sp->inv_est.point;
 }
 
-static void prettify_plot(const struct units *units, double min, double max,
-                          struct prettify_plot *plot)
+static void init_plot_view(const struct units *units, double min, double max,
+                           struct plot_view *view)
 {
     if (log10(max / min) > 2.5)
-        plot->logscale = 1;
+        view->logscale = 1;
 
-    plot->multiplier = 1;
+    view->multiplier = 1;
     if (units_is_time(units)) {
         switch (units->kind) {
         case MU_S:
             break;
         case MU_MS:
-            plot->multiplier = 1e-3;
+            view->multiplier = 1e-3;
             break;
         case MU_US:
-            plot->multiplier = 1e-6;
+            view->multiplier = 1e-6;
             break;
         case MU_NS:
-            plot->multiplier = 1e-9;
+            view->multiplier = 1e-9;
             break;
         default:
             ASSERT_UNREACHABLE();
         }
         if (max < 1e-6 && min < 1e-6) {
-            plot->units_str = "ns";
-            plot->multiplier *= 1e9;
+            view->units_str = "ns";
+            view->multiplier *= 1e9;
         } else if (max < 1e-3 && min < 1e-3) {
-            plot->units_str = "us";
-            plot->multiplier *= 1e6;
+            view->units_str = "us";
+            view->multiplier *= 1e6;
         } else if (max < 1.0 && min < 1.0) {
-            plot->units_str = "ms";
-            plot->multiplier *= 1e3;
+            view->units_str = "ms";
+            view->multiplier *= 1e3;
         } else {
-            plot->units_str = "s";
+            view->units_str = "s";
         }
     } else {
-        plot->units_str = units_str(units);
+        view->units_str = units_str(units);
     }
 }
 
@@ -174,12 +177,11 @@ static void bar_plot_matplotlib(const struct meas_analysis *analysis,
             min = v;
     }
 
-    struct prettify_plot prettify = {0};
-    prettify_plot(&analysis->meas->units, min, max, &prettify);
+    struct plot_view view = {0};
+    init_plot_view(&analysis->meas->units, min, max, &view);
     fprintf(f, "data = [");
     for (size_t i = 0; i < count; ++i)
-        fprintf(f, "%g,",
-                analysis->benches[i]->mean.point * prettify.multiplier);
+        fprintf(f, "%g,", analysis->benches[i]->mean.point * view.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
@@ -190,14 +192,14 @@ static void bar_plot_matplotlib(const struct meas_analysis *analysis,
                "import matplotlib as mpl\n"
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n");
-    if (prettify.logscale)
+    if (view.logscale)
         fprintf(f, "plt.xscale('log')\n");
     fprintf(f,
             "plt.barh(range(len(data)), data)\n"
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('mean %s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            analysis->meas->name, prettify.units_str, output_filename);
+            analysis->meas->name, view.units_str, output_filename);
 }
 
 static void group_plot_matplotlib(const struct group_analysis *analyses,
@@ -216,8 +218,8 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
         }
     }
 
-    struct prettify_plot prettify = {0};
-    prettify_plot(&meas->units, min, max, &prettify);
+    struct plot_view view = {0};
+    init_plot_view(&meas->units, min, max, &view);
 
     fprintf(f, "x = [");
     for (size_t i = 0; i < var->value_count; ++i) {
@@ -229,8 +231,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f, "[");
         for (size_t i = 0; i < var->value_count; ++i)
-            fprintf(f, "%g,",
-                    analyses[grp_idx].data[i].mean * prettify.multiplier);
+            fprintf(f, "%g,", analyses[grp_idx].data[i].mean * view.multiplier);
         fprintf(f, "],");
     }
     fprintf(f, "]\n");
@@ -258,7 +259,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
         for (size_t i = 0; i < nregr + 1; ++i) {
             double regr =
                 ols_approx(&analysis->regress, lowest_x + regr_x_step * i);
-            fprintf(f, "%g,", regr * prettify.multiplier);
+            fprintf(f, "%g,", regr * view.multiplier);
         }
         fprintf(f, "],");
     }
@@ -272,7 +273,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
                 "plt.plot(x, y[%zu], '.-')\n",
                 grp_idx, grp_idx);
     }
-    if (prettify.logscale)
+    if (view.logscale)
         fprintf(f, "plt.yscale('log')\n");
     fprintf(f,
             "plt.xticks(x)\n"
@@ -280,7 +281,7 @@ static void group_plot_matplotlib(const struct group_analysis *analyses,
             "plt.xlabel('%s')\n"
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            var->name, meas->name, prettify.units_str, output_filename);
+            var->name, meas->name, view.units_str, output_filename);
 }
 
 static void construct_kde(const struct distr *distr, double *kde,
@@ -379,6 +380,7 @@ static void init_kde_plot_internal(const struct distr *distr,
     plot->meas = meas;
     plot->distr = distr;
     init_kde_data(distr, min, max, KDE_POINTS, &plot->kde);
+    init_plot_view(&meas->units, min, max, &plot->view);
 }
 
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
@@ -414,6 +416,7 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     init_kde_data(b, min, max, KDE_POINTS, &plot->b_kde);
     plot->output_filename = output_filename;
     plot->is_small = is_small;
+    init_plot_view(&al->meas->units, min, max, &plot->view);
 }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
@@ -427,11 +430,9 @@ static void make_kde_small_plot(const struct kde_plot *plot, FILE *f)
     assert(plot->is_small);
     const struct kde_data *kde = &plot->kde;
     double min = kde->min;
-    double max = kde->max;
     double step = kde->step;
     size_t point_count = kde->point_count;
-    struct prettify_plot prettify = {0};
-    prettify_plot(&plot->meas->units, min, max, &prettify);
+    const struct plot_view *view = &plot->view;
 
     fprintf(f, "y = [");
     for (size_t i = 0; i < point_count; ++i)
@@ -439,7 +440,7 @@ static void make_kde_small_plot(const struct kde_plot *plot, FILE *f)
     fprintf(f, "]\n");
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i)
-        fprintf(f, "%g,", (min + step * i) * prettify.multiplier);
+        fprintf(f, "%g,", (min + step * i) * view->multiplier);
     fprintf(f, "]\n");
     fprintf(f,
             "import matplotlib as mpl\n"
@@ -451,21 +452,20 @@ static void make_kde_small_plot(const struct kde_plot *plot, FILE *f)
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            kde->mean_x * prettify.multiplier, kde->mean_y, plot->meas->name,
-            prettify.units_str, plot->output_filename);
+            kde->mean_x * view->multiplier, kde->mean_y, plot->meas->name,
+            view->units_str, plot->output_filename);
 }
 
 static void make_kde_plot(const struct kde_plot *plot, FILE *f)
 {
     assert(!plot->is_small);
     const struct kde_data *kde = &plot->kde;
+    const struct plot_view *view = &plot->view;
     const struct distr *distr = plot->distr;
     double min = kde->min;
     double max = kde->max;
     double step = kde->step;
     size_t point_count = kde->point_count;
-    struct prettify_plot prettify = {0};
-    prettify_plot(&plot->meas->units, min, max, &prettify);
 
     double max_y = -INFINITY;
     for (size_t i = 0; i < point_count; ++i)
@@ -480,33 +480,33 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             continue;
         if (v > max_point_x)
             max_point_x = v;
-        fprintf(f, "(%g,%g), ", v * prettify.multiplier,
+        fprintf(f, "(%g,%g), ", v * view->multiplier,
                 (double)(i + 1) / distr->count * max_y);
     }
     fprintf(f, "]\n");
     fprintf(f,
             "severe_points = list(filter(lambda x: x[0] < %g or x[0] > %g, "
             "points))\n",
-            distr->outliers.low_severe_x * prettify.multiplier,
-            distr->outliers.high_severe_x * prettify.multiplier);
+            distr->outliers.low_severe_x * view->multiplier,
+            distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
             "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < "
             "x[0] < "
             "%f), points))\n",
-            distr->outliers.low_severe_x * prettify.multiplier,
-            distr->outliers.low_mild_x * prettify.multiplier,
-            distr->outliers.high_mild_x * prettify.multiplier,
-            distr->outliers.high_severe_x * prettify.multiplier);
+            distr->outliers.low_severe_x * view->multiplier,
+            distr->outliers.low_mild_x * view->multiplier,
+            distr->outliers.high_mild_x * view->multiplier,
+            distr->outliers.high_severe_x * view->multiplier);
     fprintf(f, "reg_points = list(filter(lambda x: %g < x[0] < %g, points))\n",
-            distr->outliers.low_mild_x * prettify.multiplier,
-            distr->outliers.high_mild_x * prettify.multiplier);
+            distr->outliers.low_mild_x * view->multiplier,
+            distr->outliers.high_mild_x * view->multiplier);
     size_t kde_count = 0;
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i, ++kde_count) {
         double x = min + step * i;
         if (x > max_point_x)
             break;
-        fprintf(f, "%g,", x * prettify.multiplier);
+        fprintf(f, "%g,", x * view->multiplier);
     }
     fprintf(f, "]\n");
     fprintf(f, "y = [");
@@ -526,19 +526,19 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
         "color='orange', label='mild outliers')\n"
         "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
         "color='red', label='severe outliers')\n",
-        plot->kde.mean_x * prettify.multiplier);
+        plot->kde.mean_x * view->multiplier);
     if (plot->distr->outliers.low_mild_x > plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.low_mild_x * prettify.multiplier);
+                plot->distr->outliers.low_mild_x * view->multiplier);
     if (plot->distr->outliers.low_severe_x > plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.low_severe_x * prettify.multiplier);
+                plot->distr->outliers.low_severe_x * view->multiplier);
     if (plot->distr->outliers.high_mild_x < plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.high_mild_x * prettify.multiplier);
+                plot->distr->outliers.high_mild_x * view->multiplier);
     if (plot->distr->outliers.high_severe_x < plot->kde.min)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.high_severe_x * prettify.multiplier);
+                plot->distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('%s [%s]')\n"
@@ -548,7 +548,7 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->meas->name, prettify.units_str, plot->title,
+            plot->meas->name, view->units_str, plot->title,
             plot->output_filename);
 }
 
@@ -557,16 +557,14 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
     assert(plot->is_small);
     size_t point_count = plot->point_count;
     double min = plot->min;
-    double max = plot->max;
     double step = plot->step;
     const struct kde_data *a_kde = &plot->a_kde;
     const struct kde_data *b_kde = &plot->b_kde;
-    struct prettify_plot prettify = {0};
-    prettify_plot(&plot->al->meas->units, min, max, &prettify);
+    const struct plot_view *view = &plot->view;
 
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i)
-        fprintf(f, "%g,", (min + step * i) * prettify.multiplier);
+        fprintf(f, "%g,", (min + step * i) * view->multiplier);
     fprintf(f, "]\n");
     fprintf(f, "ay = [");
     for (size_t i = 0; i < a_kde->point_count; ++i)
@@ -589,9 +587,9 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            a_kde->mean_x * prettify.multiplier, a_kde->mean_y,
-            b_kde->mean_x * prettify.multiplier, b_kde->mean_y,
-            plot->al->meas->name, prettify.units_str, plot->output_filename);
+            a_kde->mean_x * view->multiplier, a_kde->mean_y,
+            b_kde->mean_x * view->multiplier, b_kde->mean_y,
+            plot->al->meas->name, view->units_str, plot->output_filename);
 }
 
 static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
@@ -603,8 +601,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
     double step = plot->step;
     const struct kde_data *a_kde = &plot->a_kde;
     const struct kde_data *b_kde = &plot->b_kde;
-    struct prettify_plot prettify = {0};
-    prettify_plot(&plot->al->meas->units, min, max, &prettify);
+    const struct plot_view *view = &plot->view;
 
     double max_y = -INFINITY;
     for (size_t i = 0; i < point_count; ++i) {
@@ -616,7 +613,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
 
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i)
-        fprintf(f, "%g,", (min + step * i) * prettify.multiplier);
+        fprintf(f, "%g,", (min + step * i) * view->multiplier);
     fprintf(f, "]\n");
     fprintf(f, "ay = [");
     for (size_t i = 0; i < a_kde->point_count; ++i)
@@ -631,7 +628,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
         double v = plot->a->data[i];
         if (v < min || v > max)
             continue;
-        fprintf(f, "(%g, %g),", v * prettify.multiplier,
+        fprintf(f, "(%g, %g),", v * view->multiplier,
                 (double)(i + 1) / plot->a->count * max_y);
     }
     fprintf(f, "]\n");
@@ -640,7 +637,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
         double v = plot->b->data[i];
         if (v < plot->min || v > plot->max)
             continue;
-        fprintf(f, "(%g, %g),", v * prettify.multiplier,
+        fprintf(f, "(%g, %g),", v * view->multiplier,
                 (double)(i + 1) / plot->b->count * max_y);
     }
     fprintf(f, "]\n");
@@ -675,9 +672,9 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            a_name, a_name, a_kde->mean_x * prettify.multiplier, a_name, b_name,
-            b_name, b_kde->mean_x * prettify.multiplier, b_name,
-            plot->al->meas->name, prettify.units_str, a_name, b_name, p_value,
+            a_name, a_name, a_kde->mean_x * view->multiplier, a_name, b_name,
+            b_name, b_kde->mean_x * view->multiplier, b_name,
+            plot->al->meas->name, view->units_str, a_name, b_name, p_value,
             diff, plot->output_filename);
 }
 
@@ -699,8 +696,8 @@ static void group_bar_plot_matplotlib(const struct meas_analysis *al,
         }
     }
 
-    struct prettify_plot prettify = {0};
-    prettify_plot(&al->meas->units, min, max, &prettify);
+    struct plot_view view = {0};
+    init_plot_view(&al->meas->units, min, max, &view);
 
     fprintf(f, "var_values = [");
     for (size_t i = 0; i < val_count; ++i)
@@ -711,7 +708,7 @@ static void group_bar_plot_matplotlib(const struct meas_analysis *al,
         const struct group_analysis *grp_al = al->group_analyses + grp_idx;
         fprintf(f, "  '%s': [", grp_al->group->name);
         for (size_t j = 0; j < val_count; ++j)
-            fprintf(f, "%g,", grp_al->data[j].mean * prettify.multiplier);
+            fprintf(f, "%g,", grp_al->data[j].mean * view.multiplier);
         fprintf(f, "],\n");
     }
     fprintf(f, "}\n");
@@ -727,13 +724,13 @@ static void group_bar_plot_matplotlib(const struct meas_analysis *al,
                "  offset = width * multiplier\n"
                "  rects = ax.bar(x + offset, meas, width, label=at)\n"
                "  multiplier += 1\n");
-    if (prettify.logscale)
+    if (view.logscale)
         fprintf(f, "ax.set_yscale('log')\n");
     fprintf(f,
             "ax.set_ylabel('%s [%s]')\n"
             "plt.xticks(x, var_values)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            al->meas->name, prettify.units_str, output_filename);
+            al->meas->name, view.units_str, output_filename);
 }
 
 static void kde_small_plot_matplotlib(const struct distr *distr,
@@ -822,6 +819,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         cmp->step = step;
         init_kde_data(a, min, max, kde_points, &cmp->a_kde);
         init_kde_data(b, min, max, kde_points, &cmp->b_kde);
+        init_plot_view(&al->meas->units, min, max, &cmp->view);
     }
 }
 
@@ -840,10 +838,6 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
     const struct meas_analysis *al = plot->al;
     size_t val_count = plot->val_count;
     size_t point_count = plot->point_count;
-    struct prettify_plot *prettifies = calloc(val_count, sizeof(*prettifies));
-    for (size_t i = 0; i < val_count; ++i)
-        prettify_plot(&al->meas->units, plot->cmps[i].min, plot->cmps[i].max,
-                      prettifies + i);
 
     fprintf(f, "x = [");
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
@@ -851,8 +845,7 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
         fprintf(f, "[");
         for (size_t i = 0; i < point_count; ++i)
             fprintf(f, "%g,",
-                    (cmp->min + cmp->step * i) *
-                        prettifies[val_idx].multiplier);
+                    (cmp->min + cmp->step * i) * cmp->view.multiplier);
         fprintf(f, "],");
     }
     fprintf(f, "]\n");
@@ -891,7 +884,7 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             double v = a->data[i];
             if (v < cmp->min || v > cmp->max)
                 continue;
-            fprintf(f, "(%g, %g),", v * prettifies[val_idx].multiplier,
+            fprintf(f, "(%g, %g),", v * cmp->view.multiplier,
                     (double)(i + 1) / a->count * max_y);
         }
         fprintf(f, "],");
@@ -914,7 +907,7 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             double v = b->data[i];
             if (v < cmp->min || v > cmp->max)
                 continue;
-            fprintf(f, "(%g, %g),", v * prettifies[val_idx].multiplier,
+            fprintf(f, "(%g, %g),", v * cmp->view.multiplier,
                     (double)(i + 1) / b->count * max_y);
         }
         fprintf(f, "],");
@@ -935,17 +928,17 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
     fprintf(f, "]\n");
     fprintf(f, "xlabels = [");
     for (size_t i = 0; i < plot->val_count; ++i)
-        fprintf(f, "'%s [%s]',", al->meas->name, prettifies[i].units_str);
+        fprintf(f, "'%s [%s]',", al->meas->name, plot->cmps[i].view.units_str);
     fprintf(f, "]\n");
     fprintf(f, "a_means = [");
     for (size_t i = 0; i < plot->val_count; ++i)
         fprintf(f, "%g,",
-                plot->cmps[i].a_kde.mean_x * prettifies[i].multiplier);
+                plot->cmps[i].a_kde.mean_x * plot->cmps[i].view.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "b_means = [");
     for (size_t i = 0; i < plot->val_count; ++i)
         fprintf(f, "%g,",
-                plot->cmps[i].b_kde.mean_x * prettifies[i].multiplier);
+                plot->cmps[i].b_kde.mean_x * plot->cmps[i].view.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
                "a_name, b_name, title, xlabel, ax):\n"
@@ -993,7 +986,6 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             al->group_analyses[plot->a_idx].group->name,
             al->group_analyses[plot->b_idx].group->name, plot->cols, plot->rows,
             plot->cols, plot->cols * 5, plot->rows * 5, plot->output_filename);
-    free(prettifies);
 }
 
 static void kde_cmp_group_plot_matplotlib(const struct meas_analysis *al,
