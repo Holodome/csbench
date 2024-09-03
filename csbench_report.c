@@ -647,12 +647,14 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     format_meas(buf, sizeof(buf), distr->max, &info->units);
     fprintf(f, "<p>max %s</p>", buf);
     fprintf(f, //
-            "<table><thead><tr>"
+            "<table>"
+            "<thead><tr>"
             /**/ "<th></th>"
             /**/ "<th class=\"est-bound\">lower bound</th>"
             /**/ "<th class=\"est-bound\">estimate</th>"
             /**/ "<th class=\"est-bound\">upper bound</th>"
-            "</tr></thead><tbody>");
+            "</tr></thead>"
+            "<tbody>");
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
     for (size_t j = 0; j < al->meas_count; ++j) {
@@ -660,7 +662,8 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
             html_estimate(al->meas[j].name, &analysis->meas[j].mean,
                           &al->meas->units, f);
     }
-    fprintf(f, "</tbody></table>");
+    fprintf(f, "</tbody>"
+               "</table>");
     html_outliers(&distr->outliers, bench->run_count, f);
     fprintf(f, //
             "</div>"
@@ -798,16 +801,121 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
         if (bench == reference)
             continue;
+        const char *a_name = base->bench_analyses[reference_idx].name;
+        const char *b_name = base->bench_analyses[bench_idx].name;
+        const struct distr *a_distr = al->benches[reference_idx];
+        const struct distr *b_distr = al->benches[bench_idx];
         fprintf(f,
                 "<div id=\"kde-cmp-%zu\">"
                 /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
-                /**/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
-                /****/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
-                /**/ "</a>"
-                "</div>",
-                bench_idx, base->bench_analyses[reference_idx].name,
-                base->bench_analyses[bench_idx].name, reference_idx, bench_idx,
+                /**/ "<div class=\"row\">"
+                /****/ "<div class=\"col\">"
+                /******/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
+                /********/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
+                /******/ "</a>"
+                /****/ "</div>", // col
+                bench_idx, a_name, b_name, reference_idx, bench_idx,
                 al->meas_idx, reference_idx, bench_idx, al->meas_idx);
+        fprintf(f,
+                "<div class=\"col\">"
+                /**/ "<h3>statistics</h3>"
+                /**/ "<div class=\"stats\">"
+                /****/ "<table>"
+                /******/ "<thead><tr>"
+                /******/ "<th></th>"
+                /******/ "<th><tt>%s</tt></th>"
+                /******/ "<th><tt>%s</tt></th>"
+                /******/ "</tr></thead>"
+                /******/ "<tbody>",
+                a_name, b_name);
+        char a_mean[256], b_mean[256], a_st_dev[256], b_st_dev[256];
+        format_meas(a_mean, sizeof(a_mean), a_distr->mean.point,
+                    &al->meas->units);
+        format_meas(b_mean, sizeof(b_mean), b_distr->mean.point,
+                    &al->meas->units);
+        format_meas(a_st_dev, sizeof(a_st_dev), a_distr->st_dev.point,
+                    &al->meas->units);
+        format_meas(b_st_dev, sizeof(b_st_dev), b_distr->st_dev.point,
+                    &al->meas->units);
+        fprintf(f,
+                "<tr><td>mean</td><td>%s</td><td>%s</td></tr>"
+                "<tr><td>st dev</td><td>%s</td><td>%s</td></tr>"
+                "</tbody>"
+                "</table>",
+                a_mean, b_mean, a_st_dev, b_st_dev);
+
+        {
+            const struct speedup *speedup = al->bench_speedups + bench_idx;
+            fprintf(f, "<p>");
+            if (g_baseline != -1)
+                fprintf(f, "  <tt>%s</tt>", bench->name);
+            else
+                fprintf(f, "  <tt>%s</tt>", reference->name);
+            fprintf(f, " is ");
+            if (speedup->is_slower)
+                fprintf(f, "%.3f ± %.3f times slower than ",
+                        speedup->inv_est.point, speedup->inv_est.err);
+            else
+                fprintf(f, "%.3f ± %.3f times faster than ", speedup->est.point,
+                        speedup->est.err);
+            if (g_baseline == -1)
+                fprintf(f, "<tt>%s</tt>", bench->name);
+            else
+                fprintf(f, "<tt>%s</tt>", reference->name);
+            fprintf(f, "</p>");
+            fprintf(f, "<p>");
+            if (speedup->is_slower)
+                fprintf(f, "%.2f%% slowdown",
+                        (speedup->inv_est.point - 1.0) * 100.0);
+            else
+                fprintf(f, "%.2f%% speedup ",
+                        (speedup->est.point - 1.0) * 100.0);
+            fprintf(f, "</p>");
+        }
+        {
+            double p_value = al->p_values[bench_idx];
+            fprintf(f, "<p>");
+            switch (g_stat_test) {
+            case STAT_TEST_MWU:
+                fprintf(f, "Mann-Whitney U-test p-value=%.2f", p_value);
+                break;
+            case STAT_TEST_TTEST:
+                fprintf(f, "Welch's t-test p-value=%.2f", p_value);
+                break;
+            default:
+                ASSERT_UNREACHABLE();
+            }
+            fprintf(f, "</p>");
+            fprintf(f, "<p>");
+            switch (g_stat_test) {
+            case STAT_TEST_MWU:
+                if (p_value < 0.05)
+                    fprintf(
+                        f,
+                        "p-value < 0.05 &#8658 assuming distribution is different");
+                else
+                    fprintf(f,
+                            "p-value > 0.05 &#8658 assuming distribution is same");
+                break;
+            case STAT_TEST_TTEST:
+                if (p_value < 0.05)
+                    fprintf(f,
+                            "p-value < 0.05 &#8658 assuming means are different");
+                else
+                    fprintf(f, "p-value > 0.05 &#8658 assuming means are same");
+                break;
+            default:
+                ASSERT_UNREACHABLE();
+            }
+            fprintf(f, "</p>");
+        }
+
+        fprintf(f,
+                "</div>" // stats
+                "</div>" // cols
+                "</div>" // rows
+                "</div>" // kde-cmp
+        );
     }
     fprintf(f, "</div>");
 }
