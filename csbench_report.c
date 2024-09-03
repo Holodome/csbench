@@ -306,17 +306,16 @@ static void format_plot_name(char *buf, size_t buf_size,
                  args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_ALL_GROUPS:
-        snprintf(buf, buf_size, "%s/kde_cmp_all_groups_%zu_%zu_%zu.%s",
-                 g_out_dir, args->a_idx, args->b_idx, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_all_groups_%zu_%zu.%s", g_out_dir,
+                 args->b_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_SMALL:
-        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu_%zu.%s", g_out_dir,
-                 args->a_idx, args->b_idx, args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu.%s", g_out_dir,
+                 args->b_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
-        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu_%zu.%s", g_out_dir,
-                 args->a_idx, args->b_idx, args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu.%s", g_out_dir, args->b_idx,
+                 args->meas_idx, extension);
         break;
     }
 }
@@ -828,8 +827,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
                 /**/ "<div class=\"row\">"
                 /****/ "<div class=\"col\">"
-                /******/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
-                /********/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
+                /******/ "<a href=\"kde_cmp_%zu_%zu.svg\">"
+                /********/ "<img src=\"kde_cmp_small_%zu_%zu.svg\">"
                 /******/ "</a>"
                 /****/ "</div>" // col
                 /****/ "<div class=\"col\">"
@@ -842,9 +841,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 /************/ "<th><tt>%s</tt></th>"
                 /**********/ "</tr></thead>"
                 /**********/ "<tbody>",
-                bench_idx, a_name, b_name, reference_idx, bench_idx,
-                al->meas_idx, reference_idx, bench_idx, al->meas_idx, a_name,
-                b_name);
+                bench_idx, a_name, b_name, bench_idx, al->meas_idx, bench_idx,
+                al->meas_idx, a_name, b_name);
         char a_mean[256], b_mean[256], a_st_dev[256], b_st_dev[256];
         format_meas(a_mean, sizeof(a_mean), a_distr->mean.point,
                     &al->meas->units);
