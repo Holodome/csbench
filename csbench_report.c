@@ -890,17 +890,18 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
             switch (g_stat_test) {
             case STAT_TEST_MWU:
                 if (p_value < 0.05)
+                    fprintf(f, "p-value < 0.05 &#8658 assuming distribution is "
+                               "different");
+                else
                     fprintf(
                         f,
-                        "p-value < 0.05 &#8658 assuming distribution is different");
-                else
-                    fprintf(f,
-                            "p-value > 0.05 &#8658 assuming distribution is same");
+                        "p-value > 0.05 &#8658 assuming distribution is same");
                 break;
             case STAT_TEST_TTEST:
                 if (p_value < 0.05)
-                    fprintf(f,
-                            "p-value < 0.05 &#8658 assuming means are different");
+                    fprintf(
+                        f,
+                        "p-value < 0.05 &#8658 assuming means are different");
                 else
                     fprintf(f, "p-value > 0.05 &#8658 assuming means are same");
                 break;
