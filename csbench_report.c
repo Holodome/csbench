@@ -670,6 +670,8 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
             "<img src=\"bar_%zu.svg\"></div>",
             al->meas->name, al->meas_idx);
     fprintf(f, "<div class=\"col\"><h3>summary</h3>");
+    const struct bench_analysis *reference =
+        base->bench_analyses + al->bench_speedups_reference;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
@@ -677,17 +679,52 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
             f,
             "<p>fastest is %s</p>"
             "<p>slowest is %s</p>",
-            base->bench_analyses[al->bench_speedups_reference].name,
+            reference->name,
             base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
                 .name);
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
-        fprintf(f, "<p>baseline is %s</p>",
-                base->bench_analyses[g_baseline].name);
+        fprintf(f, "<p>baseline is %s</p>", reference->name);
         break;
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
+    }
+    for (size_t i = 0; i < base->bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
+        if (bench == reference)
+            continue;
+        const struct speedup *speedup = al->bench_speedups + bench_idx;
+        fprintf(f, "<p>");
+        if (g_baseline != -1)
+            fprintf(f, "  %s", bench->name);
+        else
+            fprintf(f, "  %s", reference->name);
+        fprintf(f, " is ");
+        if (speedup->is_slower) {
+            fprintf(f, "%.3f", speedup->inv_est.point);
+            fprintf(f, " ± ");
+            fprintf(f, "%.3f", speedup->inv_est.err);
+            fprintf(f, " times slower than ");
+        } else {
+            fprintf(f, "%.3f", speedup->est.point);
+            fprintf(f, " ± ");
+            fprintf(f, "%.3f", speedup->est.err);
+            fprintf(f, " times faster than ");
+        }
+        if (g_baseline == -1)
+            fprintf(f, "%s", bench->name);
+        else
+            fprintf(f, "baseline");
+        fprintf(f, " (p=%.2f)", al->p_values[bench_idx]);
+        fprintf(f, "</p>");
+    }
+    if (base->group_count == 1 && g_regr) {
+        const struct group_analysis *grp = al->group_analyses;
+        if (grp->values_are_doubles)
+            fprintf(f, "<p>%s complexity (%g)</p>",
+                    big_o_str(grp->regress.complexity), grp->regress.a);
     }
     fprintf(f, "</div></div></div></div>");
 }
