@@ -1021,7 +1021,7 @@ static bool python_found(void)
     return shell_execute(buffer, -1, -1, -1, true);
 }
 
-static bool python_has(void)
+static bool python_has_matplotlib(void)
 {
     FILE *f;
     pid_t pid;
@@ -1039,7 +1039,7 @@ bool get_plot_backend(enum plot_backend *backend)
         error("failed to find python executable '%s'", g_python_executable);
         return false;
     }
-    if (python_has()) {
+    if (python_has_matplotlib()) {
         *backend = PLOT_BACKEND_MATPLOTLIB;
         found_backend = true;
         if (g_plot_backend_override == PLOT_BACKEND_MATPLOTLIB)

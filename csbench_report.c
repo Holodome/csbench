@@ -748,48 +748,50 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
-        fprintf(
-            f,
-            "<p>fastest is <tt>%s</tt></p>"
-            "<p>slowest is <tt>%s</tt></p>",
-            reference->name,
-            base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
-                .name);
+        fprintf(f,
+                "<p><tt>%s</tt> is fastest, used as reference in "
+                "comparisons</p>",
+                reference->name);
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
-        fprintf(f, "<p>baseline is <tt>%s</tt></p>", reference->name);
+        fprintf(
+            f,
+            "<p><tt>%s</tt> is baseline, used as reference in comparisons</p>",
+            reference->name);
         break;
     default:
         ASSERT_UNREACHABLE();
     }
+    fprintf(f, "<table>"
+               /**/ "<thead><tr><th></th>");
     for (size_t i = 0; i < base->bench_count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
-        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
-        if (bench == reference)
+        if (reference_idx == bench_idx)
             continue;
-        const struct speedup *speedup = al->bench_speedups + bench_idx;
-        fprintf(f, "<p>");
-        if (g_baseline != -1)
-            fprintf(f, "  <tt>%s</tt>", bench->name);
-        else
-            fprintf(f, "  <tt>%s</tt>", reference->name);
-        fprintf(f, " is ");
-        if (speedup->is_slower)
-            fprintf(f, "%.3f ± %.3f times slower than ", speedup->inv_est.point,
-                    speedup->inv_est.err);
-        else
-            fprintf(f, "%.3f ± %.3f times faster than ", speedup->est.point,
-                    speedup->est.err);
-        if (g_baseline == -1)
-            fprintf(f, "<tt>%s</tt>", bench->name);
-        else
-            fprintf(f, "baseline");
-        fprintf(f,
-                " (p=%.2f) <a href=\"#kde-cmp-%zu\">comparison</a>"
-                "</p>",
-                al->p_values[bench_idx], bench_idx);
+        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
+        fprintf(f, "<th><tt>%s</tt></th>", bench->name);
     }
+    {
+        const struct bench_analysis *bench =
+            base->bench_analyses + reference_idx;
+        fprintf(f, "<tr>");
+        fprintf(f, "<td><tt>%s</tt></td>", bench->name);
+        for (size_t i = 0; i < base->bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, al);
+            if (reference_idx == bench_idx)
+                continue;
+            fprintf(f, "<td><a href=\"#kde-cmp-%zu\">comparison</a></td>",
+                    bench_idx);
+        }
+        fprintf(f, "</tr>");
+    }
+
+    fprintf(f, "</tr></thead>"
+               "<tbody>");
+    fprintf(f, "</tbody>"
+               "</table>");
+
     fprintf(f,
             "</div>" // col
             "</div>" // row
