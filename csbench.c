@@ -59,6 +59,7 @@
 #include <string.h>
 
 #include <fcntl.h>
+#include <ftw.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -84,6 +85,7 @@ bool g_regr = false;
 bool g_python_output = false;
 bool g_save_bin = false;
 bool g_rename_all_used = false;
+bool g_clear_out_dir = false;
 int g_nresamp = 10000;
 int g_progress_bar_interval_us = 100000;
 int g_threads = 1;
@@ -1184,8 +1186,32 @@ err:
     return success;
 }
 
+static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
+                     struct FTW *ftwbuf)
+{
+    (void)sb;
+    (void)typeflag;
+    (void)ftwbuf;
+    int rv = remove(fpath);
+    if (rv)
+        csfmtperror("failed to delete file '%s'", fpath);
+    return rv;
+}
+
+static bool clear_out_dir(void)
+{
+    int ret = nftw(g_out_dir, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
+    if (ret != 0) {
+        csfmtperror("failed to delete out directory '%s'", g_out_dir);
+        return false;
+    }
+    return true;
+}
+
 static bool ensure_out_dir_is_created(void)
 {
+    if (g_clear_out_dir && !clear_out_dir())
+        return false;
     if (mkdir(g_out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {

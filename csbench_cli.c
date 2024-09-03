@@ -318,6 +318,8 @@ static void print_help_and_exit(int rc)
     print_opt("--python-executable", OPT_ARR("EXE"),
               "Use <EXE> as python executable when making plots (default: "
               "\"python3\").");
+    print_opt("--clear-out", OPT_ARR(NULL),
+              "Clear out directory before execution.");
     print_opt("--help", OPT_ARR(NULL), "Print help message.");
     print_opt("--version", OPT_ARR(NULL), "Print version.");
     exit(rc);
@@ -902,6 +904,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             }
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
+        } else if (opt_bool(argv, &cursor, "--clear-out", &g_clear_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {

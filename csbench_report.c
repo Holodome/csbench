@@ -58,6 +58,7 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -1099,7 +1100,7 @@ static bool make_html_report(const struct analysis *al)
     return true;
 }
 
-static bool do_visualize(const struct analysis *al)
+static bool make_reports(const struct analysis *al)
 {
     if (!do_export(al))
         return false;
@@ -1598,7 +1599,7 @@ static void print_meas_analysis(const struct meas_analysis *al)
         print_group_comparison(al);
 }
 
-static void print_analysis(const struct analysis *al)
+static void print_text_report(const struct analysis *al)
 {
     if (g_bench_stop.runs != 0)
         printf("%d runs\n", g_bench_stop.runs);
@@ -1623,6 +1624,6 @@ static void print_analysis(const struct analysis *al)
 
 bool make_report(const struct analysis *al)
 {
-    print_analysis(al);
-    return do_visualize(al);
+    print_text_report(al);
+    return make_reports(al);
 }

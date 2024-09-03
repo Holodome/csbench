@@ -560,6 +560,7 @@ extern bool g_regr;
 extern bool g_python_output;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
+extern bool g_clear_out_dir;
 // Number of resamples to use in bootstrapping when estimating distributions.
 extern int g_nresamp;
 extern int g_progress_bar_interval_us;
