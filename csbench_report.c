@@ -671,13 +671,13 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
             "</div>");
 }
 
-static void html_compare(const struct meas_analysis *al, FILE *f)
+static void html_summary(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
         return;
     fprintf(f,
-            "<div>"
+            "<div id=\"summary\">"
             /**/ "<div class=\"row\">"
             /****/ "<div class=\"col\">"
             /******/ "<img src=\"bar_%zu.svg\">"
@@ -727,21 +727,21 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
             fprintf(f, "baseline");
         fprintf(f, "</p>");
     }
-    fprintf(f, "<a href=\"#ext-summary\">extended</a>"
+    fprintf(f, "<a href=\"#comparisons\">extended</a>"
                "</div>" // col
                "</div>" // row
                "</div>");
 }
 
-static void html_ext_compare(const struct meas_analysis *al, FILE *f)
+static void html_compare_benches(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
         return;
-    fprintf(f, "<div id=\"ext-summary\">"
+    fprintf(f, "<div id=\"comparisons\">"
                /**/ "<div class=\"row\">"
                /****/ "<div class=\"col\">"
-               /******/ "<h3>summary</h3>");
+               /******/ "<h3>comparisons</h3>");
     size_t reference_idx = al->bench_speedups_reference;
     const struct bench_analysis *reference =
         base->bench_analyses + reference_idx;
@@ -781,7 +781,7 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
             size_t bench_idx = ith_bench_idx(i, al);
             if (reference_idx == bench_idx)
                 continue;
-            fprintf(f, "<td><a href=\"#kde-cmp-%zu\">comparison</a></td>",
+            fprintf(f, "<td><a href=\"#cmp-%zu\">comparison</a></td>",
                     bench_idx);
         }
         fprintf(f, "</tr>");
@@ -795,7 +795,7 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
     fprintf(f,
             "</div>" // col
             "</div>" // row
-            "</div>" // #ext-summary
+            "</div>" // #comparisons
     );
     fprintf(f, "<div id=\"kde-cmps\">");
     for (size_t i = 0; i < base->bench_count; ++i) {
@@ -808,7 +808,7 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
         const struct distr *a_distr = al->benches[reference_idx];
         const struct distr *b_distr = al->benches[bench_idx];
         fprintf(f,
-                "<div id=\"kde-cmp-%zu\">"
+                "<div id=\"cmp-%zu\">"
                 /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
                 /**/ "<div class=\"row\">"
                 /****/ "<div class=\"col\">"
@@ -990,6 +990,49 @@ static void html_var_analysis(const struct meas_analysis *al, FILE *f)
     );
 }
 
+static void html_toc(const struct analysis *al, FILE *f)
+{
+    fprintf(f, "<div>"
+               /**/ "<h3>Table of contents</h3>");
+    if (al->primary_meas_count == 1) {
+        const struct meas_analysis *mal = al->meas_analyses + 0;
+        fprintf(f, "<ol>"
+                   "<li><a href=\"#summary\">summary</a></li>"
+                   "<li>"
+                   /**/ "<a href=\"#benches\">benchmarks</a>"
+                   /**/ "<ol>");
+        for (size_t i = 0; i < al->bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, mal);
+            fprintf(f, "<li><a href=\"#bench-%zu\"><tt>%s</tt></a></li>",
+                    bench_idx, al->bench_analyses[bench_idx].name);
+        }
+        fprintf(f, "</ol>"
+                   "</li>");
+        if (al->bench_count > 1) {
+            fprintf(f, "<li>"
+                       /**/ "<a href=\"#comparisons\">comparisons</a>"
+                       /**/ "<ol>");
+            size_t reference_idx = mal->bench_speedups_reference;
+            for (size_t i = 0; i < al->bench_count; ++i) {
+                size_t bench_idx = ith_bench_idx(i, mal);
+                if (bench_idx == reference_idx)
+                    continue;
+                fprintf(f,
+                        "<li><a href=\"#cmp-%zu\"><tt>%s</tt> vs "
+                        "<tt>%s</tt></a></li>",
+                        bench_idx, al->bench_analyses[reference_idx].name,
+                        al->bench_analyses[bench_idx].name);
+            }
+            fprintf(f, "</ol>"
+                       "</li>");
+        }
+        fprintf(f, "</ol>");
+    } else {
+        assert(!"not implemented");
+    }
+    fprintf(f, "</div>");
+}
+
 static void html_report(const struct analysis *al, FILE *f)
 {
     fprintf(f,
@@ -1008,23 +1051,26 @@ static void html_report(const struct analysis *al, FILE *f)
             ".row { display: flex }"
             "</style></head>");
     fprintf(f, "<body>");
+    html_toc(al, f);
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
         html_var_analysis(mal, f);
-        html_compare(mal, f);
+        html_summary(mal, f);
         fprintf(f, "<div id=\"benches\">");
         for (size_t i = 0; i < al->bench_count; ++i) {
             size_t bench_idx = ith_bench_idx(i, mal);
             const struct bench_analysis *bench = al->bench_analyses + bench_idx;
-            fprintf(f, "<div id=\"bench%zu\"><h2>benchmark <tt>%s</tt></h2>",
+            fprintf(f,
+                    "<div id=\"bench-%zu\">"
+                    "<h2>benchmark <tt>%s</tt></h2>",
                     bench_idx, bench->name);
             html_distr(bench, bench_idx, meas_idx, al, f);
             fprintf(f, "</div>");
         }
         fprintf(f, "</div>");
-        html_ext_compare(mal, f);
+        html_compare_benches(mal, f);
     }
     fprintf(f, "</body>");
 }
