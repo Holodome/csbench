@@ -658,45 +658,38 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     fprintf(f, "</div></div></div>");
 }
 
-static void html_compare(const struct analysis *al, FILE *f)
+static void html_compare(const struct meas_analysis *al, FILE *f)
 {
-    if (al->bench_count == 1)
+    const struct analysis *base = al->base;
+    if (base->bench_count == 1)
         return;
     fprintf(f, "<div><h2>measurement comparison</h2>");
-    size_t meas_count = al->meas_count;
-    for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
-        if (al->meas[meas_idx].is_secondary)
-            continue;
-        const struct meas_analysis *mal = al->meas_analyses + meas_idx;
-        const struct meas *meas = al->meas + meas_idx;
-        fprintf(f,
-                "<div><h3>%s comparison</h3>"
-                "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"bar_%zu.svg\"></div>",
-                meas->name, meas_idx);
-        fprintf(f, "<div class=\"col\"><h3>summary</h3>");
-        switch (g_sort_mode) {
-        case SORT_RAW:
-        case SORT_SPEED:
-            fprintf(
-                f,
-                "<p>fastest is %s</p>"
-                "<p>slowest is %s</p>",
-                al->bench_analyses[mal->bench_speedups_reference].name,
-                al->bench_analyses[mal->bench_by_mean_time[al->bench_count - 1]]
-                    .name);
-            break;
-        case SORT_BASELINE_RAW:
-        case SORT_BASELINE_SPEED:
-            fprintf(f, "<p>baseline is %s</p>",
-                    al->bench_analyses[g_baseline].name);
-            break;
-        case SORT_DEFAULT:
-            ASSERT_UNREACHABLE();
-        }
-        fprintf(f, "</div></div></div>");
+    fprintf(f,
+            "<div><h3>%s comparison</h3>"
+            "<div class=\"row\"><div class=\"col\">"
+            "<img src=\"bar_%zu.svg\"></div>",
+            al->meas->name, al->meas_idx);
+    fprintf(f, "<div class=\"col\"><h3>summary</h3>");
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_SPEED:
+        fprintf(
+            f,
+            "<p>fastest is %s</p>"
+            "<p>slowest is %s</p>",
+            base->bench_analyses[al->bench_speedups_reference].name,
+            base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
+                .name);
+        break;
+    case SORT_BASELINE_RAW:
+    case SORT_BASELINE_SPEED:
+        fprintf(f, "<p>baseline is %s</p>",
+                base->bench_analyses[g_baseline].name);
+        break;
+    case SORT_DEFAULT:
+        ASSERT_UNREACHABLE();
     }
-    fprintf(f, "</div>");
+    fprintf(f, "</div></div></div></div>");
 }
 
 static void html_bench_group(const struct group_analysis *al,
@@ -728,34 +721,29 @@ static void html_bench_group(const struct group_analysis *al,
     fprintf(f, "</div></div>");
 }
 
-static void html_var_analysis(const struct analysis *al, FILE *f)
+static void html_var_analysis(const struct meas_analysis *al, FILE *f)
 {
-    if (!al->group_count)
+    const struct analysis *base = al->base;
+    if (!base->group_count)
         return;
     fprintf(f, "<div><h2>parameter analysis</h2>");
-    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
-        if (al->meas[meas_idx].is_secondary)
-            continue;
-        if (al->group_count > 1)
-            fprintf(f,
-                    "<div><h3>summary for %s</h3>"
-                    "<div class=\"row\"><div class=\"col\">"
-                    "<img src=\"group_%zu.svg\"></div>"
-                    "<div class=\"col\">"
-                    "<img src=\"group_bar_%zu.svg\">"
-                    "</div></div></div></div>",
-                    al->meas[meas_idx].name, meas_idx, meas_idx);
-        for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
-            fprintf(f, "<div><h3>group '%s' with value %s</h3>",
-                    al->meas_analyses[0].group_analyses[grp_idx].group->name,
-                    al->var->name);
-            const struct meas *meas = al->meas + meas_idx;
-            const struct group_analysis *analysis =
-                al->meas_analyses[meas_idx].group_analyses + grp_idx;
-            html_bench_group(analysis, meas, meas_idx, grp_idx, al->var, f);
-        }
-        fprintf(f, "</div>");
+    if (base->group_count > 1)
+        fprintf(f,
+                "<div><h3>summary for %s</h3>"
+                "<div class=\"row\"><div class=\"col\">"
+                "<img src=\"group_%zu.svg\"></div>"
+                "<div class=\"col\">"
+                "<img src=\"group_bar_%zu.svg\">"
+                "</div></div></div></div>",
+                al->meas->name, al->meas_idx, al->meas_idx);
+    for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+        fprintf(f, "<div><h3>group '%s' with value %s</h3>",
+                al->group_analyses[grp_idx].group->name, base->var->name);
+        const struct meas *meas = al->meas + al->meas_idx;
+        const struct group_analysis *group = al->group_analyses + grp_idx;
+        html_bench_group(group, meas, al->meas_idx, grp_idx, base->var, f);
     }
+    fprintf(f, "</div>");
     fprintf(f, "</div>");
 }
 
@@ -777,19 +765,18 @@ static void html_report(const struct analysis *al, FILE *f)
             ".row { display: flex }"
             "</style></head>");
     fprintf(f, "<body>");
-
-    html_var_analysis(al, f);
-    html_compare(al, f);
-    for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
-        const struct bench_analysis *analysis = al->bench_analyses + bench_idx;
-        fprintf(f, "<div><h2>command '%s'</h2>", analysis->name);
-        for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
-            const struct meas *info = al->meas + meas_idx;
-            if (info->is_secondary)
-                continue;
-            html_distr(analysis, bench_idx, meas_idx, al, f);
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
+            continue;
+        const struct meas_analysis *mal = al->meas_analyses + meas_idx;
+        html_var_analysis(mal, f);
+        html_compare(mal, f);
+        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
+            const struct bench_analysis *bench = al->bench_analyses + bench_idx;
+            fprintf(f, "<div><h2>command '%s'</h2>", bench->name);
+            html_distr(bench, bench_idx, meas_idx, al, f);
+            fprintf(f, "</div>");
         }
-        fprintf(f, "</div>");
     }
     fprintf(f, "</body>");
 }
@@ -1288,7 +1275,7 @@ static void print_group_comparison(const struct meas_analysis *al)
     }
 }
 
-static void print_comparisons(const struct meas_analysis *al)
+static void print_meas_analysis(const struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
@@ -1321,11 +1308,10 @@ static void print_analysis(const struct analysis *al)
     for (size_t i = 0; i < al->bench_count; ++i)
         print_benchmark_info(al->bench_analyses + i, al);
 
-    for (size_t i = 0; i < al->meas_count; ++i) {
-        const struct meas *meas = al->meas + i;
-        if (meas->is_secondary)
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
             continue;
-        print_comparisons(al->meas_analyses + i);
+        print_meas_analysis(al->meas_analyses + meas_idx);
     }
 }
 
