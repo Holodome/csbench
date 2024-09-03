@@ -683,35 +683,51 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             /******/ "<img src=\"bar_%zu.svg\">"
             /****/ "</div>"
             /****/ "<div class=\"col\">"
-            /******/ "<h3>summary</h3>",
-            al->meas_idx);
+            /******/ "<h3>summary</h3>"
+            /******/ "<p>executed %zu <a href=\"#benches\">benchmarks:</a></p>"
+            /******/ "<ol>",
+            al->meas_idx, base->bench_count);
+    for (size_t i = 0; i < base->bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        fprintf(f,
+                "<li>"
+                "<a href=\"#bench-%zu\">"
+                "<tt>%s</tt>"
+                "</a>",
+                bench_idx, base->bench_analyses[bench_idx].name);
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            if (bench_idx == al->bench_speedups_reference)
+                fprintf(f, " (fastest)");
+            else if (bench_idx == al->bench_by_mean_time[base->bench_count - 1])
+                fprintf(f, " (slowest)");
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            if (bench_idx == (size_t)g_baseline)
+                fprintf(f, " (baseline)");
+            break;
+        default:
+            ASSERT_UNREACHABLE();
+        }
+        fprintf(f, "</li>");
+    }
+    fprintf(f, "</ol>");
     const struct bench_analysis *reference =
         base->bench_analyses + al->bench_speedups_reference;
-    switch (g_sort_mode) {
-    case SORT_RAW:
-    case SORT_SPEED:
-        fprintf(
-            f,
-            "<p>fastest is <tt>%s</tt></p>"
-            "<p>slowest is <tt>%s</tt></p>",
-            reference->name,
-            base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
-                .name);
-        break;
-    case SORT_BASELINE_RAW:
-    case SORT_BASELINE_SPEED:
-        fprintf(f, "<p>baseline is <tt>%s</tt></p>", reference->name);
-        break;
-    default:
-        ASSERT_UNREACHABLE();
-    }
+    fprintf(f, "<p>performed <a href=\"#cmps\">comparisons</a>:<p>"
+               "<ul>");
     for (size_t i = 0; i < base->bench_count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
         if (bench == reference)
             continue;
         const struct speedup *speedup = al->bench_speedups + bench_idx;
-        fprintf(f, "<p>");
+        fprintf(f,
+                "<li>"
+                "<a href=\"#cmp-%zu\">",
+                bench_idx);
         if (g_baseline != -1)
             fprintf(f, "  <tt>%s</tt>", bench->name);
         else
@@ -725,12 +741,14 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             fprintf(f, "<tt>%s</tt>", bench->name);
         else
             fprintf(f, "baseline");
-        fprintf(f, "</p>");
+        fprintf(f, "</a>"
+                   "</li>");
     }
-    fprintf(f, "<a href=\"#comparisons\">extended</a>"
-               "</div>" // col
-               "</div>" // row
-               "</div>");
+    fprintf(f,
+            "</ul>"
+            "</div>" // col
+            "</div>" // row
+            "</div>");
 }
 
 static void html_compare_benches(const struct meas_analysis *al, FILE *f)
@@ -738,7 +756,7 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
         return;
-    fprintf(f, "<div id=\"comparisons\">"
+    fprintf(f, "<div id=\"cmps\">"
                /**/ "<div class=\"row\">"
                /****/ "<div class=\"col\">"
                /******/ "<h3>comparisons</h3>");
@@ -795,7 +813,7 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     fprintf(f,
             "</div>" // col
             "</div>" // row
-            "</div>" // #comparisons
+            "</div>" // #cmps
     );
     fprintf(f, "<div id=\"kde-cmps\">");
     for (size_t i = 0; i < base->bench_count; ++i) {
@@ -1010,7 +1028,7 @@ static void html_toc(const struct analysis *al, FILE *f)
                    "</li>");
         if (al->bench_count > 1) {
             fprintf(f, "<li>"
-                       /**/ "<a href=\"#comparisons\">comparisons</a>"
+                       /**/ "<a href=\"#cmps\">comparisons</a>"
                        /**/ "<ol>");
             size_t reference_idx = mal->bench_speedups_reference;
             for (size_t i = 0; i < al->bench_count; ++i) {
