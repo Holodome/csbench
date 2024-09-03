@@ -234,7 +234,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             }
         }
     }
-    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+    for (size_t i = 0; i < bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
         args->plot_kind = PLOT_KDE_SMALL;
         args->bench_idx = bench_idx;
         if (!walk(args))
@@ -247,7 +248,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     if (grp_count <= 1) {
         size_t reference_idx = al->bench_speedups_reference;
         args->a_idx = reference_idx;
-        for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+        for (size_t i = 0; i < bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, al);
             if (bench_idx == reference_idx)
                 continue;
             args->b_idx = bench_idx;
@@ -261,7 +263,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     } else {
         size_t reference_idx = al->groups_speedup_reference;
         args->a_idx = reference_idx;
-        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+        for (size_t i = 0; i < grp_count; ++i) {
+            size_t grp_idx = ith_group_idx(i, al);
             if (grp_idx == reference_idx)
                 continue;
             args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
