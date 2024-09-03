@@ -626,6 +626,9 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     const struct bench *bench = analysis->bench;
     const struct meas *info = al->meas + meas_idx;
     assert(!info->is_secondary);
+    char min_buf[256], max_buf[256];
+    format_meas(min_buf, sizeof(min_buf), distr->min, &info->units);
+    format_meas(max_buf, sizeof(max_buf), distr->max, &info->units);
     fprintf(f,
             "<div class=\"row\">"
             /**/ "<div class=\"col\">"
@@ -633,28 +636,23 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
             /****/ "<a href=\"kde_%zu_%zu.svg\">"
             /******/ "<img src=\"kde_small_%zu_%zu.svg\">"
             /****/ "</a>"
-            "</div>",
-            info->name, bench_idx, meas_idx, bench_idx, meas_idx);
-    fprintf(f,
+            "</div>"
             "<div class=\"col\">"
             /**/ "<h3>statistics</h3>"
             /**/ "<div class=\"stats\">"
-            /****/ "<p>%zu runs</p>",
-            bench->run_count);
-    char buf[256];
-    format_meas(buf, sizeof(buf), distr->min, &info->units);
-    fprintf(f, "<p>min %s</p>", buf);
-    format_meas(buf, sizeof(buf), distr->max, &info->units);
-    fprintf(f, "<p>max %s</p>", buf);
-    fprintf(f, //
-            "<table>"
-            "<thead><tr>"
-            /**/ "<th></th>"
-            /**/ "<th class=\"est-bound\">lower bound</th>"
-            /**/ "<th class=\"est-bound\">estimate</th>"
-            /**/ "<th class=\"est-bound\">upper bound</th>"
-            "</tr></thead>"
-            "<tbody>");
+            /****/ "<p>%zu runs</p>"
+            /****/ "<p>min %s</p>"
+            /****/ "<p>max %s</p>"
+            /****/ "<table>"
+            /******/ "<thead><tr>"
+            /********/ "<th></th>"
+            /********/ "<th class=\"est-bound\">lower bound</th>"
+            /********/ "<th class=\"est-bound\">estimate</th>"
+            /********/ "<th class=\"est-bound\">upper bound</th>"
+            /******/ "</tr></thead>"
+            /******/ "<tbody>",
+            info->name, bench_idx, meas_idx, bench_idx, meas_idx,
+            bench->run_count, min_buf, max_buf);
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
     for (size_t j = 0; j < al->meas_count; ++j) {
@@ -665,10 +663,11 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     fprintf(f, "</tbody>"
                "</table>");
     html_outliers(&distr->outliers, bench->run_count, f);
-    fprintf(f, //
-            "</div>"
-            "</div>"
-            "</div>");
+    fprintf(f,
+            "</div>" // stats
+            "</div>" // col
+            "</div>" // row
+    );
 }
 
 static void html_summary(const struct meas_analysis *al, FILE *f)
@@ -692,7 +691,7 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
         fprintf(f,
                 "<li>"
                 "<a href=\"#bench-%zu\">"
-                "<tt>%s</tt>"
+                /**/ "<tt>%s</tt>"
                 "</a>",
                 bench_idx, base->bench_analyses[bench_idx].name);
         switch (g_sort_mode) {
@@ -793,8 +792,10 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     {
         const struct bench_analysis *bench =
             base->bench_analyses + reference_idx;
-        fprintf(f, "<tr>");
-        fprintf(f, "<td><tt>%s</tt></td>", bench->name);
+        fprintf(f,
+                "<tr>"
+                "<td><tt>%s</tt></td>",
+                bench->name);
         for (size_t i = 0; i < base->bench_count; ++i) {
             size_t bench_idx = ith_bench_idx(i, al);
             if (reference_idx == bench_idx)
@@ -806,16 +807,13 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     }
 
     fprintf(f, "</tr></thead>"
-               "<tbody>");
-    fprintf(f, "</tbody>"
-               "</table>");
-
-    fprintf(f,
-            "</div>" // col
-            "</div>" // row
-            "</div>" // #cmps
-    );
-    fprintf(f, "<div id=\"kde-cmps\">");
+               "<tbody>"
+               "</tbody>"
+               "</table>"
+               "</div>" // col
+               "</div>" // row
+               "</div>" // #cmps
+               "<div id=\"kde-cmps\">");
     for (size_t i = 0; i < base->bench_count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
@@ -833,21 +831,20 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 /******/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
                 /********/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
                 /******/ "</a>"
-                /****/ "</div>", // col
+                /****/ "</div>" // col
+                /****/ "<div class=\"col\">"
+                /******/ "<h3>statistics</h3>"
+                /******/ "<div class=\"stats\">"
+                /********/ "<table>"
+                /**********/ "<thead><tr>"
+                /************/ "<th></th>"
+                /************/ "<th><tt>%s</tt></th>"
+                /************/ "<th><tt>%s</tt></th>"
+                /**********/ "</tr></thead>"
+                /**********/ "<tbody>",
                 bench_idx, a_name, b_name, reference_idx, bench_idx,
-                al->meas_idx, reference_idx, bench_idx, al->meas_idx);
-        fprintf(f,
-                "<div class=\"col\">"
-                /**/ "<h3>statistics</h3>"
-                /**/ "<div class=\"stats\">"
-                /****/ "<table>"
-                /******/ "<thead><tr>"
-                /******/ "<th></th>"
-                /******/ "<th><tt>%s</tt></th>"
-                /******/ "<th><tt>%s</tt></th>"
-                /******/ "</tr></thead>"
-                /******/ "<tbody>",
-                a_name, b_name);
+                al->meas_idx, reference_idx, bench_idx, al->meas_idx, a_name,
+                b_name);
         char a_mean[256], b_mean[256], a_st_dev[256], b_st_dev[256];
         format_meas(a_mean, sizeof(a_mean), a_distr->mean.point,
                     &al->meas->units);
@@ -882,8 +879,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 fprintf(f, "<tt>%s</tt>", bench->name);
             else
                 fprintf(f, "<tt>%s</tt>", reference->name);
-            fprintf(f, "</p>");
-            fprintf(f, "<p>");
+            fprintf(f, "</p>"
+                       "<p>");
             if (speedup->is_slower)
                 fprintf(f, "%.2f%% slowdown",
                         (speedup->inv_est.point - 1.0) * 100.0);
@@ -905,8 +902,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
             default:
                 ASSERT_UNREACHABLE();
             }
-            fprintf(f, "</p>");
-            fprintf(f, "<p>");
+            fprintf(f, "</p>"
+                       "<p>");
             switch (g_stat_test) {
             case STAT_TEST_MWU:
                 if (p_value < 0.05)
@@ -946,6 +943,9 @@ static void html_bench_group(const struct group_analysis *al,
                              size_t grp_idx, const struct bench_var *var,
                              FILE *f)
 {
+    char fastest_mean[256], slowest_mean[256];
+    format_time(fastest_mean, sizeof(fastest_mean), al->fastest->mean);
+    format_time(slowest_mean, sizeof(slowest_mean), al->slowest->mean);
     fprintf(f,
             "<div>"
             /**/ "<h3>group '%s' with value %s</h3>"
@@ -953,17 +953,13 @@ static void html_bench_group(const struct group_analysis *al,
             /**/ "<div class=\"row\">"
             /****/ "<div class=\"col\">"
             /******/ "<img src=\"group_%zu_%zu.svg\">"
-            /****/ "</div>",
-            al->group->name, var->name, meas->name, grp_idx, meas_idx);
-    char buf[256];
-    format_time(buf, sizeof(buf), al->fastest->mean);
-    fprintf(f,
-            "<div class=\"col stats\">"
-            /**/ "<p>lowest time %s with %s=%s</p>",
-            buf, var->name, al->fastest->value);
-    format_time(buf, sizeof(buf), al->slowest->mean);
-    fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, var->name,
-            al->slowest->value);
+            /****/ "</div>"
+            /****/ "<div class=\"col stats\">"
+            /******/ "<p>lowest time %s with %s=%s</p>"
+            /******/ "<p>hightest time %s with %s=%s</p>",
+            al->group->name, var->name, meas->name, grp_idx, meas_idx,
+            fastest_mean, var->name, al->fastest->value, slowest_mean,
+            var->name, al->slowest->value);
     if (al->values_are_doubles)
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
