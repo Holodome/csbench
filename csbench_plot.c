@@ -553,16 +553,20 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
         "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
         "color='red', label='severe outliers')\n",
         plot->kde.mean_x * view->multiplier);
-    if (plot->distr->outliers.low_mild_x > plot->kde.min)
+    if (plot->distr->outliers.low_mild_x > plot->kde.min &&
+        plot->distr->outliers.low_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.low_mild_x * view->multiplier);
-    if (plot->distr->outliers.low_severe_x > plot->kde.min)
+    if (plot->distr->outliers.low_severe_x > plot->kde.min &&
+        plot->distr->outliers.low_severe != 0)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.low_severe_x * view->multiplier);
-    if (plot->distr->outliers.high_mild_x < plot->kde.max)
+    if (plot->distr->outliers.high_mild_x < plot->kde.max &&
+        plot->distr->outliers.high_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
                 plot->distr->outliers.high_mild_x * view->multiplier);
-    if (plot->distr->outliers.high_severe_x < plot->kde.max)
+    if (plot->distr->outliers.high_severe_x < plot->kde.max &&
+        plot->distr->outliers.high_severe != 0)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
                 plot->distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
@@ -600,22 +604,26 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
     for (size_t i = 0; i < b_kde->point_count; ++i)
         fprintf(f, "%g,", b_kde->data[i]);
     fprintf(f, "]\n");
-    fprintf(f,
-            "import matplotlib as mpl\n"
-            "mpl.use('svg')\n"
-            "import matplotlib.pyplot as plt\n"
-            "plt.fill_between(x, ay, interpolate=True, alpha=0.25)\n"
-            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange')\n"
-            "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
-            "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
-            "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s [%s]')\n"
-            "plt.ylabel('probability density')\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
-            a_kde->mean_x * view->multiplier, a_kde->mean_y,
-            b_kde->mean_x * view->multiplier, b_kde->mean_y,
-            plot->al->meas->name, view->units_str, plot->output_filename);
+    const char *a_name = plot->al->base->bench_analyses[plot->a_idx].name;
+    const char *b_name = plot->al->base->bench_analyses[plot->b_idx].name;
+    fprintf(
+        f,
+        "import matplotlib as mpl\n"
+        "mpl.use('svg')\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, label='%s')\n"
+        "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
+        "facecolor='tab:orange', label='%s')\n"
+        "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
+        "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
+        "plt.tick_params(left=False, labelleft=False)\n"
+        "plt.xlabel('%s [%s]')\n"
+        "plt.ylabel('probability density')\n"
+        "plt.legend(loc='upper right')\n"
+        "plt.savefig('%s', bbox_inches='tight')\n",
+        a_name, b_name, a_kde->mean_x * view->multiplier, a_kde->mean_y,
+        b_kde->mean_x * view->multiplier, b_kde->mean_y, plot->al->meas->name,
+        view->units_str, plot->output_filename);
 }
 
 static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)

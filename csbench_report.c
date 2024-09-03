@@ -797,12 +797,14 @@ static void html_ext_compare(const struct meas_analysis *al, FILE *f)
             continue;
         fprintf(f,
                 "<div id=\"kde-cmp-%zu\">"
+                /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
                 /**/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
                 /****/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
                 /**/ "</a>"
                 "</div>",
-                bench_idx, reference_idx, bench_idx, al->meas_idx,
-                reference_idx, bench_idx, al->meas_idx);
+                bench_idx, base->bench_analyses[reference_idx].name,
+                base->bench_analyses[bench_idx].name, reference_idx, bench_idx,
+                al->meas_idx, reference_idx, bench_idx, al->meas_idx);
     }
     fprintf(f, "</div>");
 }
