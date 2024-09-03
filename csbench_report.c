@@ -901,7 +901,8 @@ static void html_report(const struct analysis *al, FILE *f)
         html_var_analysis(mal, f);
         html_compare(mal, f);
         fprintf(f, "<div id=\"benches\">");
-        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
+        for (size_t i = 0; i < al->bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, mal);
             const struct bench_analysis *bench = al->bench_analyses + bench_idx;
             fprintf(f, "<div id=\"bench%zu\"><h2>benchmark <tt>%s</tt></h2>",
                     bench_idx, bench->name);
