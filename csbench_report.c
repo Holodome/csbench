@@ -579,10 +579,10 @@ static void html_estimate(const char *name, const struct est *est,
     format_meas(buf3, sizeof(buf3), est->upper, units);
     fprintf(f,
             "<tr>"
-            "<td>%s</td>"
-            "<td class=\"est-bound\">%s</td>"
-            "<td>%s</td>"
-            "<td class=\"est-bound\">%s</td>"
+            /**/ "<td>%s</td>"
+            /**/ "<td class=\"est-bound\">%s</td>"
+            /**/ "<td>%s</td>"
+            /**/ "<td class=\"est-bound\">%s</td>"
             "</tr>",
             name, buf1, buf2, buf3);
 }
@@ -612,8 +612,7 @@ static void html_outliers(const struct outliers *outliers, size_t run_count,
     }
     fprintf(f,
             "<p>outlying measurements have %s (%.1f%%) effect on "
-            "estimated "
-            "standard deviation</p>",
+            "estimated standard deviation</p>",
             outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
@@ -626,26 +625,31 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     assert(!info->is_secondary);
     fprintf(f,
             "<div class=\"row\">"
-            "<div class=\"col\"><h3>%s kde plot</h3>"
-            "<a href=\"kde_%zu_%zu.svg\"><img "
-            "src=\"kde_small_%zu_%zu.svg\"></a></div>",
+            /**/ "<div class=\"col\">"
+            /****/ "<h3>%s kde plot</h3>"
+            /****/ "<a href=\"kde_%zu_%zu.svg\">"
+            /******/ "<img src=\"kde_small_%zu_%zu.svg\">"
+            /****/ "</a>"
+            "</div>",
             info->name, bench_idx, meas_idx, bench_idx, meas_idx);
     fprintf(f,
-            "<div class=\"col\"><h3>statistics</h3>"
-            "<div class=\"stats\">"
-            "<p>%zu runs</p>",
+            "<div class=\"col\">"
+            /**/ "<h3>statistics</h3>"
+            /**/ "<div class=\"stats\">"
+            /****/ "<p>%zu runs</p>",
             bench->run_count);
     char buf[256];
     format_meas(buf, sizeof(buf), distr->min, &info->units);
     fprintf(f, "<p>min %s</p>", buf);
     format_meas(buf, sizeof(buf), distr->max, &info->units);
     fprintf(f, "<p>max %s</p>", buf);
-    fprintf(f, "<table><thead><tr>"
-               "<th></th>"
-               "<th class=\"est-bound\">lower bound</th>"
-               "<th class=\"est-bound\">estimate</th>"
-               "<th class=\"est-bound\">upper bound</th>"
-               "</tr></thead><tbody>");
+    fprintf(f, //
+            "<table><thead><tr>"
+            /**/ "<th></th>"
+            /**/ "<th class=\"est-bound\">lower bound</th>"
+            /**/ "<th class=\"est-bound\">estimate</th>"
+            /**/ "<th class=\"est-bound\">upper bound</th>"
+            "</tr></thead><tbody>");
     html_estimate("mean", &distr->mean, &info->units, f);
     html_estimate("st dev", &distr->st_dev, &info->units, f);
     for (size_t j = 0; j < al->meas_count; ++j) {
@@ -655,7 +659,10 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     }
     fprintf(f, "</tbody></table>");
     html_outliers(&distr->outliers, bench->run_count, f);
-    fprintf(f, "</div></div></div>");
+    fprintf(f, //
+            "</div>"
+            "</div>"
+            "</div>");
 }
 
 static void html_compare(const struct meas_analysis *al, FILE *f)
@@ -663,13 +670,15 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
     const struct analysis *base = al->base;
     if (base->bench_count == 1)
         return;
-    fprintf(f, "<div><h2>measurement comparison</h2>");
     fprintf(f,
-            "<div><h3>%s comparison</h3>"
-            "<div class=\"row\"><div class=\"col\">"
-            "<img src=\"bar_%zu.svg\"></div>",
-            al->meas->name, al->meas_idx);
-    fprintf(f, "<div class=\"col\"><h3>summary</h3>");
+            "<div>"
+            /**/ "<div class=\"row\">"
+            /****/ "<div class=\"col\">"
+            /******/ "<img src=\"bar_%zu.svg\">"
+            /****/ "</div>"
+            /****/ "<div class=\"col\">"
+            /******/ "<h3>summary</h3>",
+            al->meas_idx);
     const struct bench_analysis *reference =
         base->bench_analyses + al->bench_speedups_reference;
     switch (g_sort_mode) {
@@ -677,17 +686,17 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
     case SORT_SPEED:
         fprintf(
             f,
-            "<p>fastest is %s</p>"
-            "<p>slowest is %s</p>",
+            "<p>fastest is <tt>%s</tt></p>"
+            "<p>slowest is <tt>%s</tt></p>",
             reference->name,
             base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
                 .name);
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
-        fprintf(f, "<p>baseline is %s</p>", reference->name);
+        fprintf(f, "<p>baseline is <tt>%s</tt></p>", reference->name);
         break;
-    case SORT_DEFAULT:
+    default:
         ASSERT_UNREACHABLE();
     }
     for (size_t i = 0; i < base->bench_count; ++i) {
@@ -698,35 +707,104 @@ static void html_compare(const struct meas_analysis *al, FILE *f)
         const struct speedup *speedup = al->bench_speedups + bench_idx;
         fprintf(f, "<p>");
         if (g_baseline != -1)
-            fprintf(f, "  %s", bench->name);
+            fprintf(f, "  <tt>%s</tt>", bench->name);
         else
-            fprintf(f, "  %s", reference->name);
+            fprintf(f, "  <tt>%s</tt>", reference->name);
         fprintf(f, " is ");
-        if (speedup->is_slower) {
-            fprintf(f, "%.3f", speedup->inv_est.point);
-            fprintf(f, " ± ");
-            fprintf(f, "%.3f", speedup->inv_est.err);
-            fprintf(f, " times slower than ");
-        } else {
-            fprintf(f, "%.3f", speedup->est.point);
-            fprintf(f, " ± ");
-            fprintf(f, "%.3f", speedup->est.err);
-            fprintf(f, " times faster than ");
-        }
+        if (speedup->is_slower)
+            fprintf(f, "%.3f times slower than ", speedup->inv_est.point);
+        else
+            fprintf(f, "%.3f times faster than ", speedup->est.point);
         if (g_baseline == -1)
-            fprintf(f, "%s", bench->name);
+            fprintf(f, "<tt>%s</tt>", bench->name);
         else
             fprintf(f, "baseline");
-        fprintf(f, " (p=%.2f)", al->p_values[bench_idx]);
         fprintf(f, "</p>");
     }
-    if (base->group_count == 1 && g_regr) {
-        const struct group_analysis *grp = al->group_analyses;
-        if (grp->values_are_doubles)
-            fprintf(f, "<p>%s complexity (%g)</p>",
-                    big_o_str(grp->regress.complexity), grp->regress.a);
+    fprintf(f, "<a href=\"#ext-summary\">extended</a>"
+               "</div>" // col
+               "</div>" // row
+               "</div>");
+}
+
+static void html_ext_compare(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    if (base->bench_count == 1)
+        return;
+    fprintf(f, "<div id=\"ext-summary\">"
+               /**/ "<div class=\"row\">"
+               /****/ "<div class=\"col\">"
+               /******/ "<h3>summary</h3>");
+    size_t reference_idx = al->bench_speedups_reference;
+    const struct bench_analysis *reference =
+        base->bench_analyses + reference_idx;
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_SPEED:
+        fprintf(
+            f,
+            "<p>fastest is <tt>%s</tt></p>"
+            "<p>slowest is <tt>%s</tt></p>",
+            reference->name,
+            base->bench_analyses[al->bench_by_mean_time[base->bench_count - 1]]
+                .name);
+        break;
+    case SORT_BASELINE_RAW:
+    case SORT_BASELINE_SPEED:
+        fprintf(f, "<p>baseline is <tt>%s</tt></p>", reference->name);
+        break;
+    default:
+        ASSERT_UNREACHABLE();
     }
-    fprintf(f, "</div></div></div></div>");
+    for (size_t i = 0; i < base->bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
+        if (bench == reference)
+            continue;
+        const struct speedup *speedup = al->bench_speedups + bench_idx;
+        fprintf(f, "<p>");
+        if (g_baseline != -1)
+            fprintf(f, "  <tt>%s</tt>", bench->name);
+        else
+            fprintf(f, "  <tt>%s</tt>", reference->name);
+        fprintf(f, " is ");
+        if (speedup->is_slower)
+            fprintf(f, "%.3f ± %.3f times slower than ", speedup->inv_est.point,
+                    speedup->inv_est.err);
+        else
+            fprintf(f, "%.3f ± %.3f times faster than ", speedup->est.point,
+                    speedup->est.err);
+        if (g_baseline == -1)
+            fprintf(f, "<tt>%s</tt>", bench->name);
+        else
+            fprintf(f, "baseline");
+        fprintf(f,
+                " (p=%.2f) <a href=\"#kde-cmp-%zu\">comparison</a>"
+                "</p>",
+                al->p_values[bench_idx], bench_idx);
+    }
+    fprintf(f,
+            "</div>" // col
+            "</div>" // row
+            "</div>" // #ext-summary
+    );
+    fprintf(f, "<div id=\"kde-cmps\">");
+    for (size_t i = 0; i < base->bench_count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        const struct bench_analysis *bench = base->bench_analyses + bench_idx;
+        if (bench == reference)
+            continue;
+        fprintf(f,
+                "<div id=\"kde-cmp-%zu\">"
+                /**/ "<a href=\"kde_cmp_%zu_%zu_%zu.svg\">"
+                /****/ "<img src=\"kde_cmp_small_%zu_%zu_%zu.svg\">"
+                /**/ "</a>"
+                "</div>",
+                bench_idx, reference_idx, bench_idx, al->meas_idx,
+                reference_idx, bench_idx, al->meas_idx);
+    }
+    fprintf(f, "</div>");
 }
 
 static void html_bench_group(const struct group_analysis *al,
@@ -735,27 +813,33 @@ static void html_bench_group(const struct group_analysis *al,
                              FILE *f)
 {
     fprintf(f,
-            "<h4>measurement %s</h4>"
-            "<div class=\"row\"><div class=\"col\">"
-            "<img src=\"group_%zu_%zu.svg\"></div>",
-            meas->name, grp_idx, meas_idx);
+            "<div>"
+            /**/ "<h3>group '%s' with value %s</h3>"
+            /**/ "<h4>measurement %s</h4>"
+            /**/ "<div class=\"row\">"
+            /****/ "<div class=\"col\">"
+            /******/ "<img src=\"group_%zu_%zu.svg\">"
+            /****/ "</div>",
+            al->group->name, var->name, meas->name, grp_idx, meas_idx);
     char buf[256];
     format_time(buf, sizeof(buf), al->fastest->mean);
     fprintf(f,
             "<div class=\"col stats\">"
-            "<p>lowest time %s with %s=%s</p>",
+            /**/ "<p>lowest time %s with %s=%s</p>",
             buf, var->name, al->fastest->value);
     format_time(buf, sizeof(buf), al->slowest->mean);
     fprintf(f, "<p>hightest time %s with %s=%s</p>", buf, var->name,
             al->slowest->value);
-    if (al->values_are_doubles) {
+    if (al->values_are_doubles)
         fprintf(f,
                 "<p>mean time is most likely %s in terms of parameter</p>"
                 "<p>linear coef %g rms %.3f</p>",
                 big_o_str(al->regress.complexity), al->regress.a,
                 al->regress.rms);
-    }
-    fprintf(f, "</div></div>");
+    fprintf(f,
+            "</div>" // col-stats
+            "</div>" // row
+            "</div>");
 }
 
 static void html_var_analysis(const struct meas_analysis *al, FILE *f)
@@ -763,25 +847,31 @@ static void html_var_analysis(const struct meas_analysis *al, FILE *f)
     const struct analysis *base = al->base;
     if (!base->group_count)
         return;
-    fprintf(f, "<div><h2>parameter analysis</h2>");
+    fprintf(f, "<div>"
+               /**/ "<h2>parameter analysis</h2>");
     if (base->group_count > 1)
         fprintf(f,
-                "<div><h3>summary for %s</h3>"
-                "<div class=\"row\"><div class=\"col\">"
-                "<img src=\"group_%zu.svg\"></div>"
-                "<div class=\"col\">"
-                "<img src=\"group_bar_%zu.svg\">"
-                "</div></div></div></div>",
+                "<div>"
+                /**/ "<h3>summary for %s</h3>"
+                /**/ "<div class=\"row\">"
+                /****/ "<div class=\"col\">"
+                /******/ "<img src=\"group_%zu.svg\">"
+                /****/ "</div>"
+                /****/ "<div class=\"col\">"
+                /******/ "<img src=\"group_bar_%zu.svg\">"
+                /****/ "</div>"
+                /**/ "</div>"
+                "</div>",
                 al->meas->name, al->meas_idx, al->meas_idx);
     for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-        fprintf(f, "<div><h3>group '%s' with value %s</h3>",
-                al->group_analyses[grp_idx].group->name, base->var->name);
         const struct meas *meas = al->meas + al->meas_idx;
         const struct group_analysis *group = al->group_analyses + grp_idx;
         html_bench_group(group, meas, al->meas_idx, grp_idx, base->var, f);
     }
-    fprintf(f, "</div>");
-    fprintf(f, "</div>");
+    fprintf(f,
+            "</div>" // col
+            "</div>" // row
+    );
 }
 
 static void html_report(const struct analysis *al, FILE *f)
@@ -808,12 +898,16 @@ static void html_report(const struct analysis *al, FILE *f)
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
         html_var_analysis(mal, f);
         html_compare(mal, f);
+        fprintf(f, "<div id=\"benches\">");
         for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
             const struct bench_analysis *bench = al->bench_analyses + bench_idx;
-            fprintf(f, "<div><h2>command '%s'</h2>", bench->name);
+            fprintf(f, "<div id=\"bench%zu\"><h2>benchmark <tt>%s</tt></h2>",
+                    bench_idx, bench->name);
             html_distr(bench, bench_idx, meas_idx, al, f);
             fprintf(f, "</div>");
         }
+        fprintf(f, "</div>");
+        html_ext_compare(mal, f);
     }
     fprintf(f, "</body>");
 }
@@ -1015,7 +1109,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
         printf("baseline is ");
         printf_colored(ANSI_BOLD, "%s\n", reference->name);
         break;
-    case SORT_DEFAULT:
+    default:
         ASSERT_UNREACHABLE();
     }
     for (size_t i = 0; i < base->bench_count; ++i) {
