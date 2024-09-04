@@ -93,6 +93,7 @@ struct progress_bar_bench {
     int aborted;
     int warmup;
     int suspended;
+    int has_been_run;
     union {
         uint64_t u;
         double d;
@@ -664,6 +665,7 @@ static void progress_bar_start(struct progress_bar_bench *bench, double time)
     atomic_store(&bench->warmup, false);
     atomic_store(&bench->time.u, 0);
     atomic_store(&bench->runs, 0);
+    atomic_store(&bench->has_been_run, true);
 }
 
 static void progress_bar_abort(struct progress_bar_bench *bench)
@@ -894,6 +896,7 @@ static void redraw_progress_bar(struct progress_bar *bar)
         data.aborted = atomic_load(&bar->bar_benches[i].aborted);
         data.suspended = atomic_load(&bar->bar_benches[i].suspended);
         data.warmup = atomic_load(&bar->bar_benches[i].warmup);
+        data.has_been_run = atomic_load(&bar->bar_benches[i].has_been_run);
         data.runs = atomic_load(&bar->bar_benches[i].runs);
         data.time.u = atomic_load(&bar->bar_benches[i].time.u);
         data.start_time.u = atomic_load(&bar->bar_benches[i].start_time.u);
@@ -990,7 +993,7 @@ static void redraw_progress_bar(struct progress_bar *bar)
             printf_colored(ANSI_MAGENTA, " W  ");
         } else if (data.finished) {
             printf_colored(ANSI_BLUE, " F  ");
-        } else if (data.suspended || (data.time.u == 0 && data.runs == 0)) {
+        } else if (data.suspended || !data.has_been_run) {
             printf_colored(ANSI_YELLOW, " S  ");
         } else {
             printf_colored(ANSI_GREEN, " R  ");
