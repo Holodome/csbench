@@ -154,6 +154,10 @@ Do not abort benchmarking when benchmark commands finishes with non\-zero exit c
 \fB\-s\fR, \fB\-\-simple\fR
 .IP
 Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and rounds.
+.HP
+.B \-\-shuffle\-runs
+.IP
+Randomize the order in which benchmarks are run. By default they are run round-robin from first to last.
 .SS Command input and output options
 .HP
 \fB\-\-input\fR \fIFILE\fP

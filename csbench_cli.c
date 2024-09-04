@@ -209,6 +209,8 @@ static void print_help_and_exit(int rc)
     print_opt("-s, --simple", OPT_ARR(NULL),
               "Preset to run benchmark using all available processors for 1 "
               "second without warmup and rounds.");
+    print_opt("--shuffle-runs", OPT_ARR(NULL),
+              "Randomize the order in which benchmarks are run.");
     print_opt(
         "--input", OPT_ARR("FILE"),
         "Specify file that will be used as input for all benchmark commands.");
@@ -913,6 +915,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                             &g_ignore_failure) ||
                    opt_bool(argv, &cursor, "-i", &g_ignore_failure)) {
         } else if (opt_bool(argv, &cursor, "--csv", &g_csv)) {
+        } else if (opt_bool(argv, &cursor, "--shuffle-runs",
+                            &g_shuffle_when_runnig)) {
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
         } else if (opt_bool(argv, &cursor, "--python-output",
                             &g_python_output)) {

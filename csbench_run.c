@@ -277,7 +277,10 @@ static struct run_task *get_run_task(struct run_task_queue *q,
         assert(task || (q->worker_count > q->remaining_task_count));
         if (task) {
             size_t idx = task - q->tasks;
-            *task_cursor = (idx + 1) % q->task_count;
+            if (g_shuffle_when_runnig)
+                *task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
+            else
+                *task_cursor = (idx + 1) % q->task_count;
             q->taken[idx] = true;
             assert(!q->finished[task - q->tasks]);
         }
@@ -840,6 +843,8 @@ static bool run_benches_single_threaded(struct run_task_queue *q)
     // Tasks are switched round-robin. For this, store in each runner index of
     // next task that should be processed.
     size_t task_cursor = 0;
+    if (g_shuffle_when_runnig)
+        task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
     for (;;) {
         struct run_task *task = get_run_task(q, &task_cursor);
         if (task == NULL)
