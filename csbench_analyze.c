@@ -292,11 +292,18 @@ static const struct distr *reference_per_val_group(struct meas_analysis *al,
     return reference->data[val_idx].distr;
 }
 
-static size_t reference_group_idx(struct meas_analysis *al)
+static size_t reference_avg_group_idx(struct meas_analysis *al)
 {
     if (g_baseline != -1)
         return g_baseline;
     return al->groups_by_avg_speed[0];
+}
+
+static size_t reference_total_group_idx(struct meas_analysis *al)
+{
+    if (g_baseline != -1)
+        return g_baseline;
+    return al->groups_by_total_speed[0];
 }
 
 static double p_value(const double *a, size_t n1, const double *b, size_t n2)
@@ -365,25 +372,31 @@ static void ref_speed(double u1, double sigma1, double u2, double sigma2,
     *ref_sigma = ref_st_dev;
 }
 
-static void calculate_ref_speed(const struct distr *reference,
-                                const struct distr *distr, bool flip,
+static void calculate_ref_speed(double reference_mean, double reference_st_dev,
+                                double cur_mean, double cur_st_dev, bool flip,
                                 struct point_err_est *est)
 {
     if (flip)
-        ref_speed(distr->mean.point, distr->st_dev.point, reference->mean.point,
-                  reference->st_dev.point, &est->point, &est->err);
+        ref_speed(cur_mean, cur_st_dev, reference_mean, reference_st_dev,
+                  &est->point, &est->err);
     else
-        ref_speed(reference->mean.point, reference->st_dev.point,
-                  distr->mean.point, distr->st_dev.point, &est->point,
-                  &est->err);
+        ref_speed(reference_mean, reference_st_dev, cur_mean, cur_st_dev,
+                  &est->point, &est->err);
+}
+static void calculate_ref_speed_distr(const struct distr *reference,
+                                      const struct distr *distr, bool flip,
+                                      struct point_err_est *est)
+{
+    calculate_ref_speed(reference->mean.point, reference->st_dev.point,
+                        distr->mean.point, distr->st_dev.point, flip, est);
 }
 
 static void calculate_speedup(const struct distr *reference,
                               const struct distr *distr, bool flip,
                               struct speedup *sp)
 {
-    calculate_ref_speed(reference, distr, flip, &sp->est);
-    calculate_ref_speed(reference, distr, !flip, &sp->inv_est);
+    calculate_ref_speed_distr(reference, distr, flip, &sp->est);
+    calculate_ref_speed_distr(reference, distr, !flip, &sp->inv_est);
     if (sp->est.point < 1.0)
         sp->is_slower = true;
 }
@@ -489,6 +502,21 @@ static void calculate_per_value_speedup(const struct meas_analysis *al,
         sp->is_slower = true;
 }
 
+static void calculate_group_total_speedup(const struct meas_analysis *al,
+                                          size_t reference_idx, size_t grp_idx,
+                                          struct speedup *sp)
+{
+    const struct point_err_est *reference =
+        al->group_total_times + reference_idx;
+    const struct point_err_est *cur = al->group_total_times + grp_idx;
+    calculate_ref_speed(reference->point, reference->err, cur->point, cur->err,
+                        false, &sp->est);
+    calculate_ref_speed(reference->point, reference->err, cur->point, cur->err,
+                        true, &sp->inv_est);
+    if (sp->est.point < 1.0)
+        sp->is_slower = true;
+}
+
 static cssort_compar(accum_idx_sort_cmp)
 {
     (void)statep;
@@ -569,7 +597,7 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
     if (base->group_count == 1 || !base->var)
         return;
 
-    size_t reference_idx = reference_group_idx(al);
+    size_t reference_idx = reference_avg_group_idx(al);
     al->groups_avg_reference = reference_idx;
 
     size_t grp_count = base->group_count;
@@ -579,6 +607,69 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
 
         struct speedup *sp = al->group_avg_speedups + grp_idx;
         calculate_per_value_speedup(al, reference_idx, grp_idx, sp);
+    }
+}
+
+static cssort_compar(group_total_sort_cmp)
+{
+    const struct meas_analysis *al = statep;
+    size_t a_idx = *(const size_t *)ap;
+    size_t b_idx = *(const size_t *)bp;
+    if (a_idx == b_idx)
+        return 0;
+
+    double va = al->group_total_times[a_idx].point;
+    double vb = al->group_total_times[b_idx].point;
+    return va > vb;
+}
+
+static void calculate_groups_total_time(struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    size_t val_count = base->var->value_count;
+    size_t grp_count = base->group_count;
+    if (grp_count == 1 || !base->var)
+        return;
+
+    for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+        const struct group_analysis *group = al->group_analyses + grp_idx;
+        struct point_err_est *est = al->group_total_times + grp_idx;
+        // Propagate standard deviation over sum
+        double mean = 0.0;
+        double err = 0.0;
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+            const struct distr *distr = group->data[val_idx].distr;
+            mean += distr->mean.point;
+            double st_dev = distr->st_dev.point;
+            err += st_dev * st_dev;
+        }
+        err = sqrt(err);
+        est->point = mean;
+        est->err = err;
+    }
+
+    // Initialize array with indexes for sorting
+    for (size_t i = 0; i < grp_count; ++i)
+        al->groups_by_total_speed[i] = i;
+    cssort_ext(al->groups_by_total_speed, grp_count,
+               sizeof(*al->groups_by_total_speed), group_total_sort_cmp, al);
+}
+
+static void calculate_groups_by_total_speed(struct meas_analysis *al)
+{
+    const struct analysis *base = al->base;
+    size_t grp_count = base->group_count;
+    if (base->group_count == 1 || !base->var)
+        return;
+
+    size_t reference_idx = reference_total_group_idx(al);
+    al->groups_total_reference = reference_idx;
+    for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+        if (grp_idx == reference_idx)
+            continue;
+
+        struct speedup *sp = al->group_total_speedups + grp_idx;
+        calculate_group_total_speedup(al, reference_idx, grp_idx, sp);
     }
 }
 
@@ -702,6 +793,8 @@ static bool analyze_benches(struct analysis *al)
         calculate_group_avg_speedups(mal);
         calculate_groups_by_avg_speed(mal);
         calculate_average_per_value_speedups(mal);
+        calculate_groups_total_time(mal);
+        calculate_groups_by_total_speed(mal);
     }
     return true;
 }

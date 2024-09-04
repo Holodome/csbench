@@ -265,7 +265,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         size_t reference_idx = al->groups_avg_reference;
         args->a_idx = reference_idx;
         for (size_t i = 0; i < grp_count; ++i) {
-            size_t grp_idx = ith_group_idx(i, al);
+            size_t grp_idx = ith_group_by_avg_idx(i, al);
             if (grp_idx == reference_idx)
                 continue;
             args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
@@ -1382,7 +1382,7 @@ size_t ith_per_val_group_idx(size_t i, size_t val_idx,
     }
 }
 
-size_t ith_group_idx(size_t i, const struct meas_analysis *al)
+size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
 {
     switch (g_sort_mode) {
     case SORT_RAW:
@@ -1391,6 +1391,20 @@ size_t ith_group_idx(size_t i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->groups_by_avg_speed[i];
+    default:
+        ASSERT_UNREACHABLE();
+    }
+}
+
+size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
+{
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_BASELINE_RAW:
+        return i;
+    case SORT_SPEED:
+    case SORT_BASELINE_SPEED:
+        return al->groups_by_total_speed[i];
     default:
         ASSERT_UNREACHABLE();
     }
@@ -1517,7 +1531,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
             printf("\n");
     }
     for (size_t i = 0; i < base->group_count; ++i) {
-        size_t grp_idx = ith_group_idx(i, al);
+        size_t grp_idx = ith_group_by_avg_idx(i, al);
         if (grp_idx == reference_idx)
             continue;
         const struct speedup *speedup = al->group_avg_speedups + grp_idx;

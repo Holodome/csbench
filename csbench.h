@@ -334,9 +334,9 @@ struct meas_analysis {
     // Groups in total
     // Estimates of times it took to execute one group
     size_t groups_total_reference;
-    struct est *group_total_times;        // [group_count]
-    double *groups_by_total_speed;        // [group_count]
-    struct speedup *group_total_speedups; // [group_count]
+    struct point_err_est *group_total_times; // [group_count]
+    double *groups_by_total_speed;           // [group_count]
+    struct speedup *group_total_speedups;    // [group_count]
 };
 
 // This structure hold results of benchmarking across all measurements and
@@ -638,7 +638,8 @@ bool make_report(const struct analysis *al);
 size_t ith_bench_idx(int i, const struct meas_analysis *al);
 size_t ith_per_val_group_idx(size_t i, size_t val_idx,
                              const struct meas_analysis *al);
-size_t ith_group_idx(size_t i, const struct meas_analysis *al);
+size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al);
+size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al);
 
 //
 // csbench_perf.c
