@@ -937,10 +937,10 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     fprintf(f, "</div>");
 }
 
-static void html_bench_group(const struct group_analysis *al,
-                             const struct meas *meas, size_t meas_idx,
-                             size_t grp_idx, const struct bench_var *var,
-                             FILE *f)
+static void html_regr_bench_group(const struct group_analysis *al,
+                                  const struct meas *meas, size_t meas_idx,
+                                  size_t grp_idx, const struct bench_var *var,
+                                  FILE *f)
 {
     char fastest_mean[256], slowest_mean[256];
     format_time(fastest_mean, sizeof(fastest_mean), al->fastest->mean);
@@ -976,7 +976,7 @@ static void html_var_analysis(const struct meas_analysis *al, FILE *f)
     const struct analysis *base = al->base;
     if (!base->group_count)
         return;
-    fprintf(f, "<div>"
+    fprintf(f, "<div id=\"regr\">"
                /**/ "<h2>parameter analysis</h2>");
     if (base->group_count > 1)
         fprintf(f,
@@ -992,15 +992,15 @@ static void html_var_analysis(const struct meas_analysis *al, FILE *f)
                 /**/ "</div>"
                 "</div>",
                 al->meas->name, al->meas_idx, al->meas_idx);
-    for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
-        const struct meas *meas = al->meas + al->meas_idx;
-        const struct group_analysis *group = al->group_analyses + grp_idx;
-        html_bench_group(group, meas, al->meas_idx, grp_idx, base->var, f);
+    if (g_regr) {
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+            const struct meas *meas = al->meas + al->meas_idx;
+            const struct group_analysis *group = al->group_analyses + grp_idx;
+            html_regr_bench_group(group, meas, al->meas_idx, grp_idx, base->var,
+                                  f);
+        }
     }
-    fprintf(f,
-            "</div>" // col
-            "</div>" // row
-    );
+    fprintf(f, "</div>");
 }
 
 static void html_toc(const struct analysis *al, FILE *f)
@@ -1009,8 +1009,10 @@ static void html_toc(const struct analysis *al, FILE *f)
                /**/ "<h3>Table of contents</h3>");
     if (al->primary_meas_count == 1) {
         const struct meas_analysis *mal = al->meas_analyses + 0;
-        fprintf(f, "<ol>"
-                   "<li><a href=\"#summary\">summary</a></li>"
+        fprintf(f, "<ol>");
+        if (g_regr)
+            fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
+        fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
                    "<li>"
                    /**/ "<a href=\"#benches\">benchmarks</a>"
                    /**/ "<ol>");
@@ -1140,7 +1142,7 @@ static void print_exit_code_info(const struct bench *bench)
         if (bench->exit_codes[i] != 0)
             ++count_nonzero;
 
-    assert(g_ignore_failure ? 1 : count_nonzero == 0);
+    assert(!g_ignore_failure || count_nonzero == 0);
     if (count_nonzero == bench->run_count) {
         printf("all commands have non-zero exit code: %d\n",
                bench->exit_codes[0]);
