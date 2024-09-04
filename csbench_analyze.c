@@ -626,11 +626,11 @@ static cssort_compar(group_total_sort_cmp)
 static void calculate_groups_total_time(struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
-    size_t val_count = base->var->value_count;
     size_t grp_count = base->group_count;
     if (grp_count == 1 || !base->var)
         return;
 
+    size_t val_count = base->var->value_count;
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
         const struct group_analysis *group = al->group_analyses + grp_idx;
         struct point_err_est *est = al->group_total_times + grp_idx;

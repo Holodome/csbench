@@ -335,7 +335,7 @@ struct meas_analysis {
     // Estimates of times it took to execute one group
     size_t groups_total_reference;
     struct point_err_est *group_total_times; // [group_count]
-    double *groups_by_total_speed;           // [group_count]
+    size_t *groups_by_total_speed;           // [group_count]
     struct speedup *group_total_speedups;    // [group_count]
 };
 
@@ -569,6 +569,7 @@ extern bool g_python_output;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
 extern bool g_clear_out_dir;
+extern bool g_shuffle_when_runnig;
 // Number of resamples to use in bootstrapping when estimating distributions.
 extern int g_nresamp;
 extern int g_progress_bar_interval_us;

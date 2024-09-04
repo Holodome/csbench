@@ -86,6 +86,7 @@ bool g_python_output = false;
 bool g_save_bin = false;
 bool g_rename_all_used = false;
 bool g_clear_out_dir = false;
+bool g_shuffle_when_runnig = false;
 int g_nresamp = 10000;
 int g_progress_bar_interval_us = 100000;
 int g_threads = 1;
