@@ -1565,7 +1565,7 @@ static void print_group_total_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
         return;
-    printf("in total ");
+    printf("in total   ");
     if (base->group_count > 2)
         printf("\n");
     size_t reference_idx = al->groups_total_reference;

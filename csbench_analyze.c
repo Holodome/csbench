@@ -259,37 +259,12 @@ static size_t reference_bench_idx(struct meas_analysis *al)
     return al->bench_by_mean_time[0];
 }
 
-static const struct distr *reference_bench(struct meas_analysis *al,
-                                           bool *flipp)
-{
-    bool flip = false;
-    const struct distr *reference = al->benches[reference_bench_idx(al)];
-    if (g_baseline == -1)
-        flip = true;
-    if (flipp)
-        *flipp = flip;
-    return reference;
-}
-
 static size_t reference_per_val_group_idx(struct meas_analysis *al,
                                           size_t val_idx)
 {
     if (g_baseline != -1)
         return g_baseline;
     return al->val_benches_by_mean_time[val_idx][0];
-}
-
-static const struct distr *reference_per_val_group(struct meas_analysis *al,
-                                                   size_t val_idx, bool *flipp)
-{
-    bool flip = false;
-    const struct group_analysis *reference =
-        al->group_analyses + reference_per_val_group_idx(al, val_idx);
-    if (g_baseline == -1)
-        flip = true;
-    if (flipp)
-        *flipp = flip;
-    return reference->data[val_idx].distr;
 }
 
 static size_t reference_avg_group_idx(struct meas_analysis *al)
@@ -326,7 +301,8 @@ static double p_value(const double *a, size_t n1, const double *b, size_t n2)
 
 static void calculate_per_bench_p_values(struct meas_analysis *al)
 {
-    const struct distr *reference = reference_bench(al, NULL);
+    size_t reference_idx = reference_bench_idx(al);
+    const struct distr *reference = al->benches[reference_idx];
     for (size_t bench_idx = 0; bench_idx < al->base->bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
         if (reference == distr)
@@ -346,8 +322,9 @@ static void calculate_per_group_p_values(struct meas_analysis *al)
 
     size_t var_value_count = base->var->value_count;
     for (size_t val_idx = 0; val_idx < var_value_count; ++val_idx) {
+        size_t reference_idx = reference_per_val_group_idx(al, val_idx);
         const struct distr *reference =
-            reference_per_val_group(al, val_idx, NULL);
+            al->group_analyses[reference_idx].data[val_idx].distr;
         for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
             const struct distr *distr =
                 al->group_analyses[grp_idx].data[val_idx].distr;
@@ -410,7 +387,10 @@ static void calculate_bench_speedups(struct meas_analysis *al)
     al->bench_speedups_reference = reference_bench_idx(al);
 
     bool flip = false;
-    const struct distr *reference = reference_bench(al, &flip);
+    if (g_baseline == -1)
+        flip = true;
+    size_t reference_idx = reference_bench_idx(al);
+    const struct distr *reference = al->benches[reference_idx];
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
         if (distr == reference)
@@ -433,13 +413,13 @@ static void calculate_group_avg_speedups(struct meas_analysis *al)
 
     size_t value_count = base->var->value_count;
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-        al->val_bench_speedups_references[val_idx] =
-            reference_per_val_group_idx(al, val_idx);
-
         bool flip = false;
+        if (g_baseline == -1)
+            flip = true;
+        size_t reference_idx = reference_per_val_group_idx(al, val_idx);
+        al->val_bench_speedups_references[val_idx] = reference_idx;
         const struct distr *reference =
-            reference_per_val_group(al, val_idx, &flip);
-
+            al->group_analyses[reference_idx].data[val_idx].distr;
         for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
             const struct distr *distr =
                 al->group_analyses[grp_idx].data[val_idx].distr;
@@ -506,13 +486,16 @@ static void calculate_group_total_speedup(const struct meas_analysis *al,
                                           size_t reference_idx, size_t grp_idx,
                                           struct speedup *sp)
 {
+    bool flip = false;
+    if (g_baseline == -1)
+        flip = true;
     const struct point_err_est *reference =
         al->group_total_times + reference_idx;
     const struct point_err_est *cur = al->group_total_times + grp_idx;
     calculate_ref_speed(reference->point, reference->err, cur->point, cur->err,
-                        false, &sp->est);
+                        flip, &sp->est);
     calculate_ref_speed(reference->point, reference->err, cur->point, cur->err,
-                        true, &sp->inv_est);
+                        !flip, &sp->inv_est);
     if (sp->est.point < 1.0)
         sp->is_slower = true;
 }
