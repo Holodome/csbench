@@ -318,17 +318,25 @@ struct meas_analysis {
     size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
     size_t **val_benches_by_mean_time; // [val_count][group_count]
-    // Comparison
+    // Comparisons
+    // Individual benchmarks
     size_t bench_speedups_reference;
-    struct speedup *bench_speedups;        // [bench_count]
-    double *p_values;                      // [bench_count]
+    struct speedup *bench_speedups; // [bench_count]
+    double *p_values;               // [bench_count]
+    // Per-value
     size_t *val_bench_speedups_references; // [val_count]
     struct speedup **val_bench_speedups;   // [val_count][group_count]
     double **var_p_values;                 // [val_count][group_count]
-    // Group indexes sorted by relative speed
-    size_t *groups_by_speed; // [group_count]
-    size_t groups_speedup_reference;
-    struct speedup *group_speedups; // [group_count]
+    // Groups on average
+    size_t groups_avg_reference;
+    size_t *groups_by_avg_speed;        // [group_count]
+    struct speedup *group_avg_speedups; // [group_count]
+    // Groups in total
+    // Estimates of times it took to execute one group
+    size_t groups_total_reference;
+    struct est *group_total_times;        // [group_count]
+    double *groups_by_total_speed;        // [group_count]
+    struct speedup *group_total_speedups; // [group_count]
 };
 
 // This structure hold results of benchmarking across all measurements and

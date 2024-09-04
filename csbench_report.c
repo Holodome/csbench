@@ -262,7 +262,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                 return false;
         }
     } else {
-        size_t reference_idx = al->groups_speedup_reference;
+        size_t reference_idx = al->groups_avg_reference;
         args->a_idx = reference_idx;
         for (size_t i = 0; i < grp_count; ++i) {
             size_t grp_idx = ith_group_idx(i, al);
@@ -1390,7 +1390,7 @@ size_t ith_group_idx(size_t i, const struct meas_analysis *al)
         return i;
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
-        return al->groups_by_speed[i];
+        return al->groups_by_avg_speed[i];
     default:
         ASSERT_UNREACHABLE();
     }
@@ -1491,9 +1491,9 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     if (base->group_count > 2) {
         printf("\n");
     }
-    size_t reference_idx = al->groups_speedup_reference;
+    size_t reference_idx = al->groups_avg_reference;
     if (base->group_count > 2) {
-        size_t fastest_idx = al->groups_by_speed[0];
+        size_t fastest_idx = al->groups_by_avg_speed[0];
         printf_colored(ANSI_BLUE, "  fastest");
         printf(" is ");
         printf_colored(ANSI_BOLD, "%s",
@@ -1502,7 +1502,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
             printf(" (baseline)");
         printf("\n");
         printf("  slowest is ");
-        size_t slowest_idx = al->groups_by_speed[base->group_count - 1];
+        size_t slowest_idx = al->groups_by_avg_speed[base->group_count - 1];
         printf_colored(ANSI_BOLD, "%s",
                        group_name(al, slowest_idx, abbreviate_names));
         if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
@@ -1520,7 +1520,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
         size_t grp_idx = ith_group_idx(i, al);
         if (grp_idx == reference_idx)
             continue;
-        const struct speedup *speedup = al->group_speedups + grp_idx;
+        const struct speedup *speedup = al->group_avg_speedups + grp_idx;
         if (base->group_count > 2)
             printf("  ");
         if (g_baseline != -1) {

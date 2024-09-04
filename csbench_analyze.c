@@ -296,7 +296,7 @@ static size_t reference_group_idx(struct meas_analysis *al)
 {
     if (g_baseline != -1)
         return g_baseline;
-    return al->groups_by_speed[0];
+    return al->groups_by_avg_speed[0];
 }
 
 static double p_value(const double *a, size_t n1, const double *b, size_t n2)
@@ -408,7 +408,7 @@ static void calculate_bench_speedups(struct meas_analysis *al)
     }
 }
 
-static void calculate_group_speedups(struct meas_analysis *al)
+static void calculate_group_avg_speedups(struct meas_analysis *al)
 {
     struct analysis *base = al->base;
     if (base->bench_count == 1)
@@ -500,7 +500,7 @@ static cssort_compar(accum_idx_sort_cmp)
     return a->accum > b->accum;
 }
 
-static void calculate_groups_by_speed(struct meas_analysis *al)
+static void calculate_groups_by_avg_speed(struct meas_analysis *al)
 {
     struct analysis *base = al->base;
     if (!base->var || base->group_count < 2)
@@ -556,7 +556,7 @@ static void calculate_groups_by_speed(struct meas_analysis *al)
     cssort_ext(group_total_accum, grp_count, sizeof(*group_total_accum),
                accum_idx_sort_cmp, NULL);
     for (size_t i = 0; i < grp_count; ++i)
-        al->groups_by_speed[i] = group_total_accum[i].idx;
+        al->groups_by_avg_speed[i] = group_total_accum[i].idx;
 
     free(bench_ref_matrix);
     free(group_ref_matrix);
@@ -570,14 +570,14 @@ static void calculate_average_per_value_speedups(struct meas_analysis *al)
         return;
 
     size_t reference_idx = reference_group_idx(al);
-    al->groups_speedup_reference = reference_idx;
+    al->groups_avg_reference = reference_idx;
 
     size_t grp_count = base->group_count;
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
         if (grp_idx == reference_idx)
             continue;
 
-        struct speedup *sp = al->group_speedups + grp_idx;
+        struct speedup *sp = al->group_avg_speedups + grp_idx;
         calculate_per_value_speedup(al, reference_idx, grp_idx, sp);
     }
 }
@@ -595,7 +595,8 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
         al->benches[j] = base->bench_analyses[j].meas + meas_idx;
     al->group_analyses = calloc(base->group_count, sizeof(*al->group_analyses));
     al->bench_speedups = calloc(base->bench_count, sizeof(*al->bench_speedups));
-    al->group_speedups = calloc(base->group_count, sizeof(*al->group_speedups));
+    al->group_avg_speedups =
+        calloc(base->group_count, sizeof(*al->group_avg_speedups));
     al->p_values = calloc(base->bench_count, sizeof(*al->p_values));
     const struct bench_var *var = base->var;
     if (var) {
@@ -612,8 +613,8 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
             al->val_bench_speedups[val_idx] =
                 calloc(base->group_count, sizeof(**al->val_bench_speedups));
         }
-        al->groups_by_speed =
-            calloc(base->group_count, sizeof(*al->groups_by_speed));
+        al->groups_by_avg_speed =
+            calloc(base->group_count, sizeof(*al->groups_by_avg_speed));
         al->var_p_values = calloc(var->value_count, sizeof(*al->var_p_values));
         for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx)
             al->var_p_values[val_idx] =
@@ -698,8 +699,8 @@ static bool analyze_benches(struct analysis *al)
         calculate_per_bench_p_values(mal);
         calculate_per_group_p_values(mal);
         calculate_bench_speedups(mal);
-        calculate_group_speedups(mal);
-        calculate_groups_by_speed(mal);
+        calculate_group_avg_speedups(mal);
+        calculate_groups_by_avg_speed(mal);
         calculate_average_per_value_speedups(mal);
     }
     return true;
@@ -747,8 +748,8 @@ static void free_bench_meas_analysis(struct meas_analysis *al)
             free(al->val_bench_speedups[i]);
         free(al->val_bench_speedups);
     }
-    free(al->groups_by_speed);
-    free(al->group_speedups);
+    free(al->groups_by_avg_speed);
+    free(al->group_avg_speedups);
     free(al->p_values);
     if (al->var_p_values) {
         for (size_t i = 0; i < base->var->value_count; ++i)
