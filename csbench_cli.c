@@ -196,7 +196,7 @@ static void print_help_and_exit(int rc)
         "<SHELL> can be set to \"none\". This way commands will be "
         "executed directly using execve(2) system call, avoiding shell process "
         "startup time overhead.");
-    print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none");
+    print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"),
               "Execute <CMD> before each benchmark run.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
@@ -223,13 +223,13 @@ static void print_help_and_exit(int rc)
     print_opt("--no-input", OPT_ARR(NULL), "Disable input (default).");
     print_opt("--output", OPT_ARR("KIND"),
               "Control where stdout and stderr of benchmark commands is "
-              "redirected. <KIND> can be \"null\", or \"inherit\"");
+              "redirected. <KIND> can be \"null\", or \"inherit\".");
     print_opt("--meas", OPT_ARR("MEAS"),
               "Specify list of built-in measurement to collect. <MEAS> is a "
               "comma-separated list of measurement names, which can be of the "
               "following: \"wall\", \"stime\", \"utime\", \"maxrss\", "
               "\"minflt\", \"majflt\", \"nvcsw\", \"nivcsw\", \"cycles\", "
-              "\"branches\", \"branch-misses\"");
+              "\"branches\", \"branch-misses\".");
     print_opt("--custom", OPT_ARR("NAME"),
               "Add custom measurement with name <NAME>. This measurement "
               "parses stdout of each command as a single real number and "
@@ -307,7 +307,7 @@ static void print_help_and_exit(int rc)
               "name (default: \".csbench/data.csbench\").");
     print_opt("--color", OPT_ARR("WHEN"),
               "Use colored output. Possible values for <WHEN> are \"never\", "
-              "\"auto\", \"always\" (default: \"auto\")");
+              "\"auto\", \"always\" (default: \"auto\").");
     print_opt("--progress-bar", OPT_ARR("WHEN"),
               "Display dynamically updated progress bar when running "
               "benchmarks. Possible values for <WHEN> are \"never\", "
