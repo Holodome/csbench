@@ -676,40 +676,48 @@ static void calculate_groups_by_total_speed(struct meas_analysis *al)
 static void init_meas_analysis(struct analysis *base, size_t meas_idx,
                                struct meas_analysis *al)
 {
+    size_t bench_count = base->bench_count;
+    size_t grp_count = base->group_count;
     al->base = base;
     al->meas_idx = meas_idx;
     al->meas = base->meas + meas_idx;
     al->bench_by_mean_time =
-        calloc(base->bench_count, sizeof(*al->bench_by_mean_time));
-    al->benches = calloc(base->bench_count, sizeof(*al->benches));
-    for (size_t j = 0; j < base->bench_count; ++j)
+        calloc(bench_count, sizeof(*al->bench_by_mean_time));
+    al->benches = calloc(bench_count, sizeof(*al->benches));
+    for (size_t j = 0; j < bench_count; ++j)
         al->benches[j] = base->bench_analyses[j].meas + meas_idx;
-    al->group_analyses = calloc(base->group_count, sizeof(*al->group_analyses));
-    al->bench_speedups = calloc(base->bench_count, sizeof(*al->bench_speedups));
-    al->group_avg_speedups =
-        calloc(base->group_count, sizeof(*al->group_avg_speedups));
-    al->p_values = calloc(base->bench_count, sizeof(*al->p_values));
+    al->group_analyses = calloc(grp_count, sizeof(*al->group_analyses));
+    al->bench_speedups = calloc(bench_count, sizeof(*al->bench_speedups));
+    al->p_values = calloc(bench_count, sizeof(*al->p_values));
     const struct bench_var *var = base->var;
     if (var) {
+        size_t val_count = var->value_count;
         al->val_benches_by_mean_time =
-            calloc(var->value_count, sizeof(*al->val_benches_by_mean_time));
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx)
-            al->val_benches_by_mean_time[val_idx] = calloc(
-                base->bench_count, sizeof(**al->val_benches_by_mean_time));
-        al->val_bench_speedups_references = calloc(
-            base->var->value_count, sizeof(*al->val_bench_speedups_references));
+            calloc(val_count, sizeof(*al->val_benches_by_mean_time));
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            al->val_benches_by_mean_time[val_idx] =
+                calloc(bench_count, sizeof(**al->val_benches_by_mean_time));
+        al->val_bench_speedups_references =
+            calloc(val_count, sizeof(*al->val_bench_speedups_references));
         al->val_bench_speedups =
-            calloc(var->value_count, sizeof(*al->val_bench_speedups));
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+            calloc(val_count, sizeof(*al->val_bench_speedups));
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             al->val_bench_speedups[val_idx] =
-                calloc(base->group_count, sizeof(**al->val_bench_speedups));
-        }
-        al->groups_by_avg_speed =
-            calloc(base->group_count, sizeof(*al->groups_by_avg_speed));
-        al->var_p_values = calloc(var->value_count, sizeof(*al->var_p_values));
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx)
+                calloc(grp_count, sizeof(**al->val_bench_speedups));
+        al->var_p_values = calloc(val_count, sizeof(*al->var_p_values));
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             al->var_p_values[val_idx] =
-                calloc(base->group_count, sizeof(**al->var_p_values));
+                calloc(grp_count, sizeof(**al->var_p_values));
+        al->groups_by_avg_speed =
+            calloc(grp_count, sizeof(*al->groups_by_avg_speed));
+        al->group_avg_speedups =
+            calloc(grp_count, sizeof(*al->group_avg_speedups));
+        al->group_total_times =
+            calloc(grp_count, sizeof(*al->group_total_times));
+        al->groups_by_total_speed =
+            calloc(grp_count, sizeof(*al->groups_by_total_speed));
+        al->group_total_speedups =
+            calloc(grp_count, sizeof(*al->group_total_speedups));
     }
 }
 
@@ -835,20 +843,23 @@ static void free_bench_meas_analysis(struct meas_analysis *al)
         free(al->group_analyses);
     }
     free(al->bench_speedups);
+    free(al->p_values);
     free(al->val_bench_speedups_references);
     if (al->val_bench_speedups) {
         for (size_t i = 0; i < base->var->value_count; ++i)
             free(al->val_bench_speedups[i]);
         free(al->val_bench_speedups);
     }
-    free(al->groups_by_avg_speed);
-    free(al->group_avg_speedups);
-    free(al->p_values);
     if (al->var_p_values) {
         for (size_t i = 0; i < base->var->value_count; ++i)
             free(al->var_p_values[i]);
         free(al->var_p_values);
     }
+    free(al->groups_by_avg_speed);
+    free(al->group_avg_speedups);
+    free(al->group_total_times);
+    free(al->groups_by_total_speed);
+    free(al->group_total_speedups);
 }
 
 static void free_analysis(struct analysis *al)

@@ -1502,9 +1502,8 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     if (base->group_count <= 1)
         return;
     printf("on average ");
-    if (base->group_count > 2) {
+    if (base->group_count > 2)
         printf("\n");
-    }
     size_t reference_idx = al->groups_avg_reference;
     if (base->group_count > 2) {
         size_t fastest_idx = al->groups_by_avg_speed[0];
@@ -1561,6 +1560,71 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     }
 }
 
+static void print_group_total_speedups(const struct meas_analysis *al,
+                                       bool abbreviate_names)
+{
+    const struct analysis *base = al->base;
+    if (base->group_count <= 1)
+        return;
+    printf("in total ");
+    if (base->group_count > 2)
+        printf("\n");
+    size_t reference_idx = al->groups_total_reference;
+    if (base->group_count > 2) {
+        size_t fastest_idx = al->groups_by_total_speed[0];
+        printf_colored(ANSI_BLUE, "  fastest");
+        printf(" is ");
+        printf_colored(ANSI_BOLD, "%s",
+                       group_name(al, fastest_idx, abbreviate_names));
+        if (g_baseline != -1 && fastest_idx == (size_t)g_baseline)
+            printf(" (baseline)");
+        printf("\n");
+        printf("  slowest is ");
+        size_t slowest_idx = al->groups_by_total_speed[base->group_count - 1];
+        printf_colored(ANSI_BOLD, "%s",
+                       group_name(al, slowest_idx, abbreviate_names));
+        if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
+            printf(" (baseline)");
+        printf("\n");
+    }
+    if (g_baseline == -1) {
+        printf_colored(ANSI_BOLD, "  %s ",
+                       group_name(al, reference_idx, abbreviate_names));
+        printf("is ");
+        if (base->group_count > 2)
+            printf("\n");
+    }
+    for (size_t i = 0; i < base->group_count; ++i) {
+        size_t grp_idx = ith_group_by_total_idx(i, al);
+        if (grp_idx == reference_idx)
+            continue;
+        const struct speedup *speedup = al->group_total_speedups + grp_idx;
+        if (base->group_count > 2)
+            printf("  ");
+        if (g_baseline != -1) {
+            printf_colored(ANSI_BOLD, "%s",
+                           group_name(al, grp_idx, abbreviate_names));
+            printf(" is ");
+        }
+        if (speedup->is_slower) {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->inv_est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->inv_est.err);
+            printf(" times slower than ");
+        } else {
+            printf_colored(ANSI_BOLD_GREEN, "%.3f", speedup->est.point);
+            printf(" ± ");
+            printf_colored(ANSI_BRIGHT_GREEN, "%.3f", speedup->est.err);
+            printf(" times faster than ");
+        }
+        if (g_baseline == -1)
+            printf("%s", group_name(al, grp_idx, abbreviate_names));
+        else
+            printf("baseline");
+        printf("\n");
+    }
+}
+
 static void print_group_comparison(const struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
@@ -1584,6 +1648,7 @@ static void print_group_comparison(const struct meas_analysis *al)
 
     print_group_per_value_speedups(al, abbreviate_names);
     print_group_average_speedups(al, abbreviate_names);
+    print_group_total_speedups(al, abbreviate_names);
 
     if (g_regr) {
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
