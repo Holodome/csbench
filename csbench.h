@@ -486,6 +486,12 @@ struct plot_maker {
                     const char *output_filename, FILE *f);
     void (*kde_cmp_group)(const struct meas_analysis *al, size_t a_idx,
                           size_t b_idx, const char *output_filename, FILE *f);
+    void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t a_idx,
+                            size_t b_idx, size_t val_idx,
+                            const char *output_filename, FILE *f);
+    void (*kde_cmp_per_val_small)(const struct meas_analysis *al, size_t a_idx,
+                                  size_t b_idx, size_t val_idx,
+                                  const char *output_filename, FILE *f);
 };
 
 enum {
@@ -497,6 +503,8 @@ enum {
     MAKE_PLOT_GROUP_REGR = 0x20,
     MAKE_PLOT_ALL_GROUPS_REGR = 0x40,
     MAKE_PLOT_KDE_CMP_ALL_GROUPS = 0x80,
+    MAKE_PLOT_KDE_CMP_PER_VAL = 0x100,
+    MAKE_PLOT_KDE_CMP_PER_VAL_SMALL = 0x200,
 };
 
 #define sb_header(_a)                                                          \

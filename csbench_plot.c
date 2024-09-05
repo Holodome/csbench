@@ -798,6 +798,19 @@ static void kde_cmp_plot(const struct meas_analysis *al, size_t a_idx,
     free_kde_cmp_plot(&plot);
 }
 
+static void kde_cmp_per_val_plot(const struct meas_analysis *al, size_t a_idx,
+                                 size_t b_idx, size_t val_idx,
+                                 const char *output_filename, FILE *f)
+{
+}
+
+static void kde_cmp_per_val_small_plot(const struct meas_analysis *al,
+                                       size_t a_idx, size_t b_idx,
+                                       size_t val_idx,
+                                       const char *output_filename, FILE *f)
+{
+}
+
 static size_t find_closest_lower_square(size_t x)
 {
     for (size_t i = 1;; ++i) {
@@ -1072,6 +1085,8 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde_cmp_small = kde_cmp_small_plot;
         maker->kde_cmp = kde_cmp_plot;
         maker->kde_cmp_group = kde_cmp_group_plot;
+        maker->kde_cmp_per_val = kde_cmp_per_val_plot;
+        maker->kde_cmp_per_val_small = kde_cmp_per_val_small_plot;
         break;
     default:
         ASSERT_UNREACHABLE();
