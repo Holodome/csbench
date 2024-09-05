@@ -285,13 +285,17 @@ static void group_plot(const struct group_analysis *als, size_t count,
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        fprintf(f,
-                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3)\n"
-                "plt.plot(x, y[%zu], '.-')\n",
-                grp_idx, grp_idx);
+        fprintf(
+            f,
+            "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, label='%s')\n"
+            "plt.plot(x, y[%zu], '.-', label='%s regression')\n",
+            grp_idx, als[grp_idx].group->name, grp_idx,
+            als[grp_idx].group->name);
     }
     if (view.logscale)
         fprintf(f, "plt.yscale('log')\n");
+    if (count > 1)
+        fprintf(f, "plt.legend(loc='best')\n");
     fprintf(f,
             "plt.xticks(x)\n"
             "plt.grid()\n"
