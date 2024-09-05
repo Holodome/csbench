@@ -844,7 +844,8 @@ double get_time(void)
 }
 #endif
 
-FILE *open_file_fmt(const char *mode, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
+                                                          const char *fmt, ...)
 {
     char buf[4096];
     va_list args;
@@ -854,7 +855,8 @@ FILE *open_file_fmt(const char *mode, const char *fmt, ...)
     return fopen(buf, mode);
 }
 
-int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...)
+__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
+                                                      const char *fmt, ...)
 {
     char buf[4096];
     va_list args;

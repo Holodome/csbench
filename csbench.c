@@ -91,6 +91,7 @@ int g_nresamp = 10000;
 int g_progress_bar_interval_us = 100000;
 int g_threads = 1;
 int g_baseline = -1;
+int g_desired_plots = 0;
 enum sort_mode g_sort_mode = SORT_DEFAULT;
 enum statistical_test g_stat_test = STAT_TEST_MWU;
 enum plot_backend g_plot_backend_override = PLOT_BACKEND_DEFAULT;
@@ -1201,6 +1202,14 @@ static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
 
 static bool clear_out_dir(void)
 {
+    struct stat st;
+    if (stat(g_out_dir, &st) != 0) {
+        if (errno == ENOENT)
+            return true;
+        csfmtperror("failed to get information about file '%s'", g_out_dir);
+        return false;
+    }
+
     int ret = nftw(g_out_dir, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
     if (ret != 0) {
         csfmtperror("failed to delete out directory '%s'", g_out_dir);

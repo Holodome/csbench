@@ -488,6 +488,17 @@ struct plot_maker {
                           size_t b_idx, const char *output_filename, FILE *f);
 };
 
+enum {
+    MAKE_PLOT_KDE = 0x1,
+    MAKE_PLOT_KDE_SMALL = 0x2,
+    MAKE_PLOT_KDE_CMP = 0x4,
+    MAKE_PLOT_KDE_CMP_SMALL = 0x8,
+    MAKE_PLOT_BAR = 0x10,
+    MAKE_PLOT_GROUP_REGR = 0x20,
+    MAKE_PLOT_ALL_GROUPS_REGR = 0x40,
+    MAKE_PLOT_KDE_CMP_ALL_GROUPS = 0x80,
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -545,10 +556,7 @@ struct plot_maker {
 // get abort. On debug with UBSan we get nice printout to terminal.
 // Also the compiler knows that this code path is unreachable, so we don't have
 // to make useless returns to make compiler happy.
-#define ASSERT_UNREACHABLE()                                                   \
-    do {                                                                       \
-        __builtin_unreachable();                                               \
-    } while (0)
+#define ASSERT_UNREACHABLE() __builtin_unreachable()
 
 //
 // csbench.c
@@ -576,6 +584,7 @@ extern int g_progress_bar_interval_us;
 extern int g_threads;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
+extern int g_desired_plots;
 extern enum sort_mode g_sort_mode;
 extern enum statistical_test g_stat_test;
 extern enum plot_backend g_plot_backend_override;
