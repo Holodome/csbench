@@ -54,6 +54,7 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -343,11 +344,11 @@ static void kde_limits(const struct distr *distr, bool is_small, double *min,
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
     if (is_small) {
-        *min = fmax(mean - 3.0 * st_dev, distr->p5);
-        *max = fmin(mean + 3.0 * st_dev, distr->p95);
+        *min = fmax(mean - 3.0 * st_dev, distr->p5 + DBL_EPSILON);
+        *max = fmin(mean + 3.0 * st_dev, distr->p95 - DBL_EPSILON);
     } else {
-        *min = fmax(mean - 6.0 * st_dev, distr->p1);
-        *max = fmin(mean + 6.0 * st_dev, distr->p99);
+        *min = fmax(mean - 6.0 * st_dev, distr->p1 + DBL_EPSILON);
+        *max = fmin(mean + 6.0 * st_dev, distr->p99 - DBL_EPSILON);
     }
 }
 
@@ -556,14 +557,11 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     double step = kde->step;
     size_t point_count = kde->point_count;
 
-    double max_point_x = 0;
     fprintf(f, "points = [");
     for (size_t i = 0; i < distr->count; ++i) {
         double v = distr->data[i];
         if (v < min || v > max)
             continue;
-        if (v > max_point_x)
-            max_point_x = v;
         fprintf(f, "(%g,%g), ", v * view->multiplier,
                 (double)(i + 1) / distr->count * plot->max_y);
     }
@@ -575,8 +573,7 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
             "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < "
-            "x[0] < "
-            "%f), points))\n",
+            "x[0] < %f), points))\n",
             distr->outliers.low_severe_x * view->multiplier,
             distr->outliers.low_mild_x * view->multiplier,
             distr->outliers.high_mild_x * view->multiplier,
@@ -588,8 +585,6 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     fprintf(f, "x = [");
     for (size_t i = 0; i < point_count; ++i, ++kde_count) {
         double x = min + step * i;
-        if (x > max_point_x)
-            break;
         fprintf(f, "%g,", x * view->multiplier);
     }
     fprintf(f, "]\n");
@@ -611,22 +606,18 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
             "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
             "color='red', label='severe outliers')\n",
             plot->kde.mean_x * view->multiplier);
-    if (plot->distr->outliers.low_mild_x > plot->kde.min &&
-        plot->distr->outliers.low_mild != 0)
+    if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.low_mild_x * view->multiplier);
-    if (plot->distr->outliers.low_severe_x > plot->kde.min &&
-        plot->distr->outliers.low_severe != 0)
+                distr->outliers.low_mild_x * view->multiplier);
+    if (distr->outliers.low_severe_x > min && distr->outliers.low_severe != 0)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.low_severe_x * view->multiplier);
-    if (plot->distr->outliers.high_mild_x < plot->kde.max &&
-        plot->distr->outliers.high_mild != 0)
+                distr->outliers.low_severe_x * view->multiplier);
+    if (distr->outliers.high_mild_x < max && distr->outliers.high_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
-                plot->distr->outliers.high_mild_x * view->multiplier);
-    if (plot->distr->outliers.high_severe_x < plot->kde.max &&
-        plot->distr->outliers.high_severe != 0)
+                distr->outliers.high_mild_x * view->multiplier);
+    if (distr->outliers.high_severe_x < max && distr->outliers.high_severe != 0)
         fprintf(f, "plt.axvline(x=%g, color='red')\n",
-                plot->distr->outliers.high_severe_x * view->multiplier);
+                distr->outliers.high_severe_x * view->multiplier);
     fprintf(f,
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel('%s [%s]')\n"
