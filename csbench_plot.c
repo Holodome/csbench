@@ -344,11 +344,11 @@ static void kde_limits(const struct distr *distr, bool is_small, double *min,
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
     if (is_small) {
-        *min = fmax(mean - 3.0 * st_dev, distr->p5 + DBL_EPSILON);
-        *max = fmin(mean + 3.0 * st_dev, distr->p95 - DBL_EPSILON);
+        *min = fmax(mean - 3.0 * st_dev, distr->p5 - 1e-6);
+        *max = fmin(mean + 3.0 * st_dev, distr->p95 + 1e-6);
     } else {
-        *min = fmax(mean - 6.0 * st_dev, distr->p1 + DBL_EPSILON);
-        *max = fmin(mean + 6.0 * st_dev, distr->p99 - DBL_EPSILON);
+        *min = fmax(mean - 6.0 * st_dev, distr->p1 - 1e-6);
+        *max = fmin(mean + 6.0 * st_dev, distr->p99 + 1e-6);
     }
 }
 
@@ -369,7 +369,7 @@ static void init_kde_data(const struct distr *distr, double min, double max,
     kde->point_count = point_count;
     kde->min = min;
     kde->max = max;
-    kde->step = (kde->max - kde->min) / kde->point_count;
+    kde->step = (kde->max - kde->min) / (kde->point_count - 1);
     kde->data = calloc(kde->point_count, sizeof(*kde->data));
     construct_kde(distr, kde->data, kde->point_count, kde->min, kde->step);
     kde->mean_x = distr->mean.point;
@@ -446,62 +446,52 @@ static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
     plot->max_y = max_y;
 }
 
-#define init_kde_cmp_small_plot(_al, _a_idx, _b_idx, _output_filename, _plot)  \
-    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, true, _output_filename,    \
-                               _plot)
-#define init_kde_cmp_plot(_al, _a_idx, _b_idx, _output_filename, _plot)        \
-    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, false, _output_filename,   \
-                               _plot)
+#define init_kde_cmp_small_plot(_al, _bench_idx, _output_filename, _plot)      \
+    init_kde_cmp_plot_internal(_al, _bench_idx, true, _output_filename, _plot)
+#define init_kde_cmp_plot(_al, _bench_idx, _output_filename, _plot)            \
+    init_kde_cmp_plot_internal(_al, _bench_idx, false, _output_filename, _plot)
 static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
-                                       size_t a_idx, size_t b_idx,
-                                       bool is_small,
+                                       size_t bench_idx, bool is_small,
                                        const char *output_filename,
                                        struct kde_cmp_plot *plot)
 {
-    const struct distr *a = al->benches[a_idx];
-    const struct distr *b = al->benches[b_idx];
-    const char *a_name = al->base->bench_analyses[a_idx].name;
-    const char *b_name = al->base->bench_analyses[b_idx].name;
     size_t reference_idx = al->bench_speedups_reference;
-    double p_value =
-        reference_idx == a_idx ? al->p_values[b_idx] : al->p_values[a_idx];
-    double diff = reference_idx == a_idx
-                      ? positive_speedup(al->bench_speedups + b_idx)
-                      : positive_speedup(al->bench_speedups + a_idx);
+    const struct distr *a = al->benches[reference_idx];
+    const struct distr *b = al->benches[bench_idx];
+    const char *a_name = al->base->bench_analyses[reference_idx].name;
+    const char *b_name = al->base->bench_analyses[bench_idx].name;
+    double p_value = al->p_values[bench_idx];
+    double diff = positive_speedup(al->bench_speedups + bench_idx);
     const char *title =
         csfmt("%s vs %s p=%.2f diff=%.3f", a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
                                 output_filename, plot);
 }
 
-#define init_kde_cmp_per_val_small_plot(_al, _a_idx, _b_idx, _val_idx,         \
+#define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx,               \
                                         _output_filename, _plot)               \
-    init_kde_cmp_per_val_plot_internal(_al, _a_idx, _b_idx, _val_idx, true,    \
+    init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, true,          \
                                        _output_filename, _plot)
-#define init_kde_cmp_per_val_plot(_al, _a_idx, _b_idx, _val_idx,               \
-                                  _output_filename, _plot)                     \
-    init_kde_cmp_per_val_plot_internal(_al, _a_idx, _b_idx, _val_idx, false,   \
+#define init_kde_cmp_per_val_plot(_al, _grp_idx, _val_idx, _output_filename,   \
+                                  _plot)                                       \
+    init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, false,         \
                                        _output_filename, _plot)
 static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
-                                               size_t a_idx, size_t b_idx,
-                                               size_t val_idx, bool is_small,
+                                               size_t grp_idx, size_t val_idx,
+                                               bool is_small,
                                                const char *output_filename,
                                                struct kde_cmp_plot *plot)
 {
     const struct bench_var *var = al->base->var;
-    const struct group_analysis *a_grp = al->group_analyses + a_idx;
-    const struct group_analysis *b_grp = al->group_analyses + b_idx;
+    size_t reference_idx = al->val_bench_speedups_references[val_idx];
+    const struct group_analysis *a_grp = al->group_analyses + reference_idx;
+    const struct group_analysis *b_grp = al->group_analyses + grp_idx;
     const struct distr *a = a_grp->data[val_idx].distr;
     const struct distr *b = b_grp->data[val_idx].distr;
     const char *a_name = a_grp->group->name;
     const char *b_name = b_grp->group->name;
-    size_t reference_idx = al->val_bench_speedups_references[val_idx];
-    double p_value = reference_idx == a_idx ? al->val_p_values[val_idx][b_idx]
-                                            : al->val_p_values[val_idx][a_idx];
-    double diff =
-        reference_idx == a_idx
-            ? positive_speedup(al->val_bench_speedups[val_idx] + b_idx)
-            : positive_speedup(al->val_bench_speedups[val_idx] + a_idx);
+    double p_value = reference_idx == al->val_p_values[val_idx][grp_idx];
+    double diff = positive_speedup(al->val_bench_speedups[val_idx] + grp_idx);
     const char *title =
         csfmt("%s=%s %s vs %s p=%.2f diff=%.3f", var->name,
               var->values[val_idx], a_name, b_name, p_value, diff);
@@ -819,44 +809,41 @@ static void kde_plot(const struct distr *distr, const struct meas *meas,
     free_kde_plot(&plot);
 }
 
-static void kde_cmp_small_plot(const struct meas_analysis *al, size_t a_idx,
-                               size_t b_idx, const char *output_filename,
-                               FILE *f)
+static void kde_cmp_small_plot(const struct meas_analysis *al, size_t bench_idx,
+                               const char *output_filename, FILE *f)
 {
     struct kde_cmp_plot plot = {0};
-    init_kde_cmp_small_plot(al, a_idx, b_idx, output_filename, &plot);
+    init_kde_cmp_small_plot(al, bench_idx, output_filename, &plot);
     make_kde_cmp_small_plot(&plot, f);
     free_kde_cmp_plot(&plot);
 }
 
-static void kde_cmp_plot(const struct meas_analysis *al, size_t a_idx,
-                         size_t b_idx, const char *output_filename, FILE *f)
+static void kde_cmp_plot(const struct meas_analysis *al, size_t bench_idx,
+                         const char *output_filename, FILE *f)
 {
     struct kde_cmp_plot plot = {0};
-    init_kde_cmp_plot(al, a_idx, b_idx, output_filename, &plot);
+    init_kde_cmp_plot(al, bench_idx, output_filename, &plot);
     make_kde_cmp_plot(&plot, f);
     free_kde_cmp_plot(&plot);
 }
 
 static void kde_cmp_per_val_small_plot(const struct meas_analysis *al,
-                                       size_t a_idx, size_t b_idx,
-                                       size_t val_idx,
+                                       size_t grp_idx, size_t val_idx,
                                        const char *output_filename, FILE *f)
 {
     struct kde_cmp_plot plot = {0};
-    init_kde_cmp_per_val_small_plot(al, a_idx, b_idx, val_idx, output_filename,
+    init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, output_filename,
                                     &plot);
     make_kde_cmp_small_plot(&plot, f);
     free_kde_cmp_plot(&plot);
 }
 
-static void kde_cmp_per_val_plot(const struct meas_analysis *al, size_t a_idx,
-                                 size_t b_idx, size_t val_idx,
-                                 const char *output_filename, FILE *f)
+static void kde_cmp_per_val_plot(const struct meas_analysis *al, size_t grp_idx,
+                                 size_t val_idx, const char *output_filename,
+                                 FILE *f)
 {
     struct kde_cmp_plot plot = {0};
-    init_kde_cmp_per_val_plot(al, a_idx, b_idx, val_idx, output_filename,
-                              &plot);
+    init_kde_cmp_per_val_plot(al, grp_idx, val_idx, output_filename, &plot);
     make_kde_cmp_plot(&plot, f);
     free_kde_cmp_plot(&plot);
 }
@@ -872,10 +859,10 @@ static size_t find_closest_lower_square(size_t x)
 }
 
 static void init_kde_cmp_group_plot(const struct meas_analysis *al,
-                                    size_t a_idx, size_t b_idx,
-                                    const char *output_filename,
+                                    size_t grp_idx, const char *output_filename,
                                     struct kde_cmp_group_plot *plot)
 {
+    size_t reference_idx = al->groups_avg_reference;
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
     size_t val_count = var->value_count;
@@ -885,14 +872,14 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         plot->rows = 5;
     plot->cols = (val_count + plot->rows - 1) / plot->rows;
     plot->al = al;
-    plot->a_idx = a_idx;
-    plot->b_idx = b_idx;
+    plot->a_idx = reference_idx;
+    plot->b_idx = grp_idx;
     plot->val_count = val_count;
     plot->output_filename = output_filename;
     plot->cmps = calloc(val_count, sizeof(*plot->cmps));
     plot->point_count = point_count;
-    const struct group_analysis *a_grp = al->group_analyses + a_idx;
-    const struct group_analysis *b_grp = al->group_analyses + b_idx;
+    const struct group_analysis *a_grp = al->group_analyses + reference_idx;
+    const struct group_analysis *b_grp = al->group_analyses + grp_idx;
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
         struct kde_cmp_val *cmp = plot->cmps + val_idx;
         const struct distr *a = a_grp->data[val_idx].distr;
@@ -1070,12 +1057,11 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             plot->cols, plot->cols * 5, plot->rows * 5, plot->output_filename);
 }
 
-static void kde_cmp_group_plot(const struct meas_analysis *al, size_t a_idx,
-                               size_t b_idx, const char *output_filename,
-                               FILE *f)
+static void kde_cmp_group_plot(const struct meas_analysis *al, size_t grp_idx,
+                               const char *output_filename, FILE *f)
 {
     struct kde_cmp_group_plot plot = {0};
-    init_kde_cmp_group_plot(al, a_idx, b_idx, output_filename, &plot);
+    init_kde_cmp_group_plot(al, grp_idx, output_filename, &plot);
     make_kde_cmp_group_plot(&plot, f);
     free_kde_cmp_group_plot(&plot);
 }
@@ -1135,8 +1121,8 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde_cmp_small = kde_cmp_small_plot;
         maker->kde_cmp = kde_cmp_plot;
         maker->kde_cmp_group = kde_cmp_group_plot;
-        maker->kde_cmp_per_val = kde_cmp_per_val_plot;
         maker->kde_cmp_per_val_small = kde_cmp_per_val_small_plot;
+        maker->kde_cmp_per_val = kde_cmp_per_val_plot;
         break;
     default:
         ASSERT_UNREACHABLE();

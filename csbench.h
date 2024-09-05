@@ -480,18 +480,18 @@ struct plot_maker {
                       const char *output_filename, FILE *f);
     void (*kde)(const struct distr *distr, const struct meas *meas,
                 const char *name, const char *output_filename, FILE *f);
-    void (*kde_cmp_small)(const struct meas_analysis *al, size_t a_idx,
-                          size_t b_idx, const char *output_filename, FILE *f);
-    void (*kde_cmp)(const struct meas_analysis *al, size_t a_idx, size_t b_idx,
+    void (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
+                          const char *output_filename, FILE *f);
+    void (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
                     const char *output_filename, FILE *f);
-    void (*kde_cmp_group)(const struct meas_analysis *al, size_t a_idx,
-                          size_t b_idx, const char *output_filename, FILE *f);
-    void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t a_idx,
-                            size_t b_idx, size_t val_idx,
-                            const char *output_filename, FILE *f);
-    void (*kde_cmp_per_val_small)(const struct meas_analysis *al, size_t a_idx,
-                                  size_t b_idx, size_t val_idx,
+    void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
+                          const char *output_filename, FILE *f);
+    void (*kde_cmp_per_val_small)(const struct meas_analysis *al,
+                                  size_t grp_idx, size_t val_idx,
                                   const char *output_filename, FILE *f);
+    void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
+                            size_t val_idx, const char *output_filename,
+                            FILE *f);
 };
 
 enum {

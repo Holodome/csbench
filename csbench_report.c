@@ -83,7 +83,7 @@ struct plot_walker_args {
     size_t bench_idx;
     size_t grp_idx;
     size_t val_idx;
-    size_t a_idx, b_idx;
+    size_t compared_idx;
     struct plot_maker plot_maker;
 };
 
@@ -249,12 +249,11 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     }
     if (grp_count <= 1) {
         size_t reference_idx = al->bench_speedups_reference;
-        args->a_idx = reference_idx;
         for (size_t i = 0; i < bench_count; ++i) {
             size_t bench_idx = ith_bench_idx(i, al);
             if (bench_idx == reference_idx)
                 continue;
-            args->b_idx = bench_idx;
+            args->compared_idx = bench_idx;
             args->plot_kind = PLOT_KDE_CMP_SMALL;
             if ((g_desired_plots & MAKE_PLOT_KDE_CMP_SMALL) && !walk(args))
                 return false;
@@ -267,12 +266,11 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         size_t val_count = var->value_count;
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             size_t reference_idx = al->val_bench_speedups_references[val_idx];
-            args->a_idx = reference_idx;
             for (size_t i = 0; i < base->group_count; ++i) {
                 size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
                 if (grp_idx == reference_idx)
                     continue;
-                args->b_idx = grp_idx;
+                args->compared_idx = grp_idx;
                 args->val_idx = val_idx;
                 args->plot_kind = PLOT_KDE_CMP_PER_VAL;
                 if ((g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL) &&
@@ -286,13 +284,12 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
 
         size_t reference_idx = al->groups_avg_reference;
-        args->a_idx = reference_idx;
         for (size_t i = 0; i < grp_count; ++i) {
             size_t grp_idx = ith_group_by_avg_idx(i, al);
             if (grp_idx == reference_idx)
                 continue;
             args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
-            args->b_idx = grp_idx;
+            args->compared_idx = grp_idx;
             if ((g_desired_plots & MAKE_PLOT_KDE_CMP_ALL_GROUPS) && !walk(args))
                 return false;
         }
@@ -331,23 +328,23 @@ static void format_plot_name(char *buf, size_t buf_size,
         break;
     case PLOT_KDE_CMP_ALL_GROUPS:
         snprintf(buf, buf_size, "%s/kde_cmp_all_groups_%zu_%zu.%s", g_out_dir,
-                 args->b_idx, args->meas_idx, extension);
+                 args->compared_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_SMALL:
         snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu.%s", g_out_dir,
-                 args->b_idx, args->meas_idx, extension);
+                 args->compared_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
-        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu.%s", g_out_dir, args->b_idx,
-                 args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu.%s", g_out_dir,
+                 args->compared_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_PER_VAL:
         snprintf(buf, buf_size, "%s/kde_pval_cmp_%zu_%zu_%zu.%s", g_out_dir,
-                 args->b_idx, args->val_idx, args->meas_idx, extension);
+                 args->compared_idx, args->val_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_PER_VAL_SMALL:
         snprintf(buf, buf_size, "%s/kde_pval_cmp_small_%zu_%zu_%zu.%s",
-                 g_out_dir, args->b_idx, args->val_idx, args->meas_idx,
+                 g_out_dir, args->compared_idx, args->val_idx, args->meas_idx,
                  extension);
         break;
     }
@@ -384,21 +381,21 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
                         base->bench_analyses[args->bench_idx].name, svg_buf, f);
         break;
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al, args->a_idx, args->b_idx, svg_buf, f);
+        plot_maker->kde_cmp_small(al, args->compared_idx, svg_buf, f);
         break;
     case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al, args->a_idx, args->b_idx, svg_buf, f);
+        plot_maker->kde_cmp(al, args->compared_idx, svg_buf, f);
         break;
     case PLOT_KDE_CMP_ALL_GROUPS:
-        plot_maker->kde_cmp_group(al, args->a_idx, args->b_idx, svg_buf, f);
+        plot_maker->kde_cmp_group(al, args->compared_idx, svg_buf, f);
         break;
     case PLOT_KDE_CMP_PER_VAL:
-        plot_maker->kde_cmp_per_val(al, args->a_idx, args->b_idx, args->val_idx,
+        plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx,
                                     svg_buf, f);
         break;
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        plot_maker->kde_cmp_per_val_small(al, args->a_idx, args->b_idx,
-                                          args->val_idx, svg_buf, f);
+        plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
+                                          svg_buf, f);
         break;
     }
 }
