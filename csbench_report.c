@@ -217,21 +217,23 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     if (g_regr) {
-        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
-            const struct group_analysis *grp = al->group_analyses + grp_idx;
-            if (!grp->values_are_doubles)
-                break;
-            args->plot_kind = PLOT_GROUP_REGR;
-            args->grp_idx = grp_idx;
-            if ((g_desired_plots & MAKE_PLOT_GROUP_REGR) && !walk(args))
-                return false;
-        }
-        if (base->group_count > 1) {
+        if ((g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) &&
+            base->group_count > 1) {
             const struct group_analysis *grp = al->group_analyses;
             if (grp[0].values_are_doubles) {
                 args->plot_kind = PLOT_ALL_GROUPS_REGR;
-                if ((g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) &&
-                    !walk(args))
+                if (!walk(args))
+                    return false;
+            }
+        }
+        if (g_desired_plots & MAKE_PLOT_GROUP_REGR) {
+            for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+                const struct group_analysis *grp = al->group_analyses + grp_idx;
+                if (!grp->values_are_doubles)
+                    break;
+                args->plot_kind = PLOT_GROUP_REGR;
+                args->grp_idx = grp_idx;
+                if (!walk(args))
                     return false;
             }
         }
@@ -266,7 +268,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         size_t val_count = var->value_count;
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             size_t reference_idx = al->val_bench_speedups_references[val_idx];
-            for (size_t i = 0; i < base->group_count; ++i) {
+            for (size_t i = 0; i < grp_count; ++i) {
                 size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
                 if (grp_idx == reference_idx)
                     continue;
@@ -315,7 +317,7 @@ static void format_plot_name(char *buf, size_t buf_size,
                  args->meas_idx, extension);
         break;
     case PLOT_ALL_GROUPS_REGR:
-        snprintf(buf, buf_size, "%s/group_%zu.%s", g_out_dir, args->meas_idx,
+        snprintf(buf, buf_size, "%s/groups_%zu.%s", g_out_dir, args->meas_idx,
                  extension);
         break;
     case PLOT_KDE_SMALL:
@@ -469,45 +471,162 @@ static bool make_plots(const struct analysis *al,
     return success;
 }
 
+static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    size_t grp_count = base->group_count;
+    size_t bench_count = base->bench_count;
+    size_t meas_idx = al->meas_idx;
+    fprintf(f, "## measurement %s\n", al->meas->name);
+    if ((g_desired_plots & MAKE_PLOT_BAR) && bench_count > 1) {
+        if (grp_count <= 1)
+            fprintf(f, "- [bar plot](bar_%zu.svg)\n", meas_idx);
+        else
+            fprintf(f, "- [bar plot](group_bar_%zu.svg)\n", meas_idx);
+    }
+    if (g_regr && grp_count > 1) {
+        fprintf(f, "### regrssion plots\n");
+        if (g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) {
+            const struct group_analysis *grp = al->group_analyses;
+            if (grp[0].values_are_doubles) {
+                fprintf(f,
+                        "- [comparison and regression of all "
+                        "groups](groups_%zu.svg)\n",
+                        meas_idx);
+            }
+        }
+        if (g_desired_plots & MAKE_PLOT_GROUP_REGR) {
+            fprintf(f, "#### group regrssion plots\n");
+            for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+                const struct group_analysis *grp = al->group_analyses + grp_idx;
+                if (!grp->values_are_doubles)
+                    break;
+                fprintf(f, "- [group %s regression plot](group_%zu_%zu.svg)\n",
+                        grp->group->name, grp_idx, meas_idx);
+            }
+        }
+    }
+    if (g_desired_plots & MAKE_PLOT_KDE_SMALL) {
+        fprintf(f, "### benchmark KDE (small)\n");
+        for (size_t i = 0; i < bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, al);
+            fprintf(f, "- [benchmark %s KDE (small)](kde_small_%zu_%zu.svg)\n",
+                    base->benches[bench_idx].name, bench_idx, meas_idx);
+        }
+    }
+    if (g_desired_plots & MAKE_PLOT_KDE) {
+        fprintf(f, "### benchmark KDE\n");
+        for (size_t i = 0; i < bench_count; ++i) {
+            size_t bench_idx = ith_bench_idx(i, al);
+            fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n",
+                    base->benches[bench_idx].name, bench_idx, meas_idx);
+        }
+    }
+    if (grp_count <= 1) {
+        size_t reference_idx = al->bench_speedups_reference;
+        const char *reference_name = base->benches[reference_idx].name;
+        if (g_desired_plots & MAKE_PLOT_KDE_CMP_SMALL) {
+            fprintf(f, "### benchmark KDE comparison (small)\n");
+            for (size_t i = 0; i < bench_count; ++i) {
+                size_t bench_idx = ith_bench_idx(i, al);
+                if (bench_idx == reference_idx)
+                    continue;
+                fprintf(f,
+                        "- [%s vs %s KDE comparison "
+                        "(small)](kde_cmp_small_%zu_%zu.svg)\n",
+                        reference_name, base->benches[bench_idx].name,
+                        bench_idx, meas_idx);
+            }
+        }
+        if (g_desired_plots & MAKE_PLOT_KDE_CMP) {
+            fprintf(f, "### benchmark KDE comparison\n");
+            for (size_t i = 0; i < bench_count; ++i) {
+                size_t bench_idx = ith_bench_idx(i, al);
+                if (bench_idx == reference_idx)
+                    continue;
+                fprintf(f,
+                        "- [%s vs %s KDE "
+                        "comparison](kde_cmp_%zu_%zu.svg)\n",
+                        reference_name, base->benches[bench_idx].name,
+                        bench_idx, meas_idx);
+            }
+        }
+    } else if (g_desired_plots &
+               (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
+                MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
+        const struct bench_var *var = base->var;
+        size_t val_count = var->value_count;
+        if (g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) {
+            fprintf(f, "### benchmark KDE comparison (small)\n");
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+                size_t reference_idx =
+                    al->val_bench_speedups_references[val_idx];
+                const char *reference_name = base->groups[reference_idx].name;
+                fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
+                for (size_t i = 0; i < grp_count; ++i) {
+                    size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+                    if (grp_idx == reference_idx)
+                        continue;
+                    fprintf(f,
+                            "- [%s vs %s KDE comparison "
+                            "(small)](kde_pval_cmp_small_%zu_%zu_%zu.svg)\n",
+                            reference_name,
+                            al->group_analyses[grp_idx].group->name, grp_idx,
+                            val_idx, meas_idx);
+                }
+            }
+        }
+        if (g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL) {
+            fprintf(f, "### benchmark KDE comparison\n");
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+                size_t reference_idx =
+                    al->val_bench_speedups_references[val_idx];
+                const char *reference_name = base->groups[reference_idx].name;
+                fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
+                for (size_t i = 0; i < grp_count; ++i) {
+                    size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+                    if (grp_idx == reference_idx)
+                        continue;
+                    fprintf(f,
+                            "- [%s vs %s KDE "
+                            "comparison](kde_pval_cmp_%zu_%zu_%zu.svg)\n",
+                            reference_name,
+                            al->group_analyses[grp_idx].group->name, grp_idx,
+                            val_idx, meas_idx);
+                }
+            }
+        }
+        if (g_desired_plots & MAKE_PLOT_KDE_CMP_ALL_GROUPS) {
+            size_t reference_idx = al->groups_avg_reference;
+            const char *reference_name = base->groups[reference_idx].name;
+            fprintf(f, "### groups comparison\n");
+            for (size_t i = 0; i < grp_count; ++i) {
+                size_t grp_idx = ith_group_by_avg_idx(i, al);
+                if (grp_idx == reference_idx)
+                    continue;
+                fprintf(f,
+                        "- [%s vs %s KDE comparison "
+                        "aggregation](kde_cmp_all_groups_%zu_%zu.svg)\n",
+                        reference_name, base->groups[grp_idx].name, grp_idx,
+                        meas_idx);
+            }
+        }
+    }
+}
+
 static bool make_plots_map(const struct analysis *al)
 {
-    // TODO : this is all wrong
     FILE *f = open_file_fmt("w", "%s/plots_map.md", g_out_dir);
     if (f == NULL) {
         error("failed to create file %s/plots_map.md", g_out_dir);
         return false;
     }
-    fprintf(f, "# csbench analyze map\n");
+    fprintf(f, "# csbench plot map\n");
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
-        const struct meas *meas = al->meas + meas_idx;
-        fprintf(f, "## measurement %s\n", meas->name);
-        for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
-            const struct group_analysis *analysis =
-                al->meas_analyses[meas_idx].group_analyses + grp_idx;
-            fprintf(f,
-                    "- [command group '%s' regression "
-                    "plot](group_%zu_%zu.svg)\n",
-                    analysis->group->name, grp_idx, meas_idx);
-        }
-        fprintf(f, "### KDE plots\n");
-        fprintf(f, "#### regular\n");
-        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
-            const struct bench_analysis *analysis =
-                al->bench_analyses + bench_idx;
-            const char *cmd_str = analysis->name;
-            fprintf(f, "- [%s](kde_%zu_%zu.svg)\n", cmd_str, bench_idx,
-                    meas_idx);
-        }
-        fprintf(f, "#### extended\n");
-        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
-            const struct bench_analysis *analysis =
-                al->bench_analyses + bench_idx;
-            const char *cmd_str = analysis->name;
-            fprintf(f, "- [%s](kde_ext_%zu_%zu.svg)\n", cmd_str, bench_idx,
-                    meas_idx);
-        }
+        const struct meas_analysis *mal = al->meas_analyses + meas_idx;
+        make_plots_map_meas(mal, f);
     }
     fclose(f);
     return true;
@@ -608,12 +727,13 @@ static void export_csv_benches_raw(const struct meas_analysis *al, FILE *f)
 
 static bool export_csvs(const struct analysis *al)
 {
-    char buf[4096];
     for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
         FILE *f =
             open_file_fmt("w", "%s/bench_raw_%zu.csv", g_out_dir, bench_idx);
         if (f == NULL) {
-            csfmtperror("failed to open file '%s' for writing", buf);
+            csfmtperror(
+                "failed to open file '%s/bench_raw_%zu.csv' for writing",
+                g_out_dir, bench_idx);
             return false;
         }
         export_csv_bench_raw(al->bench_analyses[bench_idx].bench, al, f);
@@ -627,7 +747,9 @@ static bool export_csvs(const struct analysis *al)
             FILE *f = open_file_fmt("w", "%s/benches_raw_%zu.csv", g_out_dir,
                                     meas_idx);
             if (f == NULL) {
-                csfmtperror("failed to open file '%s' for writing", buf);
+                csfmtperror(
+                    "failed to open file '%s/benches_raw_%zu.csv' for writing",
+                    g_out_dir, meas_idx);
                 return false;
             }
             export_csv_benches_raw(mal, f);
@@ -637,7 +759,9 @@ static bool export_csvs(const struct analysis *al)
             FILE *f = open_file_fmt("w", "%s/benches_stats_%zu.csv", g_out_dir,
                                     meas_idx);
             if (f == NULL) {
-                csfmtperror("failed to open file '%s' for writing", buf);
+                csfmtperror("failed to open file '%s/benches_stats_%zu.csv' "
+                            "for writing",
+                            g_out_dir, meas_idx);
                 return false;
             }
             export_csv_bench_stats(mal, f);
@@ -648,7 +772,9 @@ static bool export_csvs(const struct analysis *al)
                 FILE *f = open_file_fmt("w", "%s/group_raw_%zu_%zu.csv",
                                         g_out_dir, grp_idx, meas_idx);
                 if (f == NULL) {
-                    csfmtperror("failed to open file '%s' for writing", buf);
+                    csfmtperror("failed to open file "
+                                "'%s/group_raw_%zu_%zu.csv' for writing",
+                                g_out_dir, grp_idx, meas_idx);
                     return false;
                 }
                 export_csv_group_raw(mal, grp_idx, f);
@@ -658,7 +784,9 @@ static bool export_csvs(const struct analysis *al)
                 FILE *f = open_file_fmt("w", "%s/groups_%zu.csv", g_out_dir,
                                         meas_idx);
                 if (f == NULL) {
-                    csfmtperror("failed to open file '%s' for writing", buf);
+                    csfmtperror(
+                        "failed to open file '%s/groups_%zu.csv' for writing",
+                        g_out_dir, meas_idx);
                     return false;
                 }
                 export_csv_group(mal, f);
@@ -669,10 +797,11 @@ static bool export_csvs(const struct analysis *al)
     {
         FILE *f = open_file_fmt("w", "%s/csv_map.md", g_out_dir);
         if (f == NULL) {
-            csfmtperror("failed to open file '%s' for writing", buf);
+            csfmtperror("failed to open file '%s/csv_map.md' for writing",
+                        g_out_dir);
             return false;
         }
-        fprintf(f, "# csbench csv file map\n");
+        fprintf(f, "# csbench CSV map\n");
         fprintf(f, "## raw data\n");
         for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx)
             fprintf(f, "- [benchmark %s](bench_raw_%zu.csv)\n",
