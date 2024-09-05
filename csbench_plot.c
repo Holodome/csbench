@@ -754,6 +754,9 @@ static void group_bar_plot(const struct meas_analysis *al,
     fprintf(f,
             "ax.set_ylabel('%s [%s]')\n"
             "plt.xticks(x, var_values)\n"
+            "ax.set_axisbelow(True)\n"
+            "plt.grid(axis='y')\n"
+            "plt.legend(loc='best')\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             al->meas->name, view.units_str, output_filename);
 }
