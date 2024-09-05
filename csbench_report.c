@@ -1,5 +1,3 @@
-// csbench
-// command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
 //
@@ -474,59 +472,59 @@ static bool make_plots_readme(const struct analysis *al)
     return true;
 }
 
-static void export_csv_raw_bench(const struct bench *bench,
+static void export_csv_bench_raw(const struct bench *bench,
                                  const struct analysis *al, FILE *f)
 {
-    for (size_t i = 0; i < al->meas_count; ++i) {
-        fprintf(f, "%s", al->meas[i].name);
-        if (i != al->meas_count - 1)
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        fprintf(f, "%s", al->meas[meas_idx].name);
+        if (meas_idx != al->meas_count - 1)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t i = 0; i < bench->run_count; ++i) {
-        for (size_t j = 0; j < al->meas_count; ++j) {
-            fprintf(f, "%g", bench->meas[j][i]);
-            if (j != al->meas_count - 1)
+    for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
+        for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+            fprintf(f, "%g", bench->meas[meas_idx][run_idx]);
+            if (meas_idx != al->meas_count - 1)
                 fprintf(f, ",");
         }
         fprintf(f, "\n");
     }
 }
 
-static void export_csv_group_results(const struct meas_analysis *al, FILE *f)
+static void export_csv_group(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
     assert(base->group_count > 0 && base->var);
     fprintf(f, "%s,", base->var->name);
-    for (size_t i = 0; i < base->group_count; ++i) {
+    for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
         char buf[4096];
-        json_escape(buf, sizeof(buf), al->group_analyses[i].group->name);
+        json_escape(buf, sizeof(buf), al->group_analyses[grp_idx].group->name);
         fprintf(f, "%s", buf);
-        if (i != base->group_count - 1)
+        if (grp_idx != base->group_count - 1)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t i = 0; i < base->var->value_count; ++i) {
-        fprintf(f, "%s,", base->var->values[i]);
-        for (size_t j = 0; j < base->group_count; ++j) {
-            fprintf(f, "%g", al->group_analyses[j].data[i].mean);
-            if (j != base->group_count - 1)
+    for (size_t val_idx = 0; val_idx < base->var->value_count; ++val_idx) {
+        fprintf(f, "%s,", base->var->values[val_idx]);
+        for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
+            fprintf(f, "%g", al->group_analyses[grp_idx].data[val_idx].mean);
+            if (grp_idx != base->group_count - 1)
                 fprintf(f, ",");
         }
         fprintf(f, "\n");
     }
 }
 
-static void export_csv_bench_results(const struct analysis *al, size_t meas_idx,
-                                     FILE *f)
+static void export_csv_bench_stats(const struct meas_analysis *al, FILE *f)
 {
+    const struct analysis *base = al->base;
     fprintf(f,
             "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,"
             "median,q1,q3,p1,p5,p95,p99,outl\n");
-    for (size_t i = 0; i < al->bench_count; ++i) {
-        const struct distr *distr = al->bench_analyses[i].meas + meas_idx;
+    for (size_t bench_idx = 0; bench_idx < base->bench_count; ++bench_idx) {
+        const struct distr *distr = al->benches[bench_idx];
         char buf[4096];
-        json_escape(buf, sizeof(buf), al->bench_analyses[i].name);
+        json_escape(buf, sizeof(buf), base->bench_analyses[bench_idx].name);
         fprintf(f, "%s,", buf);
         fprintf(f, "%g,%g,%g,%g,%g,%g,", distr->mean.lower, distr->mean.point,
                 distr->mean.upper, distr->st_dev.lower, distr->st_dev.point,
@@ -538,6 +536,35 @@ static void export_csv_bench_results(const struct analysis *al, size_t meas_idx,
     }
 }
 
+static void export_csv_group_raw(const struct meas_analysis *al, size_t grp_idx,
+                                 FILE *f)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    const struct group_analysis *group = al->group_analyses + grp_idx;
+    size_t val_count = var->value_count;
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        const struct distr *distr = group->data[val_idx].distr;
+        fprintf(f, "%s=%s", var->name, var->values[val_idx]);
+        for (size_t run_idx = 0; run_idx < distr->count; ++run_idx)
+            fprintf(f, ",%g", distr->data[run_idx]);
+        fprintf(f, "\n");
+    }
+}
+
+static void export_csv_benches_raw(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    size_t bench_count = base->bench_count;
+    for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
+        const struct distr *distr = al->benches[bench_idx];
+        fprintf(f, "%s", base->bench_analyses[bench_idx].name);
+        for (size_t run_idx = 0; run_idx < distr->count; ++run_idx)
+            fprintf(f, ",%g", distr->data[run_idx]);
+        fprintf(f, "\n");
+    }
+}
+
 static bool export_csvs(const struct analysis *al)
 {
     char buf[4096];
@@ -545,30 +572,95 @@ static bool export_csvs(const struct analysis *al)
         snprintf(buf, sizeof(buf), "%s/bench_raw_%zu.csv", g_out_dir,
                  bench_idx);
         FILE *f = fopen(buf, "w");
-        if (f == NULL)
+        if (f == NULL) {
+            csfmtperror("failed to open file '%s' for writing", buf);
             return false;
-        export_csv_raw_bench(al->bench_analyses[bench_idx].bench, al, f);
+        }
+        export_csv_bench_raw(al->bench_analyses[bench_idx].bench, al, f);
         fclose(f);
     }
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
-        snprintf(buf, sizeof(buf), "%s/bench_%zu.csv", g_out_dir, meas_idx);
-        FILE *f = fopen(buf, "w");
-        if (f == NULL)
-            return false;
-        export_csv_bench_results(al, meas_idx, f);
-        fclose(f);
+        if (al->meas[meas_idx].is_secondary)
+            continue;
+        const struct meas_analysis *mal = al->meas_analyses + meas_idx;
+        {
+            snprintf(buf, sizeof(buf), "%s/benches_raw_%zu.csv", g_out_dir,
+                     meas_idx);
+            FILE *f = fopen(buf, "w");
+            if (f == NULL) {
+                csfmtperror("failed to open file '%s' for writing", buf);
+                return false;
+            }
+            export_csv_benches_raw(mal, f);
+            fclose(f);
+        }
+        {
+            snprintf(buf, sizeof(buf), "%s/benches_stats_%zu.csv", g_out_dir,
+                     meas_idx);
+            FILE *f = fopen(buf, "w");
+            if (f == NULL) {
+                csfmtperror("failed to open file '%s' for writing", buf);
+                return false;
+            }
+            export_csv_bench_stats(mal, f);
+            fclose(f);
+        }
+        if (al->group_count) {
+            for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
+                snprintf(buf, sizeof(buf), "%s/group_raw_%zu_%zu.csv",
+                         g_out_dir, grp_idx, meas_idx);
+                FILE *f = fopen(buf, "w");
+                if (f == NULL) {
+                    csfmtperror("failed to open file '%s' for writing", buf);
+                    return false;
+                }
+                export_csv_group_raw(mal, grp_idx, f);
+                fclose(f);
+            }
+            {
+                snprintf(buf, sizeof(buf), "%s/groups_%zu.csv", g_out_dir,
+                         meas_idx);
+                FILE *f = fopen(buf, "w");
+                if (f == NULL) {
+                    csfmtperror("failed to open file '%s' for writing", buf);
+                    return false;
+                }
+                export_csv_group(mal, f);
+                fclose(f);
+            }
+        }
     }
-    if (al->group_count) {
+    {
+        snprintf(buf, sizeof(buf), "%s/csv_map.md", g_out_dir);
+        FILE *f = fopen(buf, "w");
+        if (f == NULL) {
+            csfmtperror("failed to open file '%s' for writing", buf);
+            return false;
+        }
+        fprintf(f, "## raw data\n");
+        for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx)
+            fprintf(f, "- [benchmark %s](bench_raw_%zu.csv)\n",
+                    al->bench_analyses[bench_idx].name, bench_idx);
+        fprintf(f, "## per-measurement analyses\n");
         for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
             if (al->meas[meas_idx].is_secondary)
                 continue;
-            snprintf(buf, sizeof(buf), "%s/group_%zu.csv", g_out_dir, meas_idx);
-            FILE *f = fopen(buf, "w");
-            if (f == NULL)
-                return false;
-            export_csv_group_results(al->meas_analyses + meas_idx, f);
-            fclose(f);
+            const struct meas_analysis *mal = al->meas_analyses + meas_idx;
+            fprintf(f, "### measurement %s\n", mal->meas->name);
+            fprintf(f, "- [raw data](benches_raw_%zu.csv)\n", meas_idx);
+            fprintf(f, "- [aggregates statistics](benches_stats_%zu.csv)\n",
+                    meas_idx);
+            if (al->group_count) {
+                fprintf(f, "- [per-value comparison](groups_%zu.csv)\n",
+                        meas_idx);
+                fprintf(f, "#### per-group raw data\n");
+                for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx)
+                    fprintf(f, "- [group %s](group_raw_%zu_%zu.csv)\n",
+                            mal->group_analyses[grp_idx].group->name, grp_idx,
+                            meas_idx);
+            }
         }
+        fclose(f);
     }
     return true;
 }
@@ -772,10 +864,10 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
-        fprintf(
-            f,
-            "<p><tt>%s</tt> is baseline, used as reference in comparisons</p>",
-            reference->name);
+        fprintf(f,
+                "<p><tt>%s</tt> is baseline, used as reference in "
+                "comparisons</p>",
+                reference->name);
         break;
     default:
         ASSERT_UNREACHABLE();
@@ -909,15 +1001,13 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                     fprintf(f, "p-value < 0.05 &#8658 assuming distribution is "
                                "different");
                 else
-                    fprintf(
-                        f,
-                        "p-value > 0.05 &#8658 assuming distribution is same");
+                    fprintf(f, "p-value > 0.05 &#8658 assuming "
+                               "distribution is same");
                 break;
             case STAT_TEST_TTEST:
                 if (p_value < 0.05)
-                    fprintf(
-                        f,
-                        "p-value < 0.05 &#8658 assuming means are different");
+                    fprintf(f, "p-value < 0.05 &#8658 assuming means are "
+                               "different");
                 else
                     fprintf(f, "p-value > 0.05 &#8658 assuming means are same");
                 break;
