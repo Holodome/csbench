@@ -326,7 +326,7 @@ struct meas_analysis {
     // Per-value
     size_t *val_bench_speedups_references; // [val_count]
     struct speedup **val_bench_speedups;   // [val_count][group_count]
-    double **var_p_values;                 // [val_count][group_count]
+    double **val_p_values;                 // [val_count][group_count]
     // Groups on average
     size_t groups_avg_reference;
     size_t *groups_by_avg_speed;        // [group_count]

@@ -909,14 +909,15 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             g_desired_plots |=
                 MAKE_PLOT_KDE | MAKE_PLOT_KDE_SMALL | MAKE_PLOT_KDE_CMP |
                 MAKE_PLOT_KDE_CMP_SMALL | MAKE_PLOT_BAR | MAKE_PLOT_GROUP_REGR |
-                MAKE_PLOT_ALL_GROUPS_REGR | MAKE_PLOT_KDE_CMP_ALL_GROUPS;
+                MAKE_PLOT_ALL_GROUPS_REGR | MAKE_PLOT_KDE_CMP_ALL_GROUPS |
+                MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL;
         } else if (opt_bool(argv, &cursor, "--clear-out", &g_clear_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
-            g_desired_plots |= MAKE_PLOT_KDE | MAKE_PLOT_KDE_CMP |
-                               MAKE_PLOT_BAR | MAKE_PLOT_GROUP_REGR |
-                               MAKE_PLOT_ALL_GROUPS_REGR |
-                               MAKE_PLOT_KDE_CMP_ALL_GROUPS;
+            g_desired_plots |=
+                MAKE_PLOT_KDE | MAKE_PLOT_KDE_CMP | MAKE_PLOT_BAR |
+                MAKE_PLOT_GROUP_REGR | MAKE_PLOT_ALL_GROUPS_REGR |
+                MAKE_PLOT_KDE_CMP_ALL_GROUPS | MAKE_PLOT_KDE_CMP_PER_VAL;
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
         } else if (opt_bool(argv, &cursor, "--no-default-meas", &no_wall)) {
         } else if (opt_bool(argv, &cursor, "--ignore-failure",

@@ -89,15 +89,16 @@ struct kde_plot {
 struct kde_cmp_plot {
     const struct meas_analysis *al;
     const struct distr *a, *b;
-    size_t a_idx;
-    size_t b_idx;
     size_t point_count;
     double min, step, max;
     struct kde_data a_kde, b_kde;
     const char *output_filename;
     struct plot_view view;
+    const char *title;
     double max_y;
     bool is_small;
+    const char *a_name;
+    const char *b_name;
 };
 
 struct kde_cmp_val {
@@ -406,20 +407,14 @@ static void init_kde_plot_internal(const struct distr *distr,
 
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
 
-#define init_kde_cmp_small_plot(_al, _a_idx, _b_idx, _output_filename, _plot)  \
-    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, true, _output_filename,    \
-                               _plot)
-#define init_kde_cmp_plot(_al, _a_idx, _b_idx, _output_filename, _plot)        \
-    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, false, _output_filename,   \
-                               _plot)
-static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
-                                       size_t a_idx, size_t b_idx,
-                                       bool is_small,
-                                       const char *output_filename,
-                                       struct kde_cmp_plot *plot)
+static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
+                                        const struct distr *a,
+                                        const struct distr *b,
+                                        const char *a_name, const char *b_name,
+                                        const char *title, bool is_small,
+                                        const char *output_filename,
+                                        struct kde_cmp_plot *plot)
 {
-    const struct distr *a = al->benches[a_idx];
-    const struct distr *b = al->benches[b_idx];
     size_t point_count = KDE_POINT_COUNT;
     double min, max;
     kde_cmp_limits(a, b, &min, &max);
@@ -427,8 +422,9 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     plot->al = al;
     plot->a = a;
     plot->b = b;
-    plot->a_idx = a_idx;
-    plot->b_idx = b_idx;
+    plot->a_name = a_name;
+    plot->b_name = b_name;
+    plot->title = title;
     plot->min = min;
     plot->max = max;
     plot->point_count = point_count;
@@ -447,6 +443,69 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
             max_y = plot->b_kde.data[i];
     }
     plot->max_y = max_y;
+}
+
+#define init_kde_cmp_small_plot(_al, _a_idx, _b_idx, _output_filename, _plot)  \
+    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, true, _output_filename,    \
+                               _plot)
+#define init_kde_cmp_plot(_al, _a_idx, _b_idx, _output_filename, _plot)        \
+    init_kde_cmp_plot_internal(_al, _a_idx, _b_idx, false, _output_filename,   \
+                               _plot)
+static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
+                                       size_t a_idx, size_t b_idx,
+                                       bool is_small,
+                                       const char *output_filename,
+                                       struct kde_cmp_plot *plot)
+{
+    const struct distr *a = al->benches[a_idx];
+    const struct distr *b = al->benches[b_idx];
+    const char *a_name = al->base->bench_analyses[a_idx].name;
+    const char *b_name = al->base->bench_analyses[b_idx].name;
+    size_t reference_idx = al->bench_speedups_reference;
+    double p_value =
+        reference_idx == a_idx ? al->p_values[b_idx] : al->p_values[a_idx];
+    double diff = reference_idx == a_idx
+                      ? positive_speedup(al->bench_speedups + b_idx)
+                      : positive_speedup(al->bench_speedups + a_idx);
+    const char *title =
+        csfmt("%s vs %s p=%.2f diff=%.3f", a_name, b_name, p_value, diff);
+    init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
+                                output_filename, plot);
+}
+
+#define init_kde_cmp_per_val_small_plot(_al, _a_idx, _b_idx, _val_idx,         \
+                                        _output_filename, _plot)               \
+    init_kde_cmp_per_val_plot_internal(_al, _a_idx, _b_idx, _val_idx, true,    \
+                                       _output_filename, _plot)
+#define init_kde_cmp_per_val_plot(_al, _a_idx, _b_idx, _val_idx,               \
+                                  _output_filename, _plot)                     \
+    init_kde_cmp_per_val_plot_internal(_al, _a_idx, _b_idx, _val_idx, false,   \
+                                       _output_filename, _plot)
+static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
+                                               size_t a_idx, size_t b_idx,
+                                               size_t val_idx, bool is_small,
+                                               const char *output_filename,
+                                               struct kde_cmp_plot *plot)
+{
+    const struct bench_var *var = al->base->var;
+    const struct group_analysis *a_grp = al->group_analyses + a_idx;
+    const struct group_analysis *b_grp = al->group_analyses + b_idx;
+    const struct distr *a = a_grp->data[val_idx].distr;
+    const struct distr *b = b_grp->data[val_idx].distr;
+    const char *a_name = a_grp->group->name;
+    const char *b_name = b_grp->group->name;
+    size_t reference_idx = al->val_bench_speedups_references[val_idx];
+    double p_value = reference_idx == a_idx ? al->val_p_values[val_idx][b_idx]
+                                            : al->val_p_values[val_idx][a_idx];
+    double diff =
+        reference_idx == a_idx
+            ? positive_speedup(al->val_bench_speedups[val_idx] + b_idx)
+            : positive_speedup(al->val_bench_speedups[val_idx] + a_idx);
+    const char *title =
+        csfmt("%s=%s %s vs %s p=%.2f diff=%.3f", var->name,
+              var->values[val_idx], a_name, b_name, p_value, diff);
+    init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
+                                output_filename, plot);
 }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
@@ -538,20 +597,20 @@ static void make_kde_plot(const struct kde_plot *plot, FILE *f)
     for (size_t i = 0; i < kde_count; ++i)
         fprintf(f, "%g,", kde->data[i]);
     fprintf(f, "]\n");
-    fprintf(
-        f,
-        "import matplotlib as mpl\n"
-        "mpl.use('svg')\n"
-        "import matplotlib.pyplot as plt\n"
-        "plt.fill_between(x, y, interpolate=True, alpha=0.25, label='PDF')\n"
-        "plt.axvline(x=%f, label='mean')\n"
-        "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2, "
-        "label='\"clean\" sample')\n"
-        "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, "
-        "color='orange', label='mild outliers')\n"
-        "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
-        "color='red', label='severe outliers')\n",
-        plot->kde.mean_x * view->multiplier);
+    fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.fill_between(x, y, interpolate=True, alpha=0.25, "
+            "label='PDF')\n"
+            "plt.axvline(x=%f, label='mean')\n"
+            "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2, "
+            "label='\"clean\" sample')\n"
+            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, "
+            "color='orange', label='mild outliers')\n"
+            "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
+            "color='red', label='severe outliers')\n",
+            plot->kde.mean_x * view->multiplier);
     if (plot->distr->outliers.low_mild_x > plot->kde.min &&
         plot->distr->outliers.low_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
@@ -603,26 +662,24 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot, FILE *f)
     for (size_t i = 0; i < b_kde->point_count; ++i)
         fprintf(f, "%g,", b_kde->data[i]);
     fprintf(f, "]\n");
-    const char *a_name = plot->al->base->bench_analyses[plot->a_idx].name;
-    const char *b_name = plot->al->base->bench_analyses[plot->b_idx].name;
-    fprintf(
-        f,
-        "import matplotlib as mpl\n"
-        "mpl.use('svg')\n"
-        "import matplotlib.pyplot as plt\n"
-        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, label='%s')\n"
-        "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-        "facecolor='tab:orange', label='%s')\n"
-        "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
-        "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
-        "plt.tick_params(left=False, labelleft=False)\n"
-        "plt.xlabel('%s [%s]')\n"
-        "plt.ylabel('probability density')\n"
-        "plt.legend(loc='upper right')\n"
-        "plt.savefig('%s', bbox_inches='tight')\n",
-        a_name, b_name, a_kde->mean_x * view->multiplier, a_kde->mean_y,
-        b_kde->mean_x * view->multiplier, b_kde->mean_y, plot->al->meas->name,
-        view->units_str, plot->output_filename);
+    fprintf(f,
+            "import matplotlib as mpl\n"
+            "mpl.use('svg')\n"
+            "import matplotlib.pyplot as plt\n"
+            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
+            "label='%s')\n"
+            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
+            "facecolor='tab:orange', label='%s')\n"
+            "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
+            "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
+            "plt.tick_params(left=False, labelleft=False)\n"
+            "plt.xlabel('%s [%s]')\n"
+            "plt.ylabel('probability density')\n"
+            "plt.legend(loc='upper right')\n"
+            "plt.savefig('%s', bbox_inches='tight')\n",
+            plot->a_name, plot->b_name, a_kde->mean_x * view->multiplier,
+            a_kde->mean_y, b_kde->mean_x * view->multiplier, b_kde->mean_y,
+            plot->al->meas->name, view->units_str, plot->output_filename);
 }
 
 static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
@@ -666,15 +723,6 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
                 (double)(i + 1) / plot->b->count * plot->max_y);
     }
     fprintf(f, "]\n");
-    const char *a_name = plot->al->base->bench_analyses[plot->a_idx].name;
-    const char *b_name = plot->al->base->bench_analyses[plot->b_idx].name;
-    double p_value = plot->al->bench_speedups_reference == plot->a_idx
-                         ? plot->al->p_values[plot->b_idx]
-                         : plot->al->p_values[plot->a_idx];
-    double diff =
-        plot->al->bench_speedups_reference == plot->a_idx
-            ? positive_speedup(plot->al->bench_speedups + plot->b_idx)
-            : positive_speedup(plot->al->bench_speedups + plot->a_idx);
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
@@ -693,14 +741,15 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot, FILE *f)
             "plt.xlabel('%s [%s]')\n"
             "plt.ylabel('probability density, runs')\n"
             "plt.legend(loc='upper right')\n"
-            "plt.title('%s vs %s p=%.2f diff=%.3f')\n"
+            "plt.title('%s')\n"
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            a_name, a_name, a_kde->mean_x * view->multiplier, a_name, b_name,
-            b_name, b_kde->mean_x * view->multiplier, b_name,
-            plot->al->meas->name, view->units_str, a_name, b_name, p_value,
-            diff, plot->output_filename);
+            plot->a_name, plot->a_name, a_kde->mean_x * view->multiplier,
+            plot->a_name, plot->b_name, plot->b_name,
+            b_kde->mean_x * view->multiplier, plot->b_name,
+            plot->al->meas->name, view->units_str, plot->title,
+            plot->output_filename);
 }
 
 static void group_bar_plot(const struct meas_analysis *al,
@@ -798,17 +847,27 @@ static void kde_cmp_plot(const struct meas_analysis *al, size_t a_idx,
     free_kde_cmp_plot(&plot);
 }
 
-static void kde_cmp_per_val_plot(const struct meas_analysis *al, size_t a_idx,
-                                 size_t b_idx, size_t val_idx,
-                                 const char *output_filename, FILE *f)
-{
-}
-
 static void kde_cmp_per_val_small_plot(const struct meas_analysis *al,
                                        size_t a_idx, size_t b_idx,
                                        size_t val_idx,
                                        const char *output_filename, FILE *f)
 {
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_per_val_small_plot(al, a_idx, b_idx, val_idx, output_filename,
+                                    &plot);
+    make_kde_cmp_small_plot(&plot, f);
+    free_kde_cmp_plot(&plot);
+}
+
+static void kde_cmp_per_val_plot(const struct meas_analysis *al, size_t a_idx,
+                                 size_t b_idx, size_t val_idx,
+                                 const char *output_filename, FILE *f)
+{
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_per_val_plot(al, a_idx, b_idx, val_idx, output_filename,
+                              &plot);
+    make_kde_cmp_plot(&plot, f);
+    free_kde_cmp_plot(&plot);
 }
 
 static size_t find_closest_lower_square(size_t x)
@@ -947,8 +1006,8 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
     fprintf(f, "titles = [");
     for (size_t i = 0; i < plot->val_count; ++i) {
         double p_value = al->val_bench_speedups_references[i] == plot->a_idx
-                             ? al->var_p_values[i][plot->b_idx]
-                             : al->var_p_values[i][plot->a_idx];
+                             ? al->val_p_values[i][plot->b_idx]
+                             : al->val_p_values[i][plot->a_idx];
         double speedup =
             al->val_bench_speedups_references[i] == plot->a_idx
                 ? positive_speedup(al->val_bench_speedups[i] + plot->b_idx)

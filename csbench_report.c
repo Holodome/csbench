@@ -1617,7 +1617,7 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
                 printf("%s", group_name(al, grp_idx, abbreviate_names));
             else
                 printf("baseline");
-            printf(" (p=%.2f)", al->var_p_values[val_idx][grp_idx]);
+            printf(" (p=%.2f)", al->val_p_values[val_idx][grp_idx]);
             printf("\n");
         }
     }
