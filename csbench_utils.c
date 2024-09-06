@@ -53,6 +53,7 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <math.h>
 #include <signal.h>
@@ -1115,4 +1116,62 @@ void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
 #else
 #error
 #endif
+}
+
+enum parse_time_str_result
+parse_time_str(const char *str, enum units_kind target_units, double *valuep)
+{
+    char *str_end;
+    double value = strtod(str, &str_end);
+    if (str_end == str)
+        return PARSE_TIME_STR_ERR_FORMAT;
+
+    if (value < 0.0)
+        return PARSE_TIME_STR_ERR_NEG;
+
+    const char *cursor = str_end;
+    switch (*cursor) {
+    case '\0':
+        break;
+    case 's':
+        if (cursor[1] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        break;
+    case 'm':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-3;
+        break;
+    case 'u':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-6;
+        break;
+    case 'n':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-9;
+        break;
+    default:
+        return PARSE_TIME_STR_ERR_UNITS;
+    }
+
+    switch (target_units) {
+    case MU_S:
+        break;
+    case MU_MS:
+        value *= 1e3;
+        break;
+    case MU_US:
+        value *= 1e6;
+        break;
+    case MU_NS:
+        value *= 1e9;
+        break;
+    default:
+        assert(0);
+    }
+
+    *valuep = value;
+    return PARSE_TIME_STR_OK;
 }

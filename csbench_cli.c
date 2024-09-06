@@ -159,16 +159,16 @@ static void print_help_and_exit(int rc)
     print_opt("-R, --runs", OPT_ARR("NUM"),
               "Run each benchmark exactly <NUM> times in total (not "
               "including warmup).");
-    print_opt("-T, --time-limit", OPT_ARR("NUM"),
-              "Run each benchmark for at least <NUM> seconds in total.");
+    print_opt("-T, --time-limit", OPT_ARR("DURATION"),
+              "Run each benchmark for at least <DURATION> in total.");
     print_opt("--min-runs", OPT_ARR("NUM"),
               "Run each benchmark at least <NUM> times.");
     print_opt("--max-runs", OPT_ARR("NUM"),
               "Run each benchmark at most <NUM> times.");
     print_opt("--warmup-runs", OPT_ARR("NUM"),
               "Perform exactly <NUM> warmup runs.");
-    print_opt("-W, --warmup", OPT_ARR("NUM"),
-              "Perform warmup for at least <NUM> seconds.");
+    print_opt("-W, --warmup", OPT_ARR("DURATION"),
+              "Perform warmup for at least <DURATION>.");
     print_opt("--min-warmup-runs", OPT_ARR("NUM"),
               "Perform at least <NUM> warmup runs.");
     print_opt("--max-warmup-runs", OPT_ARR("NUM"),
@@ -177,8 +177,8 @@ static void print_help_and_exit(int rc)
     print_opt("--round-runs", OPT_ARR("NUM"),
               "In a single round perform exactly <NUM> warmup runs.");
     print_opt(
-        "--round-time", OPT_ARR("NUM"),
-        "Each benchmark will will be run for at least <NUM> seconds in row.");
+        "--round-time", OPT_ARR("DURATION"),
+        "Each benchmark will will be run for at least <DURATION> in row.");
     print_opt("--min-round-runs", OPT_ARR("NUM"),
               "In a single round perform at least <NUM> warmup runs.");
     print_opt("--max-round-runs", OPT_ARR("NUM"),
@@ -312,9 +312,9 @@ static void print_help_and_exit(int rc)
               "Display dynamically updated progress bar when running "
               "benchmarks. Possible values for <WHEN> are \"never\", "
               "\"auto\", \"always\" (default: \"auto\").");
-    print_opt("--progress-bar-interval", OPT_ARR("US"),
-              "Set redraw interval of progress bar to <US> microseconds "
-              "(default: 100000).");
+    print_opt(
+        "--progress-bar-interval", OPT_ARR("TIME"),
+        "Set redraw interval of progress bar to <TIME> (default: 100ms).");
     print_opt("--python-output", OPT_ARR(NULL),
               "Do not silence python output when making plots.");
     print_opt("--python-executable", OPT_ARR("EXE"),
@@ -599,8 +599,8 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, const char **arg)
     return false;
 }
 
-static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
-                              const char *name, double *valuep)
+static bool opt_time(char **argv, int *cursorp, const char **opt_strs,
+                     enum units_kind units, const char *name, double *valuep)
 {
     const char *str;
     const char *opt_str = NULL;
@@ -611,13 +611,18 @@ static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
         if (opt_arg(argv, cursorp, opt_str, &str))
             break;
     }
-    char *str_end;
-    double value = strtod(str, &str_end);
-    if (str_end == str) {
-        error("invalid %s argument", opt_str);
+    double value;
+    enum parse_time_str_result result = parse_time_str(str, units, &value);
+    switch (result) {
+    case PARSE_TIME_STR_OK:
+        break;
+    case PARSE_TIME_STR_ERR_FORMAT:
+        error("invalid %s format", name);
         exit(EXIT_FAILURE);
-    }
-    if (value < 0.0) {
+    case PARSE_TIME_STR_ERR_UNITS:
+        error("invalid %s time units", name);
+        exit(EXIT_FAILURE);
+    case PARSE_TIME_STR_ERR_NEG:
         error("%s must be positive number or zero", name);
         exit(EXIT_FAILURE);
     }
@@ -673,21 +678,22 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
 
     int cursor = 1;
     const char *str;
+    double dbl;
     while (cursor < argc) {
         if (strcmp(argv[cursor], "--help") == 0 ||
             strcmp(argv[cursor], "-h") == 0) {
             print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(argv[cursor], "--version") == 0) {
             print_version_and_exit();
-        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--warmup", "-W"),
-                                     "warmup time limit",
-                                     &g_warmup_stop.time_limit)) {
-        } else if (opt_double_nonneg(argv, &cursor,
-                                     OPT_ARR("--time-limit", "-T"),
-                                     "time limit", &g_bench_stop.time_limit)) {
-        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--round-time"),
-                                     "round time limit",
-                                     &g_round_stop.time_limit)) {
+        } else if (opt_time(argv, &cursor, OPT_ARR("--warmup", "-W"), MU_S,
+                            "warmup time limit", &dbl)) {
+            g_warmup_stop.time_limit = dbl;
+        } else if (opt_time(argv, &cursor, OPT_ARR("--time-limit", "-T"), MU_S,
+                            "time limit", &dbl)) {
+            g_bench_stop.time_limit = dbl;
+        } else if (opt_time(argv, &cursor, OPT_ARR("--round-time"), MU_S,
+                            "round time limit", &dbl)) {
+            g_round_stop.time_limit = dbl;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--warmup-runs"),
                                "warmup run count", &g_warmup_stop.runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--runs", "-R"),
@@ -882,10 +888,9 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             settings->has_var = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
                                "job count", &g_threads)) {
-        } else if (opt_int_pos(argv, &cursor,
-                               OPT_ARR("--progress-bar-interval"),
-                               "progress bar redraw interval",
-                               &g_progress_bar_interval_us)) {
+        } else if (opt_time(argv, &cursor, OPT_ARR("--progress-bar-interval"),
+                            MU_US, "progress bar redraw interval", &dbl)) {
+            g_progress_bar_interval_us = dbl;
         } else if (opt_arg(argv, &cursor, "--save-bin-name",
                            &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {

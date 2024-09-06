@@ -507,6 +507,13 @@ enum {
     MAKE_PLOT_KDE_CMP_PER_VAL_SMALL = 0x200,
 };
 
+enum parse_time_str_result {
+    PARSE_TIME_STR_OK,
+    PARSE_TIME_STR_ERR_FORMAT,
+    PARSE_TIME_STR_ERR_UNITS,
+    PARSE_TIME_STR_ERR_NEG,
+};
+
 #define sb_header(_a)                                                          \
     ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
@@ -692,10 +699,10 @@ __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void errorv(const char *fmt, va_list args);
 void csperror(const char *msg);
 void csfmtperror(const char *fmt, ...);
+void csfdperror(int fd, const char *msg);
 
 bool pipe_cloexec(int fd[2]);
 bool check_and_handle_err_pipe(int read_end, int timeout);
-void csfdperror(int fd, const char *msg);
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
@@ -703,6 +710,8 @@ double get_time(void);
 
 bool units_is_time(const struct units *units);
 const char *units_str(const struct units *units);
+enum parse_time_str_result
+parse_time_str(const char *str, enum units_kind target_units, double *value);
 
 int format_time(char *dst, size_t sz, double t);
 int format_memory(char *dst, size_t sz, double t);

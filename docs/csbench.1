@@ -58,9 +58,9 @@ Command\-line benchmarking tool which includes:
 .IP
 Run each benchmark exactly \fINUM\fP times in total (not including warmup). When set, \fB\-\-time\-limit\fR, \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR have no effect.
 .HP
-\fB\-T\fR, \fB\-\-time\-limit\fR \fINUM\fP
+\fB\-T\fR, \fB\-\-time\-limit\fR \fIDURATION\fP
 .IP
-Run each benchmark for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR.
+Run each benchmark for at least \fIDURATION\fP seconds in total. Affected by \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-runs\fR \fINUM\fP
 .IP
@@ -77,7 +77,7 @@ Perform exactly \fINUM\fP warmup runs. When set, \fB\-\-warmup\fR, \fB\-\-min\-w
 .HP
 \fB\-W\fR, \fB\-\-warmup\fR \fINUM\fP
 .IP
-Perform warmup for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR.
+Perform warmup for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-warmup\-runs\fR \fINUM\fP
 .IP
@@ -98,7 +98,7 @@ In a single round perform exactly \fINUM\fP runs. When set, \fB\-\-round\-time\f
 .HP
 \fB\-\-round\-time\fR \fINUM\fP
 .IP
-Each benchmark will be run for at least \fINUM\fP seconds in row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR.
+Each benchmark will be run for at least \fINUM\fP seconds in row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-round\-runs\fR \fINUM\fP
 .IP
@@ -457,9 +457,9 @@ Use colored output. Possible values for \fIWHEN\fP are "never", "auto", "always"
 .IP
 Display dynamically updated progress bar when running benchmarks. Possible values for \fIWHEN\fP are "never", "auto", "always".
 .HP
-\fB\-\-progress\-bar-interval\fR \fIUS\fP
+\fB\-\-progress\-bar-interval\fR \fITIME\fP
 .IP
-Set redraw interval of progress bar to \fIUS\fP microseconds. Default is 100000 (100 milliseconds).
+Set redraw interval of progress bar to \fITIME\fP. Default is 100ms (100 milliseconds). \fITIME\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 .B \-\-python\-output
 .IP
