@@ -193,9 +193,7 @@ static void bar_mpl(const struct meas_analysis *al, const char *output_filename,
     fprintf(f, "names = [");
     for (size_t i = 0; i < count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
-        const struct bench_analysis *bench =
-            al->base->bench_analyses + bench_idx;
-        fprintf(f, "'%s',", bench->name);
+        fprintf(f, "'%s',", bench_name(al->base, bench_idx));
     }
     fprintf(f, "]\n");
     fprintf(f, "err = [");
@@ -462,8 +460,8 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     size_t reference_idx = al->bench_speedups_reference;
     const struct distr *a = al->benches[reference_idx];
     const struct distr *b = al->benches[bench_idx];
-    const char *a_name = al->base->bench_analyses[reference_idx].name;
-    const char *b_name = al->base->bench_analyses[bench_idx].name;
+    const char *a_name = bench_name(al->base, reference_idx);
+    const char *b_name = bench_name(al->base, bench_idx);
     double p_value = al->p_values[bench_idx];
     double diff = positive_speedup(al->bench_speedups + bench_idx);
     const char *title =
@@ -492,8 +490,8 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
     const struct group_analysis *b_grp = al->group_analyses + grp_idx;
     const struct distr *a = a_grp->data[val_idx].distr;
     const struct distr *b = b_grp->data[val_idx].distr;
-    const char *a_name = a_grp->group->name;
-    const char *b_name = b_grp->group->name;
+    const char *a_name = bench_group_name(al->base, reference_idx);
+    const char *b_name = bench_group_name(al->base, grp_idx);
     double p_value = reference_idx == al->val_p_values[val_idx][grp_idx];
     double diff = positive_speedup(al->val_bench_speedups[val_idx] + grp_idx);
     const char *title =
@@ -765,7 +763,7 @@ static void group_bar_mpl(const struct meas_analysis *al,
     fprintf(f, "times = {");
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
         const struct group_analysis *grp_al = al->group_analyses + grp_idx;
-        fprintf(f, "  '%s': [", grp_al->group->name);
+        fprintf(f, "  '%s': [", bench_group_name(al->base, grp_idx));
         for (size_t j = 0; j < val_count; ++j)
             fprintf(f, "%g,", grp_al->data[j].mean * view.multiplier);
         fprintf(f, "],\n");
@@ -1056,8 +1054,8 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             "fig.tight_layout()\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             plot->rows, plot->cols, plot->rows, plot->val_count,
-            al->group_analyses[plot->a_idx].group->name,
-            al->group_analyses[plot->b_idx].group->name, plot->cols, plot->rows,
+            bench_group_name(al->base, plot->a_idx),
+            bench_group_name(al->base, plot->b_idx), plot->cols, plot->rows,
             plot->cols, plot->cols * 5, plot->rows * 5, plot->output_filename);
 }
 
@@ -1157,7 +1155,7 @@ static void bar_gnuplot(const struct meas_analysis *al,
     FILE *dat = NULL; // TODO
     for (size_t i = 0; i < count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
-        fprintf(dat, "%zu\t%s\t%g\t%g\n", i, al->base->benches[bench_idx].name,
+        fprintf(dat, "%zu\t%s\t%g\t%g\n", i, bench_name(al->base, bench_idx),
                 al->benches[bench_idx]->mean.point * view.multiplier,
                 al->benches[bench_idx]->st_dev.point * view.multiplier);
     }

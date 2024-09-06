@@ -804,4 +804,16 @@ typedef cssort_compar(cssort_compar_fn);
 void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
                 void *arg);
 
+static inline const char *bench_name(const struct analysis *al,
+                                     size_t bench_idx)
+{
+    return al->benches[bench_idx].name;
+}
+
+static inline const char *bench_group_name(const struct analysis *al,
+                                           size_t grp_idx)
+{
+    return al->groups[grp_idx].name;
+}
+
 #endif // CSBENCH_H
