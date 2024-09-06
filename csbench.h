@@ -455,6 +455,7 @@ enum statistical_test {
 enum plot_backend {
     PLOT_BACKEND_DEFAULT,
     PLOT_BACKEND_MATPLOTLIB,
+    PLOT_BACKEND_GNUPLOT
 };
 
 #define make_kde_cmp_small_params(_a, _b, _meas)                               \

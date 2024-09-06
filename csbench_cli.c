@@ -294,7 +294,7 @@ static void print_help_and_exit(int rc)
     print_opt(
         "--plot-backend", OPT_ARR("BACKEND"),
         "Select backend used to generate plots. Possible values for <BACKEND> "
-        "are: \"auto\", \"matplotlib\" (default: \"auto\").");
+        "are: \"auto\", \"matplotlib\", \"gnuplot\" (default: \"auto\").");
     print_opt("--html", OPT_ARR(NULL), "Generate HTML report.");
     print_opt("--csv", OPT_ARR(NULL), "Save benchmark results to CSV files.");
     print_opt("--json", OPT_ARR("FILE"),
@@ -983,6 +983,11 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 g_plot_backend_override = PLOT_BACKEND_DEFAULT;
             } else if (strcmp(str, "matplotlib") == 0) {
                 g_plot_backend_override = PLOT_BACKEND_MATPLOTLIB;
+            } else if (strcmp(str, "gnuplot") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_GNUPLOT;
+            } else {
+                error("invalid --plot-backend option");
+                exit(EXIT_FAILURE);
             }
         } else if (opt_arg(argv, &cursor, "--progress-bar", &str)) {
             if (strcmp(str, "auto") == 0) {
