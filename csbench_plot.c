@@ -1141,57 +1141,125 @@ bool get_plot_backend(enum plot_backend *backend)
 static void bar_gnuplot(const struct meas_analysis *al,
                         const char *output_filename, FILE *f)
 {
+    size_t count = al->base->bench_count;
+    double max = -INFINITY, min = INFINITY;
+    for (size_t i = 0; i < count; ++i) {
+        double v = al->benches[i]->mean.point;
+        if (v > max)
+            max = v;
+        if (v < min)
+            min = v;
+    }
+
+    struct plot_view view = {0};
+    init_plot_view(&al->meas->units, min, max, &view);
+
+    FILE *dat = NULL; // TODO
+    for (size_t i = 0; i < count; ++i) {
+        size_t bench_idx = ith_bench_idx(i, al);
+        fprintf(dat, "%zu\t%s\t%g\t%g\n", i, al->base->benches[bench_idx].name,
+                al->benches[bench_idx]->mean.point * view.multiplier,
+                al->benches[bench_idx]->st_dev.point * view.multiplier);
+    }
+    fclose(dat);
+    fprintf(f,
+            "set boxwidth 0.5\n"
+            "set style fill solid\n"
+            "plot \"data.dat\" using 1:3:($3-$3):($3+$4):xtic(2) with boxes "
+            "yerrorbar\n"
+            "set output '%s'\n",
+            output_filename);
 }
 
 static void group_bar_gnuplot(const struct meas_analysis *al,
                               const char *output_filename, FILE *f)
 {
+    (void)al;
+    (void)output_filename;
+    (void)f;
 }
 
 static void group_gnuplot(const struct group_analysis *als, size_t count,
                           const struct meas *meas, const struct bench_var *var,
                           const char *output_filename, FILE *f)
 {
+    (void)als;
+    (void)count;
+    (void)meas;
+    (void)var;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_small_gnuplot(const struct distr *distr,
                               const struct meas *meas,
                               const char *output_filename, FILE *f)
 {
+    (void)distr;
+    (void)meas;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_gnuplot(const struct distr *distr, const struct meas *meas,
                         const char *name, const char *output_filename, FILE *f)
 {
+    (void)distr;
+    (void)meas;
+    (void)name;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
                                   size_t bench_idx, const char *output_filename,
                                   FILE *f)
 {
+    (void)al;
+    (void)bench_idx;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
                             const char *output_filename, FILE *f)
 {
+    (void)al;
+    (void)bench_idx;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
                                           size_t grp_idx, size_t val_idx,
                                           const char *output_filename, FILE *f)
 {
+    (void)al;
+    (void)grp_idx;
+    (void)val_idx;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
                                     size_t grp_idx, size_t val_idx,
                                     const char *output_filename, FILE *f)
 {
+    (void)al;
+    (void)grp_idx;
+    (void)val_idx;
+    (void)output_filename;
+    (void)f;
 }
 
 static void kde_cmp_group_gnuplot(const struct meas_analysis *al,
                                   size_t grp_idx, const char *output_filename,
                                   FILE *f)
 {
+    (void)al;
+    (void)grp_idx;
+    (void)output_filename;
+    (void)f;
 }
 
 void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
