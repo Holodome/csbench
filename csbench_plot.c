@@ -60,6 +60,17 @@
 
 #define KDE_POINT_COUNT 200
 
+struct plot_view {
+    const char *units_str;
+    double multiplier;
+    bool logscale;
+};
+
+struct bar_plot {
+    const struct meas_analysis *al;
+    struct plot_view view;
+};
+
 struct kde_data {
     size_t point_count;
     double min, step, max;
@@ -68,14 +79,6 @@ struct kde_data {
     double mean_y;
 };
 
-struct plot_view {
-    const char *units_str;
-    double multiplier;
-    bool logscale;
-};
-
-// data needed to construct kde plot. Points here are computed from original
-// timings.
 struct kde_plot {
     const struct distr *distr;
     const struct meas *meas;
@@ -166,7 +169,7 @@ static void init_plot_view(const struct units *units, double min, double max,
     }
 }
 
-static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
+static void init_bar_plot(const struct meas_analysis *al, struct bar_plot *plot)
 {
     size_t count = al->base->bench_count;
     double max = -INFINITY, min = INFINITY;
@@ -178,13 +181,20 @@ static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
             min = v;
     }
 
-    struct plot_view view = {0};
-    init_plot_view(&al->meas->units, min, max, &view);
+    plot->al = al;
+    init_plot_view(&al->meas->units, min, max, &plot->view);
+}
+
+static void make_bar_mpl(const struct bar_plot *plot,
+                         struct plot_maker_ctx *ctx)
+{
+    const struct meas_analysis *al = plot->al;
+    size_t count = al->base->bench_count;
     fprintf(ctx->f, "data = [");
     for (size_t i = 0; i < count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
         fprintf(ctx->f, "%g,",
-                al->benches[bench_idx]->mean.point * view.multiplier);
+                al->benches[bench_idx]->mean.point * plot->view.multiplier);
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "names = [");
@@ -197,13 +207,13 @@ static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
     for (size_t i = 0; i < count; ++i) {
         size_t bench_idx = ith_bench_idx(i, al);
         fprintf(ctx->f, "%g,",
-                al->benches[bench_idx]->st_dev.point * view.multiplier);
+                al->benches[bench_idx]->st_dev.point * plot->view.multiplier);
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "import matplotlib as mpl\n"
                     "mpl.use('svg')\n"
                     "import matplotlib.pyplot as plt\n");
-    if (view.logscale)
+    if (plot->view.logscale)
         fprintf(ctx->f, "plt.xscale('log')\n");
     fprintf(ctx->f,
             "plt.rc('axes', axisbelow=True)\n"
@@ -212,7 +222,14 @@ static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
             "plt.yticks(range(len(data)), names)\n"
             "plt.xlabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            al->meas->name, view.units_str, ctx->image_filename);
+            al->meas->name, plot->view.units_str, ctx->image_filename);
+}
+
+static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
+{
+    struct bar_plot plot;
+    init_bar_plot(al, &plot);
+    make_bar_mpl(&plot, ctx);
 }
 
 static void group_mpl(const struct group_analysis *als, size_t count,
@@ -280,12 +297,12 @@ static void group_mpl(const struct group_analysis *als, size_t count,
                     "mpl.use('svg')\n"
                     "import matplotlib.pyplot as plt\n");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        fprintf(
-            ctx->f,
-            "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, label='%s')\n"
-            "plt.plot(x, y[%zu], '.-', label='%s regression')\n",
-            grp_idx, als[grp_idx].group->name, grp_idx,
-            als[grp_idx].group->name);
+        fprintf(ctx->f,
+                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, "
+                "label='%s')\n"
+                "plt.plot(x, y[%zu], '.-', label='%s regression')\n",
+                grp_idx, als[grp_idx].group->name, grp_idx,
+                als[grp_idx].group->name);
     }
     if (view.logscale)
         fprintf(ctx->f, "plt.yscale('log')\n");
