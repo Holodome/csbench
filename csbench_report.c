@@ -388,6 +388,7 @@ static bool write_make_plot(struct plot_walker_args *args, FILE *f)
         return plot_maker->kde_cmp_per_val_small(al, args->compared_idx,
                                                  args->val_idx, &ctx);
     }
+    ASSERT_UNREACHABLE();
 }
 
 static bool make_plot_src_walk(struct plot_walker_args *args)
