@@ -1250,7 +1250,7 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
     const struct plot_view *view = &plot->view;
     fprintf(ctx->f, "$Data <<EOD\n");
     foreach_bench_idx (bench_idx, al) {
-        fprintf(ctx->f, "%s\t%g\t%g\n", bench_name(al->base, bench_idx),
+        fprintf(ctx->f, "\"%s\"\t%g\t%g\n", bench_name(al->base, bench_idx),
                 al->benches[bench_idx]->mean.point * view->multiplier,
                 al->benches[bench_idx]->st_dev.point * view->multiplier);
     }
@@ -1290,7 +1290,7 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
     size_t val_count = var->value_count;
     fprintf(ctx->f, "$Data <<EOD\n");
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-        fprintf(ctx->f, "%s", var->values[val_idx]);
+        fprintf(ctx->f, "\"%s\"", var->values[val_idx]);
         foreach_group_by_avg_idx (grp_idx, al) {
             fprintf(ctx->f, "\t%g",
                     al->group_analyses[grp_idx].data[val_idx].mean *
@@ -1343,11 +1343,24 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
         fprintf(ctx->f, "\n");
     }
     fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "set xtics (");
+    for (size_t i = 0; i < var->value_count; ++i) {
+        fprintf(ctx->f, "%s", var->values[i]);
+        if (i != var->value_count - 1)
+            fprintf(ctx->f, ", ");
+    }
+    fprintf(ctx->f, ")\n");
     fprintf(ctx->f,
-            "plot $Data1 using 2:1\n"
-            "plot $Data2 using 2:1\n"
-            "set output '%s'\n",
-            ctx->image_filename);
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set xlabel '%s'\n"
+            "set ylabel '%s [%s]'\n"
+            "set grid\n"
+            "set offset graph 0.1, graph 0.1, graph 0.1, graph 0.1\n"
+            "plot $Data1 using 2:1 with points notitle, \\\n"
+            "\t$Data2 using 2:1 with lines notitle\n",
+            ctx->image_filename, var->name, plot->al->meas->name,
+            view->units_str);
     return true;
 }
 
