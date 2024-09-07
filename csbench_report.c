@@ -392,7 +392,7 @@ static bool write_make_plot(struct plot_walker_args *args, FILE *f)
     }
 }
 
-static bool dump_plot_walk(struct plot_walker_args *args)
+static bool make_plot_src_walk(struct plot_walker_args *args)
 {
     char src_buf[4096];
     format_plot_name(src_buf, sizeof(src_buf), args,
@@ -407,17 +407,29 @@ static bool dump_plot_walk(struct plot_walker_args *args)
     return success;
 }
 
-static bool dump_plot_src(const struct analysis *al,
-                          enum plot_backend plot_backend)
+static bool make_plot_srcs(const struct analysis *al, enum plot_backend backend)
 {
+    if (backend == PLOT_BACKEND_GNUPLOT) {
+        char gnuplot_data_dir[4096];
+        snprintf(gnuplot_data_dir, sizeof(gnuplot_data_dir), "%s/gnuplot-data",
+                 g_out_dir);
+        if (mkdir(gnuplot_data_dir, 0766) == -1) {
+            if (errno == EEXIST) {
+            } else {
+                csfmtperror("failed to create directory '%s/gnuplot-data'",
+                            g_out_dir);
+                return false;
+            }
+        }
+    }
     struct plot_walker_args args = {0};
-    init_plot_maker(plot_backend, &args.plot_maker);
+    init_plot_maker(backend, &args.plot_maker);
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
         args.analysis = al->meas_analyses + meas_idx;
         args.meas_idx = meas_idx;
-        if (!plot_walker(dump_plot_walk, &args))
+        if (!plot_walker(make_plot_src_walk, &args))
             return false;
     }
     return true;
@@ -460,6 +472,37 @@ static bool make_plots(const struct analysis *al,
     }
     sb_free(args.pids);
     return success;
+}
+
+static bool delete_plot_src_walk(struct plot_walker_args *args)
+{
+    char src_buf[4096];
+    format_plot_name(src_buf, sizeof(src_buf), args,
+                     args->plot_maker.src_extension);
+    if (remove(src_buf) != 0) {
+        csfmtperror("failed to delete file '%s'", src_buf);
+        return false;
+    }
+    return true;
+}
+
+static bool delete_plot_srcs(const struct analysis *al,
+                             enum plot_backend backend)
+{
+    struct plot_walker_args args = {0};
+    init_plot_maker(backend, &args.plot_maker);
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
+            continue;
+        args.analysis = al->meas_analyses + meas_idx;
+        args.meas_idx = meas_idx;
+        if (!plot_walker(delete_plot_src_walk, &args))
+            return false;
+    }
+    if (backend == PLOT_BACKEND_GNUPLOT) {
+        //
+    }
+    return true;
 }
 
 static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
@@ -1340,9 +1383,11 @@ static bool make_reports(const struct analysis *al)
         if (!get_plot_backend(&plot_backend))
             return false;
 
-        if (g_plot_src && !dump_plot_src(al, plot_backend))
+        if (!make_plot_srcs(al, plot_backend))
             return false;
         if (!make_plots(al, plot_backend))
+            return false;
+        if (!g_plot_src && !delete_plot_srcs(al, plot_backend))
             return false;
         if (!make_plots_map(al))
             return false;

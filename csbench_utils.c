@@ -63,8 +63,10 @@
 #include <time.h>
 
 #include <fcntl.h>
+#include <ftw.h>
 #include <poll.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -1174,4 +1176,34 @@ parse_time_str(const char *str, enum units_kind target_units, double *valuep)
 
     *valuep = value;
     return PARSE_TIME_STR_OK;
+}
+
+static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
+                     struct FTW *ftwbuf)
+{
+    (void)sb;
+    (void)typeflag;
+    (void)ftwbuf;
+    int rv = remove(fpath);
+    if (rv)
+        csfmtperror("failed to delete file '%s'", fpath);
+    return rv;
+}
+
+bool rm_rf_dir(const char *name)
+{
+    struct stat st;
+    if (stat(g_out_dir, &st) != 0) {
+        if (errno == ENOENT)
+            return true;
+        csfmtperror("failed to get information about file '%s'", name);
+        return false;
+    }
+
+    int ret = nftw(g_out_dir, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
+    if (ret != 0) {
+        csfmtperror("failed to delete out directory '%s'", name);
+        return false;
+    }
+    return true;
 }

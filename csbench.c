@@ -59,7 +59,6 @@
 #include <string.h>
 
 #include <fcntl.h>
-#include <ftw.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -1188,44 +1187,14 @@ err:
     return success;
 }
 
-static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
-                     struct FTW *ftwbuf)
-{
-    (void)sb;
-    (void)typeflag;
-    (void)ftwbuf;
-    int rv = remove(fpath);
-    if (rv)
-        csfmtperror("failed to delete file '%s'", fpath);
-    return rv;
-}
-
-static bool clear_out_dir(void)
-{
-    struct stat st;
-    if (stat(g_out_dir, &st) != 0) {
-        if (errno == ENOENT)
-            return true;
-        csfmtperror("failed to get information about file '%s'", g_out_dir);
-        return false;
-    }
-
-    int ret = nftw(g_out_dir, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
-    if (ret != 0) {
-        csfmtperror("failed to delete out directory '%s'", g_out_dir);
-        return false;
-    }
-    return true;
-}
-
 static bool ensure_out_dir_is_created(void)
 {
-    if (g_clear_out_dir && !clear_out_dir())
+    if (g_clear_out_dir && !rm_rf_dir(g_out_dir))
         return false;
     if (mkdir(g_out_dir, 0766) == -1) {
         if (errno == EEXIST) {
         } else {
-            csperror("mkdir");
+            csfmtperror("failed to create directory '%s'", g_out_dir);
             return false;
         }
     }

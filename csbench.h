@@ -753,6 +753,7 @@ bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd,
                              int stderr_fd, pid_t *pid);
 bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
                    bool silent);
+bool rm_rf_dir(const char *name);
 
 int tmpfile_fd(void);
 
