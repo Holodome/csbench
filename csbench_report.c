@@ -79,13 +79,13 @@ struct plot_walker_args {
     const struct meas_analysis *analysis;
     enum plot_kind plot_kind;
     pid_t *pids;
+    const char **cmds;
     size_t meas_idx;
     size_t bench_idx;
     size_t grp_idx;
     size_t val_idx;
     size_t compared_idx;
     struct plot_maker plot_maker;
-    size_t gnuplot_data_idx;
 };
 
 static bool json_escape(char *buf, size_t buf_size, const char *src)
@@ -340,7 +340,6 @@ static bool make_plot_src(struct plot_walker_args *args, FILE *f)
     struct plot_maker_ctx ctx = {0};
     ctx.image_filename = svg_buf;
     ctx.f = f;
-    ctx.gnuplot_data_idx = &args->gnuplot_data_idx;
     switch (args->plot_kind) {
     case PLOT_BAR:
         return plot_maker->bar(al, &ctx);
@@ -388,19 +387,6 @@ static bool make_plot_src_walk(struct plot_walker_args *args)
 
 static bool make_plot_srcs(const struct analysis *al, enum plot_backend backend)
 {
-    if (backend == PLOT_BACKEND_GNUPLOT) {
-        char gnuplot_data_dir[4096];
-        snprintf(gnuplot_data_dir, sizeof(gnuplot_data_dir), "%s/gnuplot-data",
-                 g_out_dir);
-        if (mkdir(gnuplot_data_dir, 0766) == -1) {
-            if (errno == EEXIST) {
-            } else {
-                csfmtperror("failed to create directory '%s/gnuplot-data'",
-                            g_out_dir);
-                return false;
-            }
-        }
-    }
     struct plot_walker_args args = {0};
     init_plot_maker(backend, &args.plot_maker);
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
@@ -427,11 +413,21 @@ static bool make_plot_walk(struct plot_walker_args *args)
     char src_buf[4096];
     format_plot_name(src_buf, sizeof(src_buf), args,
                      args->plot_maker.src_extension);
-    char cmd_buf[4096];
-    snprintf(cmd_buf, sizeof(cmd_buf), "%s %s", g_python_executable, src_buf);
-    if (!shell_launch(cmd_buf, -1, stdout_fd, stderr_fd, &pid))
+    const char *cmd = NULL;
+    switch (args->plot_maker.backend) {
+    case PLOT_BACKEND_MATPLOTLIB:
+        cmd = csfmt("%s %s", g_python_executable, src_buf);
+        break;
+    case PLOT_BACKEND_GNUPLOT:
+        cmd = csfmt("gnuplot %s", src_buf);
+        break;
+    default:
+        ASSERT_UNREACHABLE();
+    }
+    if (!shell_launch(cmd, -1, stdout_fd, stderr_fd, &pid))
         return false;
     sb_push(args->pids, pid);
+    sb_push(args->cmds, cmd);
     return true;
 }
 
@@ -452,7 +448,7 @@ static bool make_plots(const struct analysis *al,
     }
     for (size_t i = 0; i < sb_len(args.pids); ++i) {
         if (!process_wait_finished_correctly(args.pids[i], true)) {
-            error("python finished with non-zero exit code");
+            error("'%s' finished with non-zero exit code", args.cmds[i]);
             success = false;
         }
     }
@@ -483,13 +479,6 @@ static bool delete_plot_srcs(const struct analysis *al,
         args.analysis = al->meas_analyses + meas_idx;
         args.meas_idx = meas_idx;
         if (!plot_walker(delete_plot_src_walk, &args))
-            return false;
-    }
-    if (backend == PLOT_BACKEND_GNUPLOT) {
-        char gnuplot_data_dir[4096];
-        snprintf(gnuplot_data_dir, sizeof(gnuplot_data_dir), "%s/gnuplot-data",
-                 g_out_dir);
-        if (!rm_rf_dir(gnuplot_data_dir))
             return false;
     }
     return true;

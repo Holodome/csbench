@@ -57,6 +57,7 @@
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define KDE_POINT_COUNT 200
 
@@ -149,6 +150,7 @@ static double positive_speedup(const struct speedup *sp)
 static void init_plot_view(const struct units *units, double min, double max,
                            struct plot_view *view)
 {
+    memset(view, 0, sizeof(*view));
     if (log10(max / min) > 2.5)
         view->logscale = 1;
 
@@ -188,6 +190,7 @@ static void init_plot_view(const struct units *units, double min, double max,
 
 static void init_bar_plot(const struct meas_analysis *al, struct bar_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     size_t count = al->base->bench_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t i = 0; i < count; ++i) {
@@ -197,7 +200,6 @@ static void init_bar_plot(const struct meas_analysis *al, struct bar_plot *plot)
         if (v < min)
             min = v;
     }
-
     plot->al = al;
     init_plot_view(&al->meas->units, min, max, &plot->view);
 }
@@ -250,6 +252,7 @@ static bool bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
 static void init_group_regr(const struct meas_analysis *al, size_t idx,
                             struct group_regr_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     const struct bench_var *var = al->base->var;
     plot->al = al;
     plot->idx = idx;
@@ -272,7 +275,6 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
         }
     }
     init_plot_view(&al->meas->units, min, max, &plot->view);
-
     plot->nregr = 100;
     plot->lowest_x = INFINITY;
     plot->highest_x = -INFINITY;
@@ -451,6 +453,7 @@ static void kde_cmp_limits(const struct distr *a, const struct distr *b,
 static void init_kde_data(const struct distr *distr, double min, double max,
                           size_t point_count, struct kde_data *kde)
 {
+    memset(kde, 0, sizeof(*kde));
     assert(point_count);
     kde->point_count = point_count;
     kde->min = min;
@@ -473,6 +476,7 @@ static void init_kde_plot_internal(const struct distr *distr,
                                    const struct meas *meas, bool is_small,
                                    const char *name, struct kde_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     double min, max;
     kde_limits(distr, is_small, &min, &max);
     plot->is_small = is_small;
@@ -481,7 +485,6 @@ static void init_kde_plot_internal(const struct distr *distr,
     plot->distr = distr;
     init_kde_data(distr, min, max, KDE_POINT_COUNT, &plot->kde);
     init_plot_view(&meas->units, min, max, &plot->view);
-
     double max_y = -INFINITY;
     for (size_t i = 0; i < plot->kde.point_count; ++i) {
         if (plot->kde.data[i] > max_y)
@@ -499,6 +502,7 @@ static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
                                         const char *title, bool is_small,
                                         struct kde_cmp_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     size_t point_count = KDE_POINT_COUNT;
     double min, max;
     kde_cmp_limits(a, b, &min, &max);
@@ -817,6 +821,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot,
 static void init_group_bar(const struct meas_analysis *al,
                            struct group_bar_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     const struct bench_var *var = al->base->var;
     size_t grp_count = al->base->group_count;
     double max = -INFINITY, min = INFINITY;
@@ -964,6 +969,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
                                     size_t grp_idx,
                                     struct kde_cmp_group_plot *plot)
 {
+    memset(plot, 0, sizeof(*plot));
     size_t reference_idx = al->groups_avg_reference;
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
@@ -996,7 +1002,6 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         init_kde_data(a, min, max, point_count, &cmp->a_kde);
         init_kde_data(b, min, max, point_count, &cmp->b_kde);
         init_plot_view(&al->meas->units, min, max, &cmp->view);
-
         double max_y = -INFINITY;
         for (size_t i = 0; i < point_count; ++i) {
             if (cmp->a_kde.data[i] > max_y)
@@ -1241,28 +1246,28 @@ bool get_plot_backend(enum plot_backend *backend)
 static bool make_bar_gnuplot(const struct bar_plot *plot,
                              struct plot_maker_ctx *ctx)
 {
-    const char *dat_filename =
-        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
     const struct meas_analysis *al = plot->al;
     const struct plot_view *view = &plot->view;
-    FILE *dat = open_file_fmt("w", "%s/%s", g_out_dir, dat_filename);
-    if (dat == NULL) {
-        csfmtperror("failed to create file '%s/%s'", g_out_dir, dat_filename);
-        return false;
-    }
+    fprintf(ctx->f, "$Data <<EOD\n");
     foreach_bench_idx (bench_idx, al) {
-        fprintf(dat, "%s\t%g\t%g\n", bench_name(al->base, bench_idx),
+        fprintf(ctx->f, "%s\t%g\t%g\n", bench_name(al->base, bench_idx),
                 al->benches[bench_idx]->mean.point * view->multiplier,
                 al->benches[bench_idx]->st_dev.point * view->multiplier);
     }
-    fclose(dat);
+    fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f,
-            "set boxwidth 0.5\n"
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set ylabel '%s [%s]'\n"
+            "set yrange [0:*]\n"
+            "set style data histogram\n"
+            "set style histogram cluster gap 1\n"
+            "set boxwidth 1\n"
             "set style fill solid\n"
-            "plot '%s' using 2:($2-$3):($2+$3):xtic(1) with boxes "
-            "yerrorbar\n"
-            "set output '%s'\n",
-            dat_filename, ctx->image_filename);
+            "set grid ytics\n"
+            "plot $Data using 2:xtic(1) with histograms linecolor 'blue' "
+            "notitle\n",
+            ctx->image_filename, al->meas->name, view->units_str);
     return true;
 }
 
@@ -1277,35 +1282,29 @@ static bool bar_gnuplot(const struct meas_analysis *al,
 static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
                                    struct plot_maker_ctx *ctx)
 {
-    const char *dat_filename =
-        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
     const struct meas_analysis *al = plot->al;
     const struct analysis *base = al->base;
     const struct plot_view *view = &plot->view;
     const struct bench_var *var = base->var;
     size_t val_count = var->value_count;
-    FILE *dat = open_file_fmt("w", "%s/%s", g_out_dir, dat_filename);
-    if (dat == NULL) {
-        csfmtperror("failed to create file '%s/%s'", g_out_dir, dat_filename);
-        return false;
-    }
+    fprintf(ctx->f, "$Data <<EOD\n");
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-        fprintf(dat, "%s", var->values[val_idx]);
+        fprintf(ctx->f, "%s", var->values[val_idx]);
         foreach_group_by_avg_idx (grp_idx, al) {
-            fprintf(dat, "\t%g",
+            fprintf(ctx->f, "\t%g",
                     al->group_analyses[grp_idx].data[val_idx].mean *
                         view->multiplier);
         }
-        fprintf(dat, "\n");
+        fprintf(ctx->f, "\n");
     }
-    fclose(dat);
+    fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f,
             "set boxwidth 0.5\n"
             "set style fill solid\n"
-            "plot '%s' using 3:xtic(2) with boxes "
+            "plot $Data using 3:xtic(2) with boxes "
             "yerrorbar\n"
             "set output '%s'\n",
-            dat_filename, ctx->image_filename);
+            ctx->image_filename);
     return true;
 }
 
@@ -1323,50 +1322,31 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     const struct plot_view *view = &plot->view;
     const struct group_analysis *als = plot->als;
     const struct bench_var *var = plot->al->base->var;
-    const char *dat1_filename =
-        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
-    const char *dat2_filename =
-        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
-    {
-        FILE *dat = open_file_fmt("w", "%s/%s", g_out_dir, dat1_filename);
-        if (dat == NULL) {
-            csfmtperror("failed to create file '%s/%s'", g_out_dir,
-                        dat1_filename);
-            return false;
-        }
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-            fprintf(dat, "%g", als[0].data[val_idx].value_double);
-            foreach_group_by_avg_idx (grp_idx, plot->al)
-                fprintf(dat, "\t%g",
-                        als[grp_idx].data[val_idx].mean * view->multiplier);
-            fprintf(dat, "\n");
-        }
-        fclose(dat);
+    fprintf(ctx->f, "$Data1 <<EOD\n");
+    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+        fprintf(ctx->f, "%g", als[0].data[val_idx].value_double);
+        foreach_group_by_avg_idx (grp_idx, plot->al)
+            fprintf(ctx->f, "\t%g",
+                    als[grp_idx].data[val_idx].mean * view->multiplier);
+        fprintf(ctx->f, "\n");
     }
-    {
-        FILE *dat = open_file_fmt("w", "%s/%s", g_out_dir, dat2_filename);
-        if (dat == NULL) {
-            csfmtperror("failed to create file '%s/%s'", g_out_dir,
-                        dat2_filename);
-            return false;
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Data2 <<EOD\n");
+    for (size_t i = 0; i < plot->nregr + 1; ++i) {
+        fprintf(ctx->f, "%g", plot->lowest_x + plot->regr_x_step * i);
+        foreach_group_by_avg_idx (grp_idx, plot->al) {
+            double regr = ols_approx(&als[grp_idx].regress,
+                                     plot->lowest_x + plot->regr_x_step * i);
+            fprintf(ctx->f, "\t%g", regr * view->multiplier);
         }
-        for (size_t i = 0; i < plot->nregr + 1; ++i) {
-            fprintf(dat, "%g", plot->lowest_x + plot->regr_x_step * i);
-            foreach_group_by_avg_idx (grp_idx, plot->al) {
-                double regr =
-                    ols_approx(&als[grp_idx].regress,
-                               plot->lowest_x + plot->regr_x_step * i);
-                fprintf(dat, "\t%g", regr * view->multiplier);
-            }
-            fprintf(dat, "\n");
-        }
-        fclose(dat);
+        fprintf(ctx->f, "\n");
     }
+    fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f,
-            "plot '%s' using 2:1\n"
-            "plot '%s' using 2:1\n"
+            "plot $Data1 using 2:1\n"
+            "plot $Data2 using 2:1\n"
             "set output '%s'\n",
-            dat1_filename, dat2_filename, ctx->image_filename);
+            ctx->image_filename);
     return true;
 }
 
@@ -1449,6 +1429,8 @@ static bool kde_cmp_group_gnuplot(const struct meas_analysis *al,
 
 void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
 {
+    memset(maker, 0, sizeof(*maker));
+    maker->backend = backend;
     switch (backend) {
     case PLOT_BACKEND_MATPLOTLIB:
         maker->src_extension = "py";

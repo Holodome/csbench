@@ -472,10 +472,10 @@ struct kde_cmps_params {
 struct plot_maker_ctx {
     const char *image_filename;
     FILE *f;
-    size_t *gnuplot_data_idx;
 };
 
 struct plot_maker {
+    enum plot_backend backend;
     const char *src_extension;
 
     bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
