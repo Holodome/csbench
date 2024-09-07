@@ -478,13 +478,11 @@ struct plot_maker_ctx {
 struct plot_maker {
     const char *src_extension;
 
-    bool (*bar)(const struct meas_analysis *analysis,
-                struct plot_maker_ctx *ctx);
-    bool (*group_bar)(const struct meas_analysis *analysis,
+    bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
+    bool (*group_bar)(const struct meas_analysis *al,
                       struct plot_maker_ctx *ctx);
-    bool (*group)(const struct group_analysis *analyses, size_t count,
-                  const struct meas *meas, const struct bench_var *var,
-                  struct plot_maker_ctx *ctx);
+    bool (*group_regr)(const struct meas_analysis *al, size_t idx,
+                       struct plot_maker_ctx *ctx);
     bool (*kde_small)(const struct distr *distr, const struct meas *meas,
                       struct plot_maker_ctx *ctx);
     bool (*kde)(const struct distr *distr, const struct meas *meas,

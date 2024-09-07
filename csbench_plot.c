@@ -71,6 +71,18 @@ struct bar_plot {
     struct plot_view view;
 };
 
+struct group_regr_plot {
+    const struct meas_analysis *al;
+    size_t idx;
+    struct plot_view view;
+    const struct group_analysis *als;
+    size_t count;
+    size_t nregr;
+    double highest_x;
+    double lowest_x;
+    double regr_x_step;
+};
+
 struct kde_data {
     size_t point_count;
     double min, step, max;
@@ -229,24 +241,53 @@ static bool bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
     return true;
 }
 
-static bool group_mpl(const struct group_analysis *als, size_t count,
-                      const struct meas *meas, const struct bench_var *var,
-                      struct plot_maker_ctx *ctx)
+static void init_group_regr(const struct meas_analysis *al, size_t idx,
+                            struct group_regr_plot *plot)
 {
+    const struct bench_var *var = al->base->var;
+    plot->al = al;
+    plot->idx = idx;
+    if (idx == (size_t)-1) {
+        plot->als = al->group_analyses;
+        plot->count = al->base->group_count;
+    } else {
+        plot->als = al->group_analyses + idx;
+        plot->count = 1;
+    }
+
     double max = -INFINITY, min = INFINITY;
-    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+    for (size_t grp_idx = 0; grp_idx < plot->count; ++grp_idx) {
         for (size_t i = 0; i < var->value_count; ++i) {
-            double v = als[grp_idx].data[i].mean;
+            double v = plot->als[grp_idx].data[i].mean;
             if (v > max)
                 max = v;
             if (v < min)
                 min = v;
         }
     }
+    init_plot_view(&al->meas->units, min, max, &plot->view);
 
-    struct plot_view view = {0};
-    init_plot_view(&meas->units, min, max, &view);
+    plot->nregr = 100;
+    plot->lowest_x = INFINITY;
+    plot->highest_x = -INFINITY;
+    foreach_group_by_avg_idx (grp_idx, plot->al) {
+        double low = plot->als[grp_idx].data[0].value_double;
+        if (low < plot->lowest_x)
+            plot->lowest_x = low;
+        double high =
+            plot->als[grp_idx].data[var->value_count - 1].value_double;
+        if (high > plot->highest_x)
+            plot->highest_x = high;
+    }
+    plot->regr_x_step = (plot->highest_x - plot->lowest_x) / plot->nregr;
+}
 
+static bool make_group_regr_mpl(const struct group_regr_plot *plot,
+                                struct plot_maker_ctx *ctx)
+{
+    const struct bench_var *var = plot->al->base->var;
+    const struct group_analysis *als = plot->als;
+    size_t count = plot->count;
     fprintf(ctx->f, "x = [");
     for (size_t i = 0; i < var->value_count; ++i) {
         double v = als[0].data[i].value_double;
@@ -254,38 +295,26 @@ static bool group_mpl(const struct group_analysis *als, size_t count,
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "y = [");
-    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+    foreach_group_by_avg_idx (grp_idx, plot->al) {
         fprintf(ctx->f, "[");
         for (size_t i = 0; i < var->value_count; ++i)
-            fprintf(ctx->f, "%g,", als[grp_idx].data[i].mean * view.multiplier);
+            fprintf(ctx->f, "%g,",
+                    als[grp_idx].data[i].mean * plot->view.multiplier);
         fprintf(ctx->f, "],");
     }
     fprintf(ctx->f, "]\n");
-    size_t nregr = 100;
-    double lowest_x = INFINITY;
-    double highest_x = -INFINITY;
-    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        double low = als[grp_idx].data[0].value_double;
-        if (low < lowest_x)
-            lowest_x = low;
-        double high = als[grp_idx].data[var->value_count - 1].value_double;
-        if (high > highest_x)
-            highest_x = high;
-    }
-
-    double regr_x_step = (highest_x - lowest_x) / nregr;
     fprintf(ctx->f, "regrx = [");
-    for (size_t i = 0; i < nregr + 1; ++i)
-        fprintf(ctx->f, "%g,", lowest_x + regr_x_step * i);
+    for (size_t i = 0; i < plot->nregr + 1; ++i)
+        fprintf(ctx->f, "%g,", plot->lowest_x + plot->regr_x_step * i);
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "regry = [");
-    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
+    foreach_group_by_avg_idx (grp_idx, plot->al) {
         const struct group_analysis *analysis = als + grp_idx;
         fprintf(ctx->f, "[");
-        for (size_t i = 0; i < nregr + 1; ++i) {
-            double regr =
-                ols_approx(&analysis->regress, lowest_x + regr_x_step * i);
-            fprintf(ctx->f, "%g,", regr * view.multiplier);
+        for (size_t i = 0; i < plot->nregr + 1; ++i) {
+            double regr = ols_approx(&analysis->regress,
+                                     plot->lowest_x + plot->regr_x_step * i);
+            fprintf(ctx->f, "%g,", regr * plot->view.multiplier);
         }
         fprintf(ctx->f, "],");
     }
@@ -301,7 +330,7 @@ static bool group_mpl(const struct group_analysis *als, size_t count,
                 grp_idx, als[grp_idx].group->name, grp_idx,
                 als[grp_idx].group->name);
     }
-    if (view.logscale)
+    if (plot->view.logscale)
         fprintf(ctx->f, "plt.yscale('log')\n");
     if (count > 1)
         fprintf(ctx->f, "plt.legend(loc='best')\n");
@@ -311,7 +340,17 @@ static bool group_mpl(const struct group_analysis *als, size_t count,
             "plt.xlabel('%s')\n"
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
-            var->name, meas->name, view.units_str, ctx->image_filename);
+            var->name, plot->al->meas->name, plot->view.units_str,
+            ctx->image_filename);
+    return true;
+}
+
+static bool group_regr_mpl(const struct meas_analysis *al, size_t idx,
+                           struct plot_maker_ctx *ctx)
+{
+    struct group_regr_plot plot;
+    init_group_regr(al, idx, &plot);
+    make_group_regr_mpl(&plot, ctx);
     return true;
 }
 
@@ -1119,17 +1158,17 @@ bool get_plot_backend(enum plot_backend *backend)
             error("selected plot backend (matplotlib) is not available");
             return false;
         }
+        *backend = PLOT_BACKEND_MATPLOTLIB;
         return true;
     case PLOT_BACKEND_GNUPLOT:
         if (!has_gnuplot()) {
             error("selected plot backend (gnuplot) is not available");
             return false;
         }
+        *backend = PLOT_BACKEND_GNUPLOT;
         return true;
     default:
         ASSERT_UNREACHABLE();
-    }
-    if (g_plot_backend_override != PLOT_BACKEND_DEFAULT) {
     }
     bool found_backend = false;
     if (has_python_with_mpl()) {
@@ -1173,7 +1212,7 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
     fprintf(ctx->f,
             "set boxwidth 0.5\n"
             "set style fill solid\n"
-            "plot \"%s\" using 1:3:($3-$3):($3+$4):xtic(2) with boxes "
+            "plot '%s' using 1:3:($3-$3):($3+$4):xtic(2) with boxes "
             "yerrorbar\n"
             "set output '%s'\n",
             dat_filename, ctx->image_filename);
@@ -1196,16 +1235,68 @@ static bool group_bar_gnuplot(const struct meas_analysis *al,
     return true;
 }
 
-static bool group_gnuplot(const struct group_analysis *als, size_t count,
-                          const struct meas *meas, const struct bench_var *var,
-                          struct plot_maker_ctx *ctx)
+static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
+                                    struct plot_maker_ctx *ctx)
 {
-    (void)als;
-    (void)count;
-    (void)meas;
-    (void)var;
-    (void)ctx;
+    const struct meas_analysis *al = plot->al;
+    const struct plot_view *view = &plot->view;
+    size_t count = plot->count;
+    const struct group_analysis *als = plot->als;
+    const struct bench_var *var = plot->al->base->var;
+    const char *dat1_filename =
+        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
+    const char *dat2_filename =
+        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
+    {
+        FILE *dat = fopen("w", dat1_filename);
+        if (dat == NULL) {
+            csfmtperror("failed to create file '%s/%s'", g_out_dir,
+                        dat1_filename);
+            return false;
+        }
+        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+            fprintf(dat, "%zu\t%g", val_idx, als[0].data[val_idx].value_double);
+            foreach_group_by_avg_idx (grp_idx, plot->al)
+                fprintf(dat, "\t%g",
+                        als[grp_idx].data[val_idx].mean *
+                            plot->view.multiplier);
+            fprintf(dat, "\n");
+        }
+        fclose(dat);
+    }
+    {
+        FILE *dat = fopen("w", dat2_filename);
+        if (dat == NULL) {
+            csfmtperror("failed to create file '%s/%s'", g_out_dir,
+                        dat2_filename);
+            return false;
+        }
+        for (size_t i = 0; i < plot->nregr + 1; ++i) {
+            fprintf(dat, "%zu\t%g", i, plot->lowest_x + plot->regr_x_step * i);
+            foreach_group_by_avg_idx (grp_idx, plot->al) {
+                double regr =
+                    ols_approx(&als[grp_idx].regress,
+                               plot->lowest_x + plot->regr_x_step * i);
+                fprintf(dat, "\t%g", regr * plot->view.multiplier);
+            }
+            fprintf(dat, "\n");
+        }
+        fclose(dat);
+    }
+    fprintf(ctx->f,
+            "plot '%s' using 2:1\n"
+            "plot '%s' using 2:1\n"
+            "set output '%s'\n",
+            dat1_filename, dat2_filename, ctx->image_filename);
     return true;
+}
+
+static bool group_regr_gnuplot(const struct meas_analysis *al, size_t idx,
+                               struct plot_maker_ctx *ctx)
+{
+    struct group_regr_plot plot;
+    init_group_regr(al, idx, &plot);
+    return make_group_regr_gnuplot(&plot, ctx);
 }
 
 static bool kde_small_gnuplot(const struct distr *distr,
@@ -1284,7 +1375,7 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->src_extension = "py";
         maker->bar = bar_mpl;
         maker->group_bar = group_bar_mpl;
-        maker->group = group_mpl;
+        maker->group_regr = group_regr_mpl;
         maker->kde_small = kde_small_mpl;
         maker->kde = kde_mpl;
         maker->kde_cmp_small = kde_cmp_small_mpl;
@@ -1297,7 +1388,7 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->src_extension = "gp";
         maker->bar = bar_gnuplot;
         maker->group_bar = group_bar_gnuplot;
-        maker->group = group_gnuplot;
+        maker->group_regr = group_regr_gnuplot;
         maker->kde_small = kde_small_gnuplot;
         maker->kde = kde_gnuplot;
         maker->kde_cmp_small = kde_cmp_small_gnuplot;

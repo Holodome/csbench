@@ -367,11 +367,9 @@ static bool write_make_plot(struct plot_walker_args *args, FILE *f)
     case PLOT_GROUP_BAR:
         return plot_maker->group_bar(al, &ctx);
     case PLOT_GROUP_REGR:
-        return plot_maker->group(al->group_analyses + args->grp_idx, 1, meas,
-                                 base->var, &ctx);
+        return plot_maker->group_regr(al, args->grp_idx, &ctx);
     case PLOT_ALL_GROUPS_REGR:
-        return plot_maker->group(al->group_analyses, base->group_count, meas,
-                                 base->var, &ctx);
+        return plot_maker->group_regr(al, (size_t)-1, &ctx);
     case PLOT_KDE_SMALL:
         return plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
     case PLOT_KDE:
@@ -500,7 +498,11 @@ static bool delete_plot_srcs(const struct analysis *al,
             return false;
     }
     if (backend == PLOT_BACKEND_GNUPLOT) {
-        //
+        char gnuplot_data_dir[4096];
+        snprintf(gnuplot_data_dir, sizeof(gnuplot_data_dir), "%s/gnuplot-data",
+                 g_out_dir);
+        if (!rm_rf_dir(gnuplot_data_dir))
+            return false;
     }
     return true;
 }
