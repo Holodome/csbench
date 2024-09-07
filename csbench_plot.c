@@ -1258,15 +1258,16 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
     fprintf(ctx->f,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
+            "set boxwidth 1\n"
+            "set style fill solid 1\n"
+            "set style histogram errorbars gap 2 lw 1\n"
+            "set style data histograms\n"
+            "set errorbars linecolor black\n"
+            "set bars front\n"
+            "set grid ytics\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n"
-            "set style data histogram\n"
-            "set style histogram cluster gap 1\n"
-            "set boxwidth 1\n"
-            "set style fill solid\n"
-            "set grid ytics\n"
-            "plot $Data using 2:xtic(1) with histograms linecolor 'blue' "
-            "notitle\n",
+            "plot $Data using 2:3:xtic(1) linecolor 'blue' notitle\n",
             ctx->image_filename, al->meas->name, view->units_str);
     return true;
 }
