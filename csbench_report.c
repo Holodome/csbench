@@ -360,44 +360,47 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
     const struct plot_maker *plot_maker = &args->plot_maker;
     char svg_buf[4096];
     format_plot_name(svg_buf, sizeof(svg_buf), args, "svg");
+    struct plot_maker_ctx ctx = {0};
+    ctx.image_filename = svg_buf;
+    ctx.f = f;
     switch (args->plot_kind) {
     case PLOT_BAR:
-        plot_maker->bar(al, svg_buf, f);
+        plot_maker->bar(al, &ctx);
         break;
     case PLOT_GROUP_BAR:
-        plot_maker->group_bar(al, svg_buf, f);
+        plot_maker->group_bar(al, &ctx);
         break;
     case PLOT_GROUP_REGR:
         plot_maker->group(al->group_analyses + args->grp_idx, 1, meas,
-                          base->var, svg_buf, f);
+                          base->var, &ctx);
         break;
     case PLOT_ALL_GROUPS_REGR:
         plot_maker->group(al->group_analyses, base->group_count, meas,
-                          base->var, svg_buf, f);
+                          base->var, &ctx);
         break;
     case PLOT_KDE_SMALL:
-        plot_maker->kde_small(al->benches[args->bench_idx], meas, svg_buf, f);
+        plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
         break;
     case PLOT_KDE:
         plot_maker->kde(al->benches[args->bench_idx], meas,
-                        bench_name(base, args->bench_idx), svg_buf, f);
+                        bench_name(base, args->bench_idx), &ctx);
         break;
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al, args->compared_idx, svg_buf, f);
+        plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
         break;
     case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al, args->compared_idx, svg_buf, f);
+        plot_maker->kde_cmp(al, args->compared_idx, &ctx);
         break;
     case PLOT_KDE_CMP_ALL_GROUPS:
-        plot_maker->kde_cmp_group(al, args->compared_idx, svg_buf, f);
+        plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
         break;
     case PLOT_KDE_CMP_PER_VAL:
         plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx,
-                                    svg_buf, f);
+                                    &ctx);
         break;
     case PLOT_KDE_CMP_PER_VAL_SMALL:
         plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
-                                          svg_buf, f);
+                                          &ctx);
         break;
     }
 }

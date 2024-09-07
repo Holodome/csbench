@@ -469,30 +469,34 @@ struct kde_cmps_params {
     size_t b_idx;
 };
 
+struct plot_maker_ctx {
+    const char *image_filename;
+    FILE *f;
+};
+
 struct plot_maker {
     void (*bar)(const struct meas_analysis *analysis,
-                const char *output_filename, FILE *f);
+                struct plot_maker_ctx *ctx);
     void (*group_bar)(const struct meas_analysis *analysis,
-                      const char *output_filename, FILE *f);
+                      struct plot_maker_ctx *ctx);
     void (*group)(const struct group_analysis *analyses, size_t count,
                   const struct meas *meas, const struct bench_var *var,
-                  const char *output_filename, FILE *f);
+                  struct plot_maker_ctx *ctx);
     void (*kde_small)(const struct distr *distr, const struct meas *meas,
-                      const char *output_filename, FILE *f);
+                      struct plot_maker_ctx *ctx);
     void (*kde)(const struct distr *distr, const struct meas *meas,
-                const char *name, const char *output_filename, FILE *f);
+                const char *name, struct plot_maker_ctx *ctx);
     void (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
-                          const char *output_filename, FILE *f);
+                          struct plot_maker_ctx *ctx);
     void (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
-                    const char *output_filename, FILE *f);
+                    struct plot_maker_ctx *ctx);
     void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
-                          const char *output_filename, FILE *f);
+                          struct plot_maker_ctx *ctx);
     void (*kde_cmp_per_val_small)(const struct meas_analysis *al,
                                   size_t grp_idx, size_t val_idx,
-                                  const char *output_filename, FILE *f);
+                                  struct plot_maker_ctx *ctx);
     void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
-                            size_t val_idx, const char *output_filename,
-                            FILE *f);
+                            size_t val_idx, struct plot_maker_ctx *ctx);
 };
 
 enum {
