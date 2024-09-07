@@ -179,26 +179,6 @@ static bool export_json(const struct analysis *al, const char *filename)
     return true;
 }
 
-static bool do_export(const struct analysis *al)
-{
-    if (g_json_export_filename == NULL)
-        return true;
-
-    return export_json(al, g_json_export_filename);
-}
-
-static bool launch_python_stdin_pipe(FILE **inp, pid_t *pidp)
-{
-    int stdout_fd = -1;
-    int stderr_fd = -1;
-    if (g_python_output) {
-        stdout_fd = STDOUT_FILENO;
-        stderr_fd = STDERR_FILENO;
-    }
-    return shell_launch_stdin_pipe(g_python_executable, inp, stdout_fd,
-                                   stderr_fd, pidp);
-}
-
 static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                         struct plot_walker_args *args)
 {
@@ -349,7 +329,7 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static bool write_make_plot(struct plot_walker_args *args, FILE *f)
+static bool make_plot_src(struct plot_walker_args *args, FILE *f)
 {
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
@@ -401,7 +381,7 @@ static bool make_plot_src_walk(struct plot_walker_args *args)
         error("failed to create file %s", src_buf);
         return false;
     }
-    bool success = write_make_plot(args, src_file);
+    bool success = make_plot_src(args, src_file);
     fclose(src_file);
     return success;
 }
@@ -436,16 +416,23 @@ static bool make_plot_srcs(const struct analysis *al, enum plot_backend backend)
 
 static bool make_plot_walk(struct plot_walker_args *args)
 {
-    FILE *f;
-    pid_t pid;
-    if (!launch_python_stdin_pipe(&f, &pid)) {
-        error("failed to launch python");
-        return false;
+    int stdout_fd = -1;
+    int stderr_fd = -1;
+    if (g_python_output) {
+        stdout_fd = STDOUT_FILENO;
+        stderr_fd = STDERR_FILENO;
     }
-    bool success = write_make_plot(args, f);
-    fclose(f);
+
+    pid_t pid;
+    char src_buf[4096];
+    format_plot_name(src_buf, sizeof(src_buf), args,
+                     args->plot_maker.src_extension);
+    char cmd_buf[4096];
+    snprintf(cmd_buf, sizeof(cmd_buf), "%s %s", g_python_executable, src_buf);
+    if (!shell_launch(cmd_buf, -1, stdout_fd, stderr_fd, &pid))
+        return false;
     sb_push(args->pids, pid);
-    return success;
+    return true;
 }
 
 static bool make_plots(const struct analysis *al,
@@ -1375,7 +1362,8 @@ static bool make_html_report(const struct analysis *al)
 
 static bool make_reports(const struct analysis *al)
 {
-    if (!do_export(al))
+    if (g_json_export_filename != NULL &&
+        !export_json(al, g_json_export_filename))
         return false;
 
     if (!g_plot && !g_html && !g_csv)
