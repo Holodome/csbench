@@ -329,7 +329,7 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static bool make_plot_src(struct plot_walker_args *args, FILE *f)
+static void make_plot_src(struct plot_walker_args *args, FILE *f)
 {
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
@@ -342,32 +342,42 @@ static bool make_plot_src(struct plot_walker_args *args, FILE *f)
     ctx.f = f;
     switch (args->plot_kind) {
     case PLOT_BAR:
-        return plot_maker->bar(al, &ctx);
+        plot_maker->bar(al, &ctx);
+        break;
     case PLOT_GROUP_BAR:
-        return plot_maker->group_bar(al, &ctx);
+        plot_maker->group_bar(al, &ctx);
+        break;
     case PLOT_GROUP_REGR:
-        return plot_maker->group_regr(al, args->grp_idx, &ctx);
+        plot_maker->group_regr(al, args->grp_idx, &ctx);
+        break;
     case PLOT_ALL_GROUPS_REGR:
-        return plot_maker->group_regr(al, (size_t)-1, &ctx);
+        plot_maker->group_regr(al, (size_t)-1, &ctx);
+        break;
     case PLOT_KDE_SMALL:
-        return plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
+        plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
+        break;
     case PLOT_KDE:
-        return plot_maker->kde(al->benches[args->bench_idx], meas,
-                               bench_name(base, args->bench_idx), &ctx);
+        plot_maker->kde(al->benches[args->bench_idx], meas,
+                        bench_name(base, args->bench_idx), &ctx);
+        break;
     case PLOT_KDE_CMP_SMALL:
-        return plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
+        plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
+        break;
     case PLOT_KDE_CMP:
-        return plot_maker->kde_cmp(al, args->compared_idx, &ctx);
+        plot_maker->kde_cmp(al, args->compared_idx, &ctx);
+        break;
     case PLOT_KDE_CMP_ALL_GROUPS:
-        return plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
+        plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
+        break;
     case PLOT_KDE_CMP_PER_VAL:
-        return plot_maker->kde_cmp_per_val(al, args->compared_idx,
-                                           args->val_idx, &ctx);
+        plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx,
+                                    &ctx);
+        break;
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx,
-                                                 args->val_idx, &ctx);
+        plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
+                                          &ctx);
+        break;
     }
-    ASSERT_UNREACHABLE();
 }
 
 static bool make_plot_src_walk(struct plot_walker_args *args)
@@ -380,9 +390,9 @@ static bool make_plot_src_walk(struct plot_walker_args *args)
         error("failed to create file %s", src_buf);
         return false;
     }
-    bool success = make_plot_src(args, src_file);
+    make_plot_src(args, src_file);
     fclose(src_file);
-    return success;
+    return true;
 }
 
 static bool make_plot_srcs(const struct analysis *al, enum plot_backend backend)

@@ -478,25 +478,25 @@ struct plot_maker {
     enum plot_backend backend;
     const char *src_extension;
 
-    bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
-    bool (*group_bar)(const struct meas_analysis *al,
+    void (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
+    void (*group_bar)(const struct meas_analysis *al,
                       struct plot_maker_ctx *ctx);
-    bool (*group_regr)(const struct meas_analysis *al, size_t idx,
+    void (*group_regr)(const struct meas_analysis *al, size_t idx,
                        struct plot_maker_ctx *ctx);
-    bool (*kde_small)(const struct distr *distr, const struct meas *meas,
+    void (*kde_small)(const struct distr *distr, const struct meas *meas,
                       struct plot_maker_ctx *ctx);
-    bool (*kde)(const struct distr *distr, const struct meas *meas,
+    void (*kde)(const struct distr *distr, const struct meas *meas,
                 const char *name, struct plot_maker_ctx *ctx);
-    bool (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
+    void (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
                           struct plot_maker_ctx *ctx);
-    bool (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
+    void (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
                     struct plot_maker_ctx *ctx);
-    bool (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
+    void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
                           struct plot_maker_ctx *ctx);
-    bool (*kde_cmp_per_val_small)(const struct meas_analysis *al,
+    void (*kde_cmp_per_val_small)(const struct meas_analysis *al,
                                   size_t grp_idx, size_t val_idx,
                                   struct plot_maker_ctx *ctx);
-    bool (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
+    void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
                             size_t val_idx, struct plot_maker_ctx *ctx);
 };
 
