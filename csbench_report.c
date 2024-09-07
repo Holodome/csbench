@@ -85,6 +85,7 @@ struct plot_walker_args {
     size_t val_idx;
     size_t compared_idx;
     struct plot_maker plot_maker;
+    size_t gnuplot_data_idx;
 };
 
 static bool json_escape(char *buf, size_t buf_size, const char *src)
@@ -348,7 +349,7 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static void write_make_plot(const struct plot_walker_args *args, FILE *f)
+static bool write_make_plot(struct plot_walker_args *args, FILE *f)
 {
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
@@ -359,60 +360,51 @@ static void write_make_plot(const struct plot_walker_args *args, FILE *f)
     struct plot_maker_ctx ctx = {0};
     ctx.image_filename = svg_buf;
     ctx.f = f;
+    ctx.gnuplot_data_idx = &args->gnuplot_data_idx;
     switch (args->plot_kind) {
     case PLOT_BAR:
-        plot_maker->bar(al, &ctx);
-        break;
+        return plot_maker->bar(al, &ctx);
     case PLOT_GROUP_BAR:
-        plot_maker->group_bar(al, &ctx);
-        break;
+        return plot_maker->group_bar(al, &ctx);
     case PLOT_GROUP_REGR:
-        plot_maker->group(al->group_analyses + args->grp_idx, 1, meas,
-                          base->var, &ctx);
-        break;
+        return plot_maker->group(al->group_analyses + args->grp_idx, 1, meas,
+                                 base->var, &ctx);
     case PLOT_ALL_GROUPS_REGR:
-        plot_maker->group(al->group_analyses, base->group_count, meas,
-                          base->var, &ctx);
-        break;
+        return plot_maker->group(al->group_analyses, base->group_count, meas,
+                                 base->var, &ctx);
     case PLOT_KDE_SMALL:
-        plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
-        break;
+        return plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
     case PLOT_KDE:
-        plot_maker->kde(al->benches[args->bench_idx], meas,
-                        bench_name(base, args->bench_idx), &ctx);
-        break;
+        return plot_maker->kde(al->benches[args->bench_idx], meas,
+                               bench_name(base, args->bench_idx), &ctx);
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP_ALL_GROUPS:
-        plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL:
-        plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx,
-                                    &ctx);
-        break;
+        return plot_maker->kde_cmp_per_val(al, args->compared_idx,
+                                           args->val_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
-                                          &ctx);
-        break;
+        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx,
+                                                 args->val_idx, &ctx);
     }
 }
 
 static bool dump_plot_walk(struct plot_walker_args *args)
 {
-    char py_buf[4096];
-    format_plot_name(py_buf, sizeof(py_buf), args, "py");
-    FILE *py_file = fopen(py_buf, "w");
-    if (py_file == NULL) {
-        error("failed to create file %s", py_buf);
+    char src_buf[4096];
+    format_plot_name(src_buf, sizeof(src_buf), args,
+                     args->plot_maker.src_extension);
+    FILE *src_file = fopen(src_buf, "w");
+    if (src_file == NULL) {
+        error("failed to create file %s", src_buf);
         return false;
     }
-    write_make_plot(args, py_file);
-    fclose(py_file);
-    return true;
+    bool success = write_make_plot(args, src_file);
+    fclose(src_file);
+    return success;
 }
 
 static bool dump_plot_src(const struct analysis *al,
@@ -439,10 +431,10 @@ static bool make_plot_walk(struct plot_walker_args *args)
         error("failed to launch python");
         return false;
     }
-    write_make_plot(args, f);
+    bool success = write_make_plot(args, f);
     fclose(f);
     sb_push(args->pids, pid);
-    return true;
+    return success;
 }
 
 static bool make_plots(const struct analysis *al,

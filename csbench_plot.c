@@ -221,14 +221,15 @@ static void make_bar_mpl(const struct bar_plot *plot,
             al->meas->name, plot->view.units_str, ctx->image_filename);
 }
 
-static void bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
+static bool bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
 {
     struct bar_plot plot;
     init_bar_plot(al, &plot);
     make_bar_mpl(&plot, ctx);
+    return true;
 }
 
-static void group_mpl(const struct group_analysis *als, size_t count,
+static bool group_mpl(const struct group_analysis *als, size_t count,
                       const struct meas *meas, const struct bench_var *var,
                       struct plot_maker_ctx *ctx)
 {
@@ -311,6 +312,7 @@ static void group_mpl(const struct group_analysis *als, size_t count,
             "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
             var->name, meas->name, view.units_str, ctx->image_filename);
+    return true;
 }
 
 static void construct_kde(const struct distr *distr, double *kde,
@@ -740,7 +742,7 @@ static void make_kde_cmp_plot(const struct kde_cmp_plot *plot,
             ctx->image_filename);
 }
 
-static void group_bar_mpl(const struct meas_analysis *al,
+static bool group_bar_mpl(const struct meas_analysis *al,
                           struct plot_maker_ctx *ctx)
 {
     const struct bench_var *var = al->base->var;
@@ -796,45 +798,50 @@ static void group_bar_mpl(const struct meas_analysis *al,
             "plt.legend(loc='best')\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             al->meas->name, view.units_str, ctx->image_filename);
+    return true;
 }
 
-static void kde_small_mpl(const struct distr *distr, const struct meas *meas,
+static bool kde_small_mpl(const struct distr *distr, const struct meas *meas,
                           struct plot_maker_ctx *ctx)
 {
     struct kde_plot plot = {0};
     init_kde_small_plot(distr, meas, &plot);
     make_kde_small_plot(&plot, ctx);
     free_kde_plot(&plot);
+    return true;
 }
 
-static void kde_mpl(const struct distr *distr, const struct meas *meas,
+static bool kde_mpl(const struct distr *distr, const struct meas *meas,
                     const char *name, struct plot_maker_ctx *ctx)
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, name, &plot);
     make_kde_plot(&plot, ctx);
     free_kde_plot(&plot);
+    return true;
 }
 
-static void kde_cmp_small_mpl(const struct meas_analysis *al, size_t bench_idx,
+static bool kde_cmp_small_mpl(const struct meas_analysis *al, size_t bench_idx,
                               struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_small_plot(al, bench_idx, &plot);
     make_kde_cmp_small_plot(&plot, ctx);
     free_kde_cmp_plot(&plot);
+    return true;
 }
 
-static void kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
+static bool kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
                         struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_plot(al, bench_idx, &plot);
     make_kde_cmp_plot(&plot, ctx);
     free_kde_cmp_plot(&plot);
+    return true;
 }
 
-static void kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
+static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
                                       size_t grp_idx, size_t val_idx,
                                       struct plot_maker_ctx *ctx)
 {
@@ -842,15 +849,17 @@ static void kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
     make_kde_cmp_small_plot(&plot, ctx);
     free_kde_cmp_plot(&plot);
+    return true;
 }
 
-static void kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx,
+static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx,
                                 size_t val_idx, struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
     make_kde_cmp_plot(&plot, ctx);
     free_kde_cmp_plot(&plot);
+    return true;
 }
 
 static size_t find_closest_lower_square(size_t x)
@@ -1063,13 +1072,14 @@ static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
             plot->cols, plot->cols * 5, plot->rows * 5, ctx->image_filename);
 }
 
-static void kde_cmp_group_mpl(const struct meas_analysis *al, size_t grp_idx,
+static bool kde_cmp_group_mpl(const struct meas_analysis *al, size_t grp_idx,
                               struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_group_plot plot = {0};
     init_kde_cmp_group_plot(al, grp_idx, &plot);
     make_kde_cmp_group_plot(&plot, ctx);
     free_kde_cmp_group_plot(&plot);
+    return true;
 }
 
 static bool python_found(void)
@@ -1140,48 +1150,53 @@ bool get_plot_backend(enum plot_backend *backend)
     return true;
 }
 
-static void bar_gnuplot(const struct meas_analysis *al,
-                        struct plot_maker_ctx *ctx)
+static bool make_bar_gnuplot(const struct bar_plot *plot,
+                             struct plot_maker_ctx *ctx)
 {
-    size_t count = al->base->bench_count;
-    double max = -INFINITY, min = INFINITY;
-    for (size_t i = 0; i < count; ++i) {
-        double v = al->benches[i]->mean.point;
-        if (v > max)
-            max = v;
-        if (v < min)
-            min = v;
+    const char *dat_filename =
+        csfmt("gnuplot-data/%zu.data", *ctx->gnuplot_data_idx++);
+    const struct meas_analysis *al = plot->al;
+    const struct plot_view *view = &plot->view;
+    FILE *dat = fopen("w", dat_filename);
+    if (dat == NULL) {
+        csfmtperror("failed to create file '%s/%s'", g_out_dir, dat_filename);
+        return false;
     }
-
-    struct plot_view view = {0};
-    init_plot_view(&al->meas->units, min, max, &view);
-
-    FILE *dat = NULL; // TODO
     size_t i = 0;
     foreach_bench_idx (bench_idx, al) {
         fprintf(dat, "%zu\t%s\t%g\t%g\n", i, bench_name(al->base, bench_idx),
-                al->benches[bench_idx]->mean.point * view.multiplier,
-                al->benches[bench_idx]->st_dev.point * view.multiplier);
+                al->benches[bench_idx]->mean.point * view->multiplier,
+                al->benches[bench_idx]->st_dev.point * view->multiplier);
         ++i;
     }
     fclose(dat);
     fprintf(ctx->f,
             "set boxwidth 0.5\n"
             "set style fill solid\n"
-            "plot \"data.dat\" using 1:3:($3-$3):($3+$4):xtic(2) with boxes "
+            "plot \"%s\" using 1:3:($3-$3):($3+$4):xtic(2) with boxes "
             "yerrorbar\n"
             "set output '%s'\n",
-            ctx->image_filename);
+            dat_filename, ctx->image_filename);
+    return true;
 }
 
-static void group_bar_gnuplot(const struct meas_analysis *al,
+static bool bar_gnuplot(const struct meas_analysis *al,
+                        struct plot_maker_ctx *ctx)
+{
+    struct bar_plot plot;
+    init_bar_plot(al, &plot);
+    return make_bar_gnuplot(&plot, ctx);
+}
+
+static bool group_bar_gnuplot(const struct meas_analysis *al,
                               struct plot_maker_ctx *ctx)
 {
     (void)al;
     (void)ctx;
+    return true;
 }
 
-static void group_gnuplot(const struct group_analysis *als, size_t count,
+static bool group_gnuplot(const struct group_analysis *als, size_t count,
                           const struct meas *meas, const struct bench_var *var,
                           struct plot_maker_ctx *ctx)
 {
@@ -1190,43 +1205,48 @@ static void group_gnuplot(const struct group_analysis *als, size_t count,
     (void)meas;
     (void)var;
     (void)ctx;
+    return true;
 }
 
-static void kde_small_gnuplot(const struct distr *distr,
+static bool kde_small_gnuplot(const struct distr *distr,
                               const struct meas *meas,
                               struct plot_maker_ctx *ctx)
 {
     (void)distr;
     (void)meas;
     (void)ctx;
+    return true;
 }
 
-static void kde_gnuplot(const struct distr *distr, const struct meas *meas,
+static bool kde_gnuplot(const struct distr *distr, const struct meas *meas,
                         const char *name, struct plot_maker_ctx *ctx)
 {
     (void)distr;
     (void)meas;
     (void)name;
     (void)ctx;
+    return true;
 }
 
-static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
+static bool kde_cmp_small_gnuplot(const struct meas_analysis *al,
                                   size_t bench_idx, struct plot_maker_ctx *ctx)
 {
     (void)al;
     (void)bench_idx;
     (void)ctx;
+    return true;
 }
 
-static void kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
+static bool kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
                             struct plot_maker_ctx *ctx)
 {
     (void)al;
     (void)bench_idx;
     (void)ctx;
+    return true;
 }
 
-static void kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
+static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
                                           size_t grp_idx, size_t val_idx,
                                           struct plot_maker_ctx *ctx)
 {
@@ -1234,9 +1254,10 @@ static void kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
     (void)grp_idx;
     (void)val_idx;
     (void)ctx;
+    return true;
 }
 
-static void kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
+static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
                                     size_t grp_idx, size_t val_idx,
                                     struct plot_maker_ctx *ctx)
 {
@@ -1244,20 +1265,23 @@ static void kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
     (void)grp_idx;
     (void)val_idx;
     (void)ctx;
+    return true;
 }
 
-static void kde_cmp_group_gnuplot(const struct meas_analysis *al,
+static bool kde_cmp_group_gnuplot(const struct meas_analysis *al,
                                   size_t grp_idx, struct plot_maker_ctx *ctx)
 {
     (void)al;
     (void)grp_idx;
     (void)ctx;
+    return true;
 }
 
 void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
 {
     switch (backend) {
     case PLOT_BACKEND_MATPLOTLIB:
+        maker->src_extension = "py";
         maker->bar = bar_mpl;
         maker->group_bar = group_bar_mpl;
         maker->group = group_mpl;
@@ -1270,6 +1294,7 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde_cmp_per_val = kde_cmp_per_val_mpl;
         break;
     case PLOT_BACKEND_GNUPLOT:
+        maker->src_extension = "gp";
         maker->bar = bar_gnuplot;
         maker->group_bar = group_bar_gnuplot;
         maker->group = group_gnuplot;
