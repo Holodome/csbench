@@ -7,3 +7,5 @@ AllowShortFunctionsOnASingleLine: All
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
 BreakBeforeBraces: Linux
+ForEachMacros: [foreach_bench_idx, foreach_group_by_avg_idx, foreach_per_val_group_idx,
+foreach_group_by_total_idx]

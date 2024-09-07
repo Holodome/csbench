@@ -238,8 +238,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
             }
         }
     }
-    for (size_t i = 0; i < bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         args->plot_kind = PLOT_KDE_SMALL;
         args->bench_idx = bench_idx;
         if ((g_desired_plots & MAKE_PLOT_KDE_SMALL) && !walk(args))
@@ -251,8 +250,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     }
     if (grp_count <= 1) {
         size_t reference_idx = al->bench_speedups_reference;
-        for (size_t i = 0; i < bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, al);
+        foreach_bench_idx (bench_idx, al) {
             if (bench_idx == reference_idx)
                 continue;
             args->compared_idx = bench_idx;
@@ -268,8 +266,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         size_t val_count = var->value_count;
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             size_t reference_idx = al->val_bench_speedups_references[val_idx];
-            for (size_t i = 0; i < grp_count; ++i) {
-                size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+            foreach_per_val_group_idx (grp_idx, val_idx, al) {
                 if (grp_idx == reference_idx)
                     continue;
                 args->compared_idx = grp_idx;
@@ -286,8 +283,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
 
         size_t reference_idx = al->groups_avg_reference;
-        for (size_t i = 0; i < grp_count; ++i) {
-            size_t grp_idx = ith_group_by_avg_idx(i, al);
+        foreach_group_by_avg_idx (grp_idx, al) {
             if (grp_idx == reference_idx)
                 continue;
             args->plot_kind = PLOT_KDE_CMP_ALL_GROUPS;
@@ -511,16 +507,14 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
     }
     if (g_desired_plots & MAKE_PLOT_KDE_SMALL) {
         fprintf(f, "### benchmark KDE (small)\n");
-        for (size_t i = 0; i < bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, al);
+        foreach_bench_idx (bench_idx, al) {
             fprintf(f, "- [benchmark %s KDE (small)](kde_small_%zu_%zu.svg)\n",
                     bench_name(base, bench_idx), bench_idx, meas_idx);
         }
     }
     if (g_desired_plots & MAKE_PLOT_KDE) {
         fprintf(f, "### benchmark KDE\n");
-        for (size_t i = 0; i < bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, al);
+        foreach_bench_idx (bench_idx, al) {
             fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n",
                     bench_name(base, bench_idx), bench_idx, meas_idx);
         }
@@ -530,8 +524,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
         const char *reference_name = bench_name(base, reference_idx);
         if (g_desired_plots & MAKE_PLOT_KDE_CMP_SMALL) {
             fprintf(f, "### benchmark KDE comparison (small)\n");
-            for (size_t i = 0; i < bench_count; ++i) {
-                size_t bench_idx = ith_bench_idx(i, al);
+            foreach_bench_idx (bench_idx, al) {
                 if (bench_idx == reference_idx)
                     continue;
                 fprintf(f,
@@ -543,8 +536,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
         }
         if (g_desired_plots & MAKE_PLOT_KDE_CMP) {
             fprintf(f, "### benchmark KDE comparison\n");
-            for (size_t i = 0; i < bench_count; ++i) {
-                size_t bench_idx = ith_bench_idx(i, al);
+            foreach_bench_idx (bench_idx, al) {
                 if (bench_idx == reference_idx)
                     continue;
                 fprintf(f,
@@ -567,8 +559,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                 const char *reference_name =
                     bench_group_name(base, reference_idx);
                 fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
-                for (size_t i = 0; i < grp_count; ++i) {
-                    size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+                foreach_per_val_group_idx (grp_idx, val_idx, al) {
                     if (grp_idx == reference_idx)
                         continue;
                     fprintf(f,
@@ -587,8 +578,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                 const char *reference_name =
                     bench_group_name(base, reference_idx);
                 fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
-                for (size_t i = 0; i < grp_count; ++i) {
-                    size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+                foreach_per_val_group_idx (grp_idx, val_idx, al) {
                     if (grp_idx == reference_idx)
                         continue;
                     fprintf(f,
@@ -603,8 +593,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
             size_t reference_idx = al->groups_avg_reference;
             const char *reference_name = bench_group_name(base, reference_idx);
             fprintf(f, "### groups comparison\n");
-            for (size_t i = 0; i < grp_count; ++i) {
-                size_t grp_idx = ith_group_by_avg_idx(i, al);
+            foreach_group_by_avg_idx (grp_idx, al) {
                 if (grp_idx == reference_idx)
                     continue;
                 fprintf(f,
@@ -945,8 +934,7 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             /******/ "<p>executed %zu <a href=\"#benches\">benchmarks:</a></p>"
             /******/ "<ol>",
             al->meas_idx, base->bench_count);
-    for (size_t i = 0; i < base->bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         fprintf(f,
                 "<li>"
                 "<a href=\"#bench-%zu\">"
@@ -975,8 +963,7 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
     size_t reference_idx = al->bench_speedups_reference;
     fprintf(f, "<p>performed <a href=\"#cmps\">comparisons</a>:<p>"
                "<ul>");
-    for (size_t i = 0; i < base->bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         if (bench_idx == reference_idx)
             continue;
         const struct speedup *speedup = al->bench_speedups + bench_idx;
@@ -1039,8 +1026,7 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
     }
     fprintf(f, "<table>"
                /**/ "<thead><tr><th></th>");
-    for (size_t i = 0; i < base->bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         if (reference_idx == bench_idx)
             continue;
         fprintf(f, "<th><tt>%s</tt></th>", bench_name(base, bench_idx));
@@ -1050,8 +1036,7 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 "<tr>"
                 "<td><tt>%s</tt></td>",
                 bench_name(base, reference_idx));
-        for (size_t i = 0; i < base->bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, al);
+        foreach_bench_idx (bench_idx, al) {
             if (reference_idx == bench_idx)
                 continue;
             fprintf(f, "<td><a href=\"#cmp-%zu\">comparison</a></td>",
@@ -1068,8 +1053,7 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                "</div>" // row
                "</div>" // #cmps
                "<div id=\"kde-cmps\">");
-    for (size_t i = 0; i < base->bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
         if (bench == reference)
             continue;
@@ -1268,8 +1252,7 @@ static void html_toc(const struct analysis *al, FILE *f)
                    "<li>"
                    /**/ "<a href=\"#benches\">benchmarks</a>"
                    /**/ "<ol>");
-        for (size_t i = 0; i < al->bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, mal);
+        foreach_bench_idx (bench_idx, mal) {
             fprintf(f, "<li><a href=\"#bench-%zu\"><tt>%s</tt></a></li>",
                     bench_idx, bench_name(al, bench_idx));
         }
@@ -1280,8 +1263,7 @@ static void html_toc(const struct analysis *al, FILE *f)
                        /**/ "<a href=\"#cmps\">comparisons</a>"
                        /**/ "<ol>");
             size_t reference_idx = mal->bench_speedups_reference;
-            for (size_t i = 0; i < al->bench_count; ++i) {
-                size_t bench_idx = ith_bench_idx(i, mal);
+            foreach_bench_idx (bench_idx, mal) {
                 if (bench_idx == reference_idx)
                     continue;
                 fprintf(f,
@@ -1326,8 +1308,7 @@ static void html_report(const struct analysis *al, FILE *f)
         html_var_analysis(mal, f);
         html_summary(mal, f);
         fprintf(f, "<div id=\"benches\">");
-        for (size_t i = 0; i < al->bench_count; ++i) {
-            size_t bench_idx = ith_bench_idx(i, mal);
+        foreach_bench_idx (bench_idx, mal) {
             const struct bench_analysis *bench = al->bench_analyses + bench_idx;
             fprintf(f,
                     "<div id=\"bench-%zu\">"
@@ -1541,8 +1522,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
     default:
         ASSERT_UNREACHABLE();
     }
-    for (size_t i = 0; i < base->bench_count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         if (bench_idx == reference_idx)
             continue;
         const struct speedup *speedup = al->bench_speedups + bench_idx;
@@ -1710,9 +1690,7 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
             if (base->group_count > 2)
                 printf("\n");
         }
-
-        for (size_t i = 0; i < base->group_count; ++i) {
-            size_t grp_idx = ith_per_val_group_idx(i, val_idx, al);
+        foreach_per_val_group_idx (grp_idx, val_idx, al) {
             if (grp_idx == reference_idx)
                 continue;
             const struct speedup *speedup =
@@ -1779,8 +1757,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
         if (base->group_count > 2)
             printf("\n");
     }
-    for (size_t i = 0; i < base->group_count; ++i) {
-        size_t grp_idx = ith_group_by_avg_idx(i, al);
+    foreach_group_by_avg_idx (grp_idx, al) {
         if (grp_idx == reference_idx)
             continue;
         const struct speedup *speedup = al->group_avg_speedups + grp_idx;
@@ -1844,8 +1821,7 @@ static void print_group_total_speedups(const struct meas_analysis *al,
         if (base->group_count > 2)
             printf("\n");
     }
-    for (size_t i = 0; i < base->group_count; ++i) {
-        size_t grp_idx = ith_group_by_total_idx(i, al);
+    foreach_group_by_total_idx (grp_idx, al) {
         if (grp_idx == reference_idx)
             continue;
         const struct speedup *speedup = al->group_total_speedups + grp_idx;

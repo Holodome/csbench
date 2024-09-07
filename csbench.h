@@ -820,4 +820,25 @@ static inline const char *bench_group_name(const struct analysis *al,
     return al->groups[grp_idx].name;
 }
 
+#define foreach_bench_idx(_idx, _al)                                           \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));              \
+         CSUNIQIFY(i) < (_al)->base->bench_count;                              \
+         ++CSUNIQIFY(i), _idx = ith_bench_idx(CSUNIQIFY(i), (_al)))
+
+#define foreach_group_by_avg_idx(_idx, _al)                                    \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));       \
+         CSUNIQIFY(i) < (_al)->base->group_count;                              \
+         ++CSUNIQIFY(i), _idx = ith_group_by_avg_idx(CSUNIQIFY(i), (_al)))
+
+#define foreach_group_by_total_idx(_idx, _al)                                  \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));     \
+         CSUNIQIFY(i) < (_al)->base->group_count;                              \
+         ++CSUNIQIFY(i), _idx = ith_group_by_total_idx(CSUNIQIFY(i), (_al)))
+
+#define foreach_per_val_group_idx(_idx, _val, _al)                             \
+    for (size_t CSUNIQIFY(i) = 0,                                              \
+                _idx = ith_per_val_group_idx(0, (_val), (_al));                \
+         CSUNIQIFY(i) < (_al)->base->group_count; ++CSUNIQIFY(i),              \
+                _idx = ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al)))
+
 #endif // CSBENCH_H

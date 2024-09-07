@@ -189,23 +189,19 @@ static void make_bar_mpl(const struct bar_plot *plot,
                          struct plot_maker_ctx *ctx)
 {
     const struct meas_analysis *al = plot->al;
-    size_t count = al->base->bench_count;
     fprintf(ctx->f, "data = [");
-    for (size_t i = 0; i < count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         fprintf(ctx->f, "%g,",
                 al->benches[bench_idx]->mean.point * plot->view.multiplier);
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "names = [");
-    for (size_t i = 0; i < count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         fprintf(ctx->f, "'%s',", bench_name(al->base, bench_idx));
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "err = [");
-    for (size_t i = 0; i < count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    foreach_bench_idx (bench_idx, al) {
         fprintf(ctx->f, "%g,",
                 al->benches[bench_idx]->st_dev.point * plot->view.multiplier);
     }
@@ -413,9 +409,10 @@ static void init_kde_plot_internal(const struct distr *distr,
     init_plot_view(&meas->units, min, max, &plot->view);
 
     double max_y = -INFINITY;
-    for (size_t i = 0; i < plot->kde.point_count; ++i)
+    for (size_t i = 0; i < plot->kde.point_count; ++i) {
         if (plot->kde.data[i] > max_y)
             max_y = plot->kde.data[i];
+    }
     plot->max_y = max_y;
 }
 
@@ -1160,11 +1157,12 @@ static void bar_gnuplot(const struct meas_analysis *al,
     init_plot_view(&al->meas->units, min, max, &view);
 
     FILE *dat = NULL; // TODO
-    for (size_t i = 0; i < count; ++i) {
-        size_t bench_idx = ith_bench_idx(i, al);
+    size_t i = 0;
+    foreach_bench_idx (bench_idx, al) {
         fprintf(dat, "%zu\t%s\t%g\t%g\n", i, bench_name(al->base, bench_idx),
                 al->benches[bench_idx]->mean.point * view.multiplier,
                 al->benches[bench_idx]->st_dev.point * view.multiplier);
+        ++i;
     }
     fclose(dat);
     fprintf(ctx->f,
