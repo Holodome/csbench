@@ -268,10 +268,10 @@ $b ls --no-default-meas --meas stime,utime > /dev/null || die
 $b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --param-range n/100/500/100 > /dev/null || die
 
 #
-# check --python-output option
+# check --plot-debug option
 #
 
-$b ls --plot --python-output > /dev/null || die 
+$b ls --plot --plot-debug > /dev/null || die 
 
 #
 # check input string multiplexing

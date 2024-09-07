@@ -315,8 +315,8 @@ static void print_help_and_exit(int rc)
     print_opt(
         "--progress-bar-interval", OPT_ARR("TIME"),
         "Set redraw interval of progress bar to <TIME> (default: 100ms).");
-    print_opt("--python-output", OPT_ARR(NULL),
-              "Do not silence python output when making plots.");
+    print_opt("--plot-debug", OPT_ARR(NULL),
+              "Do not silence output of program which is used to make plots.");
     print_opt("--python-executable", OPT_ARR("EXE"),
               "Use <EXE> as python executable when making plots (default: "
               "\"python3\").");
@@ -932,8 +932,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (opt_bool(argv, &cursor, "--shuffle-runs",
                             &g_shuffle_when_runnig)) {
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
-        } else if (opt_bool(argv, &cursor, "--python-output",
-                            &g_python_output)) {
+        } else if (opt_bool(argv, &cursor, "--plot-debug", &g_plot_debug)) {
         } else if (strcmp(argv[cursor], "--no-warmup") == 0) {
             ++cursor;
             // XXX: This is kind of a hack, but whatever

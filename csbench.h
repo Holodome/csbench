@@ -594,7 +594,7 @@ extern bool g_use_perf;
 extern bool g_progress_bar;
 // Use linear regression to estimate slope when doing parameterized benchmark.
 extern bool g_regr;
-extern bool g_python_output;
+extern bool g_plot_debug;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
 extern bool g_clear_out_dir;

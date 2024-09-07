@@ -418,7 +418,7 @@ static bool make_plot_walk(struct plot_walker_args *args)
 {
     int stdout_fd = -1;
     int stderr_fd = -1;
-    if (g_python_output) {
+    if (g_plot_debug) {
         stdout_fd = STDOUT_FILENO;
         stderr_fd = STDERR_FILENO;
     }
