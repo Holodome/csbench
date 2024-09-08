@@ -673,6 +673,12 @@ size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al);
 size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al);
 
 //
+// cesbench_html.c
+//
+
+bool make_html_report(const struct analysis *al);
+
+//
 // csbench_perf.c
 //
 

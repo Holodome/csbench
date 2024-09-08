@@ -19,7 +19,7 @@ all: csbench
 
 csbench: csbench.c csbench_perf.c csbench_plot.c csbench_utils.c \
 		 csbench_analyze.c csbench_report.c csbench_run.c csbench_serialize.c \
-		 csbench_cli.c
+		 csbench_cli.c csbench_html.c
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 install: csbench
