@@ -105,6 +105,8 @@ struct kde_plot {
     struct plot_view view;
     double max_y;
     bool is_small;
+    size_t displayed_severe_count;
+    size_t displayed_mild_count;
 };
 
 struct kde_cmp_plot {
@@ -237,6 +239,9 @@ static void kde_limits(const struct distr *distr, bool is_small, double *min,
         *min = fmax(mean - 6.0 * st_dev, distr->p1 - 1e-6);
         *max = fmin(mean + 6.0 * st_dev, distr->p99 + 1e-6);
     }
+    // Limit so we do not try to plot the points that are TOO far from mean
+    *min = fmax(*min, mean - (mean - distr->outliers.low_severe_x) * 2);
+    *max = fmin(*max, mean + (distr->outliers.high_severe_x - mean) * 2);
 }
 
 static void kde_cmp_limits(const struct distr *a, const struct distr *b,
@@ -387,6 +392,26 @@ static void init_kde_plot_internal(const struct distr *distr,
             max_y = plot->kde.data[i];
     }
     plot->max_y = max_y;
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < min || v > max)
+            continue;
+        if (!(v < distr->outliers.low_severe_x ||
+              v > distr->outliers.high_severe_x))
+            continue;
+        ++plot->displayed_severe_count;
+    }
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < min || v > max)
+            continue;
+        if (!((v > distr->outliers.low_severe_x &&
+               v < distr->outliers.low_mild_x) ||
+              (v < distr->outliers.high_severe_x &&
+               v > distr->outliers.high_mild_x)))
+            continue;
+        ++plot->displayed_mild_count;
+    }
 }
 
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
@@ -1183,6 +1208,7 @@ static void make_bar_gnuplot(const struct bar_plot *plot,
             "set errorbars linecolor black\n"
             "set bars front\n"
             "set grid ytics\n"
+            "set offset 0, 0, graph 0.05, 0\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
             ctx->image_filename, al->meas->name, view->units_str);
@@ -1223,6 +1249,7 @@ static void make_group_bar_gnuplot(const struct group_bar_plot *plot,
             "set errorbars linecolor black\n"
             "set bars front\n"
             "set grid ytics\n"
+            "set offset 0, 0, graph 0.05, 0\n"
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
@@ -1370,32 +1397,36 @@ static void make_kde_plot_gnuplot(struct kde_plot *plot,
         fprintf(ctx->f, "%g\t%g\n", (min + step * i) * view->multiplier,
                 kde->data[i]);
     fprintf(ctx->f, "EOD\n");
-    fprintf(ctx->f, "$Severe <<EOD\n");
-    for (size_t i = 0; i < distr->count; ++i) {
-        double v = distr->data[i];
-        if (v < min || v > max)
-            continue;
-        if (!(v < distr->outliers.low_severe_x ||
-              v > distr->outliers.high_severe_x))
-            continue;
-        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
-                (double)(i + 1) / distr->count * plot->max_y);
+    if (plot->displayed_severe_count) {
+        fprintf(ctx->f, "$Severe <<EOD\n");
+        for (size_t i = 0; i < distr->count; ++i) {
+            double v = distr->data[i];
+            if (v < min || v > max)
+                continue;
+            if (!(v < distr->outliers.low_severe_x ||
+                  v > distr->outliers.high_severe_x))
+                continue;
+            fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                    (double)(i + 1) / distr->count * plot->max_y);
+        }
+        fprintf(ctx->f, "EOD\n");
     }
-    fprintf(ctx->f, "EOD\n");
-    fprintf(ctx->f, "$Mild <<EOD\n");
-    for (size_t i = 0; i < distr->count; ++i) {
-        double v = distr->data[i];
-        if (v < min || v > max)
-            continue;
-        if (!((v > distr->outliers.low_severe_x &&
-               v < distr->outliers.low_mild_x) ||
-              (v < distr->outliers.high_severe_x &&
-               v > distr->outliers.high_mild_x)))
-            continue;
-        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
-                (double)(i + 1) / distr->count * plot->max_y);
+    if (plot->displayed_mild_count) {
+        fprintf(ctx->f, "$Mild <<EOD\n");
+        for (size_t i = 0; i < distr->count; ++i) {
+            double v = distr->data[i];
+            if (v < min || v > max)
+                continue;
+            if (!((v > distr->outliers.low_severe_x &&
+                   v < distr->outliers.low_mild_x) ||
+                  (v < distr->outliers.high_severe_x &&
+                   v > distr->outliers.high_mild_x)))
+                continue;
+            fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                    (double)(i + 1) / distr->count * plot->max_y);
+        }
+        fprintf(ctx->f, "EOD\n");
     }
-    fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f, "$Reg <<EOD\n");
     for (size_t i = 0; i < distr->count; ++i) {
         double v = distr->data[i];
@@ -1452,11 +1483,16 @@ static void make_kde_plot_gnuplot(struct kde_plot *plot,
             "linecolor "
             "'blue', \\\n"
             "\t1/0 lc 'blue' t 'mean', \\\n"
-            "\t$Reg using 1:2 with points ls 1 title '\"clean\" sample', "
-            "\\\n"
-            "\t$Mild using 1:2 with points ls 2 title 'mild outliers', \\\n"
-            "\t$Severe using 1:2 with points ls 3 title 'severe "
-            "outliers'\n");
+            "\t$Reg using 1:2 with points ls 1 title '\"clean\" sample'");
+    if (plot->displayed_mild_count)
+        fprintf(
+            ctx->f,
+            ",\\\n\t$Mild using 1:2 with points ls 2 title 'mild outliers'");
+    if (plot->displayed_severe_count)
+        fprintf(ctx->f,
+                ",\\\n\t$Severe using 1:2 with points ls 3 title 'severe "
+                "outliers'");
+    fprintf(ctx->f, "\n");
 }
 
 static void make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
