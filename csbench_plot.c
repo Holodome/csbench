@@ -1463,9 +1463,11 @@ static void make_kde_plot_gnuplot(struct kde_plot *plot,
             "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
             "set style line 3 lc rgb 'red' pt 7 ps 0.25\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n",
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set title '%s'\n",
             ctx->image_filename, plot->meas->name, view->units_str,
-            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier);
+            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
+            plot->title);
     if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
         fprintf(
             ctx->f,
@@ -1512,8 +1514,36 @@ static void kde_gnuplot(const struct distr *distr, const struct meas *meas,
 static void make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
                                             struct plot_maker_ctx *ctx)
 {
-    (void)plot;
-    (void)ctx;
+    assert(plot->is_small);
+    size_t point_count = plot->point_count;
+    double min = plot->min;
+    double step = plot->step;
+    const struct kde_data *a_kde = &plot->a_kde;
+    const struct kde_data *b_kde = &plot->b_kde;
+    const struct plot_view *view = &plot->view;
+
+    fprintf(ctx->f, "$Data <<EOD\n");
+    for (size_t i = 0; i < point_count; ++i)
+        fprintf(ctx->f, "%g\t%g\t%g\n", (min + step * i) * view->multiplier,
+                a_kde->data[i], b_kde->data[i]);
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f,
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set ylabel 'probability density'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25\n"
+            "unset ytics\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "plot $Data using 1:2 with filledcurves above t '%s' linecolor "
+            "'blue', \\\n"
+            "\t'' using 1:3 with filledcurves above t '%s' lc 'orange'\n",
+            ctx->image_filename, plot->al->meas->name, view->units_str,
+            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
+            plot->a_name, plot->b_name);
 }
 
 static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
@@ -1528,8 +1558,64 @@ static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
 static void make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
                                       struct plot_maker_ctx *ctx)
 {
-    (void)plot;
-    (void)ctx;
+    assert(!plot->is_small);
+    size_t point_count = plot->point_count;
+    double min = plot->min;
+    double max = plot->max;
+    double step = plot->step;
+    const struct kde_data *a_kde = &plot->a_kde;
+    const struct kde_data *b_kde = &plot->b_kde;
+    const struct plot_view *view = &plot->view;
+
+    fprintf(ctx->f, "$Kde <<EOD\n");
+    for (size_t i = 0; i < point_count; ++i)
+        fprintf(ctx->f, "%g\t%g\t%g\n", (min + step * i) * view->multiplier,
+                a_kde->data[i], b_kde->data[i]);
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Pts1 <<EOD\n");
+    for (size_t i = 0; i < plot->a->count; ++i) {
+        double v = plot->a->data[i];
+        if (v < min || v > max)
+            continue;
+        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                (double)(i + 1) / plot->a->count * plot->max_y);
+    }
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Pts2 <<EOD\n");
+    for (size_t i = 0; i < plot->b->count; ++i) {
+        double v = plot->b->data[i];
+        if (v < min || v > max)
+            continue;
+        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                (double)(i + 1) / plot->b->count * plot->max_y);
+    }
+    fprintf(ctx->f, "EOD\n");
+    fprintf(
+        ctx->f,
+        "set term svg enhanced background rgb 'white'\n"
+        "set output '%s'\n"
+        "set ylabel 'probability density, runs'\n"
+        "set xlabel '%s [%s]'\n"
+        "set style fill solid 0.25\n"
+        "unset ytics\n"
+        "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+        "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+        "set offset 0, 0, graph 0.1, 0\n"
+        "set title '%s'\n"
+        "plot $Kde using 1:2 with filledcurves above t '%s PDF' linecolor "
+        "'blue', \\\n"
+        "\t$Pts1 using 1:2 with points ls 1 t '%s sample', \\\n"
+        "\t1/0 lc 'blue' t '%s mean', \\\n"
+        "\t$Kde using 1:3 with filledcurves above t '%s PDF' lc 'orange', \\\n"
+        "\t$Pts2 using 1:2 with points ls 2 t '%s sample', \\\n"
+        "\t1/0 lc 'orange' t '%s mean'\n",
+        ctx->image_filename, plot->al->meas->name, view->units_str,
+        a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+        b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
+        plot->title, plot->a_name, plot->a_name, plot->a_name, plot->b_name,
+        plot->b_name, plot->b_name);
 }
 
 static void kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
