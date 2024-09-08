@@ -1013,8 +1013,8 @@ static void free_kde_cmp_group_plot(struct kde_cmp_group_plot *plot)
     free(plot->cmps);
 }
 
-static void make_kde_cmp_group_plot(const struct kde_cmp_group_plot *plot,
-                                    struct plot_maker_ctx *ctx)
+static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
+                                        struct plot_maker_ctx *ctx)
 {
     const struct meas_analysis *al = plot->al;
     size_t val_count = plot->val_count;
@@ -1161,7 +1161,7 @@ static void kde_cmp_group_mpl(const struct meas_analysis *al, size_t grp_idx,
 {
     struct kde_cmp_group_plot plot = {0};
     init_kde_cmp_group_plot(al, grp_idx, &plot);
-    make_kde_cmp_group_plot(&plot, ctx);
+    make_kde_cmp_group_plot_mpl(&plot, ctx);
     free_kde_cmp_group_plot(&plot);
 }
 
@@ -1256,9 +1256,11 @@ static void make_bar_gnuplot(const struct bar_plot *plot,
             "set bars front\n"
             "set grid ytics\n"
             "set ylabel '%s [%s]'\n"
-            "set yrange [0:*]\n"
-            "plot $Data using 2:3:xtic(1) linecolor 'blue' notitle\n",
+            "set yrange [0:*]\n",
             ctx->image_filename, al->meas->name, view->units_str);
+    if (view->logscale)
+        fprintf(ctx->f, "set logscale y\n");
+    fprintf(ctx->f, "plot $Data using 2:3:xtic(1) linecolor 'blue' notitle\n");
 }
 
 static void bar_gnuplot(const struct meas_analysis *al,
@@ -1281,20 +1283,76 @@ static void make_group_bar_gnuplot(const struct group_bar_plot *plot,
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
         fprintf(ctx->f, "\"%s\"", var->values[val_idx]);
         foreach_group_by_avg_idx (grp_idx, al) {
-            fprintf(ctx->f, "\t%g",
-                    al->group_analyses[grp_idx].data[val_idx].mean *
-                        view->multiplier);
+            fprintf(
+                ctx->f, "\t%g\t%g",
+                al->group_analyses[grp_idx].data[val_idx].mean *
+                    view->multiplier,
+                al->group_analyses[grp_idx].data[val_idx].distr->st_dev.point *
+                    view->multiplier);
         }
         fprintf(ctx->f, "\n");
     }
     fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f,
-            "set boxwidth 0.5\n"
-            "set style fill solid\n"
-            "plot $Data using 3:xtic(2) with boxes "
-            "yerrorbar\n"
-            "set output '%s'\n",
-            ctx->image_filename);
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set boxwidth 1\n"
+            "set style fill solid 0.6\n"
+            "set style histogram errorbars gap 2 lw 1\n"
+            "set style data histograms\n"
+            "set errorbars linecolor black\n"
+            "set bars front\n"
+            "set grid ytics\n"
+            "set xlabel '%s'\n"
+            "set ylabel '%s [%s]'\n"
+            "set yrange [0:*]\n",
+            ctx->image_filename, var->name, al->meas->name, view->units_str);
+    if (view->logscale)
+        fprintf(ctx->f, "set logscale y\n");
+    fprintf(ctx->f, "plot $Data using 2:3:xtic(1) linecolor 'blue' title '%s'",
+            bench_group_name(base, ith_group_by_avg_idx(0, al)));
+    size_t i = 1;
+    foreach_group_by_avg_idx (grp_idx, al) {
+        if (i++ == 1)
+            continue;
+        const char *color = NULL;
+        switch ((i - 2) % 10) {
+        case 0:
+            color = "blue";
+            break;
+        case 1:
+            color = "orange";
+            break;
+        case 2:
+            color = "green";
+            break;
+        case 3:
+            color = "red";
+            break;
+        case 4:
+            color = "purple";
+            break;
+        case 5:
+            color = "brown";
+            break;
+        case 6:
+            color = "pink";
+            break;
+        case 7:
+            color = "gray";
+            break;
+        case 8:
+            color = "yellow";
+            break;
+        case 9:
+            color = "cyan";
+            break;
+        }
+        fprintf(ctx->f, ",\\\n\t'' using %zu:%zu linecolor '%s' title '%s'",
+                (i - 1) * 2, 1 + (i - 1) * 2, color,
+                bench_group_name(base, grp_idx));
+    }
+    fprintf(ctx->f, "\n");
 }
 
 static void group_bar_gnuplot(const struct meas_analysis *al,
@@ -1344,11 +1402,13 @@ static void make_group_regr_gnuplot(const struct group_regr_plot *plot,
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
             "set grid\n"
-            "set offset graph 0.1, graph 0.1, graph 0.1, graph 0.1\n"
-            "plot $Data1 using 2:1 with points notitle, \\\n"
-            "\t$Data2 using 2:1 with lines notitle\n",
+            "set offset graph 0.1, graph 0.1, graph 0.1, graph 0.1\n",
             ctx->image_filename, var->name, plot->al->meas->name,
             view->units_str);
+    if (view->logscale)
+        fprintf(ctx->f, "set logscale y\n");
+    fprintf(ctx->f, "plot $Data1 using 2:1 with points notitle, \\\n"
+                    "\t$Data2 using 2:1 with lines notitle\n");
 }
 
 static void group_regr_gnuplot(const struct meas_analysis *al, size_t idx,
@@ -1455,7 +1515,7 @@ static void make_kde_plot_gnuplot(struct kde_plot *plot,
     }
     fprintf(ctx->f, "EOD\n");
     fprintf(ctx->f,
-            "set term svg enhanced background rgb 'white'\n"
+            "set term svg enhanced background rgb 'white' size 960,720\n"
             "set output '%s'\n"
             "set ylabel 'probability density, runs'\n"
             "set xlabel '%s [%s]'\n"
@@ -1597,7 +1657,7 @@ static void make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
     fprintf(ctx->f, "EOD\n");
     fprintf(
         ctx->f,
-        "set term svg enhanced background rgb 'white'\n"
+        "set term svg enhanced background rgb 'white' size 960,720\n"
         "set output '%s'\n"
         "set ylabel 'probability density, runs'\n"
         "set xlabel '%s [%s]'\n"
@@ -1654,12 +1714,106 @@ static void kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
     free_kde_cmp_plot(&plot);
 }
 
+static void
+make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
+                                struct plot_maker_ctx *ctx)
+{
+    const struct meas_analysis *al = plot->al;
+    size_t val_count = plot->val_count;
+    size_t point_count = plot->point_count;
+
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        const struct kde_cmp_val *cmp = plot->cmps + val_idx;
+        const struct plot_view *view = &cmp->view;
+        const struct distr *a = cmp->a;
+        const struct distr *b = cmp->b;
+        fprintf(ctx->f, "$Kde%zu <<EOD\n", val_idx);
+        for (size_t i = 0; i < point_count; ++i)
+            fprintf(ctx->f, "%g\t%g\t%g\n",
+                    (cmp->min + cmp->step * i) * view->multiplier,
+                    cmp->a_kde.data[i], cmp->b_kde.data[i]);
+        fprintf(ctx->f, "EOD\n");
+        fprintf(ctx->f, "$PtsA%zu <<EOD\n", val_idx);
+        for (size_t i = 0; i < a->count; ++i) {
+            double v = a->data[i];
+            if (v < cmp->min || v > cmp->max)
+                continue;
+            fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                    (double)(i + 1) / a->count * cmp->max_y);
+        }
+        fprintf(ctx->f, "EOD\n");
+        fprintf(ctx->f, "$PtsB%zu <<EOD\n", val_idx);
+        for (size_t i = 0; i < b->count; ++i) {
+            double v = b->data[i];
+            if (v < cmp->min || v > cmp->max)
+                continue;
+            fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                    (double)(i + 1) / b->count * cmp->max_y);
+        }
+        fprintf(ctx->f, "EOD\n");
+    }
+    fprintf(ctx->f,
+            "set term svg enhanced background rgb 'white' size %zu,%zu\n"
+            "set output '%s'\n"
+            "set multiplot layout %zu,%zu rowsfirst\n",
+            plot->cols * 400, plot->rows * 400, ctx->image_filename, plot->rows,
+            plot->cols);
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        const struct kde_cmp_val *cmp = plot->cmps + val_idx;
+        const struct plot_view *view = &cmp->view;
+        const struct kde_data *a_kde = &cmp->a_kde;
+        const struct kde_data *b_kde = &cmp->b_kde;
+        char title[4096];
+        double p_value =
+            al->val_bench_speedups_references[val_idx] == plot->a_idx
+                ? al->val_p_values[val_idx][plot->b_idx]
+                : al->val_p_values[val_idx][plot->a_idx];
+        double speedup =
+            al->val_bench_speedups_references[val_idx] == plot->a_idx
+                ? positive_speedup(al->val_bench_speedups[val_idx] +
+                                   plot->b_idx)
+                : positive_speedup(al->val_bench_speedups[val_idx] +
+                                   plot->a_idx);
+        snprintf(title, sizeof(title), "%s=%s p=%.2f diff=%.3f",
+                 al->base->var->name, al->base->var->values[val_idx], p_value,
+                 speedup);
+        fprintf(
+            ctx->f,
+            "set ylabel 'probability density, runs'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25\n"
+            "unset ytics\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+            "set xrange [%g:%g]\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "set title '%s'\n"
+            "plot $Kde%zu using 1:2 with filledcurves above t '%s' linecolor "
+            "'blue', \\\n"
+            "\t$PtsA%zu using 1:2 with points ls 1 notitle, \\\n"
+            "\t$Kde%zu using 1:3 with filledcurves above t '%s' lc 'orange', "
+            "\\\n"
+            "\t$PtsB%zu using 1:2 with points ls 2 notitle\n",
+            plot->al->meas->name, view->units_str,
+            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
+            cmp->min * view->multiplier, cmp->max * view->multiplier, title,
+            val_idx, bench_group_name(al->base, plot->a_idx), val_idx, val_idx,
+            bench_group_name(al->base, plot->b_idx), val_idx);
+    }
+
+    fprintf(ctx->f, "unset multiplot\n");
+}
+
 static void kde_cmp_group_gnuplot(const struct meas_analysis *al,
                                   size_t grp_idx, struct plot_maker_ctx *ctx)
 {
-    (void)al;
-    (void)grp_idx;
-    (void)ctx;
+    struct kde_cmp_group_plot plot = {0};
+    init_kde_cmp_group_plot(al, grp_idx, &plot);
+    make_kde_cmp_group_plot_gnuplot(&plot, ctx);
+    free_kde_cmp_group_plot(&plot);
 }
 
 void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
