@@ -331,9 +331,9 @@ static void html_regr_bench_group(const struct group_analysis *al,
             "</div>");
 }
 
-static void html_var_analysis(const struct meas_analysis *al, FILE *f)
+static void html_regr(const struct meas_analysis *al, FILE *f)
 {
-    return;
+    assert(0); // TODO
     const struct analysis *base = al->base;
     if (!base->group_count)
         return;
@@ -1053,7 +1053,7 @@ static void html_report(const struct analysis *al, FILE *f)
         if (al->meas[meas_idx].is_secondary)
             continue;
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
-        html_var_analysis(mal, f);
+        html_regr(mal, f);
         html_summary(mal, f);
         html_benches(mal, f);
         html_compare(mal, f);

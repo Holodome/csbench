@@ -733,6 +733,8 @@ void format_meas(char *buf, size_t buf_size, double value,
 const char *outliers_variance_str(double fraction);
 const char *big_o_str(enum big_o complexity);
 
+// This function is placed to csbench_utils.c instead of csbench_analyze.c to
+// facilitate inlining and optimization, because it is quite hot.
 void estimate_distr(const double *data, size_t count, size_t nresamp,
                     struct distr *distr);
 
@@ -743,12 +745,10 @@ double ttest(const double *a, size_t n1, const double *b, size_t n2,
 // Mann–Whitney U test
 double mwu(const double *a, size_t n1, const double *b, size_t n2);
 
+// Ordinary least squares
 double ols_approx(const struct ols_regress *regress, double n);
 void ols(const double *x, const double *y, size_t count,
          struct ols_regress *result);
-
-// Fisher–Yates shuffle algorithm
-void shuffle(size_t *arr, size_t count);
 
 bool process_wait_finished_correctly(pid_t pid, bool silent);
 bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
@@ -760,10 +760,6 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
 bool rm_rf_dir(const char *name);
 
 int tmpfile_fd(void);
-
-// Hand-writte strlcpy. Even if strlcpy is available on given platform,
-// we resort to this for portability.
-size_t csstrlcpy(char *dst, const char *src, size_t size);
 
 __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
                                                           const char *fmt, ...);

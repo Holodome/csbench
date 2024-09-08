@@ -400,12 +400,20 @@ static int compare_doubles(const void *a, const void *b)
     return 0;
 }
 
-static void resample(const double *src, size_t count, double *dst)
+static uint32_t random_bounded(uint32_t range, uint64_t *entropy)
+{
+    // https://lemire.me/blog/2016/06/30/fast-random-shuffling/
+    uint64_t random32bit = (uint64_t)pcg32_fast(entropy);
+    uint64_t multiresult = random32bit * range;
+    return multiresult >> 32;
+}
+
+void resample(const double *src, size_t count, double *dst)
 {
     uint64_t entropy = pcg32_fast(&g_rng_state);
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
-        dst[i] = src[pcg32_fast(&entropy) % count];
+        dst[i] = src[random_bounded(count, &entropy)];
     g_rng_state = entropy;
 }
 
@@ -447,17 +455,6 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
     st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / (count - 1));
     st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / (count - 1));
     free(tmp_means);
-}
-
-void shuffle(size_t *arr, size_t count)
-{
-    for (size_t i = 0; i < count - 1; ++i) {
-        size_t mod = count - i;
-        size_t j = pcg32_fast(&g_rng_state) % mod + i;
-        size_t tmp = arr[i];
-        arr[i] = arr[j];
-        arr[j] = tmp;
-    }
 }
 
 static double t_statistic(const double *a, size_t n1, const double *b,
@@ -823,17 +820,6 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
     if (success)
         success = process_wait_finished_correctly(pid, silent);
     return success;
-}
-
-size_t csstrlcpy(char *dst, const char *src, size_t size)
-{
-    size_t ret = strlen(src);
-    if (size) {
-        size_t len = (ret >= size) ? size - 1 : ret;
-        memcpy(dst, src, len);
-        dst[len] = '\0';
-    }
-    return ret;
 }
 
 #if defined(__APPLE__)
