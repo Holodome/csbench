@@ -1037,8 +1037,10 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
     foreach_group_by_avg_idx (grp_idx, al) {
         fprintf(f,
                 "<li>"
-                "<tt>%s</tt>",
-                bench_group_name(base, grp_idx));
+                "<a href=\"#bench-group-%zu-%zu\">"
+                /**/ "<tt>%s</tt>"
+                "</a>",
+                grp_idx, al->meas_idx, bench_group_name(base, grp_idx));
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
@@ -1433,8 +1435,8 @@ static void html_toc_bench(const struct analysis *al, FILE *f)
                    /**/ "<a href=\"#benches\">benchmarks</a>"
                    /**/ "<ol>");
         foreach_bench_idx (bench_idx, mal) {
-            fprintf(f, "<li><a href=\"#bench-%zu\"><tt>%s</tt></a></li>",
-                    bench_idx, bench_name(al, bench_idx));
+            fprintf(f, "<li><a href=\"#bench-%zu-%zu\"><tt>%s</tt></a></li>",
+                    bench_idx, mal->meas_idx, bench_name(al, bench_idx));
         }
         fprintf(f, "</ol>"
                    "</li>");
@@ -1477,8 +1479,10 @@ static void html_toc_group(const struct analysis *al, FILE *f)
         foreach_group_by_avg_idx (grp_idx, mal) {
             fprintf(f,
                     "<li>"
-                    "<tt>%s</tt>",
-                    bench_group_name(al, grp_idx));
+                    "<a href=\"#bench-group-%zu-%zu\">"
+                    /**/ "<tt>%s</tt>"
+                    "</a>",
+                    grp_idx, mal->meas_idx, bench_group_name(al, grp_idx));
             fprintf(f, "<ol>");
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
                 fprintf(f,
@@ -1528,6 +1532,47 @@ static void html_toc(const struct analysis *al, FILE *f)
     fprintf(f, "</div>");
 }
 
+static void html_benches(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    fprintf(f, "<div id=\"benches\">");
+    if (base->group_count <= 1) {
+        foreach_bench_idx (bench_idx, al) {
+            const struct bench_analysis *bench =
+                base->bench_analyses + bench_idx;
+            fprintf(f,
+                    "<div id=\"bench-%zu-%zu\">"
+                    "<h2>benchmark <tt>%s</tt></h2>",
+                    bench_idx, al->meas_idx, bench_name(base, bench_idx));
+            html_distr(bench, bench_idx, al->meas_idx, base, f);
+            fprintf(f, "</div>");
+        }
+    } else {
+        const struct bench_var *var = base->var;
+        size_t val_count = var->value_count;
+        foreach_group_by_avg_idx (grp_idx, al) {
+            const struct group_analysis *grp_al = al->group_analyses + grp_idx;
+            fprintf(f,
+                    "<div id=\"bench-group-%zu-%zu\">"
+                    "<h2>benchmark group <tt>%s</tt></h2>",
+                    grp_idx, al->meas_idx, bench_group_name(base, grp_idx));
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+                size_t bench_idx = grp_al->group->cmd_idxs[val_idx];
+                const struct bench_analysis *bench_al =
+                    base->bench_analyses + bench_idx;
+                fprintf(f,
+                        "<div id=\"bench-%zu-%zu-%zu\">"
+                        "<h3><tt>%s</tt></h3>",
+                        grp_idx, val_idx, al->meas_idx, bench_al->name);
+                html_distr(bench_al, bench_idx, al->meas_idx, base, f);
+                fprintf(f, "</div>");
+            }
+            fprintf(f, "</div>");
+        }
+    }
+    fprintf(f, "</div>");
+}
+
 static void html_report(const struct analysis *al, FILE *f)
 {
     fprintf(f,
@@ -1553,17 +1598,7 @@ static void html_report(const struct analysis *al, FILE *f)
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
         html_var_analysis(mal, f);
         html_summary(mal, f);
-        fprintf(f, "<div id=\"benches\">");
-        foreach_bench_idx (bench_idx, mal) {
-            const struct bench_analysis *bench = al->bench_analyses + bench_idx;
-            fprintf(f,
-                    "<div id=\"bench-%zu\">"
-                    "<h2>benchmark <tt>%s</tt></h2>",
-                    bench_idx, bench_name(al, bench_idx));
-            html_distr(bench, bench_idx, meas_idx, al, f);
-            fprintf(f, "</div>");
-        }
-        fprintf(f, "</div>");
+        html_benches(mal, f);
         html_compare_benches(mal, f);
     }
     fprintf(f, "</body>");
