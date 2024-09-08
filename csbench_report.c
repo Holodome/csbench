@@ -1177,18 +1177,14 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
         html_group_summary(al, f);
 }
 
-static void html_compare_benches(const struct meas_analysis *al, FILE *f)
+static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    if (base->bench_count == 1)
-        return;
     fprintf(f, "<div id=\"cmps\">"
                /**/ "<div class=\"row\">"
                /****/ "<div class=\"col\">"
-               /******/ "<h3>comparisons</h3>");
+               /******/ "<h2>comparisons</h2>");
     size_t reference_idx = al->bench_speedups_reference;
-    const struct bench_analysis *reference =
-        base->bench_analyses + reference_idx;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
@@ -1235,7 +1231,16 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                "</div>" // col
                "</div>" // row
                "</div>" // #cmps
-               "<div id=\"kde-cmps\">");
+    );
+}
+
+static void html_compare_benches_kdes(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    size_t reference_idx = al->bench_speedups_reference;
+    const struct bench_analysis *reference =
+        base->bench_analyses + reference_idx;
+    fprintf(f, "<div id=\"kde-cmps\">");
     foreach_bench_idx (bench_idx, al) {
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
         if (bench == reference)
@@ -1245,8 +1250,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
         const struct distr *a_distr = al->benches[reference_idx];
         const struct distr *b_distr = al->benches[bench_idx];
         fprintf(f,
-                "<div id=\"cmp-%zu\">"
-                /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
+                "<div id=\"cmp-%zu-%zu\">"
+                /**/ "<h3><tt>%s</tt> vs <tt>%s</tt></h3>"
                 /**/ "<div class=\"row\">"
                 /****/ "<div class=\"col\">"
                 /******/ "<a href=\"kde_cmp_%zu_%zu.svg\">"
@@ -1263,8 +1268,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 /************/ "<th><tt>%s</tt></th>"
                 /**********/ "</tr></thead>"
                 /**********/ "<tbody>",
-                bench_idx, a_name, b_name, bench_idx, al->meas_idx, bench_idx,
-                al->meas_idx, a_name, b_name);
+                bench_idx, al->meas_idx, a_name, b_name, bench_idx,
+                al->meas_idx, bench_idx, al->meas_idx, a_name, b_name);
         char a_mean[256], b_mean[256], a_st_dev[256], b_st_dev[256];
         format_meas(a_mean, sizeof(a_mean), a_distr->mean.point,
                     &al->meas->units);
@@ -1327,7 +1332,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
             switch (g_stat_test) {
             case STAT_TEST_MWU:
                 if (p_value < 0.05)
-                    fprintf(f, "p-value < 0.05 &#8658 assuming distribution is "
+                    fprintf(f, "p-value < 0.05 &#8658 assuming "
+                               "distribution is "
                                "different");
                 else
                     fprintf(f, "p-value > 0.05 &#8658 assuming "
@@ -1338,7 +1344,8 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                     fprintf(f, "p-value < 0.05 &#8658 assuming means are "
                                "different");
                 else
-                    fprintf(f, "p-value > 0.05 &#8658 assuming means are same");
+                    fprintf(f, "p-value > 0.05 &#8658 assuming "
+                               "means are same");
                 break;
             default:
                 ASSERT_UNREACHABLE();
@@ -1353,7 +1360,376 @@ static void html_compare_benches(const struct meas_analysis *al, FILE *f)
                 "</div>" // kde-cmp
         );
     }
-    fprintf(f, "</div>");
+    fprintf(f, "</div>"); // kde-cmps
+}
+
+static void html_compare_benches(const struct meas_analysis *al, FILE *f)
+{
+    html_compare_benches_nav(al, f);
+    html_compare_benches_kdes(al, f);
+}
+
+static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    fprintf(f, "<div id=\"cmps\">"
+               /**/ "<div class=\"row\">"
+               /****/ "<div class=\"col\">"
+               /******/ "<h2>comparisons</h2>"
+               /******/ "<h4>groups comparison</h4>");
+    {
+        size_t reference_idx = al->groups_avg_reference;
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            fprintf(f,
+                    "<p><tt>%s</tt> is fastest, used as reference in "
+                    "comparisons</p>",
+                    bench_group_name(base, reference_idx));
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            fprintf(f,
+                    "<p><tt>%s</tt> is baseline, used as reference in "
+                    "comparisons</p>",
+                    bench_group_name(base, reference_idx));
+            break;
+        default:
+            ASSERT_UNREACHABLE();
+        }
+        fprintf(f, "<table>"
+                   /**/ "<thead><tr><th></th>");
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (reference_idx == grp_idx)
+                continue;
+            fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
+        }
+        {
+            fprintf(f,
+                    "<tr>"
+                    "<td><tt>%s</tt></td>",
+                    bench_group_name(base, reference_idx));
+            foreach_group_by_avg_idx (grp_idx, al) {
+                if (reference_idx == grp_idx)
+                    continue;
+                fprintf(f, "<td><a href=\"#cmpg-%zu-%zu\">comparison</a></td>",
+                        grp_idx, al->meas_idx);
+            }
+            fprintf(f, "</tr>");
+        }
+    }
+    switch (g_sort_mode) {
+    case SORT_RAW:
+    case SORT_SPEED:
+        break;
+    case SORT_BASELINE_RAW:
+    case SORT_BASELINE_SPEED:
+        fprintf(f,
+                "<p><tt>%s</tt> is baseline, used as reference in "
+                "comparisons</p>",
+                bench_group_name(base, g_baseline));
+        break;
+    default:
+        ASSERT_UNREACHABLE();
+    }
+    fprintf(f, "<h4>per-value comparisons</h4>");
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        size_t reference_idx = al->val_bench_speedups_references[val_idx];
+        fprintf(f,
+                "<div>"
+                "<h5><tt>%s=%s</tt></h5>",
+                var->name, var->values[val_idx]);
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            fprintf(f,
+                    "<p><tt>%s</tt> is fastest, used as reference in "
+                    "comparisons</p>",
+                    bench_group_name(base, reference_idx));
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            break;
+        default:
+            ASSERT_UNREACHABLE();
+        }
+        fprintf(f, "<table>"
+                   /**/ "<thead><tr><th></th>");
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (reference_idx == grp_idx)
+                continue;
+            fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
+        }
+        {
+            fprintf(f,
+                    "<tr>"
+                    "<td><tt>%s</tt></td>",
+                    bench_group_name(base, reference_idx));
+            foreach_group_by_avg_idx (grp_idx, al) {
+                if (reference_idx == grp_idx)
+                    continue;
+                fprintf(f,
+                        "<td><a href=\"#cmp-%zu-%zu-%zu\">comparison</a></td>",
+                        grp_idx, val_idx, al->meas_idx);
+            }
+            fprintf(f, "</tr>");
+        }
+        fprintf(f, "</tr></thead>"
+                   "<tbody>"
+                   "</tbody>"
+                   "</table>"
+                   "</div>");
+    }
+    fprintf(f, "</tr></thead>"
+               "<tbody>"
+               "</tbody>"
+               "</table>"
+               "</div>" // col
+               "</div>" // row
+               "</div>" // #cmps
+    );
+}
+
+static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    fprintf(f, "<div id=\"kde-cmps\">"
+               "<h3>KDE comparisons</h3>"
+               "<h4>groups comparison</h4>");
+    {
+        size_t reference_idx = al->groups_avg_reference;
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (grp_idx == reference_idx)
+                continue;
+            const char *a_name = bench_group_name(base, reference_idx);
+            const char *b_name = bench_group_name(base, grp_idx);
+            fprintf(f,
+                    "<div id=\"cmpg-%zu-%zu\">"
+                    /**/ "<h3><tt>%s</tt> vs <tt>%s</tt></h3>"
+                    /**/ "<img src=\"kde_cmp_all_groups_%zu_%zu.svg\">",
+                    grp_idx, al->meas_idx, a_name, b_name, grp_idx,
+                    al->meas_idx);
+            fprintf(f, "<p>Average difference by geometric mean of per-value "
+                       "differences:</p>");
+            {
+                const struct speedup *speedup =
+                    al->group_avg_speedups + grp_idx;
+                fprintf(f, "<p>");
+                if (g_baseline != -1)
+                    fprintf(f, "  <tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "  <tt>%s</tt>", a_name);
+                fprintf(f, " is ");
+                if (speedup->is_slower)
+                    fprintf(f, "%.3f ± %.3f times slower than ",
+                            speedup->inv_est.point, speedup->inv_est.err);
+                else
+                    fprintf(f, "%.3f ± %.3f times faster than ",
+                            speedup->est.point, speedup->est.err);
+                if (g_baseline == -1)
+                    fprintf(f, "<tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "<tt>%s</tt>", a_name);
+                fprintf(f, "</p>"
+                           "<p>");
+                if (speedup->is_slower)
+                    fprintf(f, "%.2f%% slowdown",
+                            (speedup->inv_est.point - 1.0) * 100.0);
+                else
+                    fprintf(f, "%.2f%% speedup ",
+                            (speedup->est.point - 1.0) * 100.0);
+                fprintf(f, "</p>");
+            }
+            fprintf(f, "<p>Average difference by sum:</p>");
+            {
+                // TODO: This has to use other order
+                const struct speedup *speedup =
+                    al->group_total_speedups + grp_idx;
+                fprintf(f, "<p>");
+                if (g_baseline != -1)
+                    fprintf(f, "  <tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "  <tt>%s</tt>", a_name);
+                fprintf(f, " is ");
+                if (speedup->is_slower)
+                    fprintf(f, "%.3f ± %.3f times slower than ",
+                            speedup->inv_est.point, speedup->inv_est.err);
+                else
+                    fprintf(f, "%.3f ± %.3f times faster than ",
+                            speedup->est.point, speedup->est.err);
+                if (g_baseline == -1)
+                    fprintf(f, "<tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "<tt>%s</tt>", a_name);
+                fprintf(f, "</p>"
+                           "<p>");
+                if (speedup->is_slower)
+                    fprintf(f, "%.2f%% slowdown",
+                            (speedup->inv_est.point - 1.0) * 100.0);
+                else
+                    fprintf(f, "%.2f%% speedup ",
+                            (speedup->est.point - 1.0) * 100.0);
+                fprintf(f, "</p>");
+            }
+            fprintf(f, "</div>");
+        }
+    }
+
+    fprintf(f, "<h4>per-value comparisons</h4>");
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        size_t reference_idx = al->val_bench_speedups_references[val_idx];
+        fprintf(f,
+                "<div>"
+                "<h5><tt>%s=%s</tt></h5>",
+                var->name, var->values[val_idx]);
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (reference_idx == grp_idx)
+                continue;
+            const char *a_name = bench_group_name(base, reference_idx);
+            const char *b_name = bench_group_name(base, grp_idx);
+            size_t a_bench_idx =
+                al->group_analyses[reference_idx].group->cmd_idxs[val_idx];
+            size_t b_bench_idx =
+                al->group_analyses[grp_idx].group->cmd_idxs[val_idx];
+            const struct distr *a_distr = al->benches[a_bench_idx];
+            const struct distr *b_distr = al->benches[b_bench_idx];
+            fprintf(
+                f,
+                "<div id=\"cmp-%zu-%zu-%zu\">"
+                /**/ "<h6><tt>%s</tt> vs <tt>%s</tt></h6>"
+                /**/ "<div class=\"row\">"
+                /****/ "<div class=\"col\">"
+                /******/ "<a href=\"kde_pval_cmp_%zu_%zu_%zu.svg\">"
+                /********/ "<img src=\"kde_pval_cmp_small_%zu_%zu_%zu.svg\">"
+                /******/ "</a>"
+                /****/ "</div>" // col
+                /****/ "<div class=\"col\">"
+                /******/ "<h3>statistics</h3>"
+                /******/ "<div class=\"stats\">"
+                /********/ "<table>"
+                /**********/ "<thead><tr>"
+                /************/ "<th></th>"
+                /************/ "<th><tt>%s</tt></th>"
+                /************/ "<th><tt>%s</tt></th>"
+                /**********/ "</tr></thead>"
+                /**********/ "<tbody>",
+                grp_idx, val_idx, al->meas_idx, a_name, b_name, grp_idx,
+                val_idx, al->meas_idx, grp_idx, val_idx, al->meas_idx, a_name,
+                b_name);
+            char a_mean[256], b_mean[256], a_st_dev[256], b_st_dev[256];
+            format_meas(a_mean, sizeof(a_mean), a_distr->mean.point,
+                        &al->meas->units);
+            format_meas(b_mean, sizeof(b_mean), b_distr->mean.point,
+                        &al->meas->units);
+            format_meas(a_st_dev, sizeof(a_st_dev), a_distr->st_dev.point,
+                        &al->meas->units);
+            format_meas(b_st_dev, sizeof(b_st_dev), b_distr->st_dev.point,
+                        &al->meas->units);
+            fprintf(f,
+                    "<tr><td>mean</td><td>%s</td><td>%s</td></tr>"
+                    "<tr><td>st dev</td><td>%s</td><td>%s</td></tr>"
+                    "</tbody>"
+                    "</table>",
+                    a_mean, b_mean, a_st_dev, b_st_dev);
+
+            {
+                const struct speedup *speedup =
+                    al->val_bench_speedups[val_idx] + grp_idx;
+                fprintf(f, "<p>");
+                if (g_baseline != -1)
+                    fprintf(f, "  <tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "  <tt>%s</tt>", a_name);
+                fprintf(f, " is ");
+                if (speedup->is_slower)
+                    fprintf(f, "%.3f ± %.3f times slower than ",
+                            speedup->inv_est.point, speedup->inv_est.err);
+                else
+                    fprintf(f, "%.3f ± %.3f times faster than ",
+                            speedup->est.point, speedup->est.err);
+                if (g_baseline == -1)
+                    fprintf(f, "<tt>%s</tt>", b_name);
+                else
+                    fprintf(f, "<tt>%s</tt>", a_name);
+                fprintf(f, "</p>"
+                           "<p>");
+                if (speedup->is_slower)
+                    fprintf(f, "%.2f%% slowdown",
+                            (speedup->inv_est.point - 1.0) * 100.0);
+                else
+                    fprintf(f, "%.2f%% speedup ",
+                            (speedup->est.point - 1.0) * 100.0);
+                fprintf(f, "</p>");
+            }
+            {
+                double p_value = al->val_p_values[val_idx][grp_idx];
+                fprintf(f, "<p>");
+                switch (g_stat_test) {
+                case STAT_TEST_MWU:
+                    fprintf(f, "Mann-Whitney U-test p-value=%.2f", p_value);
+                    break;
+                case STAT_TEST_TTEST:
+                    fprintf(f, "Welch's t-test p-value=%.2f", p_value);
+                    break;
+                default:
+                    ASSERT_UNREACHABLE();
+                }
+                fprintf(f, "</p>"
+                           "<p>");
+                switch (g_stat_test) {
+                case STAT_TEST_MWU:
+                    if (p_value < 0.05)
+                        fprintf(f, "p-value < 0.05 &#8658 assuming "
+                                   "distribution is "
+                                   "different");
+                    else
+                        fprintf(f, "p-value > 0.05 &#8658 assuming "
+                                   "distribution is same");
+                    break;
+                case STAT_TEST_TTEST:
+                    if (p_value < 0.05)
+                        fprintf(f, "p-value < 0.05 &#8658 assuming means are "
+                                   "different");
+                    else
+                        fprintf(f, "p-value > 0.05 &#8658 assuming "
+                                   "means are same");
+                    break;
+                default:
+                    ASSERT_UNREACHABLE();
+                }
+                fprintf(f, "</p>");
+            }
+
+            fprintf(f,
+                    "</div>" // stats
+                    "</div>" // cols
+                    "</div>" // rows
+                    "</div>" // kde-cmp
+            );
+        }
+        fprintf(f, "</div>");
+    }
+    fprintf(f, "</div>"); // kde-cmps
+}
+
+static void html_compare_groups(const struct meas_analysis *al, FILE *f)
+{
+    html_compare_groups_nav(al, f);
+    html_compare_groups_kdes(al, f);
+}
+
+static void html_compare(const struct meas_analysis *al, FILE *f)
+{
+    if (al->base->bench_count == 1)
+        return;
+    if (al->base->group_count <= 1)
+        html_compare_benches(al, f);
+    else
+        html_compare_groups(al, f);
 }
 
 static void html_regr_bench_group(const struct group_analysis *al,
@@ -1600,7 +1976,7 @@ static void html_report(const struct analysis *al, FILE *f)
         html_var_analysis(mal, f);
         html_summary(mal, f);
         html_benches(mal, f);
-        html_compare_benches(mal, f);
+        html_compare(mal, f);
     }
     fprintf(f, "</body>");
 }
