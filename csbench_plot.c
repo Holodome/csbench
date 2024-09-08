@@ -1380,11 +1380,13 @@ static void make_kde_small_plot_gnuplot(const struct kde_plot *plot,
             "set xlabel '%s [%s]'\n"
             "set style fill solid 0.25\n"
             "unset ytics\n"
+            "set xrange [%g:%g]\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "plot $Data using 1:2 with filledcurves above notitle linecolor "
             "'blue'\n",
             ctx->image_filename, plot->meas->name, view->units_str,
+            min * view->multiplier, kde->max * view->multiplier,
             kde->mean_x * view->multiplier, kde->mean_x * view->multiplier);
 }
 
@@ -1464,10 +1466,11 @@ static void make_kde_plot_gnuplot(struct kde_plot *plot,
             "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
             "set style line 3 lc rgb 'red' pt 7 ps 0.25\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
-            "set title '%s'\n",
+            "set title '%s'\n"
+            "set xrange [%g:%g]\n",
             ctx->image_filename, plot->meas->name, view->units_str,
             kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
-            plot->title);
+            plot->title, min * view->multiplier, max * view->multiplier);
     if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
         fprintf(
             ctx->f,
@@ -1536,6 +1539,7 @@ static void make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
             "unset ytics\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+            "set xrange [%g:%g]\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "plot $Data using 1:2 with filledcurves above t '%s' linecolor "
             "'blue', \\\n"
@@ -1543,7 +1547,8 @@ static void make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
             ctx->image_filename, plot->al->meas->name, view->units_str,
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-            plot->a_name, plot->b_name);
+            min * view->multiplier, plot->max * view->multiplier, plot->a_name,
+            plot->b_name);
 }
 
 static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
@@ -1602,6 +1607,7 @@ static void make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
         "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
         "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+        "set xrange [%g:%g]\n"
         "set offset 0, 0, graph 0.1, 0\n"
         "set title '%s'\n"
         "plot $Kde using 1:2 with filledcurves above t '%s PDF' linecolor "
@@ -1614,8 +1620,9 @@ static void make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         ctx->image_filename, plot->al->meas->name, view->units_str,
         a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
         b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-        plot->title, plot->a_name, plot->a_name, plot->a_name, plot->b_name,
-        plot->b_name, plot->b_name);
+        min * view->multiplier, max * view->multiplier, plot->title,
+        plot->a_name, plot->a_name, plot->a_name, plot->b_name, plot->b_name,
+        plot->b_name);
 }
 
 static void kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
