@@ -991,8 +991,8 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
         const struct speedup *speedup = al->bench_speedups + bench_idx;
         fprintf(f,
                 "<li>"
-                "<a href=\"#cmp-%zu\">",
-                bench_idx);
+                "<a href=\"#cmp-%zu-%zu\">",
+                bench_idx, al->meas_idx);
         if (g_baseline != -1)
             fprintf(f, "  <tt>%s</tt>", bench_name(base, bench_idx));
         else
@@ -1085,7 +1085,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                 continue;
             const struct speedup *speedup =
                 al->val_bench_speedups[val_idx] + grp_idx;
-            fprintf(f, "<a href=\"#cmp-%zu-%zu\">", grp_idx, val_idx);
+            fprintf(f, "<a href=\"#cmp-%zu-%zu-%zu\">", grp_idx, val_idx,
+                    al->meas_idx);
             if (g_baseline != -1)
                 fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
             else
@@ -1210,6 +1211,8 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
             continue;
         fprintf(f, "<th><tt>%s</tt></th>", bench_name(base, bench_idx));
     }
+    fprintf(f, "</tr></thead>"
+               "<tbody>");
     {
         fprintf(f,
                 "<tr>"
@@ -1224,13 +1227,12 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
         fprintf(f, "</tr>");
     }
 
-    fprintf(f, "</tr></thead>"
-               "<tbody>"
-               "</tbody>"
-               "</table>"
-               "</div>" // col
-               "</div>" // row
-               "</div>" // #cmps
+    fprintf(f,
+            "</tbody>"
+            "</table>"
+            "</div>" // col
+            "</div>" // row
+            "</div>" // #cmps
     );
 }
 
@@ -1406,6 +1408,8 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
                 continue;
             fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
         }
+        fprintf(f, "</tr></thead>"
+                   "<tbody>");
         {
             fprintf(f,
                     "<tr>"
@@ -1419,6 +1423,8 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
             }
             fprintf(f, "</tr>");
         }
+        fprintf(f, "</tbody>"
+                   "</table>");
     }
     switch (g_sort_mode) {
     case SORT_RAW:
@@ -1462,6 +1468,8 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
                 continue;
             fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
         }
+        fprintf(f, "</tr></thead>"
+                   "<tbody>");
         {
             fprintf(f,
                     "<tr>"
@@ -1476,9 +1484,7 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
             }
             fprintf(f, "</tr>");
         }
-        fprintf(f, "</tr></thead>"
-                   "<tbody>"
-                   "</tbody>"
+        fprintf(f, "</tbody>"
                    "</table>"
                    "</div>");
     }

@@ -591,13 +591,13 @@ static void make_bar_mpl(const struct bar_plot *plot,
                     "mpl.use('svg')\n"
                     "import matplotlib.pyplot as plt\n");
     if (view->logscale)
-        fprintf(ctx->f, "plt.xscale('log')\n");
+        fprintf(ctx->f, "plt.yscale('log')\n");
     fprintf(ctx->f,
             "plt.rc('axes', axisbelow=True)\n"
-            "plt.grid(axis='x')\n"
-            "plt.barh(range(len(data)), data, xerr=err, alpha=0.6)\n"
-            "plt.yticks(range(len(data)), names)\n"
-            "plt.xlabel('%s [%s]')\n"
+            "plt.grid(axis='y')\n"
+            "plt.bar(range(len(data)), data, yerr=err, alpha=0.6)\n"
+            "plt.xticks(range(len(data)), names)\n"
+            "plt.ylabel('%s [%s]')\n"
             "plt.savefig('%s', bbox_inches='tight')\n",
             al->meas->name, view->units_str, ctx->image_filename);
 }
@@ -617,11 +617,17 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
     fprintf(ctx->f, "times = {");
     foreach_group_by_avg_idx (grp_idx, al) {
         const struct group_analysis *grp_al = al->group_analyses + grp_idx;
-        fprintf(ctx->f, "  '%s': [", bench_group_name(base, grp_idx));
+        fprintf(ctx->f, "  '%s': ([", bench_group_name(base, grp_idx));
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             fprintf(ctx->f, "%g,",
                     grp_al->data[val_idx].mean * view->multiplier);
         fprintf(ctx->f, "],\n");
+        fprintf(ctx->f, "[");
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            fprintf(ctx->f, "%g,",
+                    grp_al->data[val_idx].distr->st_dev.point *
+                        view->multiplier);
+        fprintf(ctx->f, "]),\n");
     }
     fprintf(ctx->f, "}\n");
     fprintf(ctx->f, "import matplotlib as mpl\n"
@@ -632,20 +638,22 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
                     "width = 1.0 / (len(times) + 1)\n"
                     "multiplier = 0\n"
                     "fig, ax = plt.subplots()\n"
-                    "for at, meas in times.items():\n"
+                    "for at, (meas, err) in times.items():\n"
                     "  offset = width * multiplier\n"
-                    "  rects = ax.bar(x + offset, meas, width, label=at)\n"
+                    "  rects = ax.bar(x + offset, meas, width, "
+                    "label=at, alpha=0.6, yerr=err)\n"
                     "  multiplier += 1\n");
     if (view->logscale)
         fprintf(ctx->f, "ax.set_yscale('log')\n");
     fprintf(ctx->f,
             "ax.set_ylabel('%s [%s]')\n"
-            "plt.xticks(x, var_values)\n"
+            "plt.xticks(x + width * (%zu - 1) / 2, var_values)\n"
             "ax.set_axisbelow(True)\n"
             "plt.grid(axis='y')\n"
             "plt.legend(loc='best')\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            al->meas->name, view->units_str, ctx->image_filename);
+            al->meas->name, view->units_str, base->group_count,
+            ctx->image_filename);
 }
 
 static void make_group_regr_mpl(const struct group_regr_plot *plot,
