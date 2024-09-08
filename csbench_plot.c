@@ -240,8 +240,10 @@ static void kde_limits(const struct distr *distr, bool is_small, double *min,
         *max = fmin(mean + 6.0 * st_dev, distr->p99 + 1e-6);
     }
     // Limit so we do not try to plot the points that are TOO far from mean
-    *min = fmax(*min, mean - (mean - distr->outliers.low_severe_x) * 2);
-    *max = fmin(*max, mean + (distr->outliers.high_severe_x - mean) * 2);
+    if (mean > distr->outliers.low_severe_x)
+        *min = fmax(*min, mean - (mean - distr->outliers.low_severe_x) * 2);
+    if (mean < distr->outliers.high_severe_x)
+        *max = fmin(*max, mean + (distr->outliers.high_severe_x - mean) * 2);
 }
 
 static void kde_cmp_limits(const struct distr *a, const struct distr *b,

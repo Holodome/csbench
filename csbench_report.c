@@ -942,11 +942,9 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     );
 }
 
-static void html_summary(const struct meas_analysis *al, FILE *f)
+static void html_bench_summary(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    if (base->bench_count == 1)
-        return;
     fprintf(f,
             "<div id=\"summary\">"
             /**/ "<div class=\"row\">"
@@ -955,7 +953,7 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             /****/ "</div>"
             /****/ "<div class=\"col\">"
             /******/ "<h3>summary</h3>"
-            /******/ "<p>executed %zu <a href=\"#benches\">benchmarks:</a></p>"
+            /******/ "<p>executed %zu <a href=\"#benches\">benchmarks</a>:</p>"
             /******/ "<ol>",
             al->meas_idx, base->bench_count);
     foreach_bench_idx (bench_idx, al) {
@@ -1001,13 +999,13 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             fprintf(f, "  <tt>%s</tt>", bench_name(base, reference_idx));
         fprintf(f, " is ");
         if (speedup->is_slower)
-            fprintf(f, "%.3f times slower than ", speedup->inv_est.point);
+            fprintf(f, "%.2f times slower than ", speedup->inv_est.point);
         else
-            fprintf(f, "%.3f times faster than ", speedup->est.point);
+            fprintf(f, "%.2f times faster than ", speedup->est.point);
         if (g_baseline == -1)
             fprintf(f, "<tt>%s</tt>", bench_name(base, bench_idx));
         else
-            fprintf(f, "baseline");
+            fprintf(f, "<tt>%s</tt>", bench_name(base, reference_idx));
         fprintf(f, "</a>"
                    "</li>");
     }
@@ -1016,6 +1014,165 @@ static void html_summary(const struct meas_analysis *al, FILE *f)
             "</div>" // col
             "</div>" // row
             "</div>");
+}
+
+static void html_group_summary(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    fprintf(f,
+            "<div id=\"summary\">"
+            /**/ "<div class=\"row\">"
+            /****/ "<div class=\"col\">"
+            /******/ "<img src=\"group_bar_%zu.svg\">"
+            /****/ "</div>"
+            /****/ "<div class=\"col\">"
+            /******/ "<h3>summary</h3>"
+            /******/ "<p>used benchmark parameter %s</p>"
+            /******/ "<p>executed %zu groups with %zu total <a "
+            "href=\"#benches\">benchmarks</a>:</p>"
+            /******/ "<ol>",
+            al->meas_idx, var->name, base->group_count, base->bench_count);
+    foreach_group_by_avg_idx (grp_idx, al) {
+        fprintf(f,
+                "<li>"
+                "<tt>%s</tt>",
+                bench_group_name(base, grp_idx));
+        switch (g_sort_mode) {
+        case SORT_RAW:
+        case SORT_SPEED:
+            if (grp_idx == al->groups_avg_reference)
+                fprintf(f, " (fastest)");
+            else if (grp_idx == al->groups_by_avg_speed[base->group_count - 1])
+                fprintf(f, " (slowest)");
+            break;
+        case SORT_BASELINE_RAW:
+        case SORT_BASELINE_SPEED:
+            if (grp_idx == (size_t)g_baseline)
+                fprintf(f, " (baseline)");
+            break;
+        default:
+            ASSERT_UNREACHABLE();
+        }
+        fprintf(f, "<ol>");
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            fprintf(f,
+                    "<li>"
+                    /**/ "<a href=\"#bench-%zu-%zu-%zu\">"
+                    /****/ "<tt>%s=%s</tt>"
+                    /**/ "</a>"
+                    "</li>",
+                    grp_idx, val_idx, al->meas_idx, var->name,
+                    var->values[val_idx]);
+        fprintf(f, "</ol>"
+                   "</li>");
+    }
+    fprintf(f, "</ol>"
+               "<p>per-value comparisons:</p>"
+               "<ol>");
+    for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+        fprintf(f,
+                "<li>"
+                "<tt>%s=%s</tt>"
+                "<ul>",
+                var->name, var->values[val_idx]);
+        size_t reference_idx = al->val_bench_speedups_references[val_idx];
+        foreach_per_val_group_idx (grp_idx, val_idx, al) {
+            if (grp_idx == reference_idx)
+                continue;
+            const struct speedup *speedup =
+                al->val_bench_speedups[val_idx] + grp_idx;
+            fprintf(f, "<a href=\"#cmp-%zu-%zu\">", grp_idx, val_idx);
+            if (g_baseline != -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, " is ");
+            if (speedup->is_slower)
+                fprintf(f, "%.2f times slower than ", speedup->inv_est.point);
+            else
+                fprintf(f, "%.2f times faster than ", speedup->est.point);
+            if (g_baseline == -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, "</a>");
+        }
+        fprintf(f, "</ul>"
+                   "</li>");
+    }
+    fprintf(f, "</ol>"
+               "<p>in total (avg):</p>"
+               "<ul>");
+    {
+        size_t reference_idx = al->groups_avg_reference;
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (grp_idx == reference_idx)
+                continue;
+            const struct speedup *speedup = al->group_avg_speedups + grp_idx;
+            fprintf(f, "<a href=\"#cmpg-%zu-%zu\">", grp_idx, al->meas_idx);
+            if (g_baseline != -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, " is ");
+            if (speedup->is_slower)
+                fprintf(f, "%.2f times slower than ", speedup->inv_est.point);
+            else
+                fprintf(f, "%.2f times faster than ", speedup->est.point);
+            if (g_baseline == -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, "</a>");
+        }
+    }
+    fprintf(f, "</ul>"
+               "<p>in total (sum):</p>"
+               "<ul>");
+    {
+        size_t reference_idx = al->groups_total_reference;
+        foreach_group_by_avg_idx (grp_idx, al) {
+            if (grp_idx == reference_idx)
+                continue;
+            const struct speedup *speedup = al->group_total_speedups + grp_idx;
+            fprintf(f, "<a href=\"#cmpg-%zu-%zu\">", grp_idx, al->meas_idx);
+            if (g_baseline != -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, " is ");
+            if (speedup->is_slower)
+                fprintf(f, "%.2f times slower than ", speedup->inv_est.point);
+            else
+                fprintf(f, "%.2f times faster than ", speedup->est.point);
+            if (g_baseline == -1)
+                fprintf(f, "  <tt>%s</tt>", bench_group_name(base, grp_idx));
+            else
+                fprintf(f, "  <tt>%s</tt>",
+                        bench_group_name(base, reference_idx));
+            fprintf(f, "</a>");
+        }
+    }
+    fprintf(f,
+            "</ul>"
+            "</div>" // col
+            "</div>" // row
+            "</div>");
+}
+
+static void html_summary(const struct meas_analysis *al, FILE *f)
+{
+    if (al->base->group_count <= 1)
+        html_bench_summary(al, f);
+    else
+        html_group_summary(al, f);
 }
 
 static void html_compare_benches(const struct meas_analysis *al, FILE *f)
@@ -1233,6 +1390,7 @@ static void html_regr_bench_group(const struct group_analysis *al,
 
 static void html_var_analysis(const struct meas_analysis *al, FILE *f)
 {
+    return;
     const struct analysis *base = al->base;
     if (!base->group_count)
         return;
@@ -1263,10 +1421,8 @@ static void html_var_analysis(const struct meas_analysis *al, FILE *f)
     fprintf(f, "</div>");
 }
 
-static void html_toc(const struct analysis *al, FILE *f)
+static void html_toc_bench(const struct analysis *al, FILE *f)
 {
-    fprintf(f, "<div>"
-               /**/ "<h3>Table of contents</h3>");
     if (al->primary_meas_count == 1) {
         const struct meas_analysis *mal = al->meas_analyses + 0;
         fprintf(f, "<ol>");
@@ -1303,6 +1459,72 @@ static void html_toc(const struct analysis *al, FILE *f)
     } else {
         assert(!"not implemented");
     }
+}
+
+static void html_toc_group(const struct analysis *al, FILE *f)
+{
+    const struct bench_var *var = al->var;
+    size_t val_count = var->value_count;
+    if (al->primary_meas_count == 1) {
+        const struct meas_analysis *mal = al->meas_analyses + 0;
+        fprintf(f, "<ol>");
+        if (g_regr)
+            fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
+        fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
+                   "<li>"
+                   /**/ "<a href=\"#benches\">benchmarks</a>"
+                   /**/ "<ol>");
+        foreach_group_by_avg_idx (grp_idx, mal) {
+            fprintf(f,
+                    "<li>"
+                    "<tt>%s</tt>",
+                    bench_group_name(al, grp_idx));
+            fprintf(f, "<ol>");
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+                fprintf(f,
+                        "<li>"
+                        /**/ "<a href=\"#bench-%zu-%zu-%zu\">"
+                        /****/ "<tt>%s=%s</tt>"
+                        /**/ "</a>"
+                        "</li>",
+                        grp_idx, val_idx, mal->meas_idx, var->name,
+                        var->values[val_idx]);
+            fprintf(f, "</ol>"
+                       "</li>");
+        }
+        fprintf(f, "</ol>"
+                   "</li>");
+        if (al->bench_count > 1) {
+            fprintf(f, "<li>"
+                       /**/ "<a href=\"#cmps\">comparisons</a>"
+                       /**/ "<ol>");
+            size_t reference_idx = mal->bench_speedups_reference;
+            foreach_bench_idx (bench_idx, mal) {
+                if (bench_idx == reference_idx)
+                    continue;
+                fprintf(f,
+                        "<li><a href=\"#cmp-%zu\"><tt>%s</tt> vs "
+                        "<tt>%s</tt></a></li>",
+                        bench_idx, bench_name(al, reference_idx),
+                        bench_name(al, bench_idx));
+            }
+            fprintf(f, "</ol>"
+                       "</li>");
+        }
+        fprintf(f, "</ol>");
+    } else {
+        assert(!"not implemented");
+    }
+}
+
+static void html_toc(const struct analysis *al, FILE *f)
+{
+    fprintf(f, "<div>"
+               /**/ "<h3>Table of contents</h3>");
+    if (al->group_count <= 1)
+        html_toc_bench(al, f);
+    else
+        html_toc_group(al, f);
     fprintf(f, "</div>");
 }
 
@@ -1756,7 +1978,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
         return;
-    printf("on average ");
+    printf("in total (avg) ");
     if (base->group_count > 2)
         printf("\n");
     size_t reference_idx = al->groups_avg_reference;
@@ -1820,7 +2042,7 @@ static void print_group_total_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
         return;
-    printf("in total   ");
+    printf("in total (sum) ");
     if (base->group_count > 2)
         printf("\n");
     size_t reference_idx = al->groups_total_reference;
