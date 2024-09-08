@@ -583,8 +583,8 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
     free_kde_data(&plot->b_kde);
 }
 
-static void make_kde_small_plot(const struct kde_plot *plot,
-                                struct plot_maker_ctx *ctx)
+static void make_kde_small_plot_mpl(const struct kde_plot *plot,
+                                    struct plot_maker_ctx *ctx)
 {
     assert(plot->is_small);
     const struct kde_data *kde = &plot->kde;
@@ -615,8 +615,8 @@ static void make_kde_small_plot(const struct kde_plot *plot,
             view->units_str, ctx->image_filename);
 }
 
-static void make_kde_plot(const struct kde_plot *plot,
-                          struct plot_maker_ctx *ctx)
+static void make_kde_plot_mpl(const struct kde_plot *plot,
+                              struct plot_maker_ctx *ctx)
 {
     assert(!plot->is_small);
     const struct kde_data *kde = &plot->kde;
@@ -702,8 +702,8 @@ static void make_kde_plot(const struct kde_plot *plot,
             ctx->image_filename);
 }
 
-static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot,
-                                    struct plot_maker_ctx *ctx)
+static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
+                                        struct plot_maker_ctx *ctx)
 {
     assert(plot->is_small);
     size_t point_count = plot->point_count;
@@ -745,8 +745,8 @@ static void make_kde_cmp_small_plot(const struct kde_cmp_plot *plot,
             plot->al->meas->name, view->units_str, ctx->image_filename);
 }
 
-static void make_kde_cmp_plot(const struct kde_cmp_plot *plot,
-                              struct plot_maker_ctx *ctx)
+static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
+                                  struct plot_maker_ctx *ctx)
 {
     assert(!plot->is_small);
     size_t point_count = plot->point_count;
@@ -896,7 +896,7 @@ static void kde_small_mpl(const struct distr *distr, const struct meas *meas,
 {
     struct kde_plot plot = {0};
     init_kde_small_plot(distr, meas, &plot);
-    make_kde_small_plot(&plot, ctx);
+    make_kde_small_plot_mpl(&plot, ctx);
     free_kde_plot(&plot);
 }
 
@@ -905,7 +905,7 @@ static void kde_mpl(const struct distr *distr, const struct meas *meas,
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, name, &plot);
-    make_kde_plot(&plot, ctx);
+    make_kde_plot_mpl(&plot, ctx);
     free_kde_plot(&plot);
 }
 
@@ -914,7 +914,7 @@ static void kde_cmp_small_mpl(const struct meas_analysis *al, size_t bench_idx,
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_small_plot(al, bench_idx, &plot);
-    make_kde_cmp_small_plot(&plot, ctx);
+    make_kde_cmp_small_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
 }
 
@@ -923,7 +923,7 @@ static void kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_plot(al, bench_idx, &plot);
-    make_kde_cmp_plot(&plot, ctx);
+    make_kde_cmp_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
 }
 
@@ -933,7 +933,7 @@ static void kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
-    make_kde_cmp_small_plot(&plot, ctx);
+    make_kde_cmp_small_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
 }
 
@@ -942,7 +942,7 @@ static void kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx,
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
-    make_kde_cmp_plot(&plot, ctx);
+    make_kde_cmp_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
 }
 
@@ -1249,7 +1249,7 @@ static void make_bar_gnuplot(const struct bar_plot *plot,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
             "set boxwidth 1\n"
-            "set style fill solid 1\n"
+            "set style fill solid 0.6\n"
             "set style histogram errorbars gap 2 lw 1\n"
             "set style data histograms\n"
             "set errorbars linecolor black\n"
@@ -1359,58 +1359,206 @@ static void group_regr_gnuplot(const struct meas_analysis *al, size_t idx,
     make_group_regr_gnuplot(&plot, ctx);
 }
 
+static void make_kde_small_plot_gnuplot(const struct kde_plot *plot,
+                                        struct plot_maker_ctx *ctx)
+{
+    assert(plot->is_small);
+    const struct kde_data *kde = &plot->kde;
+    double min = kde->min;
+    double step = kde->step;
+    size_t point_count = kde->point_count;
+    const struct plot_view *view = &plot->view;
+    fprintf(ctx->f, "$Data <<EOD\n");
+    for (size_t i = 0; i < point_count; ++i)
+        fprintf(ctx->f, "%g\t%g\n", (min + step * i) * view->multiplier,
+                kde->data[i]);
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f,
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set ylabel 'probability density'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25\n"
+            "unset ytics\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "plot $Data using 1:2 with filledcurves above notitle linecolor "
+            "'blue'\n",
+            ctx->image_filename, plot->meas->name, view->units_str,
+            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier);
+}
+
 static void kde_small_gnuplot(const struct distr *distr,
                               const struct meas *meas,
                               struct plot_maker_ctx *ctx)
 {
-    (void)distr;
-    (void)meas;
-    (void)ctx;
+    struct kde_plot plot = {0};
+    init_kde_small_plot(distr, meas, &plot);
+    make_kde_small_plot_gnuplot(&plot, ctx);
+    free_kde_plot(&plot);
+}
+
+static void make_kde_plot_gnuplot(struct kde_plot *plot,
+                                  struct plot_maker_ctx *ctx)
+{
+    assert(!plot->is_small);
+    const struct kde_data *kde = &plot->kde;
+    const struct plot_view *view = &plot->view;
+    const struct distr *distr = plot->distr;
+    double min = kde->min;
+    double max = kde->max;
+    double step = kde->step;
+    size_t point_count = kde->point_count;
+    fprintf(ctx->f, "$Kde <<EOD\n");
+    for (size_t i = 0; i < point_count; ++i)
+        fprintf(ctx->f, "%g\t%g\n", (min + step * i) * view->multiplier,
+                kde->data[i]);
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Severe <<EOD\n");
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < min || v > max)
+            continue;
+        if (!(v < distr->outliers.low_severe_x ||
+              v > distr->outliers.high_severe_x))
+            continue;
+        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                (double)(i + 1) / distr->count * plot->max_y);
+    }
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Mild <<EOD\n");
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < min || v > max)
+            continue;
+        if (!((v > distr->outliers.low_severe_x &&
+               v < distr->outliers.low_mild_x) ||
+              (v < distr->outliers.high_severe_x &&
+               v > distr->outliers.high_mild_x)))
+            continue;
+        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                (double)(i + 1) / distr->count * plot->max_y);
+    }
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f, "$Reg <<EOD\n");
+    for (size_t i = 0; i < distr->count; ++i) {
+        double v = distr->data[i];
+        if (v < min || v > max)
+            continue;
+        if (!(v > distr->outliers.low_mild_x &&
+              v < distr->outliers.high_mild_x))
+            continue;
+        fprintf(ctx->f, "%g\t%g\n", v * view->multiplier,
+                (double)(i + 1) / distr->count * plot->max_y);
+    }
+    fprintf(ctx->f, "EOD\n");
+    fprintf(ctx->f,
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set ylabel 'probability density, runs'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25\n"
+            "unset ytics\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
+            "set style line 3 lc rgb 'red' pt 7 ps 0.25\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n",
+            ctx->image_filename, plot->meas->name, view->units_str,
+            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier);
+    if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
+        fprintf(
+            ctx->f,
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n",
+            distr->outliers.low_mild_x * view->multiplier,
+            distr->outliers.low_mild_x * view->multiplier);
+    if (distr->outliers.low_severe_x > min && distr->outliers.low_severe != 0)
+        fprintf(ctx->f,
+                "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'red'\n",
+                distr->outliers.low_severe_x * view->multiplier,
+                distr->outliers.low_severe_x * view->multiplier);
+    if (distr->outliers.high_mild_x < max && distr->outliers.high_mild != 0)
+        fprintf(
+            ctx->f,
+            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n",
+            distr->outliers.high_mild_x * view->multiplier,
+            distr->outliers.high_mild_x * view->multiplier);
+    if (distr->outliers.high_severe_x < max && distr->outliers.high_severe != 0)
+        fprintf(ctx->f,
+                "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'red'\n",
+                distr->outliers.high_severe_x * view->multiplier,
+                distr->outliers.high_severe_x * view->multiplier);
+    fprintf(ctx->f,
+            "plot $Kde using 1:2 with filledcurves above title 'PDF' "
+            "linecolor "
+            "'blue', \\\n"
+            "\t1/0 lc 'blue' t 'mean', \\\n"
+            "\t$Reg using 1:2 with points ls 1 title '\"clean\" sample', "
+            "\\\n"
+            "\t$Mild using 1:2 with points ls 2 title 'mild outliers', \\\n"
+            "\t$Severe using 1:2 with points ls 3 title 'severe "
+            "outliers'\n");
 }
 
 static void kde_gnuplot(const struct distr *distr, const struct meas *meas,
                         const char *name, struct plot_maker_ctx *ctx)
 {
-    (void)distr;
-    (void)meas;
-    (void)name;
+    struct kde_plot plot = {0};
+    init_kde_plot(distr, meas, name, &plot);
+    make_kde_plot_gnuplot(&plot, ctx);
+    free_kde_plot(&plot);
+}
+
+static void make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
+                                            struct plot_maker_ctx *ctx)
+{
+    (void)plot;
     (void)ctx;
 }
 
 static void kde_cmp_small_gnuplot(const struct meas_analysis *al,
                                   size_t bench_idx, struct plot_maker_ctx *ctx)
 {
-    (void)al;
-    (void)bench_idx;
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_small_plot(al, bench_idx, &plot);
+    make_kde_cmp_small_plot_gnuplot(&plot, ctx);
+    free_kde_cmp_plot(&plot);
+}
+
+static void make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
+                                      struct plot_maker_ctx *ctx)
+{
+    (void)plot;
     (void)ctx;
 }
 
 static void kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
                             struct plot_maker_ctx *ctx)
 {
-    (void)al;
-    (void)bench_idx;
-    (void)ctx;
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_plot(al, bench_idx, &plot);
+    make_kde_cmp_plot_gnuplot(&plot, ctx);
+    free_kde_cmp_plot(&plot);
 }
 
 static void kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
                                           size_t grp_idx, size_t val_idx,
                                           struct plot_maker_ctx *ctx)
 {
-    (void)al;
-    (void)grp_idx;
-    (void)val_idx;
-    (void)ctx;
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
+    make_kde_cmp_small_plot_gnuplot(&plot, ctx);
+    free_kde_cmp_plot(&plot);
 }
 
 static void kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
                                     size_t grp_idx, size_t val_idx,
                                     struct plot_maker_ctx *ctx)
 {
-    (void)al;
-    (void)grp_idx;
-    (void)val_idx;
-    (void)ctx;
+    struct kde_cmp_plot plot = {0};
+    init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
+    make_kde_cmp_plot_gnuplot(&plot, ctx);
+    free_kde_cmp_plot(&plot);
 }
 
 static void kde_cmp_group_gnuplot(const struct meas_analysis *al,
