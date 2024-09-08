@@ -491,13 +491,13 @@ struct plot_maker {
                           struct plot_maker_ctx *ctx);
     void (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
                     struct plot_maker_ctx *ctx);
-    void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
-                          struct plot_maker_ctx *ctx);
     void (*kde_cmp_per_val_small)(const struct meas_analysis *al,
                                   size_t grp_idx, size_t val_idx,
                                   struct plot_maker_ctx *ctx);
     void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
                             size_t val_idx, struct plot_maker_ctx *ctx);
+    void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
+                          struct plot_maker_ctx *ctx);
 };
 
 enum {

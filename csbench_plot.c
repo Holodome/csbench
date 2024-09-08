@@ -133,8 +133,8 @@ struct kde_cmp_val {
 struct kde_cmp_group_plot {
     size_t rows, cols;
     const struct meas_analysis *al;
-    size_t a_idx;
-    size_t b_idx;
+    size_t reference_idx;
+    size_t grp_idx;
     size_t val_count;
     size_t point_count;
     struct kde_cmp_val *cmps;
@@ -496,8 +496,8 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         plot->rows = 5;
     plot->cols = (val_count + plot->rows - 1) / plot->rows;
     plot->al = al;
-    plot->a_idx = reference_idx;
-    plot->b_idx = grp_idx;
+    plot->reference_idx = reference_idx;
+    plot->grp_idx = grp_idx;
     plot->val_count = val_count;
     plot->cmps = calloc(val_count, sizeof(*plot->cmps));
     plot->point_count = point_count;
@@ -1002,13 +1002,9 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "titles = [");
     for (size_t i = 0; i < plot->val_count; ++i) {
-        double p_value = al->val_bench_speedups_references[i] == plot->a_idx
-                             ? al->val_p_values[i][plot->b_idx]
-                             : al->val_p_values[i][plot->a_idx];
+        double p_value = al->val_p_values[i][plot->grp_idx];
         double speedup =
-            al->val_bench_speedups_references[i] == plot->a_idx
-                ? positive_speedup(al->val_bench_speedups[i] + plot->b_idx)
-                : positive_speedup(al->val_bench_speedups[i] + plot->a_idx);
+            positive_speedup(al->val_bench_speedups[i] + plot->grp_idx);
         fprintf(ctx->f, "'%s=%s p=%.2f diff=%.3f',", al->base->var->name,
                 al->base->var->values[i], p_value, speedup);
     }
@@ -1073,8 +1069,8 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "fig.tight_layout()\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
             plot->rows, plot->cols, plot->rows, plot->val_count,
-            bench_group_name(al->base, plot->a_idx),
-            bench_group_name(al->base, plot->b_idx), plot->cols, plot->rows,
+            bench_group_name(al->base, plot->reference_idx),
+            bench_group_name(al->base, plot->grp_idx), plot->cols, plot->rows,
             plot->cols, plot->cols * 5, plot->rows * 5, ctx->image_filename);
 }
 
@@ -1615,16 +1611,9 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
         const struct kde_data *a_kde = &cmp->a_kde;
         const struct kde_data *b_kde = &cmp->b_kde;
         char title[4096];
-        double p_value =
-            al->val_bench_speedups_references[val_idx] == plot->a_idx
-                ? al->val_p_values[val_idx][plot->b_idx]
-                : al->val_p_values[val_idx][plot->a_idx];
+        double p_value = al->val_p_values[val_idx][plot->grp_idx];
         double speedup =
-            al->val_bench_speedups_references[val_idx] == plot->a_idx
-                ? positive_speedup(al->val_bench_speedups[val_idx] +
-                                   plot->b_idx)
-                : positive_speedup(al->val_bench_speedups[val_idx] +
-                                   plot->a_idx);
+            positive_speedup(al->val_bench_speedups[val_idx] + plot->grp_idx);
         snprintf(title, sizeof(title), "%s=%s p=%.2f diff=%.3f",
                  al->base->var->name, al->base->var->values[val_idx], p_value,
                  speedup);
@@ -1651,8 +1640,8 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
             cmp->min * view->multiplier, cmp->max * view->multiplier, title,
-            val_idx, bench_group_name(al->base, plot->a_idx), val_idx, val_idx,
-            bench_group_name(al->base, plot->b_idx), val_idx);
+            val_idx, bench_group_name(al->base, plot->reference_idx), val_idx,
+            val_idx, bench_group_name(al->base, plot->grp_idx), val_idx);
     }
 
     fprintf(ctx->f, "unset multiplot\n");
