@@ -569,7 +569,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         double p_value = al->group_avg_val_p_values[val_idx][grp_idx];
         double diff = positive_speedup(
             &al->group_avg_val_bench_speedups[val_idx][grp_idx]);
-        cmp->title = csfmt("%s=%s p=%.2f diff=%.3f", al->base->var->name,
+        cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->var->name,
                            al->base->var->values[val_idx], p_value, diff);
     }
 }
