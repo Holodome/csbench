@@ -155,13 +155,6 @@ static FILE *gnuplot_data_file(struct plot_maker_ctx *ctx, const char **name)
     return f;
 }
 
-static double positive_speedup(const struct speedup *sp)
-{
-    if (!sp->is_slower)
-        return sp->est.point;
-    return sp->inv_est.point;
-}
-
 static void init_plot_view(const struct units *units, double min, double max,
                            struct plot_view *view)
 {
@@ -482,7 +475,7 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     const char *a_name = bench_name(al->base, reference_idx);
     const char *b_name = bench_name(al->base, bench_idx);
     double p_value = al->p_values[bench_idx];
-    double diff = positive_speedup(al->bench_speedups + bench_idx);
+    double diff = al->bench_speedups[bench_idx].est.point;
     const char *title =
         csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
@@ -507,7 +500,7 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
     const char *a_name = bench_group_name(al->base, reference_idx);
     const char *b_name = bench_group_name(al->base, grp_idx);
     double p_value = reference_idx == al->val_p_values[val_idx][grp_idx];
-    double diff = positive_speedup(al->val_bench_speedups[val_idx] + grp_idx);
+    double diff = al->val_bench_speedups[val_idx][grp_idx].est.point;
     const char *title =
         csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
               var->values[val_idx], a_name, b_name, p_value, diff);
@@ -567,8 +560,8 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         }
         cmp->max_y = max_y;
         double p_value = al->group_avg_val_p_values[val_idx][grp_idx];
-        double diff = positive_speedup(
-            &al->group_avg_val_bench_speedups[val_idx][grp_idx]);
+        double diff =
+            al->group_avg_val_bench_speedups[val_idx][grp_idx].est.point;
         cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->var->name,
                            al->base->var->values[val_idx], p_value, diff);
     }
