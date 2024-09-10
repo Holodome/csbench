@@ -1747,16 +1747,19 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
         snprintf(title, sizeof(title), "%s=%s p=%.2f diff=%.3f",
                  al->base->var->name, al->base->var->values[val_idx], p_value,
                  speedup);
+        fprintf(ctx->f,
+                "set ylabel 'probability density, runs'\n"
+                "set xlabel '%s [%s]'\n"
+                "set style fill solid 0.25 noborder\n"
+                "unset ytics\n"
+                "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+                "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n",
+                plot->al->meas->name, view->units_str);
+        if (val_idx != 0)
+            fprintf(ctx->f, "unset arrow 6\n"
+                            "unset arrow 7\n");
         fprintf(
             ctx->f,
-            "set ylabel 'probability density, runs'\n"
-            "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25 noborder\n"
-            "unset ytics\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-            "unset arrow 6\n"
-            "unset arrow 7\n"
             "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls 1\n"
             "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls 2\n"
             "set xrange [%g:%g]\n"
@@ -1766,7 +1769,6 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             "\t'%s' using 1:2 with points ls 1 notitle, \\\n"
             "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls 2,\\\n"
             "\t'%s' using 1:2 with points ls 2 notitle\n",
-            plot->al->meas->name, view->units_str,
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
             cmp->min * view->multiplier, cmp->max * view->multiplier, title,
