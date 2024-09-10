@@ -484,7 +484,7 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     double p_value = al->p_values[bench_idx];
     double diff = positive_speedup(al->bench_speedups + bench_idx);
     const char *title =
-        csfmt("%s' vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
+        csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
                                 plot);
 }
