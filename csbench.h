@@ -321,29 +321,39 @@ struct meas_analysis {
     size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
     size_t **val_benches_by_mean_time; // [val_count][group_count]
+    // Groups sorted by average speedups
+    size_t *groups_by_avg_speed; // [group_count]
+    // Groups sorted by time sum
+    size_t *groups_by_total_speed; // [group_count]
     // Comparisons
     // Individual benchmarks
-    size_t bench_speedups_reference;
-    struct speedup *bench_speedups; // [bench_count]
-    double *p_values;               // [bench_count]
+    struct {
+        size_t reference;
+        struct speedup *speedups; // [bench_count]
+        double *p_values;         // [bench_count]
+    } bench_cmp;
     // Per-value
-    size_t *val_bench_speedups_references; // [val_count]
-    struct speedup **val_bench_speedups;   // [val_count][group_count]
-    double **val_p_values;                 // [val_count][group_count]
+    struct {
+        size_t reference;
+        struct speedup *speedups; // [group_count]
+        double *p_values;         // [group_count]
+    } *pval_cmps;                 // [val_count]
     // Groups on average
-    size_t groups_avg_reference;
-    size_t *groups_by_avg_speed;        // [group_count]
-    struct speedup *group_avg_speedups; // [group_count]
-    // These are the same as val_bench_speedups and val_bench_speedups, but in
-    // relation to groups_avg_reference
-    struct speedup **group_avg_val_bench_speedups; // [val_count][group_count]
-    double **group_avg_val_p_values;               // [val_count][group_count]
+    struct {
+        size_t reference;
+        struct speedup *speedups; // [group_count]
+        struct {
+            double *p_values; // [group_count]
+            struct speedup *speedups; // [group_count]
+        } *pval_cmps;                 // [val_count]
+    } group_avg_cmp;
     // Groups in total
     // Estimates of times it took to execute one group
-    size_t groups_total_reference;
-    struct point_err_est *group_total_times; // [group_count]
-    size_t *groups_by_total_speed;           // [group_count]
-    struct speedup *group_total_speedups;    // [group_count]
+    struct {
+        struct point_err_est *times; // [group_count]
+        size_t reference;
+        struct speedup *speedups; // [group_count]
+    } group_sum_cmp;
 };
 
 // This structure hold results of benchmarking across all measurements and
@@ -406,8 +416,9 @@ struct output_anchor {
     bool has_message;
 };
 
-// Instruction to rename certain benchmark. 'n' refers to individual benchmark
-// when variable is not used, otherwise it refers to benchmark group.
+// Instruction to rename certain benchmark. 'n' refers to individual
+// benchmark when variable is not used, otherwise it refers to benchmark
+// group.
 struct rename_entry {
     size_t n;
     const char *old_name;
@@ -600,14 +611,16 @@ extern bool g_csv;
 extern bool g_plot_src;
 extern bool g_use_perf;
 extern bool g_progress_bar;
-// Use linear regression to estimate slope when doing parameterized benchmark.
+// Use linear regression to estimate slope when doing parameterized
+// benchmark.
 extern bool g_regr;
 extern bool g_plot_debug;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
 extern bool g_clear_out_dir;
 extern bool g_shuffle_when_runnig;
-// Number of resamples to use in bootstrapping when estimating distributions.
+// Number of resamples to use in bootstrapping when estimating
+// distributions.
 extern int g_nresamp;
 extern int g_progress_bar_interval_us;
 extern int g_threads;
@@ -694,11 +707,11 @@ bool init_perf(void);
 void deinit_perf(void);
 void perf_signal_cleanup(void);
 // collect performance counters for process specified by 'pid'.
-// That process is considered blocked on sigwait() when this function is called,
-// to wake up process this function sends it SIGUSR1.
-// This function runs and collects performance counters until process
-// has finished, and consolidates results. Process can still be waited
-// after this function has finished executing.
+// That process is considered blocked on sigwait() when this function is
+// called, to wake up process this function sends it SIGUSR1. This function
+// runs and collects performance counters until process has finished, and
+// consolidates results. Process can still be waited after this function has
+// finished executing.
 bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 //
@@ -741,8 +754,8 @@ void format_meas(char *buf, size_t buf_size, double value,
 const char *outliers_variance_str(double fraction);
 const char *big_o_str(enum big_o complexity);
 
-// This function is placed to csbench_utils.c instead of csbench_analyze.c to
-// facilitate inlining and optimization, because it is quite hot.
+// This function is placed to csbench_utils.c instead of csbench_analyze.c
+// to facilitate inlining and optimization, because it is quite hot.
 void estimate_distr(const double *data, size_t count, size_t nresamp,
                     struct distr *distr);
 
@@ -798,8 +811,8 @@ static inline uint32_t pcg32_fast(uint64_t *state)
 // strings in global arena and then free at once. This way all strings are
 // treated as read-only, so we can safely assign them without copying.
 //
-// XXX: Marked as const to force the behaviour we want. User should not modify
-// strings directly and instead work using this interface.
+// XXX: Marked as const to force the behaviour we want. User should not
+// modify strings directly and instead work using this interface.
 void cs_free_strings(void);
 const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);

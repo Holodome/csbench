@@ -469,13 +469,13 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
                                        size_t bench_idx, bool is_small,
                                        struct kde_cmp_plot *plot)
 {
-    size_t reference_idx = al->bench_speedups_reference;
+    size_t reference_idx = al->bench_cmp.reference;
     const struct distr *a = al->benches[reference_idx];
     const struct distr *b = al->benches[bench_idx];
     const char *a_name = bench_name(al->base, reference_idx);
     const char *b_name = bench_name(al->base, bench_idx);
-    double p_value = al->p_values[bench_idx];
-    double diff = al->bench_speedups[bench_idx].est.point;
+    double p_value = al->bench_cmp.p_values[bench_idx];
+    double diff = al->bench_cmp.speedups[bench_idx].est.point;
     const char *title =
         csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
@@ -492,15 +492,15 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
                                                struct kde_cmp_plot *plot)
 {
     const struct bench_var *var = al->base->var;
-    size_t reference_idx = al->val_bench_speedups_references[val_idx];
+    size_t reference_idx = al->pval_cmps[val_idx].reference;
     const struct group_analysis *a_grp = al->group_analyses + reference_idx;
     const struct group_analysis *b_grp = al->group_analyses + grp_idx;
     const struct distr *a = a_grp->data[val_idx].distr;
     const struct distr *b = b_grp->data[val_idx].distr;
     const char *a_name = bench_group_name(al->base, reference_idx);
     const char *b_name = bench_group_name(al->base, grp_idx);
-    double p_value = reference_idx == al->val_p_values[val_idx][grp_idx];
-    double diff = al->val_bench_speedups[val_idx][grp_idx].est.point;
+    double p_value = reference_idx == al->pval_cmps[val_idx].p_values[grp_idx];
+    double diff = al->pval_cmps[val_idx].speedups[grp_idx].est.point;
     const char *title =
         csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
               var->values[val_idx], a_name, b_name, p_value, diff);
@@ -519,7 +519,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
                                     struct kde_cmp_group_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
-    size_t reference_idx = al->groups_avg_reference;
+    size_t reference_idx = al->group_avg_cmp.reference;
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
     size_t val_count = var->value_count;
@@ -559,9 +559,9 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
                 max_y = cmp->b_kde.data[i];
         }
         cmp->max_y = max_y;
-        double p_value = al->group_avg_val_p_values[val_idx][grp_idx];
+        double p_value = al->group_avg_cmp.pval_cmps[val_idx].p_values[grp_idx];
         double diff =
-            al->group_avg_val_bench_speedups[val_idx][grp_idx].est.point;
+            al->group_avg_cmp.pval_cmps[val_idx].speedups[grp_idx].est.point;
         cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->var->name,
                            al->base->var->values[val_idx], p_value, diff);
     }
