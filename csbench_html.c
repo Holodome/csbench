@@ -70,7 +70,7 @@ static void html_estimate(const char *name, const struct est *est,
             name, buf1, buf2, buf3);
 }
 
-static void html_speedup_explain_small(const struct speedup *speedup,
+static void html_speedup_explain_small(const struct speedup *sp,
                                        const char *href, const char *a_name,
                                        const char *b_name, FILE *f)
 {
@@ -80,10 +80,10 @@ static void html_speedup_explain_small(const struct speedup *speedup,
     else
         fprintf(f, "  <tt>%s</tt>", a_name);
     fprintf(f, " is ");
-    if (speedup->is_slower)
-        fprintf(f, "%.2f times slower than ", speedup->inv_est.point);
+    if (sp->is_slower)
+        fprintf(f, "%.2f times slower than ", sp->inv_est.point);
     else
-        fprintf(f, "%.2f times faster than ", speedup->est.point);
+        fprintf(f, "%.2f times faster than ", sp->est.point);
     if (g_baseline == -1)
         fprintf(f, "<tt>%s</tt>", b_name);
     else
@@ -120,9 +120,8 @@ static void html_cmp_mean_stdev(const struct distr *a_distr,
             a_mean, b_mean, a_st_dev, b_st_dev);
 }
 
-static void html_speedup_explain(const struct speedup *speedup,
-                                 const char *a_name, const char *b_name,
-                                 FILE *f)
+static void html_speedup_explain(const struct speedup *sp, const char *a_name,
+                                 const char *b_name, FILE *f)
 {
     fprintf(f, "<p>");
     if (g_baseline != -1)
@@ -130,22 +129,22 @@ static void html_speedup_explain(const struct speedup *speedup,
     else
         fprintf(f, "  <tt>%s</tt>", a_name);
     fprintf(f, " is ");
-    if (speedup->is_slower)
-        fprintf(f, "%.3f ± %.3f times slower than ", speedup->inv_est.point,
-                speedup->inv_est.err);
+    if (sp->is_slower)
+        fprintf(f, "%.3f ± %.3f times slower than ", sp->inv_est.point,
+                sp->inv_est.err);
     else
-        fprintf(f, "%.3f ± %.3f times faster than ", speedup->est.point,
-                speedup->est.err);
+        fprintf(f, "%.3f ± %.3f times faster than ", sp->est.point,
+                sp->est.err);
     if (g_baseline == -1)
         fprintf(f, "<tt>%s</tt>", b_name);
     else
         fprintf(f, "<tt>%s</tt>", a_name);
     fprintf(f, "</p>"
                "<p>");
-    if (speedup->is_slower)
-        fprintf(f, "%.2f%% slowdown", (speedup->inv_est.point - 1.0) * 100.0);
+    if (sp->is_slower)
+        fprintf(f, "%.2f%% slowdown", (sp->inv_est.point - 1.0) * 100.0);
     else
-        fprintf(f, "%.2f%% speedup ", (speedup->est.point - 1.0) * 100.0);
+        fprintf(f, "%.2f%% speedup ", (sp->est.point - 1.0) * 100.0);
     fprintf(f, "</p>");
 }
 
@@ -205,14 +204,14 @@ static void html_toc_bench(const struct analysis *al, FILE *f)
             fprintf(f, "<li>"
                        /**/ "<a href=\"#cmps\">comparisons</a>"
                        /**/ "<ol>");
-            size_t reference_idx = mal->bench_cmp.reference;
+            size_t ref_idx = mal->bench_cmp.ref;
             foreach_bench_idx (bench_idx, mal) {
-                if (bench_idx == reference_idx)
+                if (bench_idx == ref_idx)
                     continue;
                 fprintf(f,
                         "<li><a href=\"#cmp-%zu\"><tt>%s</tt> vs "
                         "<tt>%s</tt></a></li>",
-                        bench_idx, bench_name(al, reference_idx),
+                        bench_idx, bench_name(al, ref_idx),
                         bench_name(al, bench_idx));
             }
             fprintf(f, "</ol>"
@@ -263,14 +262,14 @@ static void html_toc_group(const struct analysis *al, FILE *f)
             fprintf(f, "<li>"
                        /**/ "<a href=\"#cmps\">comparisons</a>"
                        /**/ "<ol>");
-            size_t reference_idx = mal->bench_cmp.reference;
+            size_t ref_idx = mal->bench_cmp.ref;
             foreach_bench_idx (bench_idx, mal) {
-                if (bench_idx == reference_idx)
+                if (bench_idx == ref_idx)
                     continue;
                 fprintf(f,
                         "<li><a href=\"#cmp-%zu-%zu\"><tt>%s</tt> vs "
                         "<tt>%s</tt></a></li>",
-                        bench_idx, mal->meas_idx, bench_name(al, reference_idx),
+                        bench_idx, mal->meas_idx, bench_name(al, ref_idx),
                         bench_name(al, bench_idx));
             }
             fprintf(f, "</ol>"
@@ -385,7 +384,7 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
-            if (bench_idx == al->bench_cmp.reference)
+            if (bench_idx == al->bench_cmp.ref)
                 fprintf(f, " (fastest)");
             else if (bench_idx == al->bench_by_mean_time[base->bench_count - 1])
                 fprintf(f, " (slowest)");
@@ -401,14 +400,14 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
         fprintf(f, "</li>");
     }
     fprintf(f, "</ol>");
-    size_t reference_idx = al->bench_cmp.reference;
+    size_t ref_idx = al->bench_cmp.ref;
     fprintf(f, "<p>performed <a href=\"#cmps\">comparisons</a>:<p>"
                "<ul>");
     foreach_bench_idx (bench_idx, al) {
-        if (bench_idx == reference_idx)
+        if (bench_idx == ref_idx)
             continue;
         const struct speedup *speedup = al->bench_cmp.speedups + bench_idx;
-        const char *a_name = bench_name(base, reference_idx);
+        const char *a_name = bench_name(base, ref_idx);
         const char *b_name = bench_name(base, bench_idx);
         char href[256];
         snprintf(href, sizeof(href), "#cmp-%zu-%zu", bench_idx, al->meas_idx);
@@ -451,7 +450,7 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
-            if (grp_idx == al->group_avg_cmp.reference)
+            if (grp_idx == al->group_avg_cmp.ref)
                 fprintf(f, " (fastest)");
             else if (grp_idx == al->groups_by_avg_speed[base->group_count - 1])
                 fprintf(f, " (slowest)");
@@ -486,13 +485,13 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                 "<tt>%s=%s</tt>"
                 "<ul>",
                 var->name, var->values[val_idx]);
-        size_t reference_idx = al->pval_cmps[val_idx].reference;
+        size_t ref_idx = al->pval_cmps[val_idx].ref;
         foreach_per_val_group_idx (grp_idx, val_idx, al) {
-            if (grp_idx == reference_idx)
+            if (grp_idx == ref_idx)
                 continue;
             const struct speedup *speedup =
                 al->pval_cmps[val_idx].speedups + grp_idx;
-            const char *a_name = bench_group_name(base, reference_idx);
+            const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmp-%zu-%zu-%zu", grp_idx, val_idx,
@@ -508,13 +507,13 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                "<p>in total (avg):</p>"
                "<ul>");
     {
-        size_t reference_idx = al->group_avg_cmp.reference;
+        size_t ref_idx = al->group_avg_cmp.ref;
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (grp_idx == reference_idx)
+            if (grp_idx == ref_idx)
                 continue;
             const struct speedup *speedup =
                 al->group_avg_cmp.speedups + grp_idx;
-            const char *a_name = bench_group_name(base, reference_idx);
+            const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmpg-%zu-%zu", grp_idx,
@@ -528,13 +527,13 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                "<p>in total (sum):</p>"
                "<ul>");
     {
-        size_t reference_idx = al->group_sum_cmp.reference;
+        size_t ref_idx = al->group_sum_cmp.ref;
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (grp_idx == reference_idx)
+            if (grp_idx == ref_idx)
                 continue;
             const struct speedup *speedup =
                 al->group_sum_cmp.speedups + grp_idx;
-            const char *a_name = bench_group_name(base, reference_idx);
+            const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmpg-%zu-%zu", grp_idx,
@@ -688,21 +687,21 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
                /**/ "<div class=\"row\">"
                /****/ "<div class=\"col\">"
                /******/ "<h2>comparisons</h2>");
-    size_t reference_idx = al->bench_cmp.reference;
+    size_t ref_idx = al->bench_cmp.ref;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
         fprintf(f,
                 "<p><tt>%s</tt> is fastest, used as reference in "
                 "comparisons</p>",
-                bench_name(base, reference_idx));
+                bench_name(base, ref_idx));
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
         fprintf(f,
                 "<p><tt>%s</tt> is baseline, used as reference in "
                 "comparisons</p>",
-                bench_name(base, reference_idx));
+                bench_name(base, ref_idx));
         break;
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
@@ -710,7 +709,7 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
     fprintf(f, "<table>"
                /**/ "<thead><tr><th></th>");
     foreach_bench_idx (bench_idx, al) {
-        if (reference_idx == bench_idx)
+        if (ref_idx == bench_idx)
             continue;
         fprintf(f, "<th><tt>%s</tt></th>", bench_name(base, bench_idx));
     }
@@ -720,9 +719,9 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
         fprintf(f,
                 "<tr>"
                 "<td><tt>%s</tt></td>",
-                bench_name(base, reference_idx));
+                bench_name(base, ref_idx));
         foreach_bench_idx (bench_idx, al) {
-            if (reference_idx == bench_idx)
+            if (ref_idx == bench_idx)
                 continue;
             fprintf(f, "<td><a href=\"#cmp-%zu-%zu\">comparison</a></td>",
                     bench_idx, al->meas_idx);
@@ -742,17 +741,16 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
 static void html_compare_benches_kdes(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    size_t reference_idx = al->bench_cmp.reference;
-    const struct bench_analysis *reference =
-        base->bench_analyses + reference_idx;
+    size_t ref_idx = al->bench_cmp.ref;
+    const struct bench_analysis *ref = base->bench_analyses + ref_idx;
     fprintf(f, "<div id=\"kde-cmps\">");
     foreach_bench_idx (bench_idx, al) {
         const struct bench_analysis *bench = base->bench_analyses + bench_idx;
-        if (bench == reference)
+        if (bench == ref)
             continue;
-        const char *a_name = bench_name(base, reference_idx);
+        const char *a_name = bench_name(base, ref_idx);
         const char *b_name = bench_name(base, bench_idx);
-        const struct distr *a_distr = al->benches[reference_idx];
+        const struct distr *a_distr = al->benches[ref_idx];
         const struct distr *b_distr = al->benches[bench_idx];
         fprintf(f,
                 "<div id=\"cmp-%zu-%zu\">"
@@ -789,21 +787,21 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al,
                                               FILE *f)
 {
     const struct analysis *base = al->base;
-    size_t reference_idx = al->group_avg_cmp.reference;
+    size_t ref_idx = al->group_avg_cmp.ref;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
         fprintf(f,
                 "<p><tt>%s</tt> is fastest, used as reference in "
                 "comparisons</p>",
-                bench_group_name(base, reference_idx));
+                bench_group_name(base, ref_idx));
         break;
     case SORT_BASELINE_RAW:
     case SORT_BASELINE_SPEED:
         fprintf(f,
                 "<p><tt>%s</tt> is baseline, used as reference in "
                 "comparisons</p>",
-                bench_group_name(base, reference_idx));
+                bench_group_name(base, ref_idx));
         break;
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
@@ -812,7 +810,7 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al,
     fprintf(f, "<table>"
                /**/ "<thead><tr><th></th>");
     foreach_group_by_avg_idx (grp_idx, al) {
-        if (reference_idx == grp_idx)
+        if (ref_idx == grp_idx)
             continue;
         fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
     }
@@ -822,9 +820,9 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al,
         fprintf(f,
                 "<tr>"
                 "<td><tt>%s</tt></td>",
-                bench_group_name(base, reference_idx));
+                bench_group_name(base, ref_idx));
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (reference_idx == grp_idx)
+            if (ref_idx == grp_idx)
                 continue;
             fprintf(f, "<td><a href=\"#cmpg-%zu-%zu\">comparison</a></td>",
                     grp_idx, al->meas_idx);
@@ -857,7 +855,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
     }
     fprintf(f, "<h4>per-value comparisons</h4>");
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-        size_t reference_idx = al->pval_cmps[val_idx].reference;
+        size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div>"
                 "<h5><tt>%s=%s</tt></h5>",
@@ -868,7 +866,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
             fprintf(f,
                     "<p><tt>%s</tt> is fastest, used as reference in "
                     "comparisons</p>",
-                    bench_group_name(base, reference_idx));
+                    bench_group_name(base, ref_idx));
             break;
         case SORT_BASELINE_RAW:
         case SORT_BASELINE_SPEED:
@@ -879,7 +877,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
         fprintf(f, "<table>"
                    /**/ "<thead><tr><th></th>");
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (reference_idx == grp_idx)
+            if (ref_idx == grp_idx)
                 continue;
             fprintf(f, "<th><tt>%s</tt></th>", bench_group_name(base, grp_idx));
         }
@@ -889,9 +887,9 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
             fprintf(f,
                     "<tr>"
                     "<td><tt>%s</tt></td>",
-                    bench_group_name(base, reference_idx));
+                    bench_group_name(base, ref_idx));
             foreach_group_by_avg_idx (grp_idx, al) {
-                if (reference_idx == grp_idx)
+                if (ref_idx == grp_idx)
                     continue;
                 fprintf(f,
                         "<td><a href=\"#cmp-%zu-%zu-%zu\">comparison</a></td>",
@@ -934,11 +932,11 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                "<h3>KDE comparisons</h3>"
                "<h4>groups comparison</h4>");
     {
-        size_t reference_idx = al->group_avg_cmp.reference;
+        size_t ref_idx = al->group_avg_cmp.ref;
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (grp_idx == reference_idx)
+            if (grp_idx == ref_idx)
                 continue;
-            const char *a_name = bench_group_name(base, reference_idx);
+            const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
             fprintf(f,
                     "<div id=\"cmpg-%zu-%zu\">"
@@ -966,18 +964,18 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
 
     fprintf(f, "<h4>per-value comparisons</h4>");
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-        size_t reference_idx = al->pval_cmps[val_idx].reference;
+        size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div>"
                 "<h5><tt>%s=%s</tt></h5>",
                 var->name, var->values[val_idx]);
         foreach_group_by_avg_idx (grp_idx, al) {
-            if (reference_idx == grp_idx)
+            if (ref_idx == grp_idx)
                 continue;
-            const char *a_name = bench_group_name(base, reference_idx);
+            const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
             size_t a_bench_idx =
-                al->group_analyses[reference_idx].group->cmd_idxs[val_idx];
+                al->group_analyses[ref_idx].group->cmd_idxs[val_idx];
             size_t b_bench_idx =
                 al->group_analyses[grp_idx].group->cmd_idxs[val_idx];
             const struct distr *a_distr = al->benches[a_bench_idx];

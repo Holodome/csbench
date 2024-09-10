@@ -328,22 +328,22 @@ struct meas_analysis {
     // Comparisons
     // Individual benchmarks
     struct {
-        size_t reference;
+        size_t ref;
         struct speedup *speedups; // [bench_count]
         double *p_values;         // [bench_count]
     } bench_cmp;
     // Per-value
     struct {
-        size_t reference;
+        size_t ref;
         struct speedup *speedups; // [group_count]
         double *p_values;         // [group_count]
     } *pval_cmps;                 // [val_count]
     // Groups on average
     struct {
-        size_t reference;
+        size_t ref;
         struct speedup *speedups; // [group_count]
         struct {
-            double *p_values; // [group_count]
+            double *p_values;         // [group_count]
             struct speedup *speedups; // [group_count]
         } *pval_cmps;                 // [val_count]
     } group_avg_cmp;
@@ -351,7 +351,7 @@ struct meas_analysis {
     // Estimates of times it took to execute one group
     struct {
         struct point_err_est *times; // [group_count]
-        size_t reference;
+        size_t ref;
         struct speedup *speedups; // [group_count]
     } group_sum_cmp;
 };
@@ -494,7 +494,7 @@ struct plot_maker_ctx {
 };
 
 struct plot_maker {
-    enum plot_backend backend;
+    enum plot_backend kind;
     const char *src_extension;
 
     bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
