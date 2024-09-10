@@ -1015,6 +1015,7 @@ size_t ith_bench_idx(size_t i, const struct meas_analysis *al)
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
+    ASSERT_UNREACHABLE();
 }
 
 static void print_bench_comparison(const struct meas_analysis *al)
@@ -1133,6 +1134,7 @@ size_t ith_per_val_group_idx(size_t i, size_t val_idx,
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
+    ASSERT_UNREACHABLE();
 }
 
 size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
@@ -1148,6 +1150,7 @@ size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
+    ASSERT_UNREACHABLE();
 }
 
 size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
@@ -1163,6 +1166,7 @@ size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
     case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
+    ASSERT_UNREACHABLE();
 }
 
 static void print_group_per_value_speedups(const struct meas_analysis *al,
