@@ -293,8 +293,6 @@ static double p_value(const double *a, size_t n1, const double *b, size_t n2)
         // configurable parameter.
         p = ttest(a, n1, b, n2, g_nresamp);
         break;
-    default:
-        ASSERT_UNREACHABLE();
     }
     return p;
 }

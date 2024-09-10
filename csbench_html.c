@@ -159,8 +159,6 @@ static void html_p_value_explain(double p_value, FILE *f)
     case STAT_TEST_TTEST:
         fprintf(f, "Welch's t-test p-value=%.2f", p_value);
         break;
-    default:
-        ASSERT_UNREACHABLE();
     }
     fprintf(f, "</p>"
                "<p>");
@@ -182,8 +180,6 @@ static void html_p_value_explain(double p_value, FILE *f)
             fprintf(f, "p-value > 0.05 &#8658 assuming "
                        "means are same");
         break;
-    default:
-        ASSERT_UNREACHABLE();
     }
     fprintf(f, "</p>");
 }
@@ -333,6 +329,7 @@ static void html_regr_bench_group(const struct group_analysis *al,
 
 static void html_regr(const struct meas_analysis *al, FILE *f)
 {
+    return;
     assert(0); // TODO
     const struct analysis *base = al->base;
     if (!base->group_count)
@@ -398,7 +395,7 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
             if (bench_idx == (size_t)g_baseline)
                 fprintf(f, " (baseline)");
             break;
-        default:
+        case SORT_DEFAULT:
             ASSERT_UNREACHABLE();
         }
         fprintf(f, "</li>");
@@ -464,7 +461,7 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             if (grp_idx == (size_t)g_baseline)
                 fprintf(f, " (baseline)");
             break;
-        default:
+        case SORT_DEFAULT:
             ASSERT_UNREACHABLE();
         }
         fprintf(f, "<ol>");
@@ -705,7 +702,7 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
                 "comparisons</p>",
                 bench_name(base, reference_idx));
         break;
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
     fprintf(f, "<table>"
@@ -806,8 +803,9 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al,
                 "comparisons</p>",
                 bench_group_name(base, reference_idx));
         break;
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
+        break;
     }
     fprintf(f, "<table>"
                /**/ "<thead><tr><th></th>");
@@ -852,7 +850,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
                 "comparisons</p>",
                 bench_group_name(base, g_baseline));
         break;
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
     fprintf(f, "<h4>per-value comparisons</h4>");
@@ -873,7 +871,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al,
         case SORT_BASELINE_RAW:
         case SORT_BASELINE_SPEED:
             break;
-        default:
+        case SORT_DEFAULT:
             ASSERT_UNREACHABLE();
         }
         fprintf(f, "<table>"

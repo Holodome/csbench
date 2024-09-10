@@ -1829,8 +1829,6 @@ bool get_plot_backend(enum plot_backend *backend)
         }
         *backend = PLOT_BACKEND_GNUPLOT;
         return true;
-    default:
-        ASSERT_UNREACHABLE();
     }
     bool found_backend = false;
     if (has_python_with_mpl()) {
@@ -1882,7 +1880,8 @@ void init_plot_maker(enum plot_backend backend, struct plot_maker *maker)
         maker->kde_cmp_per_val_small = kde_cmp_per_val_small_gnuplot;
         maker->kde_cmp_per_val = kde_cmp_per_val_gnuplot;
         break;
-    default:
+    case PLOT_BACKEND_DEFAULT:
         ASSERT_UNREACHABLE();
+        break;
     }
 }

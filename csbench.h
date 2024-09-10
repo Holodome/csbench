@@ -121,6 +121,7 @@ struct units {
 
 enum meas_kind {
     MEAS_CUSTOM,
+    MEAS_CUSTOM_RE,
     MEAS_LOADED,
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
@@ -139,9 +140,11 @@ enum meas_kind {
 struct meas {
     // Measurement name that will be used in reports
     const char *name;
-    // If measurement is MEAS_CUSTOM, cotains command string to be exucted in
+    // If measurement is MEAS_CUSTOM, contains command string to be executed in
     // shell to do custom measurement.
     const char *cmd;
+    // If measurement is MEAS_CUSTOM_RE, contains regular expresion.
+    const char *re;
     struct units units;
     enum meas_kind kind;
     bool is_secondary;

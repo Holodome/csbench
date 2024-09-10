@@ -156,7 +156,8 @@ static bool load_meas_csv_file(const struct meas *user_specified_meas,
             continue;
         }
 
-        struct meas meas = {"", NULL, {MU_NONE, ""}, MEAS_LOADED, false, 0};
+        struct meas meas = {"",          NULL,  NULL, {MU_NONE, ""},
+                            MEAS_LOADED, false, 0};
         meas.name = file_meas;
         // Try to guess and use seconds as measurement unit for first
         // measurement

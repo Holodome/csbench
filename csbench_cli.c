@@ -65,20 +65,21 @@
     (const char *[]) { __VA_ARGS__, NULL }
 
 static const struct meas BUILTIN_MEASUREMENTS[] = {
-    /* MEAS_CUSTOM */ {"", NULL, {0}, 0, false, 0},
-    /* MEAS_LOADED */ {"", NULL, {0}, 0, false, 0},
-    {"wall clock time", NULL, {MU_S, ""}, MEAS_WALL, false, 0},
-    {"usrtime", NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
-    {"systime", NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
-    {"maxrss", NULL, {MU_B, ""}, MEAS_RUSAGE_MAXRSS, true, 0},
-    {"minflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MINFLT, true, 0},
-    {"majflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MAJFLT, true, 0},
-    {"nvcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NVCSW, true, 0},
-    {"nivcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NIVCSW, true, 0},
-    {"cycles", NULL, {MU_NONE, ""}, MEAS_PERF_CYCLES, true, 0},
-    {"ins", NULL, {MU_NONE, ""}, MEAS_PERF_INS, true, 0},
-    {"b", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCH, true, 0},
-    {"bm", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
+    /* MEAS_CUSTOM */ {"", NULL, NULL, {0}, 0, false, 0},
+    /* MEAS_CUSTOM_RE */ {"", NULL, NULL, {0}, 0, false, 0},
+    /* MEAS_LOADED */ {"", NULL, NULL, {0}, 0, false, 0},
+    {"wall clock time", NULL, NULL, {MU_S, ""}, MEAS_WALL, false, 0},
+    {"usrtime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
+    {"systime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
+    {"maxrss", NULL, NULL, {MU_B, ""}, MEAS_RUSAGE_MAXRSS, true, 0},
+    {"minflt", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_MINFLT, true, 0},
+    {"majflt", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_MAJFLT, true, 0},
+    {"nvcsw", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_NVCSW, true, 0},
+    {"nivcsw", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_NIVCSW, true, 0},
+    {"cycles", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_CYCLES, true, 0},
+    {"ins", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_INS, true, 0},
+    {"b", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_BRANCH, true, 0},
+    {"bm", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
 };
 
 static void print_tabulated(const char *s)
@@ -241,6 +242,11 @@ static void print_help_and_exit(int rc)
     print_opt("--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
               "Add custom measurement with name <NAME>, This measurement pipes "
               "stdout of each command to <CMD>, parses its output as a single "
+              "real number and interprets it in <UNITS>.");
+    print_opt("--custom-re", OPT_ARR("NAME", "UNITS", "RE"),
+              "Add custom measurement with name <NAME>, This measurement uses "
+              "regular expression <RE> to extract data from stdout of each "
+              "command, parses first subexpression as a single "
               "real number and interprets it in <UNITS>.");
     print_opt("--no-default-meas", OPT_ARR(NULL),
               "Do not use default measurements.");
@@ -783,7 +789,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--custom-t requires 2 arguments");
+                error("--custom-t requires 2 arguments: <NAME> <CMD>");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -792,11 +798,12 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             memset(&meas, 0, sizeof(meas));
             meas.name = name;
             meas.cmd = cmd;
+            meas.kind = MEAS_CUSTOM;
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
             ++cursor;
             if (cursor + 2 >= argc) {
-                error("--custom-x requires 3 arguments");
+                error("--custom-x requires 3 arguments: <NAME> <UNITS> <CMD>");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -806,12 +813,29 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             memset(&meas, 0, sizeof(meas));
             meas.name = name;
             meas.cmd = cmd;
+            meas.kind = MEAS_CUSTOM;
+            parse_units_str(units, &meas.units);
+            sb_push(meas_list, meas);
+        } else if (strcmp(argv[cursor], "--custom-re") == 0) {
+            ++cursor;
+            if (cursor + 2 >= argc) {
+                error("--custom-re requires 3 arguments: <NAME> <UNITS> <RE>");
+                exit(EXIT_FAILURE);
+            }
+            const char *name = argv[cursor++];
+            const char *units = argv[cursor++];
+            const char *re = argv[cursor++];
+            struct meas meas;
+            memset(&meas, 0, sizeof(meas));
+            meas.name = name;
+            meas.re = re;
+            meas.kind = MEAS_CUSTOM_RE;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--rename") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--rename requires 2 arguments");
+                error("--rename requires 2 arguments: <N> <NAME>");
                 exit(EXIT_FAILURE);
             }
             const char *n = argv[cursor++];
@@ -833,7 +857,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (strcmp(argv[cursor], "--rename-name") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--rename-name requires 2 arguments");
+                error("--rename-name requires 2 arguments: <OLD> <NEW>");
                 exit(EXIT_FAILURE);
             }
             const char *old_name = argv[cursor++];

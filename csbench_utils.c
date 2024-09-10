@@ -414,6 +414,7 @@ void resample(const double *src, size_t count, double *dst)
     // Resample with replacement
     for (size_t i = 0; i < count; ++i)
         dst[i] = src[random_bounded(count, &entropy)];
+
     g_rng_state = entropy;
 }
 

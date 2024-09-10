@@ -266,6 +266,17 @@ no units
 Use <UNITS\-NAME> as name
 .RE
 .HP
+\fB\-\-custom\-re\fR \fINAME\fP \fIUNITS\fP \fIRE\fP
+.IP
+Add custom measurement with name \fINAME\fP. This measurement regular expression \fIRE\fP to extract data from stdout of each command, parses first subexpression as a single real number and interprets it in \fIUNITS\fP.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR 'echo hello, $RANDOM' \fB\-\-custom\-re\fR m s 'hello, ([0-9.]+)'
+.RE
+.RE
+.HP
 .B \-\-no\-default\-meas
 .IP
 Do not use default measurements (which are "wall", "stime", "utime").

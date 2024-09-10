@@ -972,7 +972,8 @@ static bool init_run_info(const struct settings *settings,
 
     bool has_custom_meas = false;
     for (size_t i = 0; i < sb_len(settings->meas); ++i) {
-        if (settings->meas[i].kind == MEAS_CUSTOM) {
+        if (settings->meas[i].kind == MEAS_CUSTOM ||
+            settings->meas[i].kind == MEAS_CUSTOM_RE) {
             has_custom_meas = true;
             break;
         }

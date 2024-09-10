@@ -431,7 +431,7 @@ static bool make_plot_walk(struct plot_walker_args *args)
     case PLOT_BACKEND_GNUPLOT:
         cmd = csfmt("gnuplot %s", src_buf);
         break;
-    default:
+    case PLOT_BACKEND_DEFAULT:
         ASSERT_UNREACHABLE();
     }
     if (!shell_launch(cmd, -1, stdout_fd, stderr_fd, &pid))
@@ -1004,7 +1004,7 @@ size_t ith_bench_idx(int i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->bench_by_mean_time[i];
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
 }
@@ -1033,7 +1033,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
         printf("baseline is ");
         printf_colored(ANSI_BOLD, "%s\n", reference_name);
         break;
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
     foreach_bench_idx (bench_idx, al) {
@@ -1121,7 +1121,7 @@ size_t ith_per_val_group_idx(size_t i, size_t val_idx,
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->val_benches_by_mean_time[val_idx][i];
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
 }
@@ -1135,7 +1135,7 @@ size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->groups_by_avg_speed[i];
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
 }
@@ -1149,7 +1149,7 @@ size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
     case SORT_SPEED:
     case SORT_BASELINE_SPEED:
         return al->groups_by_total_speed[i];
-    default:
+    case SORT_DEFAULT:
         ASSERT_UNREACHABLE();
     }
 }

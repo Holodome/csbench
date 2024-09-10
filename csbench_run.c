@@ -62,6 +62,7 @@
 #include <string.h>
 
 #include <pthread.h>
+#include <regex.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -594,7 +595,7 @@ static bool exec_and_measure(const struct bench_params *params,
     for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
         const struct meas *meas = params->meas + meas_idx;
         // Handled separately
-        if (meas->kind == MEAS_CUSTOM)
+        if (meas->kind == MEAS_CUSTOM || meas->kind == MEAS_CUSTOM_RE)
             continue;
         double val = 0.0;
         switch (meas->kind) {
@@ -641,8 +642,8 @@ static bool exec_and_measure(const struct bench_params *params,
             val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
+        case MEAS_CUSTOM_RE:
         case MEAS_LOADED:
-        default:
             ASSERT_UNREACHABLE();
         }
         sb_push(bench->meas[meas_idx], val);
@@ -1100,9 +1101,10 @@ static bool parse_custom_output(int fd, double *valuep)
     return true;
 }
 
-static bool do_custom_measurement(const struct meas *custom, int input_fd,
-                                  int output_fd, double *valuep)
+static bool do_custom_measurement_cmd(const struct meas *meas, int input_fd,
+                                      int output_fd, double *valuep)
 {
+    assert(meas->kind == MEAS_CUSTOM);
     // XXX: This is optimization to not spawn separate process when custom
     // command just forwards input. We could create separate entry in 'enum
     // meas_kind', but this is really not that important case to design against.
@@ -1110,7 +1112,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     // would require noticeable code changes, and I am too lazy for that.
     // Most of the time is spent in spawning processes anyway, so we cut it down
     // significantly either way.
-    if (strcmp(custom->cmd, "cat") == 0) {
+    if (strcmp(meas->cmd, "cat") == 0) {
         double value;
         if (!parse_custom_output(input_fd, &value))
             return false;
@@ -1128,7 +1130,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
         return false;
     }
 
-    if (!shell_execute(custom->cmd, input_fd, output_fd, -1, false))
+    if (!shell_execute(meas->cmd, input_fd, output_fd, -1, false))
         return false;
 
     if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -1144,27 +1146,15 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     return true;
 }
 
-static bool run_custom_measurements(const struct bench_params *params,
-                                    struct bench *bench)
+static bool run_custom_measurements_cmd(const struct bench_params *params,
+                                        struct bench *bench, void *copy_buffer,
+                                        size_t max_stdout_size,
+                                        const struct meas **meas_list)
 {
     bool success = false;
+
+    (void)max_stdout_size;
     int all_stdout_fd = params->stdout_fd;
-    // If stdout_fd is not set means we have no custom measurements
-    if (all_stdout_fd == -1)
-        return true;
-
-    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
-        csperror("lseek");
-        return false;
-    }
-
-    size_t max_stdout_size = bench->stdout_offsets[0];
-    for (size_t i = 1; i < bench->run_count; ++i) {
-        size_t d = bench->stdout_offsets[i] - bench->stdout_offsets[i - 1];
-        if (d > max_stdout_size)
-            max_stdout_size = d;
-    }
-
     int input_fd = tmpfile_fd();
     if (input_fd == -1)
         return false;
@@ -1173,15 +1163,6 @@ static bool run_custom_measurements(const struct bench_params *params,
         close(input_fd);
         return false;
     }
-
-    const struct meas **custom_meas_list = NULL;
-    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
-        const struct meas *meas = params->meas + meas_idx;
-        if (meas->kind == MEAS_CUSTOM)
-            sb_push(custom_meas_list, meas);
-    }
-    assert(custom_meas_list);
-    void *copy_buffer = malloc(max_stdout_size);
 
     for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
         size_t run_stdout_len;
@@ -1208,14 +1189,14 @@ static bool run_custom_measurements(const struct bench_params *params,
             goto err;
         }
 
-        for (size_t m = 0; m < sb_len(custom_meas_list); ++m) {
-            const struct meas *meas = custom_meas_list[m];
+        for (size_t meas_idx = 0; meas_idx < sb_len(meas_list); ++meas_idx) {
+            const struct meas *meas = meas_list[meas_idx];
             double value;
             if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
             }
-            if (!do_custom_measurement(meas, input_fd, output_fd, &value))
+            if (!do_custom_measurement_cmd(meas, input_fd, output_fd, &value))
                 goto err;
             sb_push(bench->meas[meas - params->meas], value);
         }
@@ -1232,8 +1213,197 @@ static bool run_custom_measurements(const struct bench_params *params,
 err:
     close(input_fd);
     close(output_fd);
+    return success;
+}
+
+static char **file_to_line_list(const char *start)
+{
+    char **lines = NULL;
+    const char *cursor = start;
+    for (;;) {
+        const char *next = strchr(cursor, '\n');
+        if (next == NULL) {
+            sb_push(lines, strdup(cursor));
+            break;
+        }
+        size_t len = next - cursor;
+        char *line = malloc(len + 1);
+        memcpy(line, cursor, len);
+        line[len] = '\0';
+        sb_push(lines, line);
+        cursor = next + 1;
+        if (*cursor == '\0')
+            break;
+    }
+    return lines;
+}
+
+static bool run_re_on_file(const struct bench_params *params,
+                           struct bench *bench, char *file_buffer,
+                           const struct meas **meas_list, regex_t *regexes)
+{
+    bool success = false;
+    size_t meas_count = sb_len(meas_list);
+    char **lines = file_to_line_list(file_buffer);
+    for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+        const struct meas *meas = meas_list[meas_idx];
+        regex_t *re = regexes + meas_idx;
+
+        bool had_match = false;
+        for (size_t line_idx = 0; line_idx < sb_len(lines); ++line_idx) {
+            const char *line = lines[line_idx];
+
+            regmatch_t matches[2];
+            int ret = regexec(re, line, 2, matches, 0);
+            if (ret != 0 && ret != REG_NOMATCH) {
+                char errbuf[4096];
+                regerror(ret, re, errbuf, sizeof(errbuf));
+                error("error executing regex '%s': %s", meas_list[meas_idx]->re,
+                      errbuf);
+                goto err;
+            } else if (ret == REG_NOMATCH) {
+                continue;
+            }
+            regmatch_t *match = matches + 1;
+            size_t off = match->rm_so;
+            size_t len = match->rm_eo - match->rm_so;
+            memcpy(file_buffer, line + off, len);
+            file_buffer[len] = '\0';
+
+            char *end = NULL;
+            double value = strtod(file_buffer, &end);
+            if (end == file_buffer) {
+                error("invalid custom measurement output '%s'", file_buffer);
+                goto err;
+            }
+            sb_push(bench->meas[meas - params->meas], value);
+
+            had_match = true;
+            break;
+        }
+
+        if (!had_match) {
+            error("measurement '%s' failed to match regex '%s'", meas->name,
+                  meas->re);
+            goto err;
+        }
+    }
+    success = true;
+err:
+    for (size_t i = 0; i < sb_len(lines); ++i)
+        free(lines[i]);
+    sb_free(lines);
+    return success;
+}
+
+static bool run_custom_measurements_re(const struct bench_params *params,
+                                       struct bench *bench, void *copy_buffer,
+                                       size_t max_stdout_size,
+                                       const struct meas **meas_list)
+{
+    bool success = false;
+    int all_stdout_fd = params->stdout_fd;
+    size_t meas_count = sb_len(meas_list);
+    (void)max_stdout_size;
+    regex_t *regexes = calloc(meas_count, sizeof(*regexes));
+    for (size_t i = 0; i < meas_count; ++i) {
+        regex_t *re = regexes + i;
+        int ret = regcomp(re, meas_list[i]->re, REG_EXTENDED | REG_NEWLINE);
+        if (ret != 0) {
+            char errbuf[4096];
+            regerror(ret, re, errbuf, sizeof(errbuf));
+            error("error compiling regex '%s': %s", meas_list[i]->re, errbuf);
+        partial_free_regexes:
+            for (size_t j = 0; j < i; ++j)
+                regfree(regexes + j);
+            free(regexes);
+            return false;
+        }
+        if (re->re_nsub != 1) {
+            error("regex '%s' contains %zu subexpressions instead of 1",
+                  meas_list[i]->re, re->re_nsub);
+            // Increase i to free the current regexp too
+            ++i;
+            goto partial_free_regexes;
+        }
+    }
+
+    for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
+        size_t run_stdout_len;
+        if (run_idx == 0) {
+            run_stdout_len = bench->stdout_offsets[run_idx];
+        } else {
+            run_stdout_len = bench->stdout_offsets[run_idx] -
+                             bench->stdout_offsets[run_idx - 1];
+        }
+        assert(run_stdout_len <= max_stdout_size);
+
+        ssize_t nr = read(all_stdout_fd, copy_buffer, run_stdout_len);
+        if (nr != (ssize_t)run_stdout_len) {
+            csperror("read");
+            goto err;
+        }
+        // copy_buffer size is sufficient to hold null terminator for all stdout
+        // sizes
+        ((char *)copy_buffer)[nr] = '\0';
+
+        if (!run_re_on_file(params, bench, copy_buffer, meas_list, regexes))
+            goto err;
+    }
+
+    success = true;
+err:
+    for (size_t i = 0; i < meas_count; ++i)
+        regfree(regexes + i);
+    free(regexes);
+    return success;
+}
+
+static bool run_custom_measurements(const struct bench_params *params,
+                                    struct bench *bench)
+{
+    int all_stdout_fd = params->stdout_fd;
+    // If stdout_fd is not set means we have no custom measurements
+    if (all_stdout_fd == -1)
+        return true;
+
+    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
+        csperror("lseek");
+        return false;
+    }
+
+    size_t max_stdout_size = bench->stdout_offsets[0];
+    for (size_t i = 1; i < bench->run_count; ++i) {
+        size_t d = bench->stdout_offsets[i] - bench->stdout_offsets[i - 1];
+        if (d > max_stdout_size)
+            max_stdout_size = d;
+    }
+    void *copy_buffer = malloc(max_stdout_size + 1);
+
+    const struct meas **custom_meas_list = NULL;
+    const struct meas **custom_re_meas_list = NULL;
+    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
+        const struct meas *meas = params->meas + meas_idx;
+        if (meas->kind == MEAS_CUSTOM)
+            sb_push(custom_meas_list, meas);
+        else if (meas->kind == MEAS_CUSTOM_RE)
+            sb_push(custom_re_meas_list, meas);
+    }
+
+    assert(custom_meas_list || custom_re_meas_list);
+
+    bool success = true;
+    if (custom_meas_list != NULL)
+        success = run_custom_measurements_cmd(
+            params, bench, copy_buffer, max_stdout_size, custom_meas_list);
+    if (custom_re_meas_list != NULL)
+        success = success && run_custom_measurements_re(
+                                 params, bench, copy_buffer, max_stdout_size,
+                                 custom_re_meas_list);
+
     free(copy_buffer);
     sb_free(custom_meas_list);
+    sb_free(custom_re_meas_list);
     return success;
 }
 
@@ -1290,7 +1460,8 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
 static bool run_benches_internal(const struct bench_params *params,
-                                 struct bench *benches, size_t count)
+                                 struct bench *benches, size_t count,
+                                 size_t thread_count)
 {
     bool success = false;
     struct progress_bar *progress_bar = NULL;
@@ -1306,11 +1477,6 @@ static bool run_benches_internal(const struct bench_params *params,
         }
     }
 
-    size_t thread_count = g_threads;
-    if (count < thread_count)
-        thread_count = count;
-    assert(thread_count > 0);
-
     if (g_progress_bar) {
         sb_resize(g_output_anchors, thread_count);
         if (thread_count == 1)
@@ -1318,9 +1484,6 @@ static bool run_benches_internal(const struct bench_params *params,
     }
 
     if (!execute_run_tasks(params, benches, count, thread_count))
-        goto out;
-
-    if (!execute_custom_measurement_tasks(params, benches, count, thread_count))
         goto out;
 
     success = true;
@@ -1340,9 +1503,17 @@ out:
 bool run_benches(const struct bench_params *params, struct bench *benches,
                  size_t count)
 {
+    size_t thread_count = g_threads;
+    if (count < thread_count)
+        thread_count = count;
+    assert(thread_count > 0);
+
     if (g_use_perf && !init_perf())
         return false;
-    bool success = run_benches_internal(params, benches, count);
+    bool success = run_benches_internal(params, benches, count, thread_count);
+    success = success && execute_custom_measurement_tasks(params, benches,
+                                                          count, thread_count);
+
     if (g_use_perf)
         deinit_perf();
     return success;
