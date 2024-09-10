@@ -1239,20 +1239,19 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
             "set boxwidth 1\n"
-            "set style fill solid 0.6\n"
+            "set style fill solid 0.6 border\n"
             "set style histogram errorbars gap 2 lw 1\n"
             "set style data histograms\n"
-            "set errorbars linecolor black\n"
             "set bars front\n"
             "set grid ytics\n"
             "set offset 0, 0, graph 0.05, 0\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
             ctx->image_filename, al->meas->name, view->units_str);
     if (view->logscale)
         fprintf(ctx->f, "set logscale y\n");
-    fprintf(ctx->f, "plot '%s' using 2:3:xtic(1) linecolor 'blue' notitle\n",
-            dat_name);
+    fprintf(ctx->f, "plot '%s' using 2:3:xtic(1) ls 1 notitle\n", dat_name);
     return true;
 }
 
@@ -1288,10 +1287,19 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
             "set boxwidth 1\n"
-            "set style fill solid 0.6\n"
+            "set style fill solid 0.6 border\n"
             "set style histogram errorbars gap 2 lw 1\n"
             "set style data histograms\n"
-            "set errorbars linecolor black\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
+            "set style line 3 lc rgb 'green' pt 7 ps 0.25\n"
+            "set style line 4 lc rgb 'red' pt 7 ps 0.25\n"
+            "set style line 5 lc rgb 'purple' pt 7 ps 0.25\n"
+            "set style line 6 lc rgb 'brown' pt 7 ps 0.25\n"
+            "set style line 7 lc rgb 'pink' pt 7 ps 0.25\n"
+            "set style line 8 lc rgb 'gray' pt 7 ps 0.25\n"
+            "set style line 9 lc rgb 'yellow' pt 7 ps 0.25\n"
+            "set style line 10 lc rgb 'cyan' pt 7 ps 0.25\n"
             "set bars front\n"
             "set grid ytics\n"
             "set offset 0, 0, graph 0.05, 0\n"
@@ -1301,47 +1309,14 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
             ctx->image_filename, var->name, al->meas->name, view->units_str);
     if (view->logscale)
         fprintf(ctx->f, "set logscale y\n");
-    fprintf(ctx->f, "plot '%s' using 2:3:xtic(1) linecolor 'blue' title '%s'",
-            dat_name, bench_group_name(base, ith_group_by_avg_idx(0, al)));
+    fprintf(ctx->f, "plot '%s' using 2:3:xtic(1) ls 1 title '%s'", dat_name,
+            bench_group_name(base, ith_group_by_avg_idx(0, al)));
     size_t i = 1;
     foreach_group_by_avg_idx (grp_idx, al) {
         if (i++ == 1)
             continue;
-        const char *color = NULL;
-        switch ((i - 2) % 10) {
-        case 0:
-            color = "blue";
-            break;
-        case 1:
-            color = "orange";
-            break;
-        case 2:
-            color = "green";
-            break;
-        case 3:
-            color = "red";
-            break;
-        case 4:
-            color = "purple";
-            break;
-        case 5:
-            color = "brown";
-            break;
-        case 6:
-            color = "pink";
-            break;
-        case 7:
-            color = "gray";
-            break;
-        case 8:
-            color = "yellow";
-            break;
-        case 9:
-            color = "cyan";
-            break;
-        }
-        fprintf(ctx->f, ",\\\n\t'' using %zu:%zu linecolor '%s' title '%s'",
-                (i - 1) * 2, 1 + (i - 1) * 2, color,
+        fprintf(ctx->f, ",\\\n\t'' using %zu:%zu ls '%zu' title '%s'",
+                (i - 1) * 2, 1 + (i - 1) * 2, i - 1,
                 bench_group_name(base, grp_idx));
     }
     fprintf(ctx->f, "\n");
@@ -1393,6 +1368,8 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     fprintf(ctx->f, ")\n");
     fprintf(ctx->f,
             "set term svg enhanced background rgb 'white'\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
             "set output '%s'\n"
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
@@ -1403,8 +1380,8 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     if (view->logscale)
         fprintf(ctx->f, "set logscale y\n");
     fprintf(ctx->f,
-            "plot '%s' using 2:1 with points notitle, \\\n"
-            "\t'%s' using 2:1 with lines notitle\n",
+            "plot '%s' using 2:1 with points notitle ls 1, \\\n"
+            "\t'%s' using 2:1 with lines notitle ls 2\n",
             dat1_name, dat2_name);
     return true;
 }
@@ -1433,13 +1410,13 @@ static bool make_kde_small_plot_gnuplot(const struct kde_plot *plot,
             "set output '%s'\n"
             "set ylabel 'probability density'\n"
             "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25\n"
+            "set style fill solid 0.25 noborder\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "unset ytics\n"
             "set xrange [%g:%g]\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
             "set offset 0, 0, graph 0.1, 0\n"
-            "plot '%s' using 1:2 with filledcurves above notitle linecolor "
-            "'blue'\n",
+            "plot '%s' using 1:2 with filledcurves above y1=0 notitle ls 1\n",
             ctx->image_filename, plot->meas->name, view->units_str,
             min * view->multiplier, kde->max * view->multiplier,
             kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
@@ -1524,47 +1501,44 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
             "set output '%s'\n"
             "set ylabel 'probability density, runs'\n"
             "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25\n"
+            "set style fill solid 0.25 noborder\n"
             "unset ytics\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
             "set style line 3 lc rgb 'red' pt 7 ps 0.25\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
             "set title '%s'\n"
             "set xrange [%g:%g]\n",
             ctx->image_filename, plot->meas->name, view->units_str,
             kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
             plot->title, min * view->multiplier, max * view->multiplier);
     if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
-        fprintf(
-            ctx->f,
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n",
-            distr->outliers.low_mild_x * view->multiplier,
-            distr->outliers.low_mild_x * view->multiplier);
+        fprintf(ctx->f,
+                "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n",
+                distr->outliers.low_mild_x * view->multiplier,
+                distr->outliers.low_mild_x * view->multiplier);
     if (distr->outliers.low_severe_x > min && distr->outliers.low_severe != 0)
         fprintf(ctx->f,
-                "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'red'\n",
+                "set arrow from %g, graph 0 to %g, graph 1 nohead ls 3\n",
                 distr->outliers.low_severe_x * view->multiplier,
                 distr->outliers.low_severe_x * view->multiplier);
     if (distr->outliers.high_mild_x < max && distr->outliers.high_mild != 0)
-        fprintf(
-            ctx->f,
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n",
-            distr->outliers.high_mild_x * view->multiplier,
-            distr->outliers.high_mild_x * view->multiplier);
+        fprintf(ctx->f,
+                "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n",
+                distr->outliers.high_mild_x * view->multiplier,
+                distr->outliers.high_mild_x * view->multiplier);
     if (distr->outliers.high_severe_x < max && distr->outliers.high_severe != 0)
         fprintf(ctx->f,
-                "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'red'\n",
+                "set arrow from %g, graph 0 to %g, graph 1 nohead ls 3\n",
                 distr->outliers.high_severe_x * view->multiplier,
                 distr->outliers.high_severe_x * view->multiplier);
-    fprintf(ctx->f,
-            "plot '%s' using 1:2 with filledcurves above title 'PDF' "
-            "linecolor "
-            "'blue', \\\n"
-            "\t1/0 lc 'blue' t 'mean', \\\n"
-            "\t'%s' using 1:2 with points ls 1 title '\"clean\" sample'",
-            kde_name, reg_name);
+    fprintf(
+        ctx->f,
+        "plot '%s' using 1:2 with filledcurves above y1=0 title 'PDF' ls 1,\\\n"
+        "\t1/0 ls 1 t 'mean', \\\n"
+        "\t'%s' using 1:2 with points ls 1 title '\"clean\" sample'",
+        kde_name, reg_name);
     if (plot->displayed_mild_count)
         fprintf(ctx->f,
                 ",\\\n\t'%s' using 1:2 with points ls 2 title 'mild outliers'",
@@ -1603,15 +1577,16 @@ static bool make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
             "set output '%s'\n"
             "set ylabel 'probability density'\n"
             "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25\n"
+            "set style fill solid 0.25 noborder\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
             "unset ytics\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n"
             "set xrange [%g:%g]\n"
             "set offset 0, 0, graph 0.1, 0\n"
-            "plot '%s' using 1:2 with filledcurves above t '%s' linecolor "
-            "'blue', \\\n"
-            "\t'' using 1:3 with filledcurves above t '%s' lc 'orange'\n",
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls 1,\\\n"
+            "\t'' using 1:3 with filledcurves above y1=0 t '%s' ls 2\n",
             ctx->image_filename, plot->al->meas->name, view->units_str,
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
@@ -1673,22 +1648,21 @@ static bool make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         "set output '%s'\n"
         "set ylabel 'probability density, runs'\n"
         "set xlabel '%s [%s]'\n"
-        "set style fill solid 0.25\n"
+        "set style fill solid 0.25 noborder\n"
         "unset ytics\n"
         "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
         "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n"
         "set xrange [%g:%g]\n"
         "set offset 0, 0, graph 0.1, 0\n"
         "set title '%s'\n"
-        "plot '%s' using 1:2 with filledcurves above t '%s PDF' linecolor "
-        "'blue', \\\n"
+        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s PDF' ls 1,\\\n"
         "\t'%s' using 1:2 with points ls 1 t '%s sample', \\\n"
-        "\t1/0 lc 'blue' t '%s mean', \\\n"
-        "\t'%s' using 1:3 with filledcurves above t '%s PDF' lc 'orange', \\\n"
+        "\t1/0 ls 1 t '%s mean', \\\n"
+        "\t'%s' using 1:3 with filledcurves above y1=0 t '%s PDF' ls 2,\\\n"
         "\t'%s' using 1:2 with points ls 2 t '%s sample', \\\n"
-        "\t1/0 lc 'orange' t '%s mean'\n",
+        "\t1/0 ls 2 t '%s mean'\n",
         ctx->image_filename, plot->al->meas->name, view->units_str,
         a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
         b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
@@ -1777,20 +1751,18 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             ctx->f,
             "set ylabel 'probability density, runs'\n"
             "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25\n"
+            "set style fill solid 0.25 noborder\n"
             "unset ytics\n"
             "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'blue'\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead lc 'orange'\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n"
             "set xrange [%g:%g]\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "set title '%s'\n"
-            "plot '%s' using 1:2 with filledcurves above t '%s' linecolor "
-            "'blue', \\\n"
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls 1,\\\n"
             "\t'%s' using 1:2 with points ls 1 notitle, \\\n"
-            "\t'%s' using 1:3 with filledcurves above t '%s' lc 'orange', "
-            "\\\n"
+            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls 2,\\\n"
             "\t'%s' using 1:2 with points ls 2 notitle\n",
             plot->al->meas->name, view->units_str,
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
