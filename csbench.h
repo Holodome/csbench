@@ -334,6 +334,10 @@ struct meas_analysis {
     size_t groups_avg_reference;
     size_t *groups_by_avg_speed;        // [group_count]
     struct speedup *group_avg_speedups; // [group_count]
+    // These are the same as val_bench_speedups and val_bench_speedups, but in
+    // relation to groups_avg_reference
+    struct speedup **group_avg_val_bench_speedups; // [val_count][group_count]
+    double **group_avg_val_p_values;               // [val_count][group_count]
     // Groups in total
     // Estimates of times it took to execute one group
     size_t groups_total_reference;

@@ -399,7 +399,7 @@ static void calculate_bench_speedups(struct meas_analysis *al)
     }
 }
 
-static void calculate_group_avg_speedups(struct meas_analysis *al)
+static void calculate_per_val_avg_speedups(struct meas_analysis *al)
 {
     struct analysis *base = al->base;
     if (base->bench_count == 1)
@@ -572,7 +572,7 @@ static void calculate_groups_by_avg_speed(struct meas_analysis *al)
     free(group_total_accum);
 }
 
-static void calculate_average_per_value_speedups(struct meas_analysis *al)
+static void calculate_group_avg_speedups(struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
     if (base->group_count == 1 || !base->var)
@@ -654,6 +654,39 @@ static void calculate_groups_by_total_speed(struct meas_analysis *al)
     }
 }
 
+static void calculate_group_avg_speedups_p_values(struct meas_analysis *al)
+{
+    struct analysis *base = al->base;
+    if (base->bench_count == 1)
+        return;
+
+    size_t grp_count = base->group_count;
+    if (!base->var || grp_count <= 1)
+        return;
+
+    size_t reference_idx = al->groups_avg_reference;
+    size_t value_count = base->var->value_count;
+    for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
+        bool flip = false;
+        if (g_baseline == -1)
+            flip = true;
+        const struct distr *reference =
+            al->group_analyses[reference_idx].data[val_idx].distr;
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+            const struct distr *distr =
+                al->group_analyses[grp_idx].data[val_idx].distr;
+            if (grp_idx == reference_idx)
+                continue;
+
+            struct speedup *sp =
+                al->group_avg_val_bench_speedups[val_idx] + grp_idx;
+            calculate_speedup(reference, distr, flip, sp);
+            al->group_avg_val_p_values[val_idx][grp_idx] = p_value(
+                reference->data, reference->count, distr->data, distr->count);
+        }
+    }
+}
+
 static void init_meas_analysis(struct analysis *base, size_t meas_idx,
                                struct meas_analysis *al)
 {
@@ -693,6 +726,16 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
             calloc(grp_count, sizeof(*al->groups_by_avg_speed));
         al->group_avg_speedups =
             calloc(grp_count, sizeof(*al->group_avg_speedups));
+        al->group_avg_val_bench_speedups =
+            calloc(val_count, sizeof(*al->group_avg_val_bench_speedups));
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            al->group_avg_val_bench_speedups[val_idx] =
+                calloc(grp_count, sizeof(**al->group_avg_val_bench_speedups));
+        al->group_avg_val_p_values =
+            calloc(val_count, sizeof(*al->group_avg_val_p_values));
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            al->group_avg_val_p_values[val_idx] =
+                calloc(grp_count, sizeof(**al->group_avg_val_p_values));
         al->group_total_times =
             calloc(grp_count, sizeof(*al->group_total_times));
         al->groups_by_total_speed =
@@ -779,9 +822,10 @@ static bool analyze_benches(struct analysis *al)
         calculate_per_bench_p_values(mal);
         calculate_per_group_p_values(mal);
         calculate_bench_speedups(mal);
-        calculate_group_avg_speedups(mal);
+        calculate_per_val_avg_speedups(mal);
         calculate_groups_by_avg_speed(mal);
-        calculate_average_per_value_speedups(mal);
+        calculate_group_avg_speedups(mal);
+        calculate_group_avg_speedups_p_values(mal);
         calculate_groups_total_time(mal);
         calculate_groups_by_total_speed(mal);
     }
@@ -838,6 +882,16 @@ static void free_bench_meas_analysis(struct meas_analysis *al)
     }
     free(al->groups_by_avg_speed);
     free(al->group_avg_speedups);
+    if (al->group_avg_val_bench_speedups) {
+        for (size_t i = 0; i < base->var->value_count; ++i)
+            free(al->group_avg_val_bench_speedups[i]);
+        free(al->group_avg_val_bench_speedups);
+    }
+    if (al->group_avg_val_p_values) {
+        for (size_t i = 0; i < base->var->value_count; ++i)
+            free(al->group_avg_val_p_values[i]);
+        free(al->group_avg_val_p_values);
+    }
     free(al->group_total_times);
     free(al->groups_by_total_speed);
     free(al->group_total_speedups);

@@ -130,6 +130,7 @@ struct kde_cmp_val {
     struct kde_data b_kde;
     struct plot_view view;
     double max_y;
+    const char *title;
 };
 
 struct kde_cmp_group_plot {
@@ -483,7 +484,7 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     double p_value = al->p_values[bench_idx];
     double diff = positive_speedup(al->bench_speedups + bench_idx);
     const char *title =
-        csfmt("%s vs %s p=%.2f diff=%.3f", a_name, b_name, p_value, diff);
+        csfmt("%s' vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
                                 plot);
 }
@@ -508,7 +509,7 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
     double p_value = reference_idx == al->val_p_values[val_idx][grp_idx];
     double diff = positive_speedup(al->val_bench_speedups[val_idx] + grp_idx);
     const char *title =
-        csfmt("%s=%s %s vs %s p=%.2f diff=%.3f", var->name,
+        csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
               var->values[val_idx], a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
                                 plot);
@@ -565,6 +566,11 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
                 max_y = cmp->b_kde.data[i];
         }
         cmp->max_y = max_y;
+        double p_value = al->group_avg_val_p_values[val_idx][grp_idx];
+        double diff = positive_speedup(
+            &al->group_avg_val_bench_speedups[val_idx][grp_idx]);
+        cmp->title = csfmt("%s=%s p=%.2f diff=%.3f", al->base->var->name,
+                           al->base->var->values[val_idx], p_value, diff);
     }
 }
 
@@ -609,8 +615,8 @@ static void make_bar_mpl(const struct bar_plot *plot,
             "plt.grid(axis='y')\n"
             "plt.bar(range(len(data)), data, yerr=err, alpha=0.6)\n"
             "plt.xticks(range(len(data)), names)\n"
-            "plt.ylabel('%s [%s]')\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
+            "plt.ylabel(r'%s [%s]')\n"
+            "plt.savefig(r'%s', bbox_inches='tight')\n",
             al->meas->name, view->units_str, ctx->image_filename);
 }
 
@@ -629,7 +635,7 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
     fprintf(ctx->f, "times = {");
     foreach_group_by_avg_idx (grp_idx, al) {
         const struct group_analysis *grp_al = al->group_analyses + grp_idx;
-        fprintf(ctx->f, "  '%s': ([", bench_group_name(base, grp_idx));
+        fprintf(ctx->f, "  r'%s': ([", bench_group_name(base, grp_idx));
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             fprintf(ctx->f, "%g,",
                     grp_al->data[val_idx].mean * view->multiplier);
@@ -658,12 +664,12 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
     if (view->logscale)
         fprintf(ctx->f, "ax.set_yscale('log')\n");
     fprintf(ctx->f,
-            "ax.set_ylabel('%s [%s]')\n"
+            "ax.set_ylabel(r'%s [%s]')\n"
             "plt.xticks(x + width * (%zu - 1) / 2, var_values)\n"
             "ax.set_axisbelow(True)\n"
             "plt.grid(axis='y')\n"
             "plt.legend(loc='best')\n"
-            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+            "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
             al->meas->name, view->units_str, base->group_count,
             ctx->image_filename);
 }
@@ -730,8 +736,8 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(ctx->f,
                 "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, "
-                "label='%s')\n"
-                "plt.plot(x, y[%zu], '.-', label='%s regression')\n",
+                "label=r'%s')\n"
+                "plt.plot(x, y[%zu], '.-', label=r'%s regression')\n",
                 grp_idx, als[grp_idx].group->name, grp_idx,
                 als[grp_idx].group->name);
     }
@@ -742,9 +748,9 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     fprintf(ctx->f,
             "plt.xticks(x)\n"
             "plt.grid()\n"
-            "plt.xlabel('%s')\n"
-            "plt.ylabel('%s [%s]')\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
+            "plt.xlabel(r'%s')\n"
+            "plt.ylabel(r'%s [%s]')\n"
+            "plt.savefig(r'%s', bbox_inches='tight')\n",
             var->name, plot->al->meas->name, view->units_str,
             ctx->image_filename);
 }
@@ -774,9 +780,9 @@ static void make_kde_small_plot_mpl(const struct kde_plot *plot,
             "plt.fill_between(x, y, interpolate=True, alpha=0.25)\n"
             "plt.vlines(%g, [0], [%g])\n"
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s [%s]')\n"
+            "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density')\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
+            "plt.savefig(r'%s', bbox_inches='tight')\n",
             kde->mean_x * view->multiplier, kde->mean_y, plot->meas->name,
             view->units_str, ctx->image_filename);
 }
@@ -857,13 +863,13 @@ static void make_kde_plot_mpl(const struct kde_plot *plot,
                 distr->outliers.high_severe_x * view->multiplier);
     fprintf(ctx->f,
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s [%s]')\n"
+            "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density, runs')\n"
             "plt.legend(loc='upper right')\n"
-            "plt.title('%s')\n"
+            "plt.title(r'%s')\n"
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
-            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+            "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
             plot->meas->name, view->units_str, plot->title,
             ctx->image_filename);
 }
@@ -896,16 +902,16 @@ static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "label='%s')\n"
+            "label=r'%s')\n"
             "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange', label='%s')\n"
+            "facecolor='tab:orange', label=r'%s')\n"
             "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
             "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s [%s]')\n"
+            "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.legend(loc='upper right')\n"
-            "plt.savefig('%s', bbox_inches='tight')\n",
+            "plt.savefig(r'%s', bbox_inches='tight')\n",
             plot->a_name, plot->b_name, a_kde->mean_x * view->multiplier,
             a_kde->mean_y, b_kde->mean_x * view->multiplier, b_kde->mean_y,
             plot->al->meas->name, view->units_str, ctx->image_filename);
@@ -958,20 +964,20 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "label='%s PDF')\n"
+            "label=r'%s PDF')\n"
             "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-            "color='tab:blue', label='%s sample')\n"
-            "plt.axvline(%g, color='tab:blue', label='%s mean')\n"
+            "color='tab:blue', label=r'%s sample')\n"
+            "plt.axvline(%g, color='tab:blue', label=r'%s mean')\n"
             "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange', label='%s PDF')\n"
+            "facecolor='tab:orange', label=r'%s PDF')\n"
             "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-            "color='tab:orange', label='%s sample')\n"
-            "plt.axvline(%g, color='tab:orange', label='%s mean')\n"
+            "color='tab:orange', label=r'%s sample')\n"
+            "plt.axvline(%g, color='tab:orange', label=r'%s mean')\n"
             "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel('%s [%s]')\n"
+            "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density, runs')\n"
             "plt.legend(loc='upper right')\n"
-            "plt.title('%s')\n"
+            "plt.title(r'%s')\n"
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
@@ -1048,12 +1054,9 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "titles = [");
-    for (size_t i = 0; i < plot->val_count; ++i) {
-        double p_value = al->val_p_values[i][plot->grp_idx];
-        double speedup =
-            positive_speedup(al->val_bench_speedups[i] + plot->grp_idx);
-        fprintf(ctx->f, "'%s=%s p=%.2f diff=%.3f',", al->base->var->name,
-                al->base->var->values[i], p_value, speedup);
+    for (size_t val_idx = 0; val_idx < plot->val_count; ++val_idx) {
+        const struct kde_cmp_val *cmp = plot->cmps + val_idx;
+        fprintf(ctx->f, "r'%s',", cmp->title);
     }
     fprintf(ctx->f, "]\n");
     fprintf(ctx->f, "xlabels = [");
@@ -1098,7 +1101,7 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "row = col = 0\n"
             "for i in range(%zu):\n"
             "  make_plot(x[i], ay[i], by[i], a_means[i], b_means[i], "
-            "a_points[i], b_points[i], '%s', '%s', titles[i], "
+            "a_points[i], b_points[i], r'%s', r'%s', titles[i], "
             "xlabels[i], axes[row][col])\n"
             "  col += 1\n"
             "  if col >= %zu:\n"
@@ -1114,7 +1117,7 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "figure = plt.gcf()\n"
             "figure.set_size_inches(%zu, %zu)\n"
             "fig.tight_layout()\n"
-            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+            "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
             plot->rows, plot->cols, plot->rows, plot->val_count,
             bench_group_name(al->base, plot->reference_idx),
             bench_group_name(al->base, plot->grp_idx), plot->cols, plot->rows,
@@ -1740,13 +1743,6 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
         const struct plot_view *view = &cmp->view;
         const struct kde_data *a_kde = &cmp->a_kde;
         const struct kde_data *b_kde = &cmp->b_kde;
-        char title[4096];
-        double p_value = al->val_p_values[val_idx][plot->grp_idx];
-        double speedup =
-            positive_speedup(al->val_bench_speedups[val_idx] + plot->grp_idx);
-        snprintf(title, sizeof(title), "%s=%s p=%.2f diff=%.3f",
-                 al->base->var->name, al->base->var->values[val_idx], p_value,
-                 speedup);
         fprintf(ctx->f,
                 "set ylabel 'probability density, runs'\n"
                 "set xlabel '%s [%s]'\n"
@@ -1771,8 +1767,9 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             "\t'%s' using 1:2 with points ls 2 notitle\n",
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-            cmp->min * view->multiplier, cmp->max * view->multiplier, title,
-            kde_names[val_idx], bench_group_name(al->base, plot->reference_idx),
+            cmp->min * view->multiplier, cmp->max * view->multiplier,
+            cmp->title, kde_names[val_idx],
+            bench_group_name(al->base, plot->reference_idx),
             pts1_names[val_idx], kde_names[val_idx],
             bench_group_name(al->base, plot->grp_idx), pts2_names[val_idx]);
     }
