@@ -220,7 +220,7 @@ static void html_toc_bench(const struct analysis *al, FILE *f)
         }
         fprintf(f, "</ol>");
     } else {
-        assert(!"not implemented");
+        // TODO
     }
 }
 
@@ -278,7 +278,7 @@ static void html_toc_group(const struct analysis *al, FILE *f)
         }
         fprintf(f, "</ol>");
     } else {
-        assert(!"not implemented");
+        // TODO
     }
 }
 

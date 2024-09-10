@@ -475,31 +475,32 @@ struct kde_cmps_params {
 struct plot_maker_ctx {
     const char *image_filename;
     FILE *f;
+    size_t *gnuplot_data_idx;
 };
 
 struct plot_maker {
     enum plot_backend backend;
     const char *src_extension;
 
-    void (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
-    void (*group_bar)(const struct meas_analysis *al,
+    bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
+    bool (*group_bar)(const struct meas_analysis *al,
                       struct plot_maker_ctx *ctx);
-    void (*group_regr)(const struct meas_analysis *al, size_t idx,
+    bool (*group_regr)(const struct meas_analysis *al, size_t idx,
                        struct plot_maker_ctx *ctx);
-    void (*kde_small)(const struct distr *distr, const struct meas *meas,
+    bool (*kde_small)(const struct distr *distr, const struct meas *meas,
                       struct plot_maker_ctx *ctx);
-    void (*kde)(const struct distr *distr, const struct meas *meas,
+    bool (*kde)(const struct distr *distr, const struct meas *meas,
                 const char *name, struct plot_maker_ctx *ctx);
-    void (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
+    bool (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
                           struct plot_maker_ctx *ctx);
-    void (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
+    bool (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
                     struct plot_maker_ctx *ctx);
-    void (*kde_cmp_per_val_small)(const struct meas_analysis *al,
+    bool (*kde_cmp_per_val_small)(const struct meas_analysis *al,
                                   size_t grp_idx, size_t val_idx,
                                   struct plot_maker_ctx *ctx);
-    void (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
+    bool (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx,
                             size_t val_idx, struct plot_maker_ctx *ctx);
-    void (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
+    bool (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
                           struct plot_maker_ctx *ctx);
 };
 
@@ -669,7 +670,7 @@ bool run_benches(const struct bench_params *params, struct bench *benches,
 
 bool make_report(const struct analysis *al);
 
-size_t ith_bench_idx(int i, const struct meas_analysis *al);
+size_t ith_bench_idx(size_t i, const struct meas_analysis *al);
 size_t ith_per_val_group_idx(size_t i, size_t val_idx,
                              const struct meas_analysis *al);
 size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al);
@@ -830,22 +831,33 @@ static inline const char *bench_group_name(const struct analysis *al,
 #define foreach_bench_idx(_idx, _al)                                           \
     for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));              \
          CSUNIQIFY(i) < (_al)->base->bench_count;                              \
-         ++CSUNIQIFY(i), _idx = ith_bench_idx(CSUNIQIFY(i), (_al)))
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count        \
+                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))       \
+                                    : 0)
 
 #define foreach_group_by_avg_idx(_idx, _al)                                    \
     for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));       \
          CSUNIQIFY(i) < (_al)->base->group_count;                              \
-         ++CSUNIQIFY(i), _idx = ith_group_by_avg_idx(CSUNIQIFY(i), (_al)))
+         ++CSUNIQIFY(i),                                                       \
+                _idx = CSUNIQIFY(i) < (_al)->base->group_count                 \
+                           ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))         \
+                           : 0)
 
 #define foreach_group_by_total_idx(_idx, _al)                                  \
     for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));     \
          CSUNIQIFY(i) < (_al)->base->group_count;                              \
-         ++CSUNIQIFY(i), _idx = ith_group_by_total_idx(CSUNIQIFY(i), (_al)))
+         ++CSUNIQIFY(i),                                                       \
+                _idx = CSUNIQIFY(i) < (_al)->base->group_count                 \
+                           ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))       \
+                           : 0)
 
 #define foreach_per_val_group_idx(_idx, _val, _al)                             \
     for (size_t CSUNIQIFY(i) = 0,                                              \
                 _idx = ith_per_val_group_idx(0, (_val), (_al));                \
-         CSUNIQIFY(i) < (_al)->base->group_count; ++CSUNIQIFY(i),              \
-                _idx = ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al)))
+         CSUNIQIFY(i) < (_al)->base->group_count;                              \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count        \
+                                    ? ith_per_val_group_idx(CSUNIQIFY(i),      \
+                                                            (_val), (_al))     \
+                                    : 0)
 
 #endif // CSBENCH_H

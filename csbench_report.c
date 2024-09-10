@@ -86,6 +86,7 @@ struct plot_walker_args {
     size_t val_idx;
     size_t compared_idx;
     struct plot_maker plot_maker;
+    size_t gnuplot_data_idx;
 };
 
 static bool json_escape(char *buf, size_t buf_size, const char *src)
@@ -329,7 +330,7 @@ static void format_plot_name(char *buf, size_t buf_size,
     }
 }
 
-static void make_plot_src(struct plot_walker_args *args, FILE *f)
+static bool make_plot_src(struct plot_walker_args *args, FILE *f)
 {
     const struct meas_analysis *al = args->analysis;
     const struct analysis *base = al->base;
@@ -340,44 +341,35 @@ static void make_plot_src(struct plot_walker_args *args, FILE *f)
     struct plot_maker_ctx ctx = {0};
     ctx.image_filename = svg_buf;
     ctx.f = f;
+    ctx.gnuplot_data_idx = &args->gnuplot_data_idx;
     switch (args->plot_kind) {
     case PLOT_BAR:
-        plot_maker->bar(al, &ctx);
-        break;
+        return plot_maker->bar(al, &ctx);
     case PLOT_GROUP_BAR:
-        plot_maker->group_bar(al, &ctx);
-        break;
+        return plot_maker->group_bar(al, &ctx);
     case PLOT_GROUP_REGR:
-        plot_maker->group_regr(al, args->grp_idx, &ctx);
-        break;
+        return plot_maker->group_regr(al, args->grp_idx, &ctx);
     case PLOT_ALL_GROUPS_REGR:
-        plot_maker->group_regr(al, (size_t)-1, &ctx);
-        break;
+        return plot_maker->group_regr(al, (size_t)-1, &ctx);
     case PLOT_KDE_SMALL:
-        plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
-        break;
+        return plot_maker->kde_small(al->benches[args->bench_idx], meas, &ctx);
     case PLOT_KDE:
-        plot_maker->kde(al->benches[args->bench_idx], meas,
-                        bench_name(base, args->bench_idx), &ctx);
-        break;
+        return plot_maker->kde(al->benches[args->bench_idx], meas,
+                               bench_name(base, args->bench_idx), &ctx);
     case PLOT_KDE_CMP_SMALL:
-        plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp_small(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP:
-        plot_maker->kde_cmp(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP_ALL_GROUPS:
-        plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
-        break;
+        return plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL:
-        plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx,
-                                    &ctx);
-        break;
+        return plot_maker->kde_cmp_per_val(al, args->compared_idx,
+                                           args->val_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
-                                          &ctx);
-        break;
+        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx,
+                                                 args->val_idx, &ctx);
     }
+    ASSERT_UNREACHABLE();
 }
 
 static bool make_plot_src_walk(struct plot_walker_args *args)
@@ -390,13 +382,25 @@ static bool make_plot_src_walk(struct plot_walker_args *args)
         error("failed to create file %s", src_buf);
         return false;
     }
-    make_plot_src(args, src_file);
+    bool success = make_plot_src(args, src_file);
     fclose(src_file);
-    return true;
+    return success;
 }
 
 static bool make_plot_srcs(const struct analysis *al, enum plot_backend backend)
 {
+    if (backend == PLOT_BACKEND_GNUPLOT) {
+        char dirname[4096];
+        snprintf(dirname, sizeof(dirname), "%s/gnuplot-data", g_out_dir);
+        if (mkdir(dirname, 0766) == -1) {
+            if (errno == EEXIST) {
+            } else {
+                csfmtperror("failed to create directory '%s'", dirname);
+                return false;
+            }
+        }
+    }
+
     struct plot_walker_args args = {0};
     init_plot_maker(backend, &args.plot_maker);
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
@@ -491,6 +495,10 @@ static bool delete_plot_srcs(const struct analysis *al,
         if (!plot_walker(delete_plot_src_walk, &args))
             return false;
     }
+    char dirname[4096];
+    snprintf(dirname, sizeof(dirname), "%s/gnuplot-data", g_out_dir);
+    if (!rm_rf_dir(dirname))
+        return false;
     return true;
 }
 
@@ -845,7 +853,6 @@ static bool export_csvs(const struct analysis *al)
     return true;
 }
 
-
 static bool make_reports(const struct analysis *al)
 {
     if (g_json_export_filename != NULL &&
@@ -995,8 +1002,9 @@ static void print_benchmark_info(const struct bench_analysis *cur,
     }
 }
 
-size_t ith_bench_idx(int i, const struct meas_analysis *al)
+size_t ith_bench_idx(size_t i, const struct meas_analysis *al)
 {
+    assert(i < al->base->bench_count);
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_BASELINE_RAW:
@@ -1114,6 +1122,7 @@ static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
 size_t ith_per_val_group_idx(size_t i, size_t val_idx,
                              const struct meas_analysis *al)
 {
+    assert(i < al->base->group_count);
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_BASELINE_RAW:
@@ -1128,6 +1137,7 @@ size_t ith_per_val_group_idx(size_t i, size_t val_idx,
 
 size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
 {
+    assert(i < al->base->group_count);
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_BASELINE_RAW:
@@ -1142,6 +1152,7 @@ size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al)
 
 size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
 {
+    assert(i < al->base->group_count);
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_BASELINE_RAW:
