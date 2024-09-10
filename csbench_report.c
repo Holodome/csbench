@@ -1388,8 +1388,13 @@ static void print_group_comparison(const struct meas_analysis *al)
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
             printf("%s = ", cli_group_name(al, grp_idx, true));
             printf_colored(ANSI_BOLD, "%s", bench_group_name(base, grp_idx));
-            if (g_baseline != -1 && (size_t)g_baseline == grp_idx)
-                printf(" (baseline)");
+            if (g_baseline == -1) {
+                if (al->groups_avg_reference == grp_idx)
+                    printf(" (fastest)");
+            } else {
+                if ((size_t)g_baseline == grp_idx)
+                    printf(" (baseline)");
+            }
             printf("\n");
         }
     } else {
@@ -1397,6 +1402,11 @@ static void print_group_comparison(const struct meas_analysis *al)
             printf("baseline group ");
             printf_colored(ANSI_BOLD, "%s\n",
                            al->group_analyses[g_baseline].group->name);
+        } else {
+            printf("fastest group ");
+            printf_colored(
+                ANSI_BOLD, "%s\n",
+                al->group_analyses[al->groups_avg_reference].group->name);
         }
     }
 
