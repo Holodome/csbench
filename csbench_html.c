@@ -188,9 +188,16 @@ static void html_toc_bench_meas(const struct meas_analysis *al, FILE *f)
     const struct analysis *base = al->base;
     size_t meas_idx = al->meas_idx;
     fprintf(f, "<ol>");
-    fprintf(f, "<li><a href=\"#summary-%zu\">summary</a></li>", meas_idx);
+    fprintf(f,
+            "<li>"
+            /**/ "<a href=\"#summary-%zu\">summary</a>"
+            "</li>",
+            meas_idx);
     if (g_regr) {
-        fprintf(f, "<li><a href=\"#regrs-%zu\">regrssion analysis</a></li>",
+        fprintf(f,
+                "<li>"
+                /**/ "<a href=\"#regrs-%zu\">regrssion analysis</a>"
+                "</li>",
                 meas_idx);
     }
     fprintf(f,
@@ -199,7 +206,12 @@ static void html_toc_bench_meas(const struct meas_analysis *al, FILE *f)
             /**/ "<ol>",
             meas_idx);
     foreach_bench_idx (bench_idx, al) {
-        fprintf(f, "<li><a href=\"#bench-%zu-%zu\"><tt>%s</tt></a></li>",
+        fprintf(f,
+                "<li>"
+                /**/ "<a href=\"#bench-%zu-%zu\">"
+                /****/ "<tt>%s</tt>"
+                /**/ "</a>"
+                "</li>",
                 bench_idx, meas_idx, bench_name(base, bench_idx));
     }
     fprintf(f, "</ol>"
@@ -213,8 +225,11 @@ static void html_toc_bench_meas(const struct meas_analysis *al, FILE *f)
             if (bench_idx == ref_idx)
                 continue;
             fprintf(f,
-                    "<li><a href=\"#cmp-%zu-%zu\"><tt>%s</tt> vs "
-                    "<tt>%s</tt></a></li>",
+                    "<li>"
+                    /**/ "<a href=\"#cmp-%zu-%zu\">"
+                    /****/ "<tt>%s</tt> vs <tt>%s</tt>"
+                    /**/ "</a>"
+                    "</li>",
                     bench_idx, meas_idx, bench_name(base, ref_idx),
                     bench_name(base, bench_idx));
         }
@@ -232,7 +247,7 @@ static void html_toc_bench(const struct analysis *al, FILE *f)
             continue;
         fprintf(f,
                 "<li>"
-                "<a href=\"#meas-%zu\">measurement %s</a>",
+                /**/ "<a href=\"#meas-%zu\">measurement %s</a>",
                 meas_idx, al->meas[meas_idx].name);
         html_toc_bench_meas(al->meas_analyses + meas_idx, f);
         fprintf(f, "</li>");
@@ -247,13 +262,25 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
     size_t val_count = var->value_count;
     size_t meas_idx = al->meas_idx;
     fprintf(f, "<ol>");
-    fprintf(f, "<li><a href=\"#summary-%zu\">summary</a></li>", meas_idx);
+    fprintf(f,
+            "<li>"
+            /**/ "<a href=\"#summary-%zu\">summary</a>"
+            "</li>",
+            meas_idx);
     if (g_regr) {
-        fprintf(f, "<li><a href=\"#regrs-%zu\">regrssion analysis</a></li>",
+        fprintf(f,
+                "<li>"
+                /**/ "<a href=\"#regrs-%zu\">regrssion analysis</a>"
+                "</li>",
                 meas_idx);
         fprintf(f, "<ol>");
         foreach_group_by_avg_idx (grp_idx, al) {
-            fprintf(f, "<li><a href=\"#regr-%zu-%zu\"><tt>%s</tt></a></li>",
+            fprintf(f,
+                    "<li>"
+                    /**/ "<a href=\"#regr-%zu-%zu\">"
+                    /****/ "<tt>%s</tt>"
+                    /**/ "</a>"
+                    "</li>",
                     grp_idx, meas_idx, bench_group_name(base, grp_idx));
         }
         fprintf(f, "</ol>");
