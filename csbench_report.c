@@ -1252,7 +1252,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
         return;
-    printf("in total (avg) ");
+    printf("in total (avg): ");
     if (base->group_count > 2)
         printf("\n");
     size_t ref_idx = al->group_avg_cmp.ref;
@@ -1316,7 +1316,7 @@ static void print_group_total_speedups(const struct meas_analysis *al,
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
         return;
-    printf("in total (sum) ");
+    printf("in total (sum): ");
     if (base->group_count > 2)
         printf("\n");
     size_t ref_idx = al->group_sum_cmp.ref;
@@ -1384,7 +1384,11 @@ static void print_group_comparison(const struct meas_analysis *al)
             printf_colored(ANSI_BOLD, "%s", bench_group_name(base, grp_idx));
             if (g_baseline == -1) {
                 if (al->group_avg_cmp.ref == grp_idx)
-                    printf(" (fastest)");
+                    printf_colored(ANSI_BLUE, " (fastest)");
+                else if (base->group_count > 2 &&
+                         grp_idx ==
+                             al->groups_by_avg_speed[base->group_count - 1])
+                    printf(" (slowest)");
             } else {
                 if ((size_t)g_baseline == grp_idx)
                     printf(" (baseline)");
@@ -1397,10 +1401,19 @@ static void print_group_comparison(const struct meas_analysis *al)
             printf_colored(ANSI_BOLD, "%s\n",
                            al->group_analyses[g_baseline].group->name);
         } else {
-            printf("fastest group ");
+            printf_colored(ANSI_BLUE, "fastest");
+            printf(" group ");
             printf_colored(
                 ANSI_BOLD, "%s\n",
                 al->group_analyses[al->group_avg_cmp.ref].group->name);
+            if (base->group_count > 2) {
+                printf("slowest group ");
+                printf_colored(
+                    ANSI_BOLD, "%s\n",
+                    al->group_analyses
+                        [al->groups_by_avg_speed[base->group_count - 1]]
+                            .group->name);
+            }
         }
     }
 

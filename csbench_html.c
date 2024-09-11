@@ -541,7 +541,8 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
         case SORT_SPEED:
             if (bench_idx == al->bench_cmp.ref)
                 fprintf(f, " (fastest)");
-            else if (bench_idx == al->bench_by_mean_time[base->bench_count - 1])
+            else if (base->bench_count > 2 &&
+                     bench_idx == al->bench_by_mean_time[base->bench_count - 1])
                 fprintf(f, " (slowest)");
             break;
         case SORT_BASELINE_RAW:
@@ -610,7 +611,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
         case SORT_SPEED:
             if (grp_idx == al->group_avg_cmp.ref)
                 fprintf(f, " (fastest)");
-            else if (grp_idx == al->groups_by_avg_speed[base->group_count - 1])
+            else if (base->group_count > 2 &&
+                     grp_idx == al->groups_by_avg_speed[base->group_count - 1])
                 fprintf(f, " (slowest)");
             break;
         case SORT_BASELINE_RAW:
