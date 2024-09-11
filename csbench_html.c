@@ -183,102 +183,126 @@ static void html_p_value_explain(double p_value, FILE *f)
     fprintf(f, "</p>");
 }
 
-static void html_toc_bench(const struct analysis *al, FILE *f)
+static void html_toc_bench_meas(const struct meas_analysis *al, FILE *f)
 {
-    if (al->primary_meas_count == 1) {
-        const struct meas_analysis *mal = al->meas_analyses + 0;
-        fprintf(f, "<ol>");
-        if (g_regr)
-            fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
-        fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
-                   "<li>"
-                   /**/ "<a href=\"#benches\">benchmarks</a>"
+    const struct analysis *base = al->base;
+    fprintf(f, "<ol>");
+    if (g_regr)
+        fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
+    fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
+               "<li>"
+               /**/ "<a href=\"#benches\">benchmarks</a>"
+               /**/ "<ol>");
+    foreach_bench_idx (bench_idx, al) {
+        fprintf(f, "<li><a href=\"#bench-%zu-%zu\"><tt>%s</tt></a></li>",
+                bench_idx, al->meas_idx, bench_name(base, bench_idx));
+    }
+    fprintf(f, "</ol>"
+               "</li>");
+    if (base->bench_count > 1) {
+        fprintf(f, "<li>"
+                   /**/ "<a href=\"#cmps\">comparisons</a>"
                    /**/ "<ol>");
-        foreach_bench_idx (bench_idx, mal) {
-            fprintf(f, "<li><a href=\"#bench-%zu-%zu\"><tt>%s</tt></a></li>",
-                    bench_idx, mal->meas_idx, bench_name(al, bench_idx));
+        size_t ref_idx = al->bench_cmp.ref;
+        foreach_bench_idx (bench_idx, al) {
+            if (bench_idx == ref_idx)
+                continue;
+            fprintf(f,
+                    "<li><a href=\"#cmp-%zu\"><tt>%s</tt> vs "
+                    "<tt>%s</tt></a></li>",
+                    bench_idx, bench_name(base, ref_idx),
+                    bench_name(base, bench_idx));
         }
         fprintf(f, "</ol>"
                    "</li>");
-        if (al->bench_count > 1) {
-            fprintf(f, "<li>"
-                       /**/ "<a href=\"#cmps\">comparisons</a>"
-                       /**/ "<ol>");
-            size_t ref_idx = mal->bench_cmp.ref;
-            foreach_bench_idx (bench_idx, mal) {
-                if (bench_idx == ref_idx)
-                    continue;
-                fprintf(f,
-                        "<li><a href=\"#cmp-%zu\"><tt>%s</tt> vs "
-                        "<tt>%s</tt></a></li>",
-                        bench_idx, bench_name(al, ref_idx),
-                        bench_name(al, bench_idx));
-            }
-            fprintf(f, "</ol>"
-                       "</li>");
-        }
-        fprintf(f, "</ol>");
-    } else {
-        // TODO
     }
+    fprintf(f, "</ol>");
+}
+
+static void html_toc_bench(const struct analysis *al, FILE *f)
+{
+    fprintf(f, "<ol>");
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
+            continue;
+        fprintf(f,
+                "<li>"
+                "<a href=\"#meas-%zu\">measurement %s</a>",
+                meas_idx, al->meas[meas_idx].name);
+        html_toc_bench_meas(al->meas_analyses + meas_idx, f);
+        fprintf(f, "</li>");
+    }
+    fprintf(f, "</ol>");
+}
+
+static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
+{
+    const struct analysis *base = al->base;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    fprintf(f, "<ol>");
+    if (g_regr)
+        fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
+    fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
+               "<li>"
+               /**/ "<a href=\"#benches\">benchmarks</a>"
+               /**/ "<ol>");
+    foreach_group_by_avg_idx (grp_idx, al) {
+        fprintf(f,
+                "<li>"
+                "<a href=\"#bench-group-%zu-%zu\">"
+                /**/ "<tt>%s</tt>"
+                "</a>",
+                grp_idx, al->meas_idx, bench_group_name(base, grp_idx));
+        fprintf(f, "<ol>");
+        for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
+            fprintf(f,
+                    "<li>"
+                    /**/ "<a href=\"#bench-%zu-%zu-%zu\">"
+                    /****/ "<tt>%s=%s</tt>"
+                    /**/ "</a>"
+                    "</li>",
+                    grp_idx, val_idx, al->meas_idx, var->name,
+                    var->values[val_idx]);
+        fprintf(f, "</ol>"
+                   "</li>");
+    }
+    fprintf(f, "</ol>"
+               "</li>");
+    if (base->group_count > 1) {
+        fprintf(f, "<li>"
+                   /**/ "<a href=\"#cmps\">comparisons</a>"
+                   /**/ "<ol>");
+        size_t ref_idx = al->bench_cmp.ref;
+        foreach_bench_idx (bench_idx, al) {
+            if (bench_idx == ref_idx)
+                continue;
+            fprintf(f,
+                    "<li><a href=\"#cmp-%zu-%zu\"><tt>%s</tt> vs "
+                    "<tt>%s</tt></a></li>",
+                    bench_idx, al->meas_idx, bench_name(base, ref_idx),
+                    bench_name(base, bench_idx));
+        }
+        fprintf(f, "</ol>"
+                   "</li>");
+    }
+    fprintf(f, "</ol>");
 }
 
 static void html_toc_group(const struct analysis *al, FILE *f)
 {
-    const struct bench_var *var = al->var;
-    size_t val_count = var->value_count;
-    if (al->primary_meas_count == 1) {
-        const struct meas_analysis *mal = al->meas_analyses + 0;
-        fprintf(f, "<ol>");
-        if (g_regr)
-            fprintf(f, "<li><a href=\"#regr\">parameter analysis</a></li>");
-        fprintf(f, "<li><a href=\"#summary\">summary</a></li>"
-                   "<li>"
-                   /**/ "<a href=\"#benches\">benchmarks</a>"
-                   /**/ "<ol>");
-        foreach_group_by_avg_idx (grp_idx, mal) {
-            fprintf(f,
-                    "<li>"
-                    "<a href=\"#bench-group-%zu-%zu\">"
-                    /**/ "<tt>%s</tt>"
-                    "</a>",
-                    grp_idx, mal->meas_idx, bench_group_name(al, grp_idx));
-            fprintf(f, "<ol>");
-            for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
-                fprintf(f,
-                        "<li>"
-                        /**/ "<a href=\"#bench-%zu-%zu-%zu\">"
-                        /****/ "<tt>%s=%s</tt>"
-                        /**/ "</a>"
-                        "</li>",
-                        grp_idx, val_idx, mal->meas_idx, var->name,
-                        var->values[val_idx]);
-            fprintf(f, "</ol>"
-                       "</li>");
-        }
-        fprintf(f, "</ol>"
-                   "</li>");
-        if (al->bench_count > 1) {
-            fprintf(f, "<li>"
-                       /**/ "<a href=\"#cmps\">comparisons</a>"
-                       /**/ "<ol>");
-            size_t ref_idx = mal->bench_cmp.ref;
-            foreach_bench_idx (bench_idx, mal) {
-                if (bench_idx == ref_idx)
-                    continue;
-                fprintf(f,
-                        "<li><a href=\"#cmp-%zu-%zu\"><tt>%s</tt> vs "
-                        "<tt>%s</tt></a></li>",
-                        bench_idx, mal->meas_idx, bench_name(al, ref_idx),
-                        bench_name(al, bench_idx));
-            }
-            fprintf(f, "</ol>"
-                       "</li>");
-        }
-        fprintf(f, "</ol>");
-    } else {
-        // TODO
+    fprintf(f, "<ol>");
+    for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
+        if (al->meas[meas_idx].is_secondary)
+            continue;
+        fprintf(f,
+                "<li>"
+                "<a href=\"#meas-%zu\">measurement %s</a>",
+                meas_idx, al->meas[meas_idx].name);
+        html_toc_group_meas(al->meas_analyses + meas_idx, f);
+        fprintf(f, "</li>");
     }
+    fprintf(f, "</ol>");
 }
 
 static void html_toc(const struct analysis *al, FILE *f)
@@ -328,8 +352,6 @@ static void html_regr_bench_group(const struct group_analysis *al,
 
 static void html_regr(const struct meas_analysis *al, FILE *f)
 {
-    return;
-    assert(0); // TODO
     const struct analysis *base = al->base;
     if (!base->group_count)
         return;
@@ -1051,10 +1073,15 @@ static void html_report(const struct analysis *al, FILE *f)
         if (al->meas[meas_idx].is_secondary)
             continue;
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
-        html_regr(mal, f);
+        fprintf(f,
+                "<div id=\"meas-%zu\">"
+                "<h1> measurement %s</h1>",
+                meas_idx, mal->meas->name);
         html_summary(mal, f);
+        html_regr(mal, f);
         html_benches(mal, f);
         html_compare(mal, f);
+        fprintf(f, "</div>");
     }
     fprintf(f, "</body>");
 }
