@@ -743,7 +743,7 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
 
 static bool do_bench_renames(const struct rename_entry *rename_list,
                              struct bench_data *data,
-                             struct bench_binary_data_storage *storage)
+                             struct bench_data_storage *storage)
 {
     if (!validate_rename_list(rename_list, data))
         return false;
@@ -1013,22 +1013,6 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
     }
 }
 
-static void init_bench_data_csv(const struct meas *meas, size_t meas_count,
-                                const char **file_list, struct bench_data *data)
-{
-    memset(data, 0, sizeof(*data));
-    data->meas_count = meas_count;
-    data->meas = meas;
-    data->bench_count = sb_len(file_list);
-    data->benches = calloc(data->bench_count, sizeof(*data->benches));
-    for (size_t i = 0; i < data->bench_count; ++i) {
-        struct bench *bench = data->benches + i;
-        bench->meas_count = data->meas_count;
-        bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
-        bench->name = file_list[i];
-    }
-}
-
 void free_bench_data(struct bench_data *data)
 {
     for (size_t i = 0; i < data->bench_count; ++i) {
@@ -1084,17 +1068,17 @@ err:
     return success;
 }
 
-static bool do_app_load_csv(const struct settings *settings)
+static bool do_app_load_text(const struct settings *settings)
 {
     bool success = false;
     const char **file_list = settings->args;
-    struct meas *meas_list = NULL;
-    if (!load_meas_csv(settings->meas, sb_len(settings->meas), file_list,
-                       &meas_list))
+    if (file_list == NULL) {
+        error("no files supplied to --load-text mode");
         return false;
+    }
+    struct bench_data_storage storage;
     struct bench_data data;
-    init_bench_data_csv(meas_list, sb_len(meas_list), file_list, &data);
-    if (!load_bench_data_csv(file_list, &data))
+    if (!load_bench_data_text(file_list, &data, &storage))
         goto err;
     if (!do_bench_renames(settings->rename_list, &data, NULL))
         goto err;
@@ -1104,8 +1088,8 @@ static bool do_app_load_csv(const struct settings *settings)
         goto err;
     success = true;
 err:
-    sb_free(meas_list);
     free_bench_data(&data);
+    free_bench_data_storage(&storage);
     return success;
 }
 
@@ -1170,7 +1154,7 @@ static bool do_app_load_bin(const struct settings *settings)
     const char **src_list = calculate_bin_names(settings->args);
     if (src_list == NULL)
         return false;
-    struct bench_binary_data_storage storage;
+    struct bench_data_storage storage;
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
         goto err;
@@ -1184,7 +1168,7 @@ static bool do_app_load_bin(const struct settings *settings)
 err:
     sb_free(src_list);
     free_bench_data(&data);
-    free_bench_binary_data_storage(&storage);
+    free_bench_data_storage(&storage);
     return success;
 }
 
@@ -1210,8 +1194,8 @@ static bool run(const struct settings *settings)
     switch (g_mode) {
     case APP_BENCH:
         return do_app_bench(settings);
-    case APP_LOAD_CSV:
-        return do_app_load_csv(settings);
+    case APP_LOAD_TEXT:
+        return do_app_load_text(settings);
     case APP_LOAD_BIN:
         return do_app_load_bin(settings);
     }

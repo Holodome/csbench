@@ -80,180 +80,6 @@ struct csbench_binary_header {
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
 
-static bool load_meas_names_csv(const char *file, const char ***meas_names)
-{
-    bool success = false;
-    FILE *f = fopen(file, "r");
-    if (f == NULL)
-        return false;
-
-    char *line_buffer = NULL;
-    size_t n = 0;
-    if (getline(&line_buffer, &n, f) < 0)
-        goto out;
-
-    char *end = NULL;
-    (void)strtod(line_buffer, &end);
-    if (end == line_buffer) {
-        *meas_names = parse_comma_separated_list(line_buffer);
-        success = true;
-    } else {
-        success = true;
-    }
-
-    free(line_buffer);
-out:
-    fclose(f);
-    return success;
-}
-
-static bool load_meas_csv_file(const struct meas *user_specified_meas,
-                               size_t user_specified_meas_count,
-                               const char *file, struct meas **meas_list)
-{
-    bool success = false;
-    const char **file_meas_names = NULL;
-    if (!load_meas_names_csv(file, &file_meas_names)) {
-        error("failed to load measurement names from file '%s'", file);
-        goto out;
-    }
-    // Check if this is the first file. We only load measurements from the first
-    // file, but all others should have the same measurement number.
-    if (sb_len(*meas_list) != 0) {
-        if (sb_len(file_meas_names) != sb_len(*meas_list)) {
-            error("measurement number in different files does not match "
-                  "(current file '%s'): %zu vs expected %zu",
-                  file, sb_len(file_meas_names), sb_len(*meas_list));
-            goto out;
-        }
-        success = true;
-        goto out;
-    }
-
-    for (size_t meas_idx = 0; meas_idx < sb_len(file_meas_names); ++meas_idx) {
-        const char *file_meas = file_meas_names[meas_idx];
-        // First check if measurement with same name exists
-        bool is_found = false;
-        for (size_t test_idx = 0; test_idx < sb_len(*meas_list) && !is_found;
-             ++test_idx) {
-            if (strcmp(file_meas, (*meas_list)[test_idx].name) == 0)
-                is_found = true;
-        }
-        // We have to add new measurement
-        if (is_found)
-            continue;
-
-        // Scan measurements from user input
-        const struct meas *meas_from_settings = NULL;
-        for (size_t test_idx = 0;
-             test_idx < user_specified_meas_count && meas_from_settings == NULL;
-             ++test_idx)
-            if (strcmp(file_meas, user_specified_meas[test_idx].name) == 0)
-                meas_from_settings = user_specified_meas + test_idx;
-
-        if (meas_from_settings) {
-            sb_push(*meas_list, *meas_from_settings);
-            continue;
-        }
-
-        struct meas meas = {"",          NULL,  NULL, {MU_NONE, ""},
-                            MEAS_LOADED, false, 0};
-        meas.name = file_meas;
-        // Try to guess and use seconds as measurement unit for first
-        // measurement
-        if (meas_idx == 0)
-            meas.units.kind = MU_S;
-        sb_push(*meas_list, meas);
-    }
-    success = true;
-out:
-    sb_free(file_meas_names);
-    return success;
-}
-
-bool load_meas_csv(const struct meas *user_specified_meas,
-                   size_t user_specified_meas_count, const char **file_list,
-                   struct meas **meas_list)
-{
-    for (size_t file_idx = 0; file_idx < sb_len(file_list); ++file_idx) {
-        const char *file = file_list[file_idx];
-        if (!load_meas_csv_file(user_specified_meas, user_specified_meas_count,
-                                file, meas_list))
-            return false;
-    }
-    return true;
-}
-
-static bool load_bench_run_meas_csv_line(const char *str, double **meas,
-                                         size_t meas_count)
-{
-    size_t cursor = 0;
-    while (cursor < meas_count) {
-        char *end = NULL;
-        double value = strtod(str, &end);
-        if (end == str)
-            return false;
-        sb_push(meas[cursor], value);
-        ++cursor;
-        str = end;
-        if (*str == '\n' || !*str)
-            break;
-        if (*str != ',')
-            return false;
-        ++str;
-    }
-    return cursor == meas_count ? true : false;
-}
-
-static bool load_bench_result_csv(const char *file, struct bench *bench)
-{
-    bool success = false;
-    FILE *f = fopen(file, "r");
-    if (f == NULL)
-        return false;
-
-    size_t n = 0;
-    char *line_buffer = NULL;
-    // Skip line with measurement names
-    if (getline(&line_buffer, &n, f) < 0) {
-        error("failed to parse file '%s'", file);
-        goto out;
-    }
-    for (;;) {
-        ssize_t read_result = getline(&line_buffer, &n, f);
-        if (read_result < 0) {
-            if (ferror(f)) {
-                error("failed to read line from file '%s'", file);
-                goto out;
-            }
-            break;
-        }
-        ++bench->run_count;
-        if (!load_bench_run_meas_csv_line(line_buffer, bench->meas,
-                                          bench->meas_count)) {
-            error("failed to parse file '%s'", file);
-            goto out;
-        }
-    }
-
-    success = true;
-out:
-    fclose(f);
-    free(line_buffer);
-    return success;
-}
-
-bool load_bench_data_csv(const char **files, struct bench_data *data)
-{
-    for (size_t i = 0; i < data->bench_count; ++i) {
-        struct bench *bench = data->benches + i;
-        const char *file = files[i];
-        if (!load_bench_result_csv(file, bench))
-            return false;
-    }
-    return true;
-}
-
 #define write_raw__(_arr, _elemsz, _cnt, _f)                                   \
     do {                                                                       \
         size_t CSUNIQIFY(cnt) = (_cnt);                                        \
@@ -435,7 +261,7 @@ err:
 static bool
 load_bench_data_binary_file_internal(FILE *f, const char *filename,
                                      struct bench_data *data,
-                                     struct bench_binary_data_storage *storage)
+                                     struct bench_data_storage *storage)
 {
     memset(storage, 0, sizeof(*storage));
     memset(data, 0, sizeof(*data));
@@ -589,7 +415,7 @@ err_raw:
         }
         free(data->benches);
     }
-    free_bench_binary_data_storage(storage);
+    free_bench_data_storage(storage);
     return false;
 }
 
@@ -597,9 +423,9 @@ err_raw:
 #undef read_u64__
 #undef read_str__
 
-static bool
-load_bench_data_binary_file(const char *filename, struct bench_data *data,
-                            struct bench_binary_data_storage *storage)
+static bool load_bench_data_binary_file(const char *filename,
+                                        struct bench_data *data,
+                                        struct bench_data_storage *storage)
 {
     FILE *f = fopen(filename, "rb");
     if (f == NULL) {
@@ -612,7 +438,7 @@ load_bench_data_binary_file(const char *filename, struct bench_data *data,
     return success;
 }
 
-void free_bench_binary_data_storage(struct bench_binary_data_storage *storage)
+void free_bench_data_storage(struct bench_data_storage *storage)
 {
     if (storage->has_var) {
         sb_free(storage->var.values);
@@ -674,9 +500,9 @@ static bool bench_data_match(const struct bench_data *a,
 }
 
 static bool merge_bench_data(struct bench_data *src_datas,
-                             struct bench_binary_data_storage *src_storages,
+                             struct bench_data_storage *src_storages,
                              size_t src_count, struct bench_data *data,
-                             struct bench_binary_data_storage *storage)
+                             struct bench_data_storage *storage)
 {
     assert(src_count >= 2);
     size_t total_bench_count = src_datas[0].bench_count;
@@ -723,7 +549,7 @@ static bool merge_bench_data(struct bench_data *src_datas,
             calloc(total_group_count, sizeof(*storage->groups));
         for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count;
              ++i) {
-            struct bench_binary_data_storage *src = src_storages + i;
+            struct bench_data_storage *src = src_storages + i;
             memcpy(storage->groups + group_cursor, src->groups,
                    sizeof(struct bench_var_group) * src->group_count);
             // Fixup command indexes
@@ -744,14 +570,14 @@ static bool merge_bench_data(struct bench_data *src_datas,
     return true;
 }
 
-static bool
-load_bench_data_binary_merge(const char **file_list, struct bench_data *data,
-                             struct bench_binary_data_storage *storage)
+static bool load_bench_data_binary_merge(const char **file_list,
+                                         struct bench_data *data,
+                                         struct bench_data_storage *storage)
 {
     bool success = false;
     size_t src_count = sb_len(file_list);
     struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
-    struct bench_binary_data_storage *src_storages =
+    struct bench_data_storage *src_storages =
         calloc(src_count, sizeof(*src_storages));
     for (size_t i = 0; i < src_count; ++i)
         if (!load_bench_data_binary_file(file_list[i], src_datas + i,
@@ -764,7 +590,7 @@ load_bench_data_binary_merge(const char **file_list, struct bench_data *data,
     success = true;
 err:
     for (size_t i = 0; i < src_count; ++i) {
-        free_bench_binary_data_storage(src_storages + i);
+        free_bench_data_storage(src_storages + i);
         free_bench_data(src_datas + i);
     }
     free(src_datas);
@@ -773,7 +599,7 @@ err:
 }
 
 bool load_bench_data_binary(const char **file_list, struct bench_data *data,
-                            struct bench_binary_data_storage *storage)
+                            struct bench_data_storage *storage)
 {
     bool success = false;
     size_t src_count = sb_len(file_list);

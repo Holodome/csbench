@@ -257,9 +257,10 @@ static void print_help_and_exit(int rc)
               "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark "
               "parameter with name <i>, whose values are in range from <n> to "
               "<m> with step <s>. <s> is optional, default is 1.");
-    print_opt("--load-csv", OPT_ARR(NULL),
-              "Load benchmark data from CSV files listed in command-line. "
-              "<command>... is interpreted as a list of CSV files.");
+    print_opt(
+        "--load-text", OPT_ARR(NULL),
+        "Load benchmark data from text files in custom format listed in "
+        "command-line. <command>... is interpreted as a list of file names.");
     print_opt("--load-bin", OPT_ARR(NULL),
               "Load benchmark data from files in custom binary format. "
               "<command>... is interpreted as a list of files, or directories "
@@ -967,9 +968,9 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             // XXX: This is kind of a hack, but whatever
             // Checked in `should_finish_running`
             g_round_stop.min_runs = INT_MAX;
-        } else if (strcmp(argv[cursor], "--load-csv") == 0) {
+        } else if (strcmp(argv[cursor], "--load-text") == 0) {
             ++cursor;
-            g_mode = APP_LOAD_CSV;
+            g_mode = APP_LOAD_TEXT;
         } else if (strcmp(argv[cursor], "--load-bin") == 0) {
             ++cursor;
             g_mode = APP_LOAD_BIN;

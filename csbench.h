@@ -439,11 +439,11 @@ struct settings {
 
 enum app_mode {
     APP_BENCH,
-    APP_LOAD_CSV,
+    APP_LOAD_TEXT,
     APP_LOAD_BIN
 };
 
-struct bench_binary_data_storage {
+struct bench_data_storage {
     bool has_var;
     struct bench_var var;
     size_t meas_count;
@@ -658,15 +658,13 @@ void free_settings(struct settings *settings);
 // csbench_serialize.c
 //
 
-bool load_meas_csv(const struct meas *user_specified_meas,
-                   size_t user_specified_meas_count, const char **file_list,
-                   struct meas **meas_list);
-bool load_bench_data_csv(const char **files, struct bench_data *data);
-
 bool save_bench_data_binary(const struct bench_data *data, FILE *f);
 bool load_bench_data_binary(const char **file_list, struct bench_data *data,
-                            struct bench_binary_data_storage *storage);
-void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
+                            struct bench_data_storage *storage);
+void free_bench_data_storage(struct bench_data_storage *storage);
+
+bool load_bench_data_text(const char **file_list, struct bench_data *data,
+                          struct bench_data_storage *storage);
 
 //
 // csbench_analyze.c
