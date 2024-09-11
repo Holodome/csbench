@@ -146,8 +146,7 @@ struct kde_cmp_group_plot {
 
 static FILE *gnuplot_data_file(struct plot_maker_ctx *ctx, const char **name)
 {
-    *name = csfmt("%s/gnuplot-data/%zu.data", g_out_dir,
-                  (*ctx->gnuplot_data_idx)++);
+    *name = csfmt("%s/gnuplot-data/%zu.data", g_out_dir, (*ctx->gnuplot_data_idx)++);
     FILE *f = fopen(*name, "w");
     if (f == NULL) {
         error("failed to create file '%s'", *name);
@@ -197,8 +196,8 @@ static void init_plot_view(const struct units *units, double min, double max,
     }
 }
 
-static void construct_kde(const struct distr *distr, double *kde,
-                          size_t kde_size, double min, double step)
+static void construct_kde(const struct distr *distr, double *kde, size_t kde_size, double min,
+                          double step)
 {
     size_t count = distr->count;
     double st_dev = distr->st_dev.point;
@@ -219,8 +218,8 @@ static void construct_kde(const struct distr *distr, double *kde,
     }
 }
 
-static double linear_interpolate(double min, double step, const double *y,
-                                 size_t count, double x)
+static double linear_interpolate(double min, double step, const double *y, size_t count,
+                                 double x)
 {
     for (size_t i = 0; i < count - 1; ++i) {
         double x1 = min + i * step;
@@ -234,8 +233,7 @@ static double linear_interpolate(double min, double step, const double *y,
     return 0.0;
 }
 
-static void kde_limits(const struct distr *distr, bool is_small, double *min,
-                       double *max)
+static void kde_limits(const struct distr *distr, bool is_small, double *min, double *max)
 {
     double st_dev = distr->st_dev.point;
     double mean = distr->mean.point;
@@ -253,8 +251,8 @@ static void kde_limits(const struct distr *distr, bool is_small, double *min,
         *max = fmin(*max, mean + (distr->outliers.high_severe_x - mean) * 2);
 }
 
-static void kde_cmp_limits(const struct distr *a, const struct distr *b,
-                           double *min, double *max)
+static void kde_cmp_limits(const struct distr *a, const struct distr *b, double *min,
+                           double *max)
 {
     double a_min, b_min, a_max, b_max;
     kde_limits(a, false, &a_min, &a_max);
@@ -275,8 +273,8 @@ static void init_kde_data(const struct distr *distr, double min, double max,
     kde->data = calloc(kde->point_count, sizeof(*kde->data));
     construct_kde(distr, kde->data, kde->point_count, kde->min, kde->step);
     kde->mean_x = distr->mean.point;
-    kde->mean_y = linear_interpolate(kde->min, kde->step, kde->data,
-                                     kde->point_count, kde->mean_x);
+    kde->mean_y =
+        linear_interpolate(kde->min, kde->step, kde->data, kde->point_count, kde->mean_x);
 }
 
 static void free_kde_data(struct kde_data *kde) { free(kde->data); }
@@ -307,8 +305,7 @@ static void init_bar_plot(const struct meas_analysis *al, struct bar_plot *plot)
     init_plot_view(&al->meas->units, min, max, &plot->view);
 }
 
-static void init_group_bar(const struct meas_analysis *al,
-                           struct group_bar_plot *plot)
+static void init_group_bar(const struct meas_analysis *al, struct group_bar_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
     const struct bench_var *var = al->base->var;
@@ -362,8 +359,7 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
             double low = plot->als[grp_idx].data[0].value_double;
             if (low < plot->lowest_x)
                 plot->lowest_x = low;
-            double high =
-                plot->als[grp_idx].data[var->value_count - 1].value_double;
+            double high = plot->als[grp_idx].data[var->value_count - 1].value_double;
             if (high > plot->highest_x)
                 plot->highest_x = high;
         }
@@ -378,13 +374,12 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
     plot->regr_x_step = (plot->highest_x - plot->lowest_x) / plot->nregr;
 }
 
-#define init_kde_small_plot(_distr, _meas, _plot)                              \
+#define init_kde_small_plot(_distr, _meas, _plot)                                             \
     init_kde_plot_internal(_distr, _meas, true, NULL, _plot)
-#define init_kde_plot(_distr, _meas, _name, _plot)                             \
+#define init_kde_plot(_distr, _meas, _name, _plot)                                            \
     init_kde_plot_internal(_distr, _meas, false, _name, _plot)
-static void init_kde_plot_internal(const struct distr *distr,
-                                   const struct meas *meas, bool is_small,
-                                   const char *name, struct kde_plot *plot)
+static void init_kde_plot_internal(const struct distr *distr, const struct meas *meas,
+                                   bool is_small, const char *name, struct kde_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
     double min, max;
@@ -405,8 +400,7 @@ static void init_kde_plot_internal(const struct distr *distr,
         double v = distr->data[i];
         if (v < min || v > max)
             continue;
-        if (!(v < distr->outliers.low_severe_x ||
-              v > distr->outliers.high_severe_x))
+        if (!(v < distr->outliers.low_severe_x || v > distr->outliers.high_severe_x))
             continue;
         ++plot->displayed_severe_count;
     }
@@ -414,10 +408,8 @@ static void init_kde_plot_internal(const struct distr *distr,
         double v = distr->data[i];
         if (v < min || v > max)
             continue;
-        if (!((v > distr->outliers.low_severe_x &&
-               v < distr->outliers.low_mild_x) ||
-              (v < distr->outliers.high_severe_x &&
-               v > distr->outliers.high_mild_x)))
+        if (!((v > distr->outliers.low_severe_x && v < distr->outliers.low_mild_x) ||
+              (v < distr->outliers.high_severe_x && v > distr->outliers.high_mild_x)))
             continue;
         ++plot->displayed_mild_count;
     }
@@ -425,12 +417,10 @@ static void init_kde_plot_internal(const struct distr *distr,
 
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
 
-static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
-                                        size_t a_idx, size_t b_idx,
-                                        const struct distr *a,
-                                        const struct distr *b,
-                                        const char *a_name, const char *b_name,
-                                        const char *title, bool is_small,
+static void init_kde_cmp_plot_internal1(const struct meas_analysis *al, size_t a_idx,
+                                        size_t b_idx, const struct distr *a,
+                                        const struct distr *b, const char *a_name,
+                                        const char *b_name, const char *title, bool is_small,
                                         struct kde_cmp_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
@@ -465,13 +455,12 @@ static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
     plot->max_y = max_y;
 }
 
-#define init_kde_cmp_small_plot(_al, _bench_idx, _plot)                        \
+#define init_kde_cmp_small_plot(_al, _bench_idx, _plot)                                       \
     init_kde_cmp_plot_internal(_al, _bench_idx, true, _plot)
-#define init_kde_cmp_plot(_al, _bench_idx, _plot)                              \
+#define init_kde_cmp_plot(_al, _bench_idx, _plot)                                             \
     init_kde_cmp_plot_internal(_al, _bench_idx, false, _plot)
-static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
-                                       size_t bench_idx, bool is_small,
-                                       struct kde_cmp_plot *plot)
+static void init_kde_cmp_plot_internal(const struct meas_analysis *al, size_t bench_idx,
+                                       bool is_small, struct kde_cmp_plot *plot)
 {
     size_t ref_idx = al->bench_cmp.ref;
     const struct distr *a = al->benches[ref_idx];
@@ -480,19 +469,17 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     const char *b_name = bench_name(al->base, bench_idx);
     double p_value = al->bench_cmp.p_values[bench_idx];
     double diff = al->bench_cmp.speedups[bench_idx].est.point;
-    const char *title =
-        csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
-    init_kde_cmp_plot_internal1(al, ref_idx, bench_idx, a, b, a_name, b_name,
-                                title, is_small, plot);
+    const char *title = csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
+    init_kde_cmp_plot_internal1(al, ref_idx, bench_idx, a, b, a_name, b_name, title, is_small,
+                                plot);
 }
 
-#define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx, _plot)        \
+#define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx, _plot)                       \
     init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, true, _plot)
-#define init_kde_cmp_per_val_plot(_al, _grp_idx, _val_idx, _plot)              \
+#define init_kde_cmp_per_val_plot(_al, _grp_idx, _val_idx, _plot)                             \
     init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, false, _plot)
-static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
-                                               size_t grp_idx, size_t val_idx,
-                                               bool is_small,
+static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al, size_t grp_idx,
+                                               size_t val_idx, bool is_small,
                                                struct kde_cmp_plot *plot)
 {
     const struct bench_var *var = al->base->var;
@@ -505,11 +492,10 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
     const char *b_name = bench_group_name(al->base, grp_idx);
     double p_value = ref_idx == al->pval_cmps[val_idx].p_values[grp_idx];
     double diff = al->pval_cmps[val_idx].speedups[grp_idx].est.point;
-    const char *title =
-        csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
-              var->values[val_idx], a_name, b_name, p_value, diff);
-    init_kde_cmp_plot_internal1(al, ref_idx, grp_idx, a, b, a_name, b_name,
-                                title, is_small, plot);
+    const char *title = csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
+                              var->values[val_idx], a_name, b_name, p_value, diff);
+    init_kde_cmp_plot_internal1(al, ref_idx, grp_idx, a, b, a_name, b_name, title, is_small,
+                                plot);
 }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
@@ -518,8 +504,7 @@ static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
     free_kde_data(&plot->b_kde);
 }
 
-static void init_kde_cmp_group_plot(const struct meas_analysis *al,
-                                    size_t grp_idx,
+static void init_kde_cmp_group_plot(const struct meas_analysis *al, size_t grp_idx,
                                     struct kde_cmp_group_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
@@ -564,8 +549,7 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al,
         }
         cmp->max_y = max_y;
         double p_value = al->group_avg_cmp.pval_cmps[val_idx].p_values[grp_idx];
-        double diff =
-            al->group_avg_cmp.pval_cmps[val_idx].speedups[grp_idx].est.point;
+        double diff = al->group_avg_cmp.pval_cmps[val_idx].speedups[grp_idx].est.point;
         cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->var->name,
                            al->base->var->values[val_idx], p_value, diff);
     }
@@ -582,22 +566,20 @@ static void free_kde_cmp_group_plot(struct kde_cmp_group_plot *plot)
 
 static const char *mpl_nth_color(size_t n)
 {
-    static const char *colors[] = {
-        "tab:blue",  "tab:orange", "tab:green", "tab:red",   "tab:purple",
-        "tab:brown", "tab:pink",   "tab:gray",  "tab:olive", "tab:cyan"};
+    static const char *colors[] = {"tab:blue",   "tab:orange", "tab:green", "tab:red",
+                                   "tab:purple", "tab:brown",  "tab:pink",  "tab:gray",
+                                   "tab:olive",  "tab:cyan"};
     return colors[n % (sizeof(colors) / sizeof(colors[0]))];
 }
 
-static void make_bar_mpl(const struct bar_plot *plot,
-                         struct plot_maker_ctx *ctx)
+static void make_bar_mpl(const struct bar_plot *plot, struct plot_maker_ctx *ctx)
 {
     const struct meas_analysis *al = plot->al;
     const struct plot_view *view = &plot->view;
     FILE *f = ctx->f;
     fprintf(f, "data = [");
     foreach_bench_idx (bench_idx, al) {
-        fprintf(f, "%g,",
-                al->benches[bench_idx]->mean.point * view->multiplier);
+        fprintf(f, "%g,", al->benches[bench_idx]->mean.point * view->multiplier);
     }
     fprintf(f, "]\n");
     fprintf(f, "names = [");
@@ -607,8 +589,7 @@ static void make_bar_mpl(const struct bar_plot *plot,
     fprintf(f, "]\n");
     fprintf(f, "err = [");
     foreach_bench_idx (bench_idx, al) {
-        fprintf(f, "%g,",
-                al->benches[bench_idx]->st_dev.point * view->multiplier);
+        fprintf(f, "%g,", al->benches[bench_idx]->st_dev.point * view->multiplier);
     }
     fprintf(f, "]\n");
     fprintf(f, "import matplotlib as mpl\n"
@@ -628,8 +609,7 @@ static void make_bar_mpl(const struct bar_plot *plot,
     );
 }
 
-static void make_group_bar_mpl(const struct group_bar_plot *plot,
-                               struct plot_maker_ctx *ctx)
+static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_maker_ctx *ctx)
 {
     const struct meas_analysis *al = plot->al;
     const struct analysis *base = al->base;
@@ -650,9 +630,7 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
         fprintf(f, "],\n");
         fprintf(f, "[");
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
-            fprintf(f, "%g,",
-                    grp_al->data[val_idx].distr->st_dev.point *
-                        view->multiplier);
+            fprintf(f, "%g,", grp_al->data[val_idx].distr->st_dev.point * view->multiplier);
         fprintf(f, "]),\n");
     }
     fprintf(f, "}\n");
@@ -684,8 +662,7 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
     );
 }
 
-static void make_group_regr_mpl(const struct group_regr_plot *plot,
-                                struct plot_maker_ctx *ctx)
+static void make_group_regr_mpl(const struct group_regr_plot *plot, struct plot_maker_ctx *ctx)
 {
     const struct bench_var *var = plot->al->base->var;
     const struct group_analysis *als = plot->als;
@@ -723,8 +700,8 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
             const struct group_analysis *analysis = als + grp_idx;
             fprintf(f, "[");
             for (size_t i = 0; i < plot->nregr + 1; ++i) {
-                double regr = ols_approx(
-                    &analysis->regress, plot->lowest_x + plot->regr_x_step * i);
+                double regr =
+                    ols_approx(&analysis->regress, plot->lowest_x + plot->regr_x_step * i);
                 fprintf(f, "%g,", regr * view->multiplier);
             }
             fprintf(f, "],");
@@ -733,8 +710,8 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
         fprintf(f, "[");
         const struct group_analysis *analysis = als + 0;
         for (size_t i = 0; i < plot->nregr + 1; ++i) {
-            double regr = ols_approx(&analysis->regress,
-                                     plot->lowest_x + plot->regr_x_step * i);
+            double regr =
+                ols_approx(&analysis->regress, plot->lowest_x + plot->regr_x_step * i);
             fprintf(f, "%g,", regr * view->multiplier);
         }
         fprintf(f, "],");
@@ -768,8 +745,7 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     );
 }
 
-static void make_kde_small_plot_mpl(const struct kde_plot *plot,
-                                    struct plot_maker_ctx *ctx)
+static void make_kde_small_plot_mpl(const struct kde_plot *plot, struct plot_maker_ctx *ctx)
 {
     assert(plot->is_small);
     const struct kde_data *kde = &plot->kde;
@@ -802,8 +778,7 @@ static void make_kde_small_plot_mpl(const struct kde_plot *plot,
     );
 }
 
-static void make_kde_plot_mpl(const struct kde_plot *plot,
-                              struct plot_maker_ctx *ctx)
+static void make_kde_plot_mpl(const struct kde_plot *plot, struct plot_maker_ctx *ctx)
 {
     assert(!plot->is_small);
     const struct kde_data *kde = &plot->kde;
@@ -823,18 +798,16 @@ static void make_kde_plot_mpl(const struct kde_plot *plot,
                 (double)(i + 1) / distr->count * plot->max_y);
     }
     fprintf(f, "]\n");
-    fprintf(f,
-            "severe_points = list(filter(lambda x: x[0] < %g or x[0] > %g, "
-            "points))\n",
+    fprintf(f, "severe_points = list(filter(lambda x: x[0] < %g or x[0] > %g, points))\n",
             distr->outliers.low_severe_x * view->multiplier,
             distr->outliers.high_severe_x * view->multiplier);
-    fprintf(f,
-            "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < "
-            "x[0] < %f), points))\n",
-            distr->outliers.low_severe_x * view->multiplier,
-            distr->outliers.low_mild_x * view->multiplier,
-            distr->outliers.high_mild_x * view->multiplier,
-            distr->outliers.high_severe_x * view->multiplier);
+    fprintf(
+        f,
+        "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < x[0] < %f), points))\n",
+        distr->outliers.low_severe_x * view->multiplier,
+        distr->outliers.low_mild_x * view->multiplier,
+        distr->outliers.high_mild_x * view->multiplier,
+        distr->outliers.high_severe_x * view->multiplier);
     fprintf(f, "reg_points = list(filter(lambda x: %g < x[0] < %g, points))\n",
             distr->outliers.low_mild_x * view->multiplier,
             distr->outliers.high_mild_x * view->multiplier);
@@ -853,15 +826,14 @@ static void make_kde_plot_mpl(const struct kde_plot *plot,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.fill_between(x, y, interpolate=True, alpha=0.25, "
-            "label='PDF')\n"
+            "plt.fill_between(x, y, interpolate=True, alpha=0.25, label='PDF')\n"
             "plt.axvline(x=%f, label='mean')\n"
-            "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2, "
-            "label='\"clean\" sample')\n"
-            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, "
-            "color='orange', label='mild outliers')\n"
-            "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, "
-            "color='red', label='severe outliers')\n",
+            "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2, label='\"clean\" "
+            "sample')\n"
+            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, color='orange', "
+            "label='mild outliers')\n"
+            "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, color='red', "
+            "label='severe outliers')\n",
             plot->kde.mean_x * view->multiplier);
     if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
         fprintf(f, "plt.axvline(x=%g, color='orange')\n",
@@ -920,10 +892,8 @@ static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
         "import matplotlib as mpl\n"
         "mpl.use('svg')\n"
         "import matplotlib.pyplot as plt\n"
-        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', "
-        "label=r'%s')\n"
-        "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', "
-        "label=r'%s')\n"
+        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s')\n"
+        "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s')\n"
         "plt.vlines(%g, [0], [%g], color='%s')\n"
         "plt.vlines(%g, [0], [%g], color='%s')\n"
         "plt.tick_params(left=False, labelleft=False)\n"
@@ -940,8 +910,7 @@ static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
     );
 }
 
-static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
-                                  struct plot_maker_ctx *ctx)
+static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot, struct plot_maker_ctx *ctx)
 {
     assert(!plot->is_small);
     size_t point_count = plot->point_count;
@@ -988,15 +957,15 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
-            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "facecolor='%s', label=r'%s PDF')\n"
-            "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-            "color='%s', label=r'%s sample')\n"
+            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
+            "PDF')\n"
+            "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, color='%s', "
+            "label=r'%s sample')\n"
             "plt.axvline(%g, color='%s', label=r'%s mean')\n"
-            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='%s', label=r'%s PDF')\n"
-            "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-            "color='%s', label=r'%s sample')\n"
+            "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
+            "PDF')\n"
+            "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, color='%s', "
+            "label=r'%s sample')\n"
             "plt.axvline(%g, color='%s', label=r'%s mean')\n"
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel(r'%s [%s]')\n"
@@ -1030,8 +999,7 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
         const struct kde_cmp_val *cmp = plot->cmps + val_idx;
         fprintf(f, "[");
         for (size_t i = 0; i < point_count; ++i)
-            fprintf(f, "%g,",
-                    (cmp->min + cmp->step * i) * cmp->view.multiplier);
+            fprintf(f, "%g,", (cmp->min + cmp->step * i) * cmp->view.multiplier);
         fprintf(f, "],");
     }
     fprintf(f, "]\n");
@@ -1095,28 +1063,24 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
     fprintf(f, "]\n");
     fprintf(f, "a_means = [");
     for (size_t i = 0; i < plot->val_count; ++i)
-        fprintf(f, "%g,",
-                plot->cmps[i].a_kde.mean_x * plot->cmps[i].view.multiplier);
+        fprintf(f, "%g,", plot->cmps[i].a_kde.mean_x * plot->cmps[i].view.multiplier);
     fprintf(f, "]\n");
     fprintf(f, "b_means = [");
     for (size_t i = 0; i < plot->val_count; ++i)
-        fprintf(f, "%g,",
-                plot->cmps[i].b_kde.mean_x * plot->cmps[i].view.multiplier);
+        fprintf(f, "%g,", plot->cmps[i].b_kde.mean_x * plot->cmps[i].view.multiplier);
     fprintf(f, "]\n");
     const char *a_color = mpl_nth_color(plot->ref_idx);
     const char *b_color = mpl_nth_color(plot->grp_idx);
     fprintf(f,
-            "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
-            "a_name, b_name, title, xlabel, ax):\n"
-            "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "facecolor='%s', label=a_name)\n"
-            "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-            "color='%s')\n"
+            "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, a_name, b_name, "
+            "title, xlabel, ax):\n"
+            "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', "
+            "label=a_name)\n"
+            "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, color='%s')\n"
             "  ax.axvline(a_mean, color='%s')\n"
-            "  ax.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='%s', label=b_name)\n"
-            "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-            "color='%s')\n"
+            "  ax.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', "
+            "label=b_name)\n"
+            "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, color='%s')\n"
             "  ax.axvline(b_mean, color='%s')\n"
             "  ax.tick_params(left=False, labelleft=False)\n"
             "  ax.set_xlabel(xlabel)\n"
@@ -1130,6 +1094,8 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             b_color, //
             b_color  //
     );
+    const char *a_name = bench_group_name(al->base, plot->ref_idx);
+    const char *b_name = bench_group_name(al->base, plot->grp_idx);
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
@@ -1138,9 +1104,8 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "if %zu == 1: axes = [axes]\n"
             "row = col = 0\n"
             "for i in range(%zu):\n"
-            "  make_plot(x[i], ay[i], by[i], a_means[i], b_means[i], "
-            "a_points[i], b_points[i], r'%s', r'%s', titles[i], "
-            "xlabels[i], axes[row][col])\n"
+            "  make_plot(x[i], ay[i], by[i], a_means[i], b_means[i], a_points[i], "
+            "b_points[i], r'%s', r'%s', titles[i], xlabels[i], axes[row][col])\n"
             "  col += 1\n"
             "  if col >= %zu:\n"
             "    col = 0\n"
@@ -1156,16 +1121,15 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "figure.set_size_inches(%zu, %zu)\n"
             "fig.tight_layout()\n"
             "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
-            plot->rows, plot->cols, //
-            plot->rows,             //
-            plot->val_count,        //
-            bench_group_name(al->base, plot->ref_idx),
-            bench_group_name(al->base, plot->grp_idx), //
-            plot->cols,                                //
-            plot->rows,                                //
-            plot->cols,                                //
-            plot->cols * 5, plot->rows * 5,            //
-            ctx->image_filename                        //
+            plot->rows, plot->cols,         //
+            plot->rows,                     //
+            plot->val_count,                //
+            a_name, b_name,                 //
+            plot->cols,                     //
+            plot->rows,                     //
+            plot->cols,                     //
+            plot->cols * 5, plot->rows * 5, //
+            ctx->image_filename             //
     );
 }
 
@@ -1177,8 +1141,7 @@ static bool bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
     return true;
 }
 
-static bool group_bar_mpl(const struct meas_analysis *al,
-                          struct plot_maker_ctx *ctx)
+static bool group_bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
 {
     struct group_bar_plot plot;
     init_group_bar(al, &plot);
@@ -1205,8 +1168,8 @@ static bool kde_small_mpl(const struct distr *distr, const struct meas *meas,
     return true;
 }
 
-static bool kde_mpl(const struct distr *distr, const struct meas *meas,
-                    const char *name, struct plot_maker_ctx *ctx)
+static bool kde_mpl(const struct distr *distr, const struct meas *meas, const char *name,
+                    struct plot_maker_ctx *ctx)
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, name, &plot);
@@ -1235,9 +1198,8 @@ static bool kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
     return true;
 }
 
-static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
-                                      size_t grp_idx, size_t val_idx,
-                                      struct plot_maker_ctx *ctx)
+static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al, size_t grp_idx,
+                                      size_t val_idx, struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
@@ -1246,8 +1208,8 @@ static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al,
     return true;
 }
 
-static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx,
-                                size_t val_idx, struct plot_maker_ctx *ctx)
+static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx, size_t val_idx,
+                                struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
@@ -1280,12 +1242,11 @@ static void define_gnuplot_linetypes(double point_size, FILE *f)
             "set style line 8 lc rgb '#7f7f7f' pt 7 ps %f\n"
             "set style line 9 lc rgb '#bcbd22' pt 7 ps %f\n"
             "set style line 10 lc rgb '#17becf' pt 7 ps %f\n",
-            point_size, point_size, point_size, point_size, point_size,
-            point_size, point_size, point_size, point_size, point_size);
+            point_size, point_size, point_size, point_size, point_size, point_size, point_size,
+            point_size, point_size, point_size);
 }
 
-static bool make_bar_gnuplot(const struct bar_plot *plot,
-                             struct plot_maker_ctx *ctx)
+static bool make_bar_gnuplot(const struct bar_plot *plot, struct plot_maker_ctx *ctx)
 {
     const struct meas_analysis *al = plot->al;
     const struct plot_view *view = &plot->view;
@@ -1317,7 +1278,8 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
             "set yrange [0:*]\n",
             ctx->image_filename, //
             al->meas->name,      //
-            view->units_str);
+            view->units_str      //
+    );
     if (view->logscale)
         fprintf(f, "set logscale y\n");
     fprintf(f, "plot '%s' using 2:3:xtic(1) ls 1 notitle\n", dat_name);
@@ -1342,11 +1304,8 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
             fprintf(dat, "\"%s\"", var->values[val_idx]);
             foreach_group_by_avg_idx (grp_idx, al) {
                 fprintf(dat, "\t%g\t%g",
-                        al->group_analyses[grp_idx].data[val_idx].mean *
-                            view->multiplier,
-                        al->group_analyses[grp_idx]
-                                .data[val_idx]
-                                .distr->st_dev.point *
+                        al->group_analyses[grp_idx].data[val_idx].mean * view->multiplier,
+                        al->group_analyses[grp_idx].data[val_idx].distr->st_dev.point *
                             view->multiplier);
             }
             fprintf(dat, "\n");
@@ -1379,8 +1338,8 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
     foreach_group_by_avg_idx (grp_idx, al) {
         if (i++ == 0)
             continue;
-        fprintf(f, ",\\\n\t'' using %zu:%zu ls %zu title '%s'", i * 2,
-                1 + i * 2, i, bench_group_name(base, grp_idx));
+        fprintf(f, ",\\\n\t'' using %zu:%zu ls %zu title '%s'", i * 2, 1 + i * 2, i,
+                bench_group_name(base, grp_idx));
     }
     fprintf(f, "\n");
     return true;
@@ -1402,11 +1361,9 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             fprintf(dat1, "%g", als[0].data[val_idx].value_double);
             if (plot->count != 1) {
                 foreach_group_by_avg_idx (grp_idx, plot->al)
-                    fprintf(dat1, "\t%g",
-                            als[grp_idx].data[val_idx].mean * view->multiplier);
+                    fprintf(dat1, "\t%g", als[grp_idx].data[val_idx].mean * view->multiplier);
             } else {
-                fprintf(dat1, "\t%g",
-                        als[0].data[val_idx].mean * view->multiplier);
+                fprintf(dat1, "\t%g", als[0].data[val_idx].mean * view->multiplier);
             }
             fprintf(dat1, "\n");
         }
@@ -1420,14 +1377,13 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             fprintf(dat2, "%g", plot->lowest_x + plot->regr_x_step * i);
             if (plot->count != 1) {
                 foreach_group_by_avg_idx (grp_idx, plot->al) {
-                    double regr =
-                        ols_approx(&als[grp_idx].regress,
-                                   plot->lowest_x + plot->regr_x_step * i);
+                    double regr = ols_approx(&als[grp_idx].regress,
+                                             plot->lowest_x + plot->regr_x_step * i);
                     fprintf(dat2, "\t%g", regr * view->multiplier);
                 }
             } else {
-                double regr = ols_approx(
-                    &als[0].regress, plot->lowest_x + plot->regr_x_step * i);
+                double regr =
+                    ols_approx(&als[0].regress, plot->lowest_x + plot->regr_x_step * i);
                 fprintf(dat2, "\t%g", regr * view->multiplier);
             }
             fprintf(dat2, "\n");
@@ -1458,19 +1414,20 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     fprintf(f,
             "plot '%s' using 1:2 with linespoints title '%s' ls 1, \\\n"
             "\t'%s' using 1:2 with lines title '%s regression' ls 2",
-            dat1_name, als[0].group->name, dat2_name, als[0].group->name);
+            dat1_name, als[0].group->name, //
+            dat2_name, als[0].group->name  //
+    );
     size_t i = 0;
     if (plot->count != 1) {
         foreach_group_by_avg_idx (grp_idx, plot->al) {
             if (i++ == 0)
                 continue;
-            fprintf(
-                f,
-                ",\\\n\t'%s' using 1:%zu with linespoints ls %zu title "
-                "'%s',\\\n"
-                "\t'%s' using 1:%zu with lines ls %zu title '%s regression'",
-                dat1_name, 1 + i, 1 + (i * 2), als[grp_idx].group->name,
-                dat2_name, 1 + i, 2 + (i * 2), als[grp_idx].group->name);
+            fprintf(f,
+                    ",\\\n\t'%s' using 1:%zu with linespoints ls %zu title '%s',\\\n"
+                    "\t'%s' using 1:%zu with lines ls %zu title '%s regression'",
+                    dat1_name, 1 + i, 1 + (i * 2), als[grp_idx].group->name, //
+                    dat2_name, 1 + i, 2 + (i * 2), als[grp_idx].group->name  //
+            );
         }
     }
     fprintf(f, "\n");
@@ -1493,8 +1450,7 @@ static bool make_kde_small_plot_gnuplot(const struct kde_plot *plot,
         if (dat == NULL)
             return false;
         for (size_t i = 0; i < point_count; ++i)
-            fprintf(dat, "%g\t%g\n", (min + step * i) * view->multiplier,
-                    kde->data[i]);
+            fprintf(dat, "%g\t%g\n", (min + step * i) * view->multiplier, kde->data[i]);
         fclose(dat);
     }
     define_gnuplot_linetypes(0.25, f);
@@ -1518,8 +1474,7 @@ static bool make_kde_small_plot_gnuplot(const struct kde_plot *plot,
     return true;
 }
 
-static bool make_kde_plot_gnuplot(struct kde_plot *plot,
-                                  struct plot_maker_ctx *ctx)
+static bool make_kde_plot_gnuplot(struct kde_plot *plot, struct plot_maker_ctx *ctx)
 {
     assert(!plot->is_small);
     const struct kde_data *kde = &plot->kde;
@@ -1530,15 +1485,13 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
     double step = kde->step;
     size_t point_count = kde->point_count;
     FILE *f = ctx->f;
-    const char *kde_name = NULL, *severe_name = NULL, *mild_name = NULL,
-               *reg_name = NULL;
+    const char *kde_name = NULL, *severe_name = NULL, *mild_name = NULL, *reg_name = NULL;
     {
         FILE *kde_dat = gnuplot_data_file(ctx, &kde_name);
         if (kde_dat == NULL)
             return false;
         for (size_t i = 0; i < point_count; ++i)
-            fprintf(kde_dat, "%g\t%g\n", (min + step * i) * view->multiplier,
-                    kde->data[i]);
+            fprintf(kde_dat, "%g\t%g\n", (min + step * i) * view->multiplier, kde->data[i]);
         fclose(kde_dat);
     }
     if (plot->displayed_severe_count) {
@@ -1549,8 +1502,7 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
             double v = distr->data[i];
             if (v < min || v > max)
                 continue;
-            if (!(v < distr->outliers.low_severe_x ||
-                  v > distr->outliers.high_severe_x))
+            if (!(v < distr->outliers.low_severe_x || v > distr->outliers.high_severe_x))
                 continue;
             fprintf(dat, "%g\t%g\n", v * view->multiplier,
                     (double)(i + 1) / distr->count * plot->max_y);
@@ -1565,10 +1517,8 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
             double v = distr->data[i];
             if (v < min || v > max)
                 continue;
-            if (!((v > distr->outliers.low_severe_x &&
-                   v < distr->outliers.low_mild_x) ||
-                  (v < distr->outliers.high_severe_x &&
-                   v > distr->outliers.high_mild_x)))
+            if (!((v > distr->outliers.low_severe_x && v < distr->outliers.low_mild_x) ||
+                  (v < distr->outliers.high_severe_x && v > distr->outliers.high_mild_x)))
                 continue;
             fprintf(dat, "%g\t%g\n", v * view->multiplier,
                     (double)(i + 1) / distr->count * plot->max_y);
@@ -1583,8 +1533,7 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
             double v = distr->data[i];
             if (v < min || v > max)
                 continue;
-            if (!(v > distr->outliers.low_mild_x &&
-                  v < distr->outliers.high_mild_x))
+            if (!(v > distr->outliers.low_mild_x && v < distr->outliers.high_mild_x))
                 continue;
             fprintf(reg_dat, "%g\t%g\n", v * view->multiplier,
                     (double)(i + 1) / distr->count * plot->max_y);
@@ -1625,16 +1574,13 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
         fprintf(f, "set arrow from %g, graph 0 to %g, graph 1 nohead ls 3\n",
                 distr->outliers.high_severe_x * view->multiplier,
                 distr->outliers.high_severe_x * view->multiplier);
-    fprintf(
-        f,
-        "plot '%s' using 1:2 with filledcurves above y1=0 title 'PDF' ls 1,\\\n"
-        "\t1/0 ls 1 t 'mean', \\\n"
-        "\t'%s' using 1:2 with points ls 1 title '\"clean\" sample'",
-        kde_name, reg_name);
+    fprintf(f,
+            "plot '%s' using 1:2 with filledcurves above y1=0 title 'PDF' ls 1,\\\n"
+            "\t1/0 ls 1 t 'mean', \\\n"
+            "\t'%s' using 1:2 with points ls 1 title '\"clean\" sample'",
+            kde_name, reg_name);
     if (plot->displayed_mild_count)
-        fprintf(f,
-                ",\\\n\t'%s' using 1:2 with points ls 2 title 'mild outliers'",
-                mild_name);
+        fprintf(f, ",\\\n\t'%s' using 1:2 with points ls 2 title 'mild outliers'", mild_name);
     if (plot->displayed_severe_count)
         fprintf(f,
                 ",\\\n\t'%s' using 1:2 with points ls 3 title 'severe "
@@ -1661,36 +1607,33 @@ static bool make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
         if (dat == NULL)
             return false;
         for (size_t i = 0; i < point_count; ++i)
-            fprintf(dat, "%g\t%g\t%g\n", (min + step * i) * view->multiplier,
-                    a_kde->data[i], b_kde->data[i]);
+            fprintf(dat, "%g\t%g\t%g\n", (min + step * i) * view->multiplier, a_kde->data[i],
+                    b_kde->data[i]);
         fclose(dat);
     }
     define_gnuplot_linetypes(0.25, f);
     size_t a_color = plot->a_idx % 10 + 1;
     size_t b_color = plot->b_idx % 10 + 1;
-    fprintf(
-        f,
-        "set term svg enhanced background rgb 'white'\n"
-        "set output '%s'\n"
-        "set ylabel 'probability density'\n"
-        "set xlabel '%s [%s]'\n"
-        "set style fill solid 0.25 noborder\n"
-        "unset ytics\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-        "set xrange [%g:%g]\n"
-        "set offset 0, 0, graph 0.1, 0\n"
-        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
-        "\t'' using 1:3 with filledcurves above y1=0 t '%s' ls %zu\n",
-        ctx->image_filename,                   //
-        plot->al->meas->name, view->units_str, //
-        a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
-        a_color, //
-        b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-        b_color,                                              //
-        min * view->multiplier, plot->max * view->multiplier, //
-        dat_name, plot->a_name, a_color,                      //
-        plot->b_name, b_color                                 //
+    fprintf(f,
+            "set term svg enhanced background rgb 'white'\n"
+            "set output '%s'\n"
+            "set ylabel 'probability density'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25 noborder\n"
+            "unset ytics\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set xrange [%g:%g]\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+            "\t'' using 1:3 with filledcurves above y1=0 t '%s' ls %zu\n",
+            ctx->image_filename,                                                         //
+            plot->al->meas->name, view->units_str,                                       //
+            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier, a_color, //
+            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier, b_color, //
+            min * view->multiplier, plot->max * view->multiplier,                        //
+            dat_name, plot->a_name, a_color,                                             //
+            plot->b_name, b_color                                                        //
     );
     return true;
 }
@@ -1713,8 +1656,8 @@ static bool make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         if (dat == NULL)
             return false;
         for (size_t i = 0; i < point_count; ++i)
-            fprintf(dat, "%g\t%g\t%g\n", (min + step * i) * view->multiplier,
-                    a_kde->data[i], b_kde->data[i]);
+            fprintf(dat, "%g\t%g\t%g\n", (min + step * i) * view->multiplier, a_kde->data[i],
+                    b_kde->data[i]);
         fclose(dat);
     }
     {
@@ -1746,47 +1689,42 @@ static bool make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
     define_gnuplot_linetypes(0.25, f);
     size_t a_color = plot->a_idx % 10 + 1;
     size_t b_color = plot->b_idx % 10 + 1;
-    fprintf(
-        f,
-        "set term svg enhanced background rgb 'white' size 960,720\n"
-        "set output '%s'\n"
-        "set ylabel 'probability density, runs'\n"
-        "set xlabel '%s [%s]'\n"
-        "set style fill solid 0.25 noborder\n"
-        "unset ytics\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-        "set xrange [%g:%g]\n"
-        "set offset 0, 0, graph 0.1, 0\n"
-        "set title '%s'\n"
-        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s PDF' ls "
-        "%zu,\\\n"
-        "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
-        "\t1/0 ls %zu t '%s mean', \\\n"
-        "\t'%s' using 1:3 with filledcurves above y1=0 t '%s PDF' ls %zu,\\\n"
-        "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
-        "\t1/0 ls %zu t '%s mean'\n",
-        ctx->image_filename,                   //
-        plot->al->meas->name, view->units_str, //
-        a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
-        a_color, //
-        b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-        b_color,                                        //
-        min * view->multiplier, max * view->multiplier, //
-        plot->title,                                    //
-        kde_name, plot->a_name, a_color,                //
-        pts1_name, a_color, plot->a_name,               //
-        a_color, plot->a_name,                          //
-        kde_name, plot->b_name, b_color,                //
-        pts2_name, b_color, plot->b_name,               //
-        b_color, plot->b_name                           //
+    fprintf(f,
+            "set term svg enhanced background rgb 'white' size 960,720\n"
+            "set output '%s'\n"
+            "set ylabel 'probability density, runs'\n"
+            "set xlabel '%s [%s]'\n"
+            "set style fill solid 0.25 noborder\n"
+            "unset ytics\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set xrange [%g:%g]\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "set title '%s'\n"
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s PDF' ls %zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
+            "\t1/0 ls %zu t '%s mean', \\\n"
+            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s PDF' ls %zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
+            "\t1/0 ls %zu t '%s mean'\n",
+            ctx->image_filename,                                                         //
+            plot->al->meas->name, view->units_str,                                       //
+            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier, a_color, //
+            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier, b_color, //
+            min * view->multiplier, max * view->multiplier,                              //
+            plot->title,                                                                 //
+            kde_name, plot->a_name, a_color,                                             //
+            pts1_name, a_color, plot->a_name,                                            //
+            a_color, plot->a_name,                                                       //
+            kde_name, plot->b_name, b_color,                                             //
+            pts2_name, b_color, plot->b_name,                                            //
+            b_color, plot->b_name                                                        //
     );
     return true;
 }
 
-static bool
-make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
-                                struct plot_maker_ctx *ctx)
+static bool make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
+                                            struct plot_maker_ctx *ctx)
 {
     bool success = false;
     const struct meas_analysis *al = plot->al;
@@ -1805,8 +1743,7 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             if (dat == NULL)
                 goto err;
             for (size_t i = 0; i < point_count; ++i)
-                fprintf(dat, "%g\t%g\t%g\n",
-                        (cmp->min + cmp->step * i) * view->multiplier,
+                fprintf(dat, "%g\t%g\t%g\n", (cmp->min + cmp->step * i) * view->multiplier,
                         cmp->a_kde.data[i], cmp->b_kde.data[i]);
             fclose(dat);
             sb_push(kde_names, dat_name);
@@ -1849,8 +1786,7 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             "set term svg enhanced background rgb 'white' size %zu,%zu\n"
             "set output '%s'\n"
             "set multiplot layout %zu,%zu rowsfirst\n",
-            plot->cols * 400, plot->rows * 400, ctx->image_filename, plot->rows,
-            plot->cols);
+            plot->cols * 400, plot->rows * 400, ctx->image_filename, plot->rows, plot->cols);
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
         const struct kde_cmp_val *cmp = plot->cmps + val_idx;
         const struct plot_view *view = &cmp->view;
@@ -1865,30 +1801,25 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
         if (val_idx != 0)
             fprintf(f, "unset arrow 6\n"
                        "unset arrow 7\n");
-        fprintf(
-            f,
-            "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-            "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-            "set xrange [%g:%g]\n"
-            "set offset 0, 0, graph 0.1, 0\n"
-            "set title '%s'\n"
-            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls "
-            "%zu,\\\n"
-            "\t'%s' using 1:2 with points ls %zu notitle, \\\n"
-            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
-            "\t'%s' using 1:2 with points ls %zu notitle\n",
-            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
-            a_color, //
-            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-            b_color,                                                  //
-            cmp->min * view->multiplier, cmp->max * view->multiplier, //
-            cmp->title,                                               //
-            kde_names[val_idx], bench_group_name(al->base, plot->ref_idx),
-            a_color,                      //
-            pts1_names[val_idx], a_color, //
-            kde_names[val_idx], bench_group_name(al->base, plot->grp_idx),
-            b_color,                     //
-            pts2_names[val_idx], b_color //
+        fprintf(f,
+                "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+                "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+                "set xrange [%g:%g]\n"
+                "set offset 0, 0, graph 0.1, 0\n"
+                "set title '%s'\n"
+                "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls "
+                "%zu,\\\n"
+                "\t'%s' using 1:2 with points ls %zu notitle, \\\n"
+                "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+                "\t'%s' using 1:2 with points ls %zu notitle\n",
+                a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier, a_color, //
+                b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier, b_color, //
+                cmp->min * view->multiplier, cmp->max * view->multiplier,                    //
+                cmp->title,                                                                  //
+                kde_names[val_idx], bench_group_name(al->base, plot->ref_idx), a_color,      //
+                pts1_names[val_idx], a_color,                                                //
+                kde_names[val_idx], bench_group_name(al->base, plot->grp_idx), b_color,      //
+                pts2_names[val_idx], b_color                                                 //
         );
     }
     fprintf(f, "unset multiplot\n");
@@ -1900,16 +1831,14 @@ err:
     return success;
 }
 
-static bool bar_gnuplot(const struct meas_analysis *al,
-                        struct plot_maker_ctx *ctx)
+static bool bar_gnuplot(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
 {
     struct bar_plot plot;
     init_bar_plot(al, &plot);
     return make_bar_gnuplot(&plot, ctx);
 }
 
-static bool group_bar_gnuplot(const struct meas_analysis *al,
-                              struct plot_maker_ctx *ctx)
+static bool group_bar_gnuplot(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
 {
     struct group_bar_plot plot;
     init_group_bar(al, &plot);
@@ -1924,8 +1853,7 @@ static bool group_regr_gnuplot(const struct meas_analysis *al, size_t idx,
     return make_group_regr_gnuplot(&plot, ctx);
 }
 
-static bool kde_small_gnuplot(const struct distr *distr,
-                              const struct meas *meas,
+static bool kde_small_gnuplot(const struct distr *distr, const struct meas *meas,
                               struct plot_maker_ctx *ctx)
 {
     struct kde_plot plot = {0};
@@ -1935,8 +1863,8 @@ static bool kde_small_gnuplot(const struct distr *distr,
     return success;
 }
 
-static bool kde_gnuplot(const struct distr *distr, const struct meas *meas,
-                        const char *name, struct plot_maker_ctx *ctx)
+static bool kde_gnuplot(const struct distr *distr, const struct meas *meas, const char *name,
+                        struct plot_maker_ctx *ctx)
 {
     struct kde_plot plot = {0};
     init_kde_plot(distr, meas, name, &plot);
@@ -1945,8 +1873,8 @@ static bool kde_gnuplot(const struct distr *distr, const struct meas *meas,
     return success;
 }
 
-static bool kde_cmp_small_gnuplot(const struct meas_analysis *al,
-                                  size_t bench_idx, struct plot_maker_ctx *ctx)
+static bool kde_cmp_small_gnuplot(const struct meas_analysis *al, size_t bench_idx,
+                                  struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_small_plot(al, bench_idx, &plot);
@@ -1965,9 +1893,8 @@ static bool kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
     return success;
 }
 
-static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
-                                          size_t grp_idx, size_t val_idx,
-                                          struct plot_maker_ctx *ctx)
+static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al, size_t grp_idx,
+                                          size_t val_idx, struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
@@ -1976,9 +1903,8 @@ static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al,
     return success;
 }
 
-static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
-                                    size_t grp_idx, size_t val_idx,
-                                    struct plot_maker_ctx *ctx)
+static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al, size_t grp_idx,
+                                    size_t val_idx, struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot = {0};
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
@@ -1987,8 +1913,8 @@ static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al,
     return success;
 }
 
-static bool kde_cmp_group_gnuplot(const struct meas_analysis *al,
-                                  size_t grp_idx, struct plot_maker_ctx *ctx)
+static bool kde_cmp_group_gnuplot(const struct meas_analysis *al, size_t grp_idx,
+                                  struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_group_plot plot = {0};
     init_kde_cmp_group_plot(al, grp_idx, &plot);

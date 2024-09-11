@@ -129,10 +129,8 @@ static bool export_json(const struct analysis *al, const char *filename)
     size_t bench_count = al->bench_count;
     const struct bench_analysis *bench_analyses = al->bench_analyses;
     fprintf(f,
-            "{ \"settings\": {"
-            "\"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
-            "\"max_runs\": %d, \"warmup_time\": %f, \"nresamp\": %d "
-            "}, \"benches\": [",
+            "{ \"settings\": { \"time_limit\": %f, \"runs\": %d, \"min_runs\": %d, "
+            "\"max_runs\": %d, \"warmup_time\": %f, \"nresamp\": %d }, \"benches\": [",
             g_bench_stop.time_limit, g_bench_stop.runs, g_bench_stop.min_runs,
             g_bench_stop.max_runs, g_warmup_stop.time_limit, g_nresamp);
     for (size_t bench_idx = 0; bench_idx < bench_count; ++bench_idx) {
@@ -150,8 +148,7 @@ static bool export_json(const struct analysis *al, const char *filename)
         fprintf(f, "\"run_count\": %zu, ", bench->run_count);
         fprintf(f, "\"exit_codes\": [");
         for (size_t j = 0; j < run_count; ++j)
-            fprintf(f, "%d%s", bench->exit_codes[j],
-                    j != run_count - 1 ? ", " : "");
+            fprintf(f, "%d%s", bench->exit_codes[j], j != run_count - 1 ? ", " : "");
         fprintf(f, "], \"meas\": [");
         for (size_t j = 0; j < al->meas_count; ++j) {
             const struct meas *meas = al->meas + j;
@@ -160,13 +157,9 @@ static bool export_json(const struct analysis *al, const char *filename)
             json_escape(buf, sizeof(buf), units_str(&meas->units));
             fprintf(f, "\"units\": \"%s\",", buf);
             json_escape(buf, sizeof(buf), meas->cmd);
-            fprintf(f,
-                    " \"cmd\": \"%s\", "
-                    "\"val\": [",
-                    buf);
+            fprintf(f, " \"cmd\": \"%s\", \"val\": [", buf);
             for (size_t k = 0; k < run_count; ++k)
-                fprintf(f, "%f%s", bench->meas[j][k],
-                        k != run_count - 1 ? ", " : "");
+                fprintf(f, "%f%s", bench->meas[j][k], k != run_count - 1 ? ", " : "");
             fprintf(f, "]}");
             if (j != al->meas_count - 1)
                 fprintf(f, ", ");
@@ -199,8 +192,7 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
         }
     }
     if (g_regr) {
-        if ((g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) &&
-            base->group_count > 1) {
+        if ((g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) && base->group_count > 1) {
             const struct group_analysis *grp = al->group_analyses;
             if (grp[0].values_are_doubles) {
                 args->plot_kind = PLOT_ALL_GROUPS_REGR;
@@ -254,12 +246,10 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                 args->compared_idx = grp_idx;
                 args->val_idx = val_idx;
                 args->plot_kind = PLOT_KDE_CMP_PER_VAL;
-                if ((g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL) &&
-                    !walk(args))
+                if ((g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL) && !walk(args))
                     return false;
                 args->plot_kind = PLOT_KDE_CMP_PER_VAL_SMALL;
-                if ((g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) &&
-                    !walk(args))
+                if ((g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) && !walk(args))
                     return false;
             }
         }
@@ -277,30 +267,26 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
     return true;
 }
 
-static void format_plot_name(char *buf, size_t buf_size,
-                             const struct plot_walker_args *args,
+static void format_plot_name(char *buf, size_t buf_size, const struct plot_walker_args *args,
                              const char *extension)
 {
     switch (args->plot_kind) {
     case PLOT_BAR:
-        snprintf(buf, buf_size, "%s/bar_%zu.%s", g_out_dir, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/bar_%zu.%s", g_out_dir, args->meas_idx, extension);
         break;
     case PLOT_GROUP_BAR:
-        snprintf(buf, buf_size, "%s/group_bar_%zu.%s", g_out_dir,
-                 args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/group_bar_%zu.%s", g_out_dir, args->meas_idx, extension);
         break;
     case PLOT_GROUP_REGR:
         snprintf(buf, buf_size, "%s/group_%zu_%zu.%s", g_out_dir, args->grp_idx,
                  args->meas_idx, extension);
         break;
     case PLOT_ALL_GROUPS_REGR:
-        snprintf(buf, buf_size, "%s/groups_%zu.%s", g_out_dir, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/groups_%zu.%s", g_out_dir, args->meas_idx, extension);
         break;
     case PLOT_KDE_SMALL:
-        snprintf(buf, buf_size, "%s/kde_small_%zu_%zu.%s", g_out_dir,
-                 args->bench_idx, args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_small_%zu_%zu.%s", g_out_dir, args->bench_idx,
+                 args->meas_idx, extension);
         break;
     case PLOT_KDE:
         snprintf(buf, buf_size, "%s/kde_%zu_%zu.%s", g_out_dir, args->bench_idx,
@@ -311,21 +297,20 @@ static void format_plot_name(char *buf, size_t buf_size,
                  args->compared_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_SMALL:
-        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu.%s", g_out_dir,
-                 args->compared_idx, args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_small_%zu_%zu.%s", g_out_dir, args->compared_idx,
+                 args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP:
-        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu.%s", g_out_dir,
-                 args->compared_idx, args->meas_idx, extension);
+        snprintf(buf, buf_size, "%s/kde_cmp_%zu_%zu.%s", g_out_dir, args->compared_idx,
+                 args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_PER_VAL:
         snprintf(buf, buf_size, "%s/kde_pval_cmp_%zu_%zu_%zu.%s", g_out_dir,
                  args->compared_idx, args->val_idx, args->meas_idx, extension);
         break;
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        snprintf(buf, buf_size, "%s/kde_pval_cmp_small_%zu_%zu_%zu.%s",
-                 g_out_dir, args->compared_idx, args->val_idx, args->meas_idx,
-                 extension);
+        snprintf(buf, buf_size, "%s/kde_pval_cmp_small_%zu_%zu_%zu.%s", g_out_dir,
+                 args->compared_idx, args->val_idx, args->meas_idx, extension);
         break;
     }
 }
@@ -363,11 +348,9 @@ static bool make_plot_src(struct plot_walker_args *args, FILE *f)
     case PLOT_KDE_CMP_ALL_GROUPS:
         return plot_maker->kde_cmp_group(al, args->compared_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL:
-        return plot_maker->kde_cmp_per_val(al, args->compared_idx,
-                                           args->val_idx, &ctx);
+        return plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx,
-                                                 args->val_idx, &ctx);
+        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx, &ctx);
     }
     ASSERT_UNREACHABLE();
 }
@@ -443,14 +426,12 @@ static bool make_plot_walk(struct plot_walker_args *args)
     return true;
 }
 
-static bool make_plots(const struct analysis *al,
-                       enum plot_backend plot_backend)
+static bool make_plots(const struct analysis *al, enum plot_backend plot_backend)
 {
     bool success = true;
     struct plot_walker_args args = {0};
     init_plot_maker(plot_backend, &args.maker);
-    for (size_t meas_idx = 0; meas_idx < al->meas_count && success;
-         ++meas_idx) {
+    for (size_t meas_idx = 0; meas_idx < al->meas_count && success; ++meas_idx) {
         if (al->meas[meas_idx].is_secondary)
             continue;
         args.analysis = al->meas_analyses + meas_idx;
@@ -480,8 +461,7 @@ static bool delete_plot_src_walk(struct plot_walker_args *args)
     return true;
 }
 
-static bool delete_plot_srcs(const struct analysis *al,
-                             enum plot_backend backend)
+static bool delete_plot_srcs(const struct analysis *al, enum plot_backend backend)
 {
     struct plot_walker_args args = {0};
     init_plot_maker(backend, &args.maker);
@@ -518,9 +498,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
         if (g_desired_plots & MAKE_PLOT_ALL_GROUPS_REGR) {
             const struct group_analysis *grp = al->group_analyses;
             if (grp[0].values_are_doubles) {
-                fprintf(f,
-                        "- [comparison and regression of all "
-                        "groups](groups_%zu.svg)\n",
+                fprintf(f, "- [comparison and regression of all groups](groups_%zu.svg)\n",
                         meas_idx);
             }
         }
@@ -545,8 +523,8 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
     if (g_desired_plots & MAKE_PLOT_KDE) {
         fprintf(f, "### benchmark KDE\n");
         foreach_bench_idx (bench_idx, al) {
-            fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n",
-                    bench_name(base, bench_idx), bench_idx, meas_idx);
+            fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n", bench_name(base, bench_idx),
+                    bench_idx, meas_idx);
         }
     }
     if (grp_count <= 1) {
@@ -557,11 +535,8 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
             foreach_bench_idx (bench_idx, al) {
                 if (bench_idx == ref_idx)
                     continue;
-                fprintf(f,
-                        "- [%s vs %s KDE comparison "
-                        "(small)](kde_cmp_small_%zu_%zu.svg)\n",
-                        ref_name, bench_name(base, bench_idx), bench_idx,
-                        meas_idx);
+                fprintf(f, "- [%s vs %s KDE comparison (small)](kde_cmp_small_%zu_%zu.svg)\n",
+                        ref_name, bench_name(base, bench_idx), bench_idx, meas_idx);
             }
         }
         if (g_desired_plots & MAKE_PLOT_KDE_CMP) {
@@ -569,16 +544,12 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
             foreach_bench_idx (bench_idx, al) {
                 if (bench_idx == ref_idx)
                     continue;
-                fprintf(f,
-                        "- [%s vs %s KDE "
-                        "comparison](kde_cmp_%zu_%zu.svg)\n",
-                        ref_name, bench_name(base, bench_idx), bench_idx,
-                        meas_idx);
+                fprintf(f, "- [%s vs %s KDE comparison](kde_cmp_%zu_%zu.svg)\n", ref_name,
+                        bench_name(base, bench_idx), bench_idx, meas_idx);
             }
         }
-    } else if (g_desired_plots &
-               (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
-                MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
+    } else if (g_desired_plots & (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
+                                  MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
         const struct bench_var *var = base->var;
         size_t val_count = var->value_count;
         if (g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) {
@@ -593,8 +564,8 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                     fprintf(f,
                             "- [%s vs %s KDE comparison "
                             "(small)](kde_pval_cmp_small_%zu_%zu_%zu.svg)\n",
-                            ref_name, bench_group_name(base, grp_idx), grp_idx,
-                            val_idx, meas_idx);
+                            ref_name, bench_group_name(base, grp_idx), grp_idx, val_idx,
+                            meas_idx);
                 }
             }
         }
@@ -607,11 +578,9 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                 foreach_per_val_group_idx (grp_idx, val_idx, al) {
                     if (grp_idx == ref_idx)
                         continue;
-                    fprintf(f,
-                            "- [%s vs %s KDE "
-                            "comparison](kde_pval_cmp_%zu_%zu_%zu.svg)\n",
-                            ref_name, bench_group_name(base, grp_idx), grp_idx,
-                            val_idx, meas_idx);
+                    fprintf(f, "- [%s vs %s KDE comparison](kde_pval_cmp_%zu_%zu_%zu.svg)\n",
+                            ref_name, bench_group_name(base, grp_idx), grp_idx, val_idx,
+                            meas_idx);
                 }
             }
         }
@@ -625,8 +594,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                 fprintf(f,
                         "- [%s vs %s KDE comparison "
                         "aggregation](kde_cmp_all_groups_%zu_%zu.svg)\n",
-                        ref_name, bench_group_name(base, grp_idx), grp_idx,
-                        meas_idx);
+                        ref_name, bench_group_name(base, grp_idx), grp_idx, meas_idx);
             }
         }
     }
@@ -650,8 +618,7 @@ static bool make_plots_map(const struct analysis *al)
     return true;
 }
 
-static void export_csv_bench_raw(const struct bench *bench,
-                                 const struct analysis *al, FILE *f)
+static void export_csv_bench_raw(const struct bench *bench, const struct analysis *al, FILE *f)
 {
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         fprintf(f, "%s", al->meas[meas_idx].name);
@@ -696,9 +663,8 @@ static void export_csv_group(const struct meas_analysis *al, FILE *f)
 static void export_csv_bench_stats(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    fprintf(f,
-            "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,"
-            "median,q1,q3,p1,p5,p95,p99,outl\n");
+    fprintf(f, "cmd,mean_low,mean,mean_high,st_dev_low,st_dev,st_dev_high,min,max,median,q1,"
+               "q3,p1,p5,p95,p99,outl\n");
     for (size_t bench_idx = 0; bench_idx < base->bench_count; ++bench_idx) {
         const struct distr *distr = al->benches[bench_idx];
         char buf[4096];
@@ -707,15 +673,13 @@ static void export_csv_bench_stats(const struct meas_analysis *al, FILE *f)
         fprintf(f, "%g,%g,%g,%g,%g,%g,", distr->mean.lower, distr->mean.point,
                 distr->mean.upper, distr->st_dev.lower, distr->st_dev.point,
                 distr->st_dev.upper);
-        fprintf(f, "%g,%g,%g,%g,%g,%g,%g,%g,%g,", distr->min, distr->max,
-                distr->median, distr->q1, distr->q3, distr->p1, distr->p5,
-                distr->p95, distr->p99);
+        fprintf(f, "%g,%g,%g,%g,%g,%g,%g,%g,%g,", distr->min, distr->max, distr->median,
+                distr->q1, distr->q3, distr->p1, distr->p5, distr->p95, distr->p99);
         fprintf(f, "%g\n", distr->outliers.var);
     }
 }
 
-static void export_csv_group_raw(const struct meas_analysis *al, size_t grp_idx,
-                                 FILE *f)
+static void export_csv_group_raw(const struct meas_analysis *al, size_t grp_idx, FILE *f)
 {
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
@@ -746,12 +710,10 @@ static void export_csv_benches_raw(const struct meas_analysis *al, FILE *f)
 static bool export_csvs(const struct analysis *al)
 {
     for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx) {
-        FILE *f =
-            open_file_fmt("w", "%s/bench_raw_%zu.csv", g_out_dir, bench_idx);
+        FILE *f = open_file_fmt("w", "%s/bench_raw_%zu.csv", g_out_dir, bench_idx);
         if (f == NULL) {
-            csfmtperror(
-                "failed to open file '%s/bench_raw_%zu.csv' for writing",
-                g_out_dir, bench_idx);
+            csfmtperror("failed to open file '%s/bench_raw_%zu.csv' for writing", g_out_dir,
+                        bench_idx);
             return false;
         }
         export_csv_bench_raw(al->bench_analyses[bench_idx].bench, al, f);
@@ -762,23 +724,19 @@ static bool export_csvs(const struct analysis *al)
             continue;
         const struct meas_analysis *mal = al->meas_analyses + meas_idx;
         {
-            FILE *f = open_file_fmt("w", "%s/benches_raw_%zu.csv", g_out_dir,
-                                    meas_idx);
+            FILE *f = open_file_fmt("w", "%s/benches_raw_%zu.csv", g_out_dir, meas_idx);
             if (f == NULL) {
-                csfmtperror(
-                    "failed to open file '%s/benches_raw_%zu.csv' for writing",
-                    g_out_dir, meas_idx);
+                csfmtperror("failed to open file '%s/benches_raw_%zu.csv' for writing",
+                            g_out_dir, meas_idx);
                 return false;
             }
             export_csv_benches_raw(mal, f);
             fclose(f);
         }
         {
-            FILE *f = open_file_fmt("w", "%s/benches_stats_%zu.csv", g_out_dir,
-                                    meas_idx);
+            FILE *f = open_file_fmt("w", "%s/benches_stats_%zu.csv", g_out_dir, meas_idx);
             if (f == NULL) {
-                csfmtperror("failed to open file '%s/benches_stats_%zu.csv' "
-                            "for writing",
+                csfmtperror("failed to open file '%s/benches_stats_%zu.csv' for writing",
                             g_out_dir, meas_idx);
                 return false;
             }
@@ -787,11 +745,10 @@ static bool export_csvs(const struct analysis *al)
         }
         if (al->group_count) {
             for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx) {
-                FILE *f = open_file_fmt("w", "%s/group_raw_%zu_%zu.csv",
-                                        g_out_dir, grp_idx, meas_idx);
+                FILE *f = open_file_fmt("w", "%s/group_raw_%zu_%zu.csv", g_out_dir, grp_idx,
+                                        meas_idx);
                 if (f == NULL) {
-                    csfmtperror("failed to open file "
-                                "'%s/group_raw_%zu_%zu.csv' for writing",
+                    csfmtperror("failed to open file '%s/group_raw_%zu_%zu.csv' for writing",
                                 g_out_dir, grp_idx, meas_idx);
                     return false;
                 }
@@ -799,12 +756,10 @@ static bool export_csvs(const struct analysis *al)
                 fclose(f);
             }
             {
-                FILE *f = open_file_fmt("w", "%s/groups_%zu.csv", g_out_dir,
-                                        meas_idx);
+                FILE *f = open_file_fmt("w", "%s/groups_%zu.csv", g_out_dir, meas_idx);
                 if (f == NULL) {
-                    csfmtperror(
-                        "failed to open file '%s/groups_%zu.csv' for writing",
-                        g_out_dir, meas_idx);
+                    csfmtperror("failed to open file '%s/groups_%zu.csv' for writing",
+                                g_out_dir, meas_idx);
                     return false;
                 }
                 export_csv_group(mal, f);
@@ -815,15 +770,14 @@ static bool export_csvs(const struct analysis *al)
     {
         FILE *f = open_file_fmt("w", "%s/csv_map.md", g_out_dir);
         if (f == NULL) {
-            csfmtperror("failed to open file '%s/csv_map.md' for writing",
-                        g_out_dir);
+            csfmtperror("failed to open file '%s/csv_map.md' for writing", g_out_dir);
             return false;
         }
         fprintf(f, "# csbench CSV map\n");
         fprintf(f, "## raw data\n");
         for (size_t bench_idx = 0; bench_idx < al->bench_count; ++bench_idx)
-            fprintf(f, "- [benchmark %s](bench_raw_%zu.csv)\n",
-                    bench_name(al, bench_idx), bench_idx);
+            fprintf(f, "- [benchmark %s](bench_raw_%zu.csv)\n", bench_name(al, bench_idx),
+                    bench_idx);
         fprintf(f, "## per-measurement analyses\n");
         for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
             if (al->meas[meas_idx].is_secondary)
@@ -831,11 +785,9 @@ static bool export_csvs(const struct analysis *al)
             const struct meas_analysis *mal = al->meas_analyses + meas_idx;
             fprintf(f, "### measurement %s\n", mal->meas->name);
             fprintf(f, "- [raw data](benches_raw_%zu.csv)\n", meas_idx);
-            fprintf(f, "- [aggregates statistics](benches_stats_%zu.csv)\n",
-                    meas_idx);
+            fprintf(f, "- [aggregates statistics](benches_stats_%zu.csv)\n", meas_idx);
             if (al->group_count) {
-                fprintf(f, "- [per-value comparison](groups_%zu.csv)\n",
-                        meas_idx);
+                fprintf(f, "- [per-value comparison](groups_%zu.csv)\n", meas_idx);
                 fprintf(f, "#### per-group raw data\n");
                 for (size_t grp_idx = 0; grp_idx < al->group_count; ++grp_idx)
                     fprintf(f, "- [group %s](group_raw_%zu_%zu.csv)\n",
@@ -849,8 +801,7 @@ static bool export_csvs(const struct analysis *al)
 
 static bool make_reports(const struct analysis *al)
 {
-    if (g_json_export_filename != NULL &&
-        !export_json(al, g_json_export_filename))
+    if (g_json_export_filename != NULL && !export_json(al, g_json_export_filename))
         return false;
 
     if (!g_plot && !g_html && !g_csv)
@@ -891,8 +842,7 @@ static void print_exit_code_info(const struct bench *bench)
             ++count_nonzero;
 
     if (count_nonzero == bench->run_count) {
-        printf("all commands have non-zero exit code: %d\n",
-               bench->exit_codes[0]);
+        printf("all commands have non-zero exit code: %d\n", bench->exit_codes[0]);
     } else if (count_nonzero != 0) {
         printf("some runs (%zu) have non-zero exit code\n", count_nonzero);
     }
@@ -900,12 +850,12 @@ static void print_exit_code_info(const struct bench *bench)
 
 static void print_outliers(const struct outliers *outliers, size_t run_count)
 {
-    int outlier_count = outliers->low_mild + outliers->high_mild +
-                        outliers->low_severe + outliers->high_severe;
+    int outlier_count = outliers->low_mild + outliers->high_mild + outliers->low_severe +
+                        outliers->high_severe;
     if (outlier_count != 0) {
-        printf("%d outliers (%.2f%%) %s (%.1f%%) effect on st dev\n",
-               outlier_count, (double)outlier_count / run_count * 100.0,
-               outliers_variance_str(outliers->var), outliers->var * 100.0);
+        printf("%d outliers (%.2f%%) %s (%.1f%%) effect on st dev\n", outlier_count,
+               (double)outlier_count / run_count * 100.0, outliers_variance_str(outliers->var),
+               outliers->var * 100.0);
         if (outliers->low_severe)
             printf("  %d (%.2f%%) low severe\n", outliers->low_severe,
                    (double)outliers->low_severe / run_count * 100.0);
@@ -924,9 +874,8 @@ static void print_outliers(const struct outliers *outliers, size_t run_count)
     }
 }
 
-static void print_estimate(const char *name, const struct est *est,
-                           const struct units *units, const char *prim_color,
-                           const char *sec_color)
+static void print_estimate(const char *name, const struct est *est, const struct units *units,
+                           const char *prim_color, const char *sec_color)
 {
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
@@ -949,14 +898,11 @@ static void print_distr(const struct distr *dist, const struct units *units)
     printf_colored(ANSI_MAGENTA, "%s ", buf1);
     printf_colored(ANSI_BOLD_MAGENTA, "%s ", buf2);
     printf_colored(ANSI_MAGENTA, "%s\n", buf3);
-    print_estimate("mean", &dist->mean, units, ANSI_BOLD_GREEN,
-                   ANSI_BRIGHT_GREEN);
-    print_estimate("st dev", &dist->st_dev, units, ANSI_BOLD_GREEN,
-                   ANSI_BRIGHT_GREEN);
+    print_estimate("mean", &dist->mean, units, ANSI_BOLD_GREEN, ANSI_BRIGHT_GREEN);
+    print_estimate("st dev", &dist->st_dev, units, ANSI_BOLD_GREEN, ANSI_BRIGHT_GREEN);
 }
 
-static void print_benchmark_info(const struct bench_analysis *cur,
-                                 const struct analysis *al)
+static void print_benchmark_info(const struct bench_analysis *cur, const struct analysis *al)
 {
     const struct bench *bench = cur->bench;
     printf("benchmark ");
@@ -979,19 +925,17 @@ static void print_benchmark_info(const struct bench_analysis *cur,
             const struct distr *distr = cur->meas + meas_idx;
             print_distr(distr, &meas->units);
             for (size_t j = 0; j < al->meas_count; ++j) {
-                if (al->meas[j].is_secondary &&
-                    al->meas[j].primary_idx == meas_idx)
-                    print_estimate(al->meas[j].name, &cur->meas[j].mean,
-                                   &al->meas[j].units, ANSI_BOLD_BLUE,
-                                   ANSI_BRIGHT_BLUE);
+                if (al->meas[j].is_secondary && al->meas[j].primary_idx == meas_idx)
+                    print_estimate(al->meas[j].name, &cur->meas[j].mean, &al->meas[j].units,
+                                   ANSI_BOLD_BLUE, ANSI_BRIGHT_BLUE);
             }
             print_outliers(&distr->outliers, bench->run_count);
         }
     } else {
         for (size_t i = 0; i < al->meas_count; ++i) {
             const struct meas *info = al->meas + i;
-            print_estimate(info->name, &cur->meas[i].mean, &info->units,
-                           ANSI_BOLD_BLUE, ANSI_BRIGHT_BLUE);
+            print_estimate(info->name, &cur->meas[i].mean, &info->units, ANSI_BOLD_BLUE,
+                           ANSI_BRIGHT_BLUE);
         }
     }
 }
@@ -1025,10 +969,8 @@ static void print_bench_comparison(const struct meas_analysis *al)
             printf(" is ");
             printf_colored(ANSI_BOLD, "%s\n", ref_name);
             printf("slowest is ");
-            printf_colored(
-                ANSI_BOLD, "%s\n",
-                bench_name(base,
-                           al->bench_by_mean_time[base->bench_count - 1]));
+            printf_colored(ANSI_BOLD, "%s\n",
+                           bench_name(base, al->bench_by_mean_time[base->bench_count - 1]));
         }
         break;
     case SORT_BASELINE_RAW:
@@ -1070,8 +1012,7 @@ static void print_bench_comparison(const struct meas_analysis *al)
     if (base->group_count == 1 && g_regr) {
         const struct group_analysis *grp = al->group_analyses;
         if (grp->values_are_doubles)
-            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
-                   grp->regress.a);
+            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity), grp->regress.a);
     }
 }
 
@@ -1088,8 +1029,7 @@ static bool should_abbreviate_names(const struct meas_analysis *al)
     return false;
 }
 
-static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
-                                  bool abbr_names)
+static const char *cli_group_name(const struct meas_analysis *al, size_t idx, bool abbr_names)
 {
     if (abbr_names) {
         // Algorithm below does not handle zeroes on its own
@@ -1114,8 +1054,7 @@ static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
     return bench_group_name(al->base, idx);
 }
 
-size_t ith_per_val_group_idx(size_t i, size_t val_idx,
-                             const struct meas_analysis *al)
+size_t ith_per_val_group_idx(size_t i, size_t val_idx, const struct meas_analysis *al)
 {
     assert(i < al->base->group_count);
     switch (g_sort_mode) {
@@ -1163,8 +1102,7 @@ size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
     ASSERT_UNREACHABLE();
 }
 
-static void print_group_per_value_speedups(const struct meas_analysis *al,
-                                           bool abbr_names)
+static void print_group_per_value_speedups(const struct meas_analysis *al, bool abbr_names)
 {
     const struct analysis *base = al->base;
     const struct bench_var *var = base->var;
@@ -1191,24 +1129,20 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
             size_t fastest_idx = al->val_benches_by_mean_time[val_idx][0];
             printf_colored(ANSI_BLUE, "  fastest");
             printf(" is ");
-            printf_colored(ANSI_BOLD, "%s",
-                           cli_group_name(al, fastest_idx, abbr_names));
+            printf_colored(ANSI_BOLD, "%s", cli_group_name(al, fastest_idx, abbr_names));
             if (g_baseline != -1 && fastest_idx == (size_t)g_baseline)
                 printf(" (baseline)");
             printf("\n");
             printf("  slowest is ");
-            size_t slowest_idx =
-                al->val_benches_by_mean_time[val_idx][base->group_count - 1];
-            printf_colored(ANSI_BOLD, "%s",
-                           cli_group_name(al, slowest_idx, abbr_names));
+            size_t slowest_idx = al->val_benches_by_mean_time[val_idx][base->group_count - 1];
+            printf_colored(ANSI_BOLD, "%s", cli_group_name(al, slowest_idx, abbr_names));
             if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
                 printf(" (baseline)");
             printf("\n");
         }
 
         if (g_baseline == -1) {
-            printf_colored(ANSI_BOLD, "  %s ",
-                           cli_group_name(al, ref_idx, abbr_names));
+            printf_colored(ANSI_BOLD, "  %s ", cli_group_name(al, ref_idx, abbr_names));
             printf("is ");
             if (base->group_count > 2)
                 printf("\n");
@@ -1216,11 +1150,9 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
         foreach_per_val_group_idx (grp_idx, val_idx, al) {
             if (grp_idx == ref_idx)
                 continue;
-            const struct speedup *sp =
-                al->pval_cmps[val_idx].speedups + grp_idx;
+            const struct speedup *sp = al->pval_cmps[val_idx].speedups + grp_idx;
             if (g_baseline != -1) {
-                printf_colored(ANSI_BOLD, "  %s ",
-                               cli_group_name(al, grp_idx, abbr_names));
+                printf_colored(ANSI_BOLD, "  %s ", cli_group_name(al, grp_idx, abbr_names));
                 printf("is ");
             } else if (base->group_count > 2) {
                 printf("  ");
@@ -1246,8 +1178,7 @@ static void print_group_per_value_speedups(const struct meas_analysis *al,
     }
 }
 
-static void print_group_average_speedups(const struct meas_analysis *al,
-                                         bool abbr_names)
+static void print_group_average_speedups(const struct meas_analysis *al, bool abbr_names)
 {
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
@@ -1260,22 +1191,19 @@ static void print_group_average_speedups(const struct meas_analysis *al,
         size_t fastest_idx = al->groups_by_avg_speed[0];
         printf_colored(ANSI_BLUE, "  fastest");
         printf(" is ");
-        printf_colored(ANSI_BOLD, "%s",
-                       cli_group_name(al, fastest_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "%s", cli_group_name(al, fastest_idx, abbr_names));
         if (g_baseline != -1 && fastest_idx == (size_t)g_baseline)
             printf(" (baseline)");
         printf("\n");
         printf("  slowest is ");
         size_t slowest_idx = al->groups_by_avg_speed[base->group_count - 1];
-        printf_colored(ANSI_BOLD, "%s",
-                       cli_group_name(al, slowest_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "%s", cli_group_name(al, slowest_idx, abbr_names));
         if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
             printf(" (baseline)");
         printf("\n");
     }
     if (g_baseline == -1) {
-        printf_colored(ANSI_BOLD, "  %s ",
-                       cli_group_name(al, ref_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "  %s ", cli_group_name(al, ref_idx, abbr_names));
         printf("is ");
         if (base->group_count > 2)
             printf("\n");
@@ -1287,8 +1215,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
         if (base->group_count > 2)
             printf("  ");
         if (g_baseline != -1) {
-            printf_colored(ANSI_BOLD, "%s",
-                           cli_group_name(al, grp_idx, abbr_names));
+            printf_colored(ANSI_BOLD, "%s", cli_group_name(al, grp_idx, abbr_names));
             printf(" is ");
         }
         if (sp->is_slower) {
@@ -1310,8 +1237,7 @@ static void print_group_average_speedups(const struct meas_analysis *al,
     }
 }
 
-static void print_group_total_speedups(const struct meas_analysis *al,
-                                       bool abbr_names)
+static void print_group_total_speedups(const struct meas_analysis *al, bool abbr_names)
 {
     const struct analysis *base = al->base;
     if (base->group_count <= 1)
@@ -1324,22 +1250,19 @@ static void print_group_total_speedups(const struct meas_analysis *al,
         size_t fastest_idx = al->groups_by_total_speed[0];
         printf_colored(ANSI_BLUE, "  fastest");
         printf(" is ");
-        printf_colored(ANSI_BOLD, "%s",
-                       cli_group_name(al, fastest_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "%s", cli_group_name(al, fastest_idx, abbr_names));
         if (g_baseline != -1 && fastest_idx == (size_t)g_baseline)
             printf(" (baseline)");
         printf("\n");
         printf("  slowest is ");
         size_t slowest_idx = al->groups_by_total_speed[base->group_count - 1];
-        printf_colored(ANSI_BOLD, "%s",
-                       cli_group_name(al, slowest_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "%s", cli_group_name(al, slowest_idx, abbr_names));
         if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
             printf(" (baseline)");
         printf("\n");
     }
     if (g_baseline == -1) {
-        printf_colored(ANSI_BOLD, "  %s ",
-                       cli_group_name(al, ref_idx, abbr_names));
+        printf_colored(ANSI_BOLD, "  %s ", cli_group_name(al, ref_idx, abbr_names));
         printf("is ");
         if (base->group_count > 2)
             printf("\n");
@@ -1351,8 +1274,7 @@ static void print_group_total_speedups(const struct meas_analysis *al,
         if (base->group_count > 2)
             printf("  ");
         if (g_baseline != -1) {
-            printf_colored(ANSI_BOLD, "%s",
-                           cli_group_name(al, grp_idx, abbr_names));
+            printf_colored(ANSI_BOLD, "%s", cli_group_name(al, grp_idx, abbr_names));
             printf(" is ");
         }
         if (sp->is_slower) {
@@ -1386,8 +1308,7 @@ static void print_group_comparison(const struct meas_analysis *al)
                 if (al->group_avg_cmp.ref == grp_idx)
                     printf_colored(ANSI_BLUE, " (fastest)");
                 else if (base->group_count > 2 &&
-                         grp_idx ==
-                             al->groups_by_avg_speed[base->group_count - 1])
+                         grp_idx == al->groups_by_avg_speed[base->group_count - 1])
                     printf(" (slowest)");
             } else {
                 if ((size_t)g_baseline == grp_idx)
@@ -1398,21 +1319,18 @@ static void print_group_comparison(const struct meas_analysis *al)
     } else {
         if (g_baseline != -1) {
             printf("baseline group ");
-            printf_colored(ANSI_BOLD, "%s\n",
-                           al->group_analyses[g_baseline].group->name);
+            printf_colored(ANSI_BOLD, "%s\n", al->group_analyses[g_baseline].group->name);
         } else {
             printf_colored(ANSI_BLUE, "fastest");
             printf(" group ");
-            printf_colored(
-                ANSI_BOLD, "%s\n",
-                al->group_analyses[al->group_avg_cmp.ref].group->name);
+            printf_colored(ANSI_BOLD, "%s\n",
+                           al->group_analyses[al->group_avg_cmp.ref].group->name);
             if (base->group_count > 2) {
                 printf("slowest group ");
                 printf_colored(
                     ANSI_BOLD, "%s\n",
-                    al->group_analyses
-                        [al->groups_by_avg_speed[base->group_count - 1]]
-                            .group->name);
+                    al->group_analyses[al->groups_by_avg_speed[base->group_count - 1]]
+                        .group->name);
             }
         }
     }
@@ -1425,10 +1343,9 @@ static void print_group_comparison(const struct meas_analysis *al)
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
             const struct group_analysis *grp = al->group_analyses + grp_idx;
             if (grp->values_are_doubles) {
-                printf_colored(ANSI_BOLD, "%s ",
-                               cli_group_name(al, grp_idx, abbr_names));
-                printf("%s complexity (%g)\n",
-                       big_o_str(grp->regress.complexity), grp->regress.a);
+                printf_colored(ANSI_BOLD, "%s ", cli_group_name(al, grp_idx, abbr_names));
+                printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
+                       grp->regress.a);
             }
         }
     }

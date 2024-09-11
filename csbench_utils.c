@@ -96,8 +96,7 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride)
     size_t min = header->size + inc;
 
     size_t new_capacity = double_current > min ? double_current : min;
-    void *result =
-        realloc(header, sizeof(struct sb_header) + stride * new_capacity);
+    void *result = realloc(header, sizeof(struct sb_header) + stride * new_capacity);
     header = result;
     header->capacity = new_capacity;
     return header + 1;
@@ -191,8 +190,7 @@ int format_memory(char *dst, size_t sz, double t)
     return count;
 }
 
-void format_meas(char *buf, size_t buf_size, double value,
-                 const struct units *units)
+void format_meas(char *buf, size_t buf_size, double value, const struct units *units)
 {
     switch (units->kind) {
     case MU_S:
@@ -292,40 +290,39 @@ const char *big_o_str(enum big_o complexity)
 #define fitting_curve_logn(_n) log2(_n)
 #define fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
-#define ols(_name, _fitting)                                                   \
-    static double ols_##_name(const double *x, const double *y, size_t count,  \
-                              double adjust_y, double *rmsp)                   \
-    {                                                                          \
-        (void)x;                                                               \
-        double sigma_gn_sq = 0.0;                                              \
-        double sigma_t = 0.0;                                                  \
-        double sigma_t_gn = 0.0;                                               \
-        for (size_t i = 0; i < count; ++i) {                                   \
-            double gn_i = _fitting(x[i] - x[0]);                               \
-            sigma_gn_sq += gn_i * gn_i;                                        \
-            sigma_t += y[i] - adjust_y;                                        \
-            sigma_t_gn += (y[i] - adjust_y) * gn_i;                            \
-        }                                                                      \
-        double coef = sigma_t_gn / sigma_gn_sq;                                \
-        double rms = 0.0;                                                      \
-        for (size_t i = 0; i < count; ++i) {                                   \
-            double fit = coef * _fitting(x[i] - x[0]);                         \
-            double a = (y[i] - adjust_y) - fit;                                \
-            rms += a * a;                                                      \
-        }                                                                      \
-        double mean = sigma_t / count;                                         \
-        *rmsp = sqrt(rms / count) / mean;                                      \
-        return coef;                                                           \
+#define ols(_name, _fitting)                                                                  \
+    static double ols_##_name(const double *x, const double *y, size_t count,                 \
+                              double adjust_y, double *rmsp)                                  \
+    {                                                                                         \
+        (void)x;                                                                              \
+        double sigma_gn_sq = 0.0;                                                             \
+        double sigma_t = 0.0;                                                                 \
+        double sigma_t_gn = 0.0;                                                              \
+        for (size_t i = 0; i < count; ++i) {                                                  \
+            double gn_i = _fitting(x[i] - x[0]);                                              \
+            sigma_gn_sq += gn_i * gn_i;                                                       \
+            sigma_t += y[i] - adjust_y;                                                       \
+            sigma_t_gn += (y[i] - adjust_y) * gn_i;                                           \
+        }                                                                                     \
+        double coef = sigma_t_gn / sigma_gn_sq;                                               \
+        double rms = 0.0;                                                                     \
+        for (size_t i = 0; i < count; ++i) {                                                  \
+            double fit = coef * _fitting(x[i] - x[0]);                                        \
+            double a = (y[i] - adjust_y) - fit;                                               \
+            rms += a * a;                                                                     \
+        }                                                                                     \
+        double mean = sigma_t / count;                                                        \
+        *rmsp = sqrt(rms / count) / mean;                                                     \
+        return coef;                                                                          \
     }
 
 ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
-    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn)
-        ols(nlogn, fitting_curve_nlogn)
+    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn) ols(nlogn,
+                                                                        fitting_curve_nlogn)
 
 #undef ols
 
-            void ols(const double *x, const double *y, size_t count,
-                     struct ols_regress *result)
+        void ols(const double *x, const double *y, size_t count, struct ols_regress *result)
 {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
@@ -336,15 +333,15 @@ ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
     double best_fit_coef, best_fit_rms;
     best_fit_coef = ols_1(x, y, count, min_y, &best_fit_rms);
 
-#define check(_name, _e)                                                       \
-    do {                                                                       \
-        double coef, rms;                                                      \
-        coef = _name(x, y, count, min_y, &rms);                                \
-        if (rms < best_fit_rms) {                                              \
-            best_fit = _e;                                                     \
-            best_fit_coef = coef;                                              \
-            best_fit_rms = rms;                                                \
-        }                                                                      \
+#define check(_name, _e)                                                                      \
+    do {                                                                                      \
+        double coef, rms;                                                                     \
+        coef = _name(x, y, count, min_y, &rms);                                               \
+        if (rms < best_fit_rms) {                                                             \
+            best_fit = _e;                                                                    \
+            best_fit_coef = coef;                                                             \
+            best_fit_rms = rms;                                                               \
+        }                                                                                     \
     } while (0)
 
     check(ols_n, O_N);
@@ -418,9 +415,8 @@ void resample(const double *src, size_t count, double *dst)
     g_rng_state = entropy;
 }
 
-static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
-                                  size_t nresamp, struct est *meane,
-                                  struct est *st_deve)
+static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp, size_t nresamp,
+                                  struct est *meane, struct est *st_deve)
 {
     double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
     double *tmp_rss = tmp_means + nresamp;
@@ -458,8 +454,7 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
     free(tmp_means);
 }
 
-static double t_statistic(const double *a, size_t n1, const double *b,
-                          size_t n2)
+static double t_statistic(const double *a, size_t n1, const double *b, size_t n2)
 {
     double a_mean = 0;
     for (size_t i = 0; i < n1; ++i)
@@ -487,8 +482,7 @@ static double t_statistic(const double *a, size_t n1, const double *b,
     return t;
 }
 
-double ttest(const double *a, size_t n1, const double *b, size_t n2,
-             size_t nresamp)
+double ttest(const double *a, size_t n1, const double *b, size_t n2, size_t nresamp)
 {
     // This uses algorithm as described in
     // https://en.wikipedia.org/wiki/Bootstrapping_(statistics)#Bootstrap_hypothesis_testing
@@ -544,8 +538,8 @@ double mwu(const double *a, size_t n1, const double *b, size_t n2)
 
     size_t *a_ranks = calloc(n1, sizeof(*a_ranks));
     size_t *b_ranks = calloc(n2, sizeof(*b_ranks));
-    for (size_t rank = 1, a_cursor = 0, b_cursor = 0;
-         a_cursor != n1 || b_cursor != n2; ++rank) {
+    for (size_t rank = 1, a_cursor = 0, b_cursor = 0; a_cursor != n1 || b_cursor != n2;
+         ++rank) {
         if (a_cursor == n1)
             b_ranks[b_cursor++] = rank;
         else if (b_cursor == n2)
@@ -581,8 +575,7 @@ double mwu(const double *a, size_t n1, const double *b, size_t n2)
     return p;
 }
 
-static double c_max(double x, double u_a, double a, double sigma_b_2,
-                    double sigma_g_2)
+static double c_max(double x, double u_a, double a, double sigma_b_2, double sigma_g_2)
 {
     double k = u_a - x;
     double d = k * k;
@@ -607,12 +600,11 @@ static double outlier_variance(double mean, double st_dev, double a)
     double sigma_g = fmin(u_g_min / 4.0, sigma_b / sqrt(a));
     double sigma_g_2 = sigma_g * sigma_g;
     double sigma_b_2 = sigma_b * sigma_b;
-    double var_out_min =
-        fmin(var_out(1, a, sigma_b_2, sigma_g_2),
-             var_out(fmin(c_max(0, u_a, a, sigma_b_2, sigma_g_2),
-                          c_max(u_g_min, u_a, a, sigma_b_2, sigma_g_2)),
-                     a, sigma_b_2, sigma_g_2)) /
-        sigma_b_2;
+    double var_out_min = fmin(var_out(1, a, sigma_b_2, sigma_g_2),
+                              var_out(fmin(c_max(0, u_a, a, sigma_b_2, sigma_g_2),
+                                           c_max(u_g_min, u_a, a, sigma_b_2, sigma_g_2)),
+                                      a, sigma_b_2, sigma_g_2)) /
+                         sigma_b_2;
     return var_out_min;
 }
 
@@ -642,18 +634,15 @@ static void classify_outliers(struct distr *distr)
         else if (v > him)
             ++outliers->high_mild;
     }
-    outliers->var =
-        outlier_variance(distr->mean.point, distr->st_dev.point, distr->count);
+    outliers->var = outlier_variance(distr->mean.point, distr->st_dev.point, distr->count);
 }
 
-void estimate_distr(const double *data, size_t count, size_t nresamp,
-                    struct distr *distr)
+void estimate_distr(const double *data, size_t count, size_t nresamp, struct distr *distr)
 {
     double *tmp = malloc(sizeof(*tmp) * count);
     distr->data = data;
     distr->count = count;
-    bootstrap_mean_st_dev(data, count, tmp, nresamp, &distr->mean,
-                          &distr->st_dev);
+    bootstrap_mean_st_dev(data, count, tmp, nresamp, &distr->mean, &distr->st_dev);
     memcpy(tmp, data, count * sizeof(*tmp));
     qsort(tmp, count, sizeof(*tmp), compare_doubles);
     distr->median = tmp[count / 2];
@@ -722,8 +711,8 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
     return true;
 }
 
-static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
-                                  int stderr_fd, int err_pipe[2], pid_t *pidp)
+static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
+                                  int err_pipe[2], pid_t *pidp)
 {
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -748,8 +737,7 @@ static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
             if (stderr_fd == -1)
                 stderr_fd = fd;
         }
-        if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
-            dup2(stdout_fd, STDOUT_FILENO) == -1 ||
+        if (dup2(stdin_fd, STDIN_FILENO) == -1 || dup2(stdout_fd, STDOUT_FILENO) == -1 ||
             dup2(stderr_fd, STDERR_FILENO) == -1) {
             csfdperror(err_pipe[1], "dup2");
             _exit(-1);
@@ -768,21 +756,19 @@ static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
     return check_and_handle_err_pipe(err_pipe[0], -1);
 }
 
-bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                  pid_t *pid)
+bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, pid_t *pid)
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return false;
-    bool success = shell_launch_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
-                                         err_pipe, pid);
+    bool success = shell_launch_internal(cmd, stdin_fd, stdout_fd, stderr_fd, err_pipe, pid);
     close(err_pipe[0]);
     close(err_pipe[1]);
     return success;
 }
 
-bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd,
-                             int stderr_fd, pid_t *pidp)
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd, int stderr_fd,
+                             pid_t *pidp)
 {
     int pipe_fds[2];
     if (!pipe_cloexec(pipe_fds))
@@ -813,8 +799,7 @@ bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd,
     return true;
 }
 
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   bool silent)
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent)
 {
     pid_t pid = 0;
     bool success = shell_launch(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
@@ -834,8 +819,8 @@ double get_time(void)
 }
 #endif
 
-__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
-                                                          const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, const char *fmt,
+                                                          ...)
 {
     char buf[4096];
     va_list args;
@@ -845,8 +830,8 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
     return fopen(buf, mode);
 }
 
-__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
-                                                      const char *fmt, ...)
+__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode, const char *fmt,
+                                                      ...)
 {
     char buf[4096];
     va_list args;
@@ -1014,8 +999,8 @@ void errorv(const char *fmt, va_list args)
         // should) is always a single one
         if (pthread_equal(tid, g_output_anchors[i].id) &&
             !atomic_load(&g_output_anchors[i].has_message)) {
-            vsnprintf(g_output_anchors[i].buffer,
-                      sizeof(g_output_anchors[i].buffer), fmt, args);
+            vsnprintf(g_output_anchors[i].buffer, sizeof(g_output_anchors[i].buffer), fmt,
+                      args);
             atomic_fence();
             atomic_store(&g_output_anchors[i].has_message, true);
             va_end(args);
@@ -1086,8 +1071,7 @@ bool pipe_cloexec(int fd[2])
         csperror("pipe");
         return false;
     }
-    if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 ||
-        fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
+    if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 || fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
         close(fd[0]);
         close(fd[1]);
         return false;
@@ -1095,8 +1079,7 @@ bool pipe_cloexec(int fd[2])
     return true;
 }
 
-void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
-                void *arg)
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar, void *arg)
 {
 #ifdef __linux__
     qsort_r(base, nmemb, size, compar, arg);
@@ -1107,8 +1090,8 @@ void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
 #endif
 }
 
-enum parse_time_str_result
-parse_time_str(const char *str, enum units_kind target_units, double *valuep)
+enum parse_time_str_result parse_time_str(const char *str, enum units_kind target_units,
+                                          double *valuep)
 {
     char *str_end;
     double value = strtod(str, &str_end);

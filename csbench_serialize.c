@@ -80,30 +80,30 @@ struct csbench_binary_header {
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
 
-#define write_raw__(_arr, _elemsz, _cnt, _f)                                   \
-    do {                                                                       \
-        size_t CSUNIQIFY(cnt) = (_cnt);                                        \
-        if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))       \
-            goto err;                                                          \
+#define write_raw__(_arr, _elemsz, _cnt, _f)                                                  \
+    do {                                                                                      \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                                       \
+        if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                      \
+            goto err;                                                                         \
     } while (0)
 
-#define write_u64__(_value, _f)                                                \
-    do {                                                                       \
-        uint64_t CSUNIQIFY(value) = (_value);                                  \
-        write_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, _f);               \
+#define write_u64__(_value, _f)                                                               \
+    do {                                                                                      \
+        uint64_t CSUNIQIFY(value) = (_value);                                                 \
+        write_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, _f);                              \
     } while (0)
 
-#define write_str__(_str, _f)                                                  \
-    do {                                                                       \
-        const char *CSUNIQIFY(str) = (_str);                                   \
-        if (CSUNIQIFY(str) == NULL) {                                          \
-            uint32_t CSUNIQIFY(len) = 0;                                       \
-            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);              \
-        } else {                                                               \
-            uint32_t CSUNIQIFY(len) = strlen(CSUNIQIFY(str)) + 1;              \
-            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);              \
-            write_raw__(CSUNIQIFY(str), 1, CSUNIQIFY(len), f);                 \
-        }                                                                      \
+#define write_str__(_str, _f)                                                                 \
+    do {                                                                                      \
+        const char *CSUNIQIFY(str) = (_str);                                                  \
+        if (CSUNIQIFY(str) == NULL) {                                                         \
+            uint32_t CSUNIQIFY(len) = 0;                                                      \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                             \
+        } else {                                                                              \
+            uint32_t CSUNIQIFY(len) = strlen(CSUNIQIFY(str)) + 1;                             \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                             \
+            write_raw__(CSUNIQIFY(str), 1, CSUNIQIFY(len), f);                                \
+        }                                                                                     \
     } while (0)
 
 bool save_bench_data_binary(const struct bench_data *data, FILE *f)
@@ -205,8 +205,7 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f)
             write_u64__(bench->run_count, f);
             write_raw__(bench->exit_codes, sizeof(int), bench->run_count, f);
             for (size_t j = 0; j < data->meas_count; ++j)
-                write_raw__(bench->meas[j], sizeof(double), bench->run_count,
-                            f);
+                write_raw__(bench->meas[j], sizeof(double), bench->run_count, f);
         }
 
         int at = ftell(f);
@@ -232,36 +231,35 @@ err:
 #undef write_u64__
 #undef write_str__
 
-#define read_raw__(_dst, _elemsz, _cnt, _f)                                    \
-    do {                                                                       \
-        size_t CSUNIQIFY(cnt) = (_cnt);                                        \
-        if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))        \
-            goto err;                                                          \
+#define read_raw__(_dst, _elemsz, _cnt, _f)                                                   \
+    do {                                                                                      \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                                       \
+        if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                       \
+            goto err;                                                                         \
     } while (0)
 
-#define read_u64__(_dst, _f)                                                   \
-    do {                                                                       \
-        uint64_t CSUNIQIFY(value);                                             \
-        read_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, f);                 \
-        (_dst) = CSUNIQIFY(value);                                             \
+#define read_u64__(_dst, _f)                                                                  \
+    do {                                                                                      \
+        uint64_t CSUNIQIFY(value);                                                            \
+        read_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, f);                                \
+        (_dst) = CSUNIQIFY(value);                                                            \
     } while (0)
 
-#define read_str__(_dst, _f)                                                   \
-    do {                                                                       \
-        uint32_t CSUNIQIFY(len);                                               \
-        read_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                   \
-        char *CSUNIQIFY(res) = NULL;                                           \
-        if (CSUNIQIFY(len) != 0) {                                             \
-            CSUNIQIFY(res) = csstralloc(CSUNIQIFY(len) - 1);                   \
-            read_raw__(CSUNIQIFY(res), 1, CSUNIQIFY(len), f);                  \
-        }                                                                      \
-        (_dst) = (const char *)CSUNIQIFY(res);                                 \
+#define read_str__(_dst, _f)                                                                  \
+    do {                                                                                      \
+        uint32_t CSUNIQIFY(len);                                                              \
+        read_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                                  \
+        char *CSUNIQIFY(res) = NULL;                                                          \
+        if (CSUNIQIFY(len) != 0) {                                                            \
+            CSUNIQIFY(res) = csstralloc(CSUNIQIFY(len) - 1);                                  \
+            read_raw__(CSUNIQIFY(res), 1, CSUNIQIFY(len), f);                                 \
+        }                                                                                     \
+        (_dst) = (const char *)CSUNIQIFY(res);                                                \
     } while (0)
 
-static bool
-load_bench_data_binary_file_internal(FILE *f, const char *filename,
-                                     struct bench_data *data,
-                                     struct bench_data_storage *storage)
+static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
+                                                 struct bench_data *data,
+                                                 struct bench_data_storage *storage)
 {
     memset(storage, 0, sizeof(*storage));
     memset(data, 0, sizeof(*data));
@@ -423,8 +421,7 @@ err_raw:
 #undef read_u64__
 #undef read_str__
 
-static bool load_bench_data_binary_file(const char *filename,
-                                        struct bench_data *data,
+static bool load_bench_data_binary_file(const char *filename, struct bench_data *data,
                                         struct bench_data_storage *storage)
 {
     FILE *f = fopen(filename, "rb");
@@ -432,8 +429,7 @@ static bool load_bench_data_binary_file(const char *filename,
         csfmtperror("failed to open benchmark data file '%s'", filename);
         return false;
     }
-    bool success =
-        load_bench_data_binary_file_internal(f, filename, data, storage);
+    bool success = load_bench_data_binary_file_internal(f, filename, data, storage);
     fclose(f);
     return success;
 }
@@ -484,8 +480,7 @@ static bool vars_match(const struct bench_var *a, const struct bench_var *b)
     return true;
 }
 
-static bool bench_data_match(const struct bench_data *a,
-                             const struct bench_data *b)
+static bool bench_data_match(const struct bench_data *a, const struct bench_data *b)
 {
     if (a->meas_count != b->meas_count)
         return false;
@@ -500,9 +495,8 @@ static bool bench_data_match(const struct bench_data *a,
 }
 
 static bool merge_bench_data(struct bench_data *src_datas,
-                             struct bench_data_storage *src_storages,
-                             size_t src_count, struct bench_data *data,
-                             struct bench_data_storage *storage)
+                             struct bench_data_storage *src_storages, size_t src_count,
+                             struct bench_data *data, struct bench_data_storage *storage)
 {
     assert(src_count >= 2);
     size_t total_bench_count = src_datas[0].bench_count;
@@ -545,10 +539,8 @@ static bool merge_bench_data(struct bench_data *src_datas,
     // Make new group list
     if (data->var) {
         data->group_count = storage->group_count = total_group_count;
-        data->groups = storage->groups =
-            calloc(total_group_count, sizeof(*storage->groups));
-        for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count;
-             ++i) {
+        data->groups = storage->groups = calloc(total_group_count, sizeof(*storage->groups));
+        for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count; ++i) {
             struct bench_data_storage *src = src_storages + i;
             memcpy(storage->groups + group_cursor, src->groups,
                    sizeof(struct bench_var_group) * src->group_count);
@@ -556,8 +548,7 @@ static bool merge_bench_data(struct bench_data *src_datas,
             for (size_t j = 0; j < src->group_count; ++j) {
                 assert(src->groups[j].cmd_count == data->var->value_count);
                 for (size_t k = 0; k < src->groups[j].cmd_count; ++k)
-                    storage->groups[group_cursor + j].cmd_idxs[k] +=
-                        bench_cursor;
+                    storage->groups[group_cursor + j].cmd_idxs[k] += bench_cursor;
                 bench_cursor += src->groups[j].cmd_count;
             }
             group_cursor += src->group_count;
@@ -570,18 +561,15 @@ static bool merge_bench_data(struct bench_data *src_datas,
     return true;
 }
 
-static bool load_bench_data_binary_merge(const char **file_list,
-                                         struct bench_data *data,
+static bool load_bench_data_binary_merge(const char **file_list, struct bench_data *data,
                                          struct bench_data_storage *storage)
 {
     bool success = false;
     size_t src_count = sb_len(file_list);
     struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
-    struct bench_data_storage *src_storages =
-        calloc(src_count, sizeof(*src_storages));
+    struct bench_data_storage *src_storages = calloc(src_count, sizeof(*src_storages));
     for (size_t i = 0; i < src_count; ++i)
-        if (!load_bench_data_binary_file(file_list[i], src_datas + i,
-                                         src_storages + i))
+        if (!load_bench_data_binary_file(file_list[i], src_datas + i, src_storages + i))
             goto err;
 
     if (!merge_bench_data(src_datas, src_storages, src_count, data, storage))

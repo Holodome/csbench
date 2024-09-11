@@ -77,8 +77,7 @@ struct perf_events {
     uint64_t *read_buf;
 };
 
-static struct perf_events *open_counters(const int *config, size_t count,
-                                         pid_t pid)
+static struct perf_events *open_counters(const int *config, size_t count, pid_t pid)
 {
     struct perf_events *events = calloc(1, sizeof(*events));
     events->count = count;
@@ -132,13 +131,11 @@ static void free_counters(struct perf_events *events)
 
 static bool start_counting(struct perf_events *events)
 {
-    if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) ==
-        -1) {
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_RESET, PERF_IOC_FLAG_GROUP) == -1) {
         error("failed to reset pmc");
         return false;
     }
-    if (ioctl(events->fds[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) ==
-        -1) {
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_ENABLE, PERF_IOC_FLAG_GROUP) == -1) {
         error("failed to enable pmc counting");
         return false;
     }
@@ -147,8 +144,7 @@ static bool start_counting(struct perf_events *events)
 
 static int stop_counting(struct perf_events *events)
 {
-    if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) ==
-        -1) {
+    if (ioctl(events->fds[0], PERF_EVENT_IOC_DISABLE, PERF_IOC_FLAG_GROUP) == -1) {
         error("failed to stop pmc counting");
         return false;
     }
@@ -184,12 +180,11 @@ static uint64_t get_counter(struct perf_events *events, size_t idx)
 
 bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
 {
-    static const int config[] = {
-        PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
-        PERF_COUNT_HW_BRANCH_INSTRUCTIONS, PERF_COUNT_HW_BRANCH_MISSES};
+    static const int config[] = {PERF_COUNT_HW_CPU_CYCLES, PERF_COUNT_HW_INSTRUCTIONS,
+                                 PERF_COUNT_HW_BRANCH_INSTRUCTIONS,
+                                 PERF_COUNT_HW_BRANCH_MISSES};
 
-    struct perf_events *events =
-        open_counters(config, sizeof(config) / sizeof(*config), pid);
+    struct perf_events *events = open_counters(config, sizeof(config) / sizeof(*config), pid);
     if (events == NULL)
         return false;
 
@@ -285,10 +280,8 @@ static uint32_t (*kpc_get_config_count)(uint32_t classes);
 static int (*kpc_get_config)(uint32_t classes, kpc_config_t *config);
 static int (*kpc_set_config)(uint32_t classes, kpc_config_t *config);
 static uint32_t (*kpc_get_counter_count)(uint32_t classes);
-static int (*kpc_get_cpu_counters)(int all_cpus, uint32_t classes, int *curcpu,
-                                   uint64_t *buf);
-static int (*kpc_get_thread_counters)(uint32_t tid, uint32_t buf_count,
-                                      uint64_t *buf);
+static int (*kpc_get_cpu_counters)(int all_cpus, uint32_t classes, int *curcpu, uint64_t *buf);
+static int (*kpc_get_thread_counters)(uint32_t tid, uint32_t buf_count, uint64_t *buf);
 static int (*kpc_force_all_ctrs_set)(int val);
 static int (*kpc_force_all_ctrs_get)(int *val_out);
 static int (*kperf_action_count_set)(uint32_t count);
@@ -427,42 +420,31 @@ static const char *kpep_config_error_desc(int code)
     return "unknown error";
 }
 
-static int (*kpep_config_create)(struct kpep_db *db,
-                                 struct kpep_config **cfg_ptr);
+static int (*kpep_config_create)(struct kpep_db *db, struct kpep_config **cfg_ptr);
 static void (*kpep_config_free)(struct kpep_config *cfg);
-static int (*kpep_config_add_event)(struct kpep_config *cfg,
-                                    struct kpep_event **ev_ptr, uint32_t flag,
-                                    uint32_t *err);
+static int (*kpep_config_add_event)(struct kpep_config *cfg, struct kpep_event **ev_ptr,
+                                    uint32_t flag, uint32_t *err);
 static int (*kpep_config_remove_event)(struct kpep_config *cfg, size_t idx);
 static int (*kpep_config_force_counters)(struct kpep_config *cfg);
-static int (*kpep_config_events_count)(struct kpep_config *cfg,
-                                       size_t *count_ptr);
-static int (*kpep_config_events)(struct kpep_config *cfg,
-                                 struct kpep_event **buf, size_t buf_size);
-static int (*kpep_config_kpc)(struct kpep_config *cfg, kpc_config_t *buf,
-                              size_t buf_size);
+static int (*kpep_config_events_count)(struct kpep_config *cfg, size_t *count_ptr);
+static int (*kpep_config_events)(struct kpep_config *cfg, struct kpep_event **buf,
+                                 size_t buf_size);
+static int (*kpep_config_kpc)(struct kpep_config *cfg, kpc_config_t *buf, size_t buf_size);
 static int (*kpep_config_kpc_count)(struct kpep_config *cfg, size_t *count_ptr);
-static int (*kpep_config_kpc_classes)(struct kpep_config *cfg,
-                                      uint32_t *classes_ptr);
-static int (*kpep_config_kpc_map)(struct kpep_config *cfg, size_t *buf,
-                                  size_t buf_size);
+static int (*kpep_config_kpc_classes)(struct kpep_config *cfg, uint32_t *classes_ptr);
+static int (*kpep_config_kpc_map)(struct kpep_config *cfg, size_t *buf, size_t buf_size);
 static int (*kpep_db_create)(const char *name, struct kpep_db **db_ptr);
 static void (*kpep_db_free)(struct kpep_db *db);
 static int (*kpep_db_name)(struct kpep_db *db, const char **name);
 static int (*kpep_db_aliases_count)(struct kpep_db *db, size_t *count);
-static int (*kpep_db_aliases)(struct kpep_db *db, const char **buf,
-                              size_t buf_size);
-static int (*kpep_db_counters_count)(struct kpep_db *db, uint8_t classes,
-                                     size_t *count);
+static int (*kpep_db_aliases)(struct kpep_db *db, const char **buf, size_t buf_size);
+static int (*kpep_db_counters_count)(struct kpep_db *db, uint8_t classes, size_t *count);
 static int (*kpep_db_events_count)(struct kpep_db *db, size_t *count);
-static int (*kpep_db_events)(struct kpep_db *db, struct kpep_event **buf,
-                             size_t buf_size);
-static int (*kpep_db_event)(struct kpep_db *db, const char *name,
-                            struct kpep_event **ev_ptr);
+static int (*kpep_db_events)(struct kpep_db *db, struct kpep_event **buf, size_t buf_size);
+static int (*kpep_db_event)(struct kpep_db *db, const char *name, struct kpep_event **ev_ptr);
 static int (*kpep_event_name)(struct kpep_event *ev, const char **name_ptr);
 static int (*kpep_event_alias)(struct kpep_event *ev, const char **alias_ptr);
-static int (*kpep_event_description)(struct kpep_event *ev,
-                                     const char **str_ptr);
+static int (*kpep_event_description)(struct kpep_event *ev, const char **str_ptr);
 
 struct perf_lib_symbol {
     const char *name;
@@ -535,9 +517,8 @@ static const struct perf_lib_symbol perf_lib_symbols_kperfdata[] = {
     perf_lib_symbol_def(kpep_event_description),
 };
 
-#define perf_lib_path_kperf                                                    \
-    "/System/Library/PrivateFrameworks/kperf.framework/kperf"
-#define perf_lib_path_kperfdata                                                \
+#define perf_lib_path_kperf "/System/Library/PrivateFrameworks/kperf.framework/kperf"
+#define perf_lib_path_kperfdata                                                               \
     "/System/Library/PrivateFrameworks/kperfdata.framework/kperfdata"
 
 static void *perf_lib_handle_kperf = NULL;
@@ -740,8 +721,7 @@ static const struct event_alias profile_events[] = {
      }},
 };
 
-static struct kpep_event *get_event(struct kpep_db *db,
-                                    const struct event_alias *alias)
+static struct kpep_event *get_event(struct kpep_db *db, const struct event_alias *alias)
 {
     for (size_t j = 0; j < EVENT_NAME_MAX; j++) {
         const char *name = alias->names[j];
@@ -788,28 +768,24 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
 
     struct kpep_db *db = NULL;
     if ((ret = kpep_db_create(NULL, &db)) != 0) {
-        error("failed to create kpep database: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to create kpep database: %d (%s)", ret, kpep_config_error_desc(ret));
         return false;
     }
 
     // create config
     struct kpep_config *cfg = NULL;
     if ((ret = kpep_config_create(db, &cfg)) != 0) {
-        error("failed to create kpep config: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to create kpep config: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_db;
     }
     if ((ret = kpep_config_force_counters(cfg)) != 0) {
-        error("failed to force counters: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to force counters: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_config;
     }
 
     // get events
     size_t ev_count = sizeof(profile_events) / sizeof(profile_events[0]);
-    struct kpep_event
-        *ev_arr[sizeof(profile_events) / sizeof(profile_events[0])] = {0};
+    struct kpep_event *ev_arr[sizeof(profile_events) / sizeof(profile_events[0])] = {0};
     for (size_t i = 0; i < ev_count; i++) {
         const struct event_alias *alias = profile_events + i;
         ev_arr[i] = get_event(db, alias);
@@ -823,8 +799,7 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
     for (size_t i = 0; i < ev_count; i++) {
         struct kpep_event *ev = ev_arr[i];
         if ((ret = kpep_config_add_event(cfg, &ev, 0, NULL)) != 0) {
-            error("failed to add event: %d (%s)", ret,
-                  kpep_config_error_desc(ret));
+            error("failed to add event: %d (%s)", ret, kpep_config_error_desc(ret));
             goto err_free_config;
         }
     }
@@ -835,24 +810,19 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
     kpc_config_t regs[KPC_MAX_COUNTERS] = {0};
     size_t counter_map[KPC_MAX_COUNTERS] = {0};
     if ((ret = kpep_config_kpc_classes(cfg, &classes)) != 0) {
-        error("failed to get kpc classes: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to get kpc classes: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_config;
     }
     if ((ret = kpep_config_kpc_count(cfg, &reg_count)) != 0) {
-        error("failed to get kpc count: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to get kpc count: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_config;
     }
-    if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map))) !=
-        0) {
-        error("failed to get kpc map: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+    if ((ret = kpep_config_kpc_map(cfg, counter_map, sizeof(counter_map))) != 0) {
+        error("failed to get kpc map: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_config;
     }
     if ((ret = kpep_config_kpc(cfg, regs, sizeof(regs))) != 0) {
-        error("failed to get kpc registers: %d (%s)", ret,
-              kpep_config_error_desc(ret));
+        error("failed to get kpc registers: %d (%s)", ret, kpep_config_error_desc(ret));
         goto err_free_config;
     }
 
@@ -978,15 +948,13 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
     struct kd_buf *buf_cur = buf_hdr;
     size_t count = 0;
     kdebug_trace_read(buf_cur, sizeof(struct kd_buf) * nbufs, &count);
-    for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end;
-         ++buf) {
+    for (struct kd_buf *buf = buf_cur, *end = buf_cur + count; buf < end; ++buf) {
         uint32_t debugid = buf->debugid;
         uint32_t cls = KDBG_EXTRACT_CLASS(debugid);
         uint32_t subcls = KDBG_EXTRACT_SUBCLASS(debugid);
         uint32_t code = KDBG_EXTRACT_CODE(debugid);
         // this should always be true because of the settings we did above.
-        if (cls != DBG_PERF || subcls != PERF_KPC ||
-            code != PERF_KPC_DATA_THREAD)
+        if (cls != DBG_PERF || subcls != PERF_KPC || code != PERF_KPC_DATA_THREAD)
             continue;
         memmove(buf_cur, buf, sizeof(struct kd_buf));
         ++buf_cur;
@@ -1062,8 +1030,7 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
 
     for (size_t i = 0; i < ev_count; i++) {
         const struct event_alias *alias = profile_events + i;
-        uint64_t val =
-            data.counters_1[counter_map[i]] - data.counters_0[counter_map[i]];
+        uint64_t val = data.counters_1[counter_map[i]] - data.counters_0[counter_map[i]];
         if (strcmp(alias->alias, "cycles") == 0) {
             cnt->cycles = val;
         } else if (strcmp(alias->alias, "instructions") == 0) {
