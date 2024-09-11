@@ -111,6 +111,7 @@ struct kde_plot {
 
 struct kde_cmp_plot {
     const struct meas_analysis *al;
+    size_t a_idx, b_idx;
     const struct distr *a, *b;
     size_t point_count;
     double min, step, max;
@@ -425,6 +426,7 @@ static void init_kde_plot_internal(const struct distr *distr,
 static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
 
 static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
+                                        size_t a_idx, size_t b_idx,
                                         const struct distr *a,
                                         const struct distr *b,
                                         const char *a_name, const char *b_name,
@@ -437,6 +439,8 @@ static void init_kde_cmp_plot_internal1(const struct meas_analysis *al,
     kde_cmp_limits(a, b, &min, &max);
 
     plot->al = al;
+    plot->a_idx = a_idx;
+    plot->b_idx = b_idx;
     plot->a = a;
     plot->b = b;
     plot->a_name = a_name;
@@ -478,8 +482,8 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al,
     double diff = al->bench_cmp.speedups[bench_idx].est.point;
     const char *title =
         csfmt("%s vs %s p=%.2f diff=%.3fx", a_name, b_name, p_value, diff);
-    init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
-                                plot);
+    init_kde_cmp_plot_internal1(al, ref_idx, bench_idx, a, b, a_name, b_name,
+                                title, is_small, plot);
 }
 
 #define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx, _plot)        \
@@ -504,8 +508,8 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al,
     const char *title =
         csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
               var->values[val_idx], a_name, b_name, p_value, diff);
-    init_kde_cmp_plot_internal1(al, a, b, a_name, b_name, title, is_small,
-                                plot);
+    init_kde_cmp_plot_internal1(al, ref_idx, grp_idx, a, b, a_name, b_name,
+                                title, is_small, plot);
 }
 
 static void free_kde_cmp_plot(struct kde_cmp_plot *plot)
@@ -574,6 +578,14 @@ static void free_kde_cmp_group_plot(struct kde_cmp_group_plot *plot)
         free_kde_data(&plot->cmps[i].b_kde);
     }
     free(plot->cmps);
+}
+
+static const char *mpl_nth_color(size_t n)
+{
+    static const char *colors[] = {
+        "tab:blue",  "tab:orange", "tab:green", "tab:red",   "tab:purple",
+        "tab:brown", "tab:pink",   "tab:gray",  "tab:olive", "tab:cyan"};
+    return colors[n % (sizeof(colors) / sizeof(colors[0]))];
 }
 
 static void make_bar_mpl(const struct bar_plot *plot,
@@ -889,24 +901,28 @@ static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
     for (size_t i = 0; i < b_kde->point_count; ++i)
         fprintf(f, "%g,", b_kde->data[i]);
     fprintf(f, "]\n");
-    fprintf(f,
-            "import matplotlib as mpl\n"
-            "mpl.use('svg')\n"
-            "import matplotlib.pyplot as plt\n"
-            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "label=r'%s')\n"
-            "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange', label=r'%s')\n"
-            "plt.vlines(%g, [0], [%g], color='tab:blue')\n"
-            "plt.vlines(%g, [0], [%g], color='tab:orange')\n"
-            "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel(r'%s [%s]')\n"
-            "plt.ylabel('probability density')\n"
-            "plt.legend(loc='upper right')\n"
-            "plt.savefig(r'%s', bbox_inches='tight')\n",
-            plot->a_name, plot->b_name, a_kde->mean_x * view->multiplier,
-            a_kde->mean_y, b_kde->mean_x * view->multiplier, b_kde->mean_y,
-            plot->al->meas->name, view->units_str, ctx->image_filename);
+    const char *a_color = mpl_nth_color(plot->a_idx);
+    const char *b_color = mpl_nth_color(plot->b_idx);
+    fprintf(
+        f,
+        "import matplotlib as mpl\n"
+        "mpl.use('svg')\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', "
+        "label=r'%s')\n"
+        "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', "
+        "label=r'%s')\n"
+        "plt.vlines(%g, [0], [%g], color='%s')\n"
+        "plt.vlines(%g, [0], [%g], color='%s')\n"
+        "plt.tick_params(left=False, labelleft=False)\n"
+        "plt.xlabel(r'%s [%s]')\n"
+        "plt.ylabel('probability density')\n"
+        "plt.legend(loc='upper right')\n"
+        "plt.savefig(r'%s', bbox_inches='tight')\n",
+        a_color, plot->a_name, b_color, plot->b_name,
+        a_kde->mean_x * view->multiplier, a_kde->mean_y, a_color,
+        b_kde->mean_x * view->multiplier, b_kde->mean_y, b_color,
+        plot->al->meas->name, view->units_str, ctx->image_filename);
 }
 
 static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
@@ -951,20 +967,22 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
                 (double)(i + 1) / plot->b->count * plot->max_y);
     }
     fprintf(f, "]\n");
+    const char *a_color = mpl_nth_color(plot->a_idx);
+    const char *b_color = mpl_nth_color(plot->b_idx);
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
             "import matplotlib.pyplot as plt\n"
             "plt.fill_between(x, ay, interpolate=True, alpha=0.25, "
-            "label=r'%s PDF')\n"
+            "facecolor='%s', label=r'%s PDF')\n"
             "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-            "color='tab:blue', label=r'%s sample')\n"
-            "plt.axvline(%g, color='tab:blue', label=r'%s mean')\n"
+            "color='%s', label=r'%s sample')\n"
+            "plt.axvline(%g, color='%s', label=r'%s mean')\n"
             "plt.fill_between(x, by, interpolate=True, alpha=0.25, "
-            "facecolor='tab:orange', label=r'%s PDF')\n"
+            "facecolor='%s', label=r'%s PDF')\n"
             "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-            "color='tab:orange', label=r'%s sample')\n"
-            "plt.axvline(%g, color='tab:orange', label=r'%s mean')\n"
+            "color='%s', label=r'%s sample')\n"
+            "plt.axvline(%g, color='%s', label=r'%s mean')\n"
             "plt.tick_params(left=False, labelleft=False)\n"
             "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density, runs')\n"
@@ -973,9 +991,10 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            plot->a_name, plot->a_name, a_kde->mean_x * view->multiplier,
-            plot->a_name, plot->b_name, plot->b_name,
-            b_kde->mean_x * view->multiplier, plot->b_name,
+            a_color, plot->a_name, a_color, plot->a_name,
+            a_kde->mean_x * view->multiplier, a_color, plot->a_name, b_color,
+            plot->b_name, b_color, plot->b_name,
+            b_kde->mean_x * view->multiplier, b_color, plot->b_name,
             plot->al->meas->name, view->units_str, plot->title,
             ctx->image_filename);
 }
@@ -1065,23 +1084,27 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
         fprintf(f, "%g,",
                 plot->cmps[i].b_kde.mean_x * plot->cmps[i].view.multiplier);
     fprintf(f, "]\n");
-    fprintf(f, "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
-               "a_name, b_name, title, xlabel, ax):\n"
-               "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, "
-               "label=a_name)\n"
-               "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
-               "color='tab:blue')\n"
-               "  ax.axvline(a_mean, color='tab:blue')\n"
-               "  ax.fill_between(x, by, interpolate=True, alpha=0.25, "
-               "facecolor='tab:orange', label=b_name)\n"
-               "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
-               "color='tab:orange')\n"
-               "  ax.axvline(b_mean, color='tab:orange')\n"
-               "  ax.tick_params(left=False, labelleft=False)\n"
-               "  ax.set_xlabel(xlabel)\n"
-               "  ax.set_ylabel('probability density, runs')\n"
-               "  ax.legend(loc='upper right')\n"
-               "  ax.set_title(title)\n");
+    const char *a_color = mpl_nth_color(plot->ref_idx);
+    const char *b_color = mpl_nth_color(plot->grp_idx);
+    fprintf(f,
+            "def make_plot(x, ay, by, a_mean, b_mean, a_points, b_points, "
+            "a_name, b_name, title, xlabel, ax):\n"
+            "  ax.fill_between(x, ay, interpolate=True, alpha=0.25, "
+            "facecolor='%s', label=a_name)\n"
+            "  ax.plot(*zip(*a_points), marker='o', ls='', markersize=2, "
+            "color='%s')\n"
+            "  ax.axvline(a_mean, color='%s')\n"
+            "  ax.fill_between(x, by, interpolate=True, alpha=0.25, "
+            "facecolor='%s', label=b_name)\n"
+            "  ax.plot(*zip(*b_points), marker='o', ls='', markersize=2, "
+            "color='%s')\n"
+            "  ax.axvline(b_mean, color='%s')\n"
+            "  ax.tick_params(left=False, labelleft=False)\n"
+            "  ax.set_xlabel(xlabel)\n"
+            "  ax.set_ylabel('probability density, runs')\n"
+            "  ax.legend(loc='upper right')\n"
+            "  ax.set_title(title)\n",
+            a_color, a_color, a_color, b_color, b_color, b_color);
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
