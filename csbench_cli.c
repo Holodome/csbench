@@ -643,6 +643,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
     if (argc == 1)
         print_help_and_exit(EXIT_SUCCESS);
 
+    memset(settings, 0, sizeof(*settings));
+
     int cursor = 1;
     const char *str;
     double dbl;

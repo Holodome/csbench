@@ -209,7 +209,6 @@ static bool init_run_task_queue(const struct bench_params *params, struct bench 
                                 size_t count, size_t worker_count, struct run_task_queue *q)
 {
     assert(worker_count <= count);
-    memset(q, 0, sizeof(*q));
     int ret = pthread_mutex_init(&q->mutex, NULL);
     if (ret != 0) {
         errno = ret;
@@ -217,6 +216,7 @@ static bool init_run_task_queue(const struct bench_params *params, struct bench 
         return false;
     }
 
+    memset(q, 0, sizeof(*q));
     q->task_count = q->remaining_task_count = count;
     q->tasks = calloc(count, sizeof(*q->tasks));
     q->finished = calloc(count, sizeof(*q->finished));

@@ -432,6 +432,7 @@ static bool init_bench_params(const char *name, const struct input_policy *input
                               const char *exec, const char **argv, const char *cmd_str,
                               struct bench_params *params)
 {
+    memset(params, 0, sizeof(*params));
     params->name = name;
     params->output = output;
     params->meas = meas;
@@ -458,7 +459,7 @@ static bool init_command(const struct command_info *cmd, struct run_info *info, 
     if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv))
         return false;
 
-    struct bench_params bench_params = {0};
+    struct bench_params bench_params;
     if (!init_bench_params(cmd->name, &cmd->input, cmd->output, info->meas, exec, argv,
                            (char *)cmd->cmd, &bench_params)) {
         sb_free(argv);
@@ -916,6 +917,7 @@ static bool initialize_global_variables(const struct bench_data *data)
 
 static bool init_run_info(const struct settings *settings, struct run_info *info)
 {
+    memset(info, 0, sizeof(*info));
     info->meas = settings->meas;
     if (settings->has_var)
         info->var = &settings->var;
@@ -1010,7 +1012,7 @@ static bool do_save_bin(const struct bench_data *data)
 static bool do_app_bench(const struct settings *settings)
 {
     bool success = false;
-    struct run_info info = {0};
+    struct run_info info;
     if (!init_run_info(settings, &info))
         return false;
     struct bench_data data;
@@ -1202,7 +1204,7 @@ int main(int argc, char **argv)
     prepare();
 
     int rc = EXIT_FAILURE;
-    struct settings settings = {0};
+    struct settings settings;
     parse_cli_args(argc, argv, &settings);
 
     if (run(&settings))

@@ -1161,7 +1161,7 @@ static bool group_regr_mpl(const struct meas_analysis *al, size_t idx,
 static bool kde_small_mpl(const struct distr *distr, const struct meas *meas,
                           struct plot_maker_ctx *ctx)
 {
-    struct kde_plot plot = {0};
+    struct kde_plot plot;
     init_kde_small_plot(distr, meas, &plot);
     make_kde_small_plot_mpl(&plot, ctx);
     free_kde_plot(&plot);
@@ -1171,7 +1171,7 @@ static bool kde_small_mpl(const struct distr *distr, const struct meas *meas,
 static bool kde_mpl(const struct distr *distr, const struct meas *meas, const char *name,
                     struct plot_maker_ctx *ctx)
 {
-    struct kde_plot plot = {0};
+    struct kde_plot plot;
     init_kde_plot(distr, meas, name, &plot);
     make_kde_plot_mpl(&plot, ctx);
     free_kde_plot(&plot);
@@ -1181,7 +1181,7 @@ static bool kde_mpl(const struct distr *distr, const struct meas *meas, const ch
 static bool kde_cmp_small_mpl(const struct meas_analysis *al, size_t bench_idx,
                               struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_small_plot(al, bench_idx, &plot);
     make_kde_cmp_small_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1191,7 +1191,7 @@ static bool kde_cmp_small_mpl(const struct meas_analysis *al, size_t bench_idx,
 static bool kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
                         struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_plot(al, bench_idx, &plot);
     make_kde_cmp_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1201,7 +1201,7 @@ static bool kde_cmp_mpl(const struct meas_analysis *al, size_t bench_idx,
 static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al, size_t grp_idx,
                                       size_t val_idx, struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
     make_kde_cmp_small_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1211,7 +1211,7 @@ static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al, size_t grp
 static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx, size_t val_idx,
                                 struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
     make_kde_cmp_plot_mpl(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1221,7 +1221,7 @@ static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx, 
 static bool kde_cmp_group_mpl(const struct meas_analysis *al, size_t grp_idx,
                               struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_group_plot plot = {0};
+    struct kde_cmp_group_plot plot;
     init_kde_cmp_group_plot(al, grp_idx, &plot);
     make_kde_cmp_group_plot_mpl(&plot, ctx);
     free_kde_cmp_group_plot(&plot);
@@ -1856,7 +1856,7 @@ static bool group_regr_gnuplot(const struct meas_analysis *al, size_t idx,
 static bool kde_small_gnuplot(const struct distr *distr, const struct meas *meas,
                               struct plot_maker_ctx *ctx)
 {
-    struct kde_plot plot = {0};
+    struct kde_plot plot;
     init_kde_small_plot(distr, meas, &plot);
     bool success = make_kde_small_plot_gnuplot(&plot, ctx);
     free_kde_plot(&plot);
@@ -1866,7 +1866,7 @@ static bool kde_small_gnuplot(const struct distr *distr, const struct meas *meas
 static bool kde_gnuplot(const struct distr *distr, const struct meas *meas, const char *name,
                         struct plot_maker_ctx *ctx)
 {
-    struct kde_plot plot = {0};
+    struct kde_plot plot;
     init_kde_plot(distr, meas, name, &plot);
     bool success = make_kde_plot_gnuplot(&plot, ctx);
     free_kde_plot(&plot);
@@ -1876,7 +1876,7 @@ static bool kde_gnuplot(const struct distr *distr, const struct meas *meas, cons
 static bool kde_cmp_small_gnuplot(const struct meas_analysis *al, size_t bench_idx,
                                   struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_small_plot(al, bench_idx, &plot);
     bool success = make_kde_cmp_small_plot_gnuplot(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1886,7 +1886,7 @@ static bool kde_cmp_small_gnuplot(const struct meas_analysis *al, size_t bench_i
 static bool kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
                             struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_plot(al, bench_idx, &plot);
     bool success = make_kde_cmp_plot_gnuplot(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1896,7 +1896,7 @@ static bool kde_cmp_gnuplot(const struct meas_analysis *al, size_t bench_idx,
 static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al, size_t grp_idx,
                                           size_t val_idx, struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_per_val_small_plot(al, grp_idx, val_idx, &plot);
     bool success = make_kde_cmp_small_plot_gnuplot(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1906,7 +1906,7 @@ static bool kde_cmp_per_val_small_gnuplot(const struct meas_analysis *al, size_t
 static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al, size_t grp_idx,
                                     size_t val_idx, struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_plot plot = {0};
+    struct kde_cmp_plot plot;
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
     bool success = make_kde_cmp_plot_gnuplot(&plot, ctx);
     free_kde_cmp_plot(&plot);
@@ -1916,7 +1916,7 @@ static bool kde_cmp_per_val_gnuplot(const struct meas_analysis *al, size_t grp_i
 static bool kde_cmp_group_gnuplot(const struct meas_analysis *al, size_t grp_idx,
                                   struct plot_maker_ctx *ctx)
 {
-    struct kde_cmp_group_plot plot = {0};
+    struct kde_cmp_group_plot plot;
     init_kde_cmp_group_plot(al, grp_idx, &plot);
     bool success = make_kde_cmp_group_plot_gnuplot(&plot, ctx);
     free_kde_cmp_group_plot(&plot);

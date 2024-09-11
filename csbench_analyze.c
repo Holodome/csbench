@@ -660,6 +660,7 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
 {
     size_t bench_count = base->bench_count;
     size_t grp_count = base->group_count;
+    memset(al, 0, sizeof(*al));
     al->base = base;
     al->meas_idx = meas_idx;
     al->meas = base->meas + meas_idx;
