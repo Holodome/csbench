@@ -623,7 +623,9 @@ static void make_bar_mpl(const struct bar_plot *plot,
             "plt.xticks(range(len(data)), names)\n"
             "plt.ylabel(r'%s [%s]')\n"
             "plt.savefig(r'%s', bbox_inches='tight')\n",
-            al->meas->name, view->units_str, ctx->image_filename);
+            al->meas->name, view->units_str, //
+            ctx->image_filename              //
+    );
 }
 
 static void make_group_bar_mpl(const struct group_bar_plot *plot,
@@ -676,8 +678,10 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot,
             "plt.grid(axis='y')\n"
             "plt.legend(loc='best')\n"
             "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
-            al->meas->name, view->units_str, base->group_count,
-            ctx->image_filename);
+            al->meas->name, view->units_str, //
+            base->group_count,               //
+            ctx->image_filename              //
+    );
 }
 
 static void make_group_regr_mpl(const struct group_regr_plot *plot,
@@ -744,8 +748,10 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
                 "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, "
                 "label=r'%s')\n"
                 "plt.plot(x, y[%zu], '.-', label=r'%s regression')\n",
-                grp_idx, als[grp_idx].group->name, grp_idx,
-                als[grp_idx].group->name);
+                grp_idx,                          //
+                als[grp_idx].group->name,         //
+                grp_idx, als[grp_idx].group->name //
+        );
     }
     if (view->logscale)
         fprintf(f, "plt.yscale('log')\n");
@@ -756,8 +762,10 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
             "plt.xlabel(r'%s')\n"
             "plt.ylabel(r'%s [%s]')\n"
             "plt.savefig(r'%s', bbox_inches='tight')\n",
-            var->name, plot->al->meas->name, view->units_str,
-            ctx->image_filename);
+            var->name,                             //
+            plot->al->meas->name, view->units_str, //
+            ctx->image_filename                    //
+    );
 }
 
 static void make_kde_small_plot_mpl(const struct kde_plot *plot,
@@ -788,8 +796,10 @@ static void make_kde_small_plot_mpl(const struct kde_plot *plot,
             "plt.xlabel(r'%s [%s]')\n"
             "plt.ylabel('probability density')\n"
             "plt.savefig(r'%s', bbox_inches='tight')\n",
-            kde->mean_x * view->multiplier, kde->mean_y, plot->meas->name,
-            view->units_str, ctx->image_filename);
+            kde->mean_x * view->multiplier, kde->mean_y, //
+            plot->meas->name, view->units_str,           //
+            ctx->image_filename                          //
+    );
 }
 
 static void make_kde_plot_mpl(const struct kde_plot *plot,
@@ -874,8 +884,10 @@ static void make_kde_plot_mpl(const struct kde_plot *plot,
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
-            plot->meas->name, view->units_str, plot->title,
-            ctx->image_filename);
+            plot->meas->name, view->units_str, //
+            plot->title,                       //
+            ctx->image_filename                //
+    );
 }
 
 static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
@@ -919,10 +931,13 @@ static void make_kde_cmp_small_plot_mpl(const struct kde_cmp_plot *plot,
         "plt.ylabel('probability density')\n"
         "plt.legend(loc='upper right')\n"
         "plt.savefig(r'%s', bbox_inches='tight')\n",
-        a_color, plot->a_name, b_color, plot->b_name,
-        a_kde->mean_x * view->multiplier, a_kde->mean_y, a_color,
-        b_kde->mean_x * view->multiplier, b_kde->mean_y, b_color,
-        plot->al->meas->name, view->units_str, ctx->image_filename);
+        a_color, plot->a_name,                                    //
+        b_color, plot->b_name,                                    //
+        a_kde->mean_x * view->multiplier, a_kde->mean_y, a_color, //
+        b_kde->mean_x * view->multiplier, b_kde->mean_y, b_color, //
+        plot->al->meas->name, view->units_str,                    //
+        ctx->image_filename                                       //
+    );
 }
 
 static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
@@ -991,12 +1006,16 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot,
             "figure = plt.gcf()\n"
             "figure.set_size_inches(13, 9)\n"
             "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            a_color, plot->a_name, a_color, plot->a_name,
-            a_kde->mean_x * view->multiplier, a_color, plot->a_name, b_color,
-            plot->b_name, b_color, plot->b_name,
-            b_kde->mean_x * view->multiplier, b_color, plot->b_name,
-            plot->al->meas->name, view->units_str, plot->title,
-            ctx->image_filename);
+            a_color, plot->a_name,                                   //
+            a_color, plot->a_name,                                   //
+            a_kde->mean_x * view->multiplier, a_color, plot->a_name, //
+            b_color, plot->b_name,                                   //
+            b_color, plot->b_name,                                   //
+            b_kde->mean_x * view->multiplier, b_color, plot->b_name, //
+            plot->al->meas->name, view->units_str,                   //
+            plot->title,                                             //
+            ctx->image_filename                                      //
+    );
 }
 
 static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
@@ -1104,7 +1123,13 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "  ax.set_ylabel('probability density, runs')\n"
             "  ax.legend(loc='upper right')\n"
             "  ax.set_title(title)\n",
-            a_color, a_color, a_color, b_color, b_color, b_color);
+            a_color, //
+            a_color, //
+            a_color, //
+            b_color, //
+            b_color, //
+            b_color  //
+    );
     fprintf(f,
             "import matplotlib as mpl\n"
             "mpl.use('svg')\n"
@@ -1131,10 +1156,17 @@ static void make_kde_cmp_group_plot_mpl(const struct kde_cmp_group_plot *plot,
             "figure.set_size_inches(%zu, %zu)\n"
             "fig.tight_layout()\n"
             "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
-            plot->rows, plot->cols, plot->rows, plot->val_count,
+            plot->rows, plot->cols, //
+            plot->rows,             //
+            plot->val_count,        //
             bench_group_name(al->base, plot->ref_idx),
-            bench_group_name(al->base, plot->grp_idx), plot->cols, plot->rows,
-            plot->cols, plot->cols * 5, plot->rows * 5, ctx->image_filename);
+            bench_group_name(al->base, plot->grp_idx), //
+            plot->cols,                                //
+            plot->rows,                                //
+            plot->cols,                                //
+            plot->cols * 5, plot->rows * 5,            //
+            ctx->image_filename                        //
+    );
 }
 
 static bool bar_mpl(const struct meas_analysis *al, struct plot_maker_ctx *ctx)
@@ -1234,6 +1266,24 @@ static bool kde_cmp_group_mpl(const struct meas_analysis *al, size_t grp_idx,
     return true;
 }
 
+static void define_gnuplot_linetypes(double point_size, FILE *f)
+{
+    // These are the tableau colors from matplotlib
+    fprintf(f,
+            "set style line 1 lc rgb '#1f77b4' pt 7 ps %f\n"
+            "set style line 2 lc rgb '#ff7f0e' pt 7 ps %f\n"
+            "set style line 3 lc rgb '#2ca02c' pt 7 ps %f\n"
+            "set style line 4 lc rgb '#d62728' pt 7 ps %f\n"
+            "set style line 5 lc rgb '#9467bd' pt 7 ps %f\n"
+            "set style line 6 lc rgb '#8c564b' pt 7 ps %f\n"
+            "set style line 7 lc rgb '#e377c2' pt 7 ps %f\n"
+            "set style line 8 lc rgb '#7f7f7f' pt 7 ps %f\n"
+            "set style line 9 lc rgb '#bcbd22' pt 7 ps %f\n"
+            "set style line 10 lc rgb '#17becf' pt 7 ps %f\n",
+            point_size, point_size, point_size, point_size, point_size,
+            point_size, point_size, point_size, point_size, point_size);
+}
+
 static bool make_bar_gnuplot(const struct bar_plot *plot,
                              struct plot_maker_ctx *ctx)
 {
@@ -1252,6 +1302,7 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
         }
         fclose(dat);
     }
+    define_gnuplot_linetypes(0.25, f);
     fprintf(f,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
@@ -1262,10 +1313,11 @@ static bool make_bar_gnuplot(const struct bar_plot *plot,
             "set bars front\n"
             "set grid ytics\n"
             "set offset 0, 0, graph 0.05, 0\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
-            ctx->image_filename, al->meas->name, view->units_str);
+            ctx->image_filename, //
+            al->meas->name,      //
+            view->units_str);
     if (view->logscale)
         fprintf(f, "set logscale y\n");
     fprintf(f, "plot '%s' using 2:3:xtic(1) ls 1 notitle\n", dat_name);
@@ -1301,6 +1353,7 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
         }
         fclose(dat);
     }
+    define_gnuplot_linetypes(0.25, f);
     fprintf(f,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
@@ -1308,23 +1361,16 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
             "set style fill solid 0.6 border\n"
             "set style histogram errorbars gap 2 lw 1\n"
             "set style data histograms\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-            "set style line 3 lc rgb 'green' pt 7 ps 0.25\n"
-            "set style line 4 lc rgb 'red' pt 7 ps 0.25\n"
-            "set style line 5 lc rgb 'purple' pt 7 ps 0.25\n"
-            "set style line 6 lc rgb 'brown' pt 7 ps 0.25\n"
-            "set style line 7 lc rgb 'pink' pt 7 ps 0.25\n"
-            "set style line 8 lc rgb 'gray' pt 7 ps 0.25\n"
-            "set style line 9 lc rgb 'yellow' pt 7 ps 0.25\n"
-            "set style line 10 lc rgb 'cyan' pt 7 ps 0.25\n"
             "set bars front\n"
             "set grid ytics\n"
             "set offset 0, 0, graph 0.05, 0\n"
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
-            ctx->image_filename, var->name, al->meas->name, view->units_str);
+            ctx->image_filename,            //
+            var->name,                      //
+            al->meas->name, view->units_str //
+    );
     if (view->logscale)
         fprintf(f, "set logscale y\n");
     fprintf(f, "plot '%s' using 2:3:xtic(1) ls 1 title '%s'", dat_name,
@@ -1395,25 +1441,18 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             fprintf(f, ", ");
     }
     fprintf(f, ")\n");
+    define_gnuplot_linetypes(0.5, f);
     fprintf(f,
             "set term svg enhanced background rgb 'white'\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.5\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.5\n"
-            "set style line 3 lc rgb 'green' pt 7 ps 0.5\n"
-            "set style line 4 lc rgb 'red' pt 7 ps 0.5\n"
-            "set style line 5 lc rgb 'purple' pt 7 ps 0.5\n"
-            "set style line 6 lc rgb 'brown' pt 7 ps 0.5\n"
-            "set style line 7 lc rgb 'pink' pt 7 ps 0.5\n"
-            "set style line 8 lc rgb 'gray' pt 7 ps 0.5\n"
-            "set style line 9 lc rgb 'yellow' pt 7 ps 0.5\n"
-            "set style line 10 lc rgb 'cyan' pt 7 ps 0.5\n"
             "set output '%s'\n"
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
             "set grid\n"
             "set offset graph 0.1, graph 0.1, graph 0.1, graph 0.1\n",
-            ctx->image_filename, var->name, plot->al->meas->name,
-            view->units_str);
+            ctx->image_filename,                  //
+            var->name,                            //
+            plot->al->meas->name, view->units_str //
+    );
     if (view->logscale)
         fprintf(f, "set logscale y\n");
     fprintf(f,
@@ -1458,22 +1497,24 @@ static bool make_kde_small_plot_gnuplot(const struct kde_plot *plot,
                     kde->data[i]);
         fclose(dat);
     }
+    define_gnuplot_linetypes(0.25, f);
     fprintf(f,
             "set term svg enhanced background rgb 'white'\n"
             "set output '%s'\n"
             "set ylabel 'probability density'\n"
             "set xlabel '%s [%s]'\n"
             "set style fill solid 0.25 noborder\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
             "unset ytics\n"
             "set xrange [%g:%g]\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "plot '%s' using 1:2 with filledcurves above y1=0 notitle ls 1\n",
-            ctx->image_filename, plot->meas->name, view->units_str,
-            min * view->multiplier, kde->max * view->multiplier,
-            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
-            dat_name);
+            ctx->image_filename,                                            //
+            plot->meas->name, view->units_str,                              //
+            min * view->multiplier, kde->max * view->multiplier,            //
+            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier, //
+            dat_name                                                        //
+    );
     return true;
 }
 
@@ -1550,6 +1591,7 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
         }
         fclose(reg_dat);
     }
+    define_gnuplot_linetypes(0.25, f);
     fprintf(f,
             "set term svg enhanced background rgb 'white' size 960,720\n"
             "set output '%s'\n"
@@ -1558,15 +1600,15 @@ static bool make_kde_plot_gnuplot(struct kde_plot *plot,
             "set style fill solid 0.25 noborder\n"
             "unset ytics\n"
             "set offset 0, 0, graph 0.1, 0\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-            "set style line 3 lc rgb 'red' pt 7 ps 0.25\n"
             "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
             "set title '%s'\n"
             "set xrange [%g:%g]\n",
-            ctx->image_filename, plot->meas->name, view->units_str,
-            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier,
-            plot->title, min * view->multiplier, max * view->multiplier);
+            ctx->image_filename,                                            //
+            plot->meas->name, view->units_str,                              //
+            kde->mean_x * view->multiplier, kde->mean_x * view->multiplier, //
+            plot->title,                                                    //
+            min * view->multiplier, max * view->multiplier                  //
+    );
     if (distr->outliers.low_mild_x > min && distr->outliers.low_mild != 0)
         fprintf(f, "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n",
                 distr->outliers.low_mild_x * view->multiplier,
@@ -1623,26 +1665,33 @@ static bool make_kde_cmp_small_plot_gnuplot(const struct kde_cmp_plot *plot,
                     a_kde->data[i], b_kde->data[i]);
         fclose(dat);
     }
-    fprintf(f,
-            "set term svg enhanced background rgb 'white'\n"
-            "set output '%s'\n"
-            "set ylabel 'probability density'\n"
-            "set xlabel '%s [%s]'\n"
-            "set style fill solid 0.25 noborder\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-            "unset ytics\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
-            "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n"
-            "set xrange [%g:%g]\n"
-            "set offset 0, 0, graph 0.1, 0\n"
-            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls 1,\\\n"
-            "\t'' using 1:3 with filledcurves above y1=0 t '%s' ls 2\n",
-            ctx->image_filename, plot->al->meas->name, view->units_str,
-            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
-            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-            min * view->multiplier, plot->max * view->multiplier, dat_name,
-            plot->a_name, plot->b_name);
+    define_gnuplot_linetypes(0.25, f);
+    size_t a_color = plot->a_idx % 10 + 1;
+    size_t b_color = plot->b_idx % 10 + 1;
+    fprintf(
+        f,
+        "set term svg enhanced background rgb 'white'\n"
+        "set output '%s'\n"
+        "set ylabel 'probability density'\n"
+        "set xlabel '%s [%s]'\n"
+        "set style fill solid 0.25 noborder\n"
+        "unset ytics\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+        "set xrange [%g:%g]\n"
+        "set offset 0, 0, graph 0.1, 0\n"
+        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+        "\t'' using 1:3 with filledcurves above y1=0 t '%s' ls %zu\n",
+        ctx->image_filename,                   //
+        plot->al->meas->name, view->units_str, //
+        a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+        a_color, //
+        b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
+        b_color,                                              //
+        min * view->multiplier, plot->max * view->multiplier, //
+        dat_name, plot->a_name, a_color,                      //
+        plot->b_name, b_color                                 //
+    );
     return true;
 }
 
@@ -1694,6 +1743,9 @@ static bool make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         }
         fclose(dat);
     }
+    define_gnuplot_linetypes(0.25, f);
+    size_t a_color = plot->a_idx % 10 + 1;
+    size_t b_color = plot->b_idx % 10 + 1;
     fprintf(
         f,
         "set term svg enhanced background rgb 'white' size 960,720\n"
@@ -1702,25 +1754,33 @@ static bool make_kde_cmp_plot_gnuplot(const struct kde_cmp_plot *plot,
         "set xlabel '%s [%s]'\n"
         "set style fill solid 0.25 noborder\n"
         "unset ytics\n"
-        "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-        "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls 1\n"
-        "set arrow from %g, graph 0 to %g, graph 1 nohead ls 2\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+        "set arrow from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
         "set xrange [%g:%g]\n"
         "set offset 0, 0, graph 0.1, 0\n"
         "set title '%s'\n"
-        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s PDF' ls 1,\\\n"
-        "\t'%s' using 1:2 with points ls 1 t '%s sample', \\\n"
-        "\t1/0 ls 1 t '%s mean', \\\n"
-        "\t'%s' using 1:3 with filledcurves above y1=0 t '%s PDF' ls 2,\\\n"
-        "\t'%s' using 1:2 with points ls 2 t '%s sample', \\\n"
-        "\t1/0 ls 2 t '%s mean'\n",
-        ctx->image_filename, plot->al->meas->name, view->units_str,
+        "plot '%s' using 1:2 with filledcurves above y1=0 t '%s PDF' ls "
+        "%zu,\\\n"
+        "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
+        "\t1/0 ls %zu t '%s mean', \\\n"
+        "\t'%s' using 1:3 with filledcurves above y1=0 t '%s PDF' ls %zu,\\\n"
+        "\t'%s' using 1:2 with points ls %zu t '%s sample', \\\n"
+        "\t1/0 ls %zu t '%s mean'\n",
+        ctx->image_filename,                   //
+        plot->al->meas->name, view->units_str, //
         a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+        a_color, //
         b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-        min * view->multiplier, max * view->multiplier, plot->title, kde_name,
-        plot->a_name, pts1_name, plot->a_name, plot->a_name, kde_name,
-        plot->b_name, pts2_name, plot->b_name, plot->b_name);
+        b_color,                                        //
+        min * view->multiplier, max * view->multiplier, //
+        plot->title,                                    //
+        kde_name, plot->a_name, a_color,                //
+        pts1_name, a_color, plot->a_name,               //
+        a_color, plot->a_name,                          //
+        kde_name, plot->b_name, b_color,                //
+        pts2_name, b_color, plot->b_name,               //
+        b_color, plot->b_name                           //
+    );
     return true;
 }
 
@@ -1782,6 +1842,9 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
             sb_push(pts2_names, dat_name);
         }
     }
+    define_gnuplot_linetypes(0.25, f);
+    size_t a_color = plot->ref_idx % 10 + 1;
+    size_t b_color = plot->grp_idx % 10 + 1;
     fprintf(f,
             "set term svg enhanced background rgb 'white' size %zu,%zu\n"
             "set output '%s'\n"
@@ -1797,31 +1860,36 @@ make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plot,
                 "set ylabel 'probability density, runs'\n"
                 "set xlabel '%s [%s]'\n"
                 "set style fill solid 0.25 noborder\n"
-                "unset ytics\n"
-                "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-                "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n",
+                "unset ytics\n",
                 plot->al->meas->name, view->units_str);
         if (val_idx != 0)
             fprintf(f, "unset arrow 6\n"
                        "unset arrow 7\n");
         fprintf(
             f,
-            "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls 1\n"
-            "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls 2\n"
+            "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
             "set xrange [%g:%g]\n"
             "set offset 0, 0, graph 0.1, 0\n"
             "set title '%s'\n"
-            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls 1,\\\n"
-            "\t'%s' using 1:2 with points ls 1 notitle, \\\n"
-            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls 2,\\\n"
-            "\t'%s' using 1:2 with points ls 2 notitle\n",
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls "
+            "%zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu notitle, \\\n"
+            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu notitle\n",
             a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier,
+            a_color, //
             b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier,
-            cmp->min * view->multiplier, cmp->max * view->multiplier,
-            cmp->title, kde_names[val_idx],
-            bench_group_name(al->base, plot->ref_idx), pts1_names[val_idx],
+            b_color,                                                  //
+            cmp->min * view->multiplier, cmp->max * view->multiplier, //
+            cmp->title,                                               //
+            kde_names[val_idx], bench_group_name(al->base, plot->ref_idx),
+            a_color,                      //
+            pts1_names[val_idx], a_color, //
             kde_names[val_idx], bench_group_name(al->base, plot->grp_idx),
-            pts2_names[val_idx]);
+            b_color,                     //
+            pts2_names[val_idx], b_color //
+        );
     }
     fprintf(f, "unset multiplot\n");
     success = true;
