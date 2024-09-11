@@ -737,8 +737,7 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     }
     if (view->logscale)
         fprintf(f, "plt.yscale('log')\n");
-    if (count > 1)
-        fprintf(f, "plt.legend(loc='best')\n");
+    fprintf(f, "plt.legend(loc='best')\n");
     fprintf(f,
             "plt.xticks(x)\n"
             "plt.grid()\n"
@@ -1307,12 +1306,12 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
         fprintf(f, "set logscale y\n");
     fprintf(f, "plot '%s' using 2:3:xtic(1) ls 1 title '%s'", dat_name,
             bench_group_name(base, ith_group_by_avg_idx(0, al)));
-    size_t i = 1;
+    size_t i = 0;
     foreach_group_by_avg_idx (grp_idx, al) {
-        if (i++ == 1)
+        if (i++ == 0)
             continue;
-        fprintf(f, ",\\\n\t'' using %zu:%zu ls '%zu' title '%s'", (i - 1) * 2,
-                1 + (i - 1) * 2, i - 1, bench_group_name(base, grp_idx));
+        fprintf(f, ",\\\n\t'' using %zu:%zu ls %zu title '%s'", i * 2,
+                1 + i * 2, i, bench_group_name(base, grp_idx));
     }
     fprintf(f, "\n");
     return true;
@@ -1332,9 +1331,14 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             return false;
         for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
             fprintf(dat1, "%g", als[0].data[val_idx].value_double);
-            foreach_group_by_avg_idx (grp_idx, plot->al)
+            if (plot->count != 1) {
+                foreach_group_by_avg_idx (grp_idx, plot->al)
+                    fprintf(dat1, "\t%g",
+                            als[grp_idx].data[val_idx].mean * view->multiplier);
+            } else {
                 fprintf(dat1, "\t%g",
-                        als[grp_idx].data[val_idx].mean * view->multiplier);
+                        als[0].data[val_idx].mean * view->multiplier);
+            }
             fprintf(dat1, "\n");
         }
         fclose(dat1);
@@ -1345,10 +1349,16 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             return false;
         for (size_t i = 0; i < plot->nregr + 1; ++i) {
             fprintf(dat2, "%g", plot->lowest_x + plot->regr_x_step * i);
-            foreach_group_by_avg_idx (grp_idx, plot->al) {
-                double regr =
-                    ols_approx(&als[grp_idx].regress,
-                               plot->lowest_x + plot->regr_x_step * i);
+            if (plot->count != 1) {
+                foreach_group_by_avg_idx (grp_idx, plot->al) {
+                    double regr =
+                        ols_approx(&als[grp_idx].regress,
+                                   plot->lowest_x + plot->regr_x_step * i);
+                    fprintf(dat2, "\t%g", regr * view->multiplier);
+                }
+            } else {
+                double regr = ols_approx(
+                    &als[0].regress, plot->lowest_x + plot->regr_x_step * i);
                 fprintf(dat2, "\t%g", regr * view->multiplier);
             }
             fprintf(dat2, "\n");
@@ -1364,8 +1374,16 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     fprintf(f, ")\n");
     fprintf(f,
             "set term svg enhanced background rgb 'white'\n"
-            "set style line 1 lc rgb 'blue' pt 7 ps 0.25\n"
-            "set style line 2 lc rgb 'orange' pt 7 ps 0.25\n"
+            "set style line 1 lc rgb 'blue' pt 7 ps 0.5\n"
+            "set style line 2 lc rgb 'orange' pt 7 ps 0.5\n"
+            "set style line 3 lc rgb 'green' pt 7 ps 0.5\n"
+            "set style line 4 lc rgb 'red' pt 7 ps 0.5\n"
+            "set style line 5 lc rgb 'purple' pt 7 ps 0.5\n"
+            "set style line 6 lc rgb 'brown' pt 7 ps 0.5\n"
+            "set style line 7 lc rgb 'pink' pt 7 ps 0.5\n"
+            "set style line 8 lc rgb 'gray' pt 7 ps 0.5\n"
+            "set style line 9 lc rgb 'yellow' pt 7 ps 0.5\n"
+            "set style line 10 lc rgb 'cyan' pt 7 ps 0.5\n"
             "set output '%s'\n"
             "set xlabel '%s'\n"
             "set ylabel '%s [%s]'\n"
@@ -1376,9 +1394,24 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
     if (view->logscale)
         fprintf(f, "set logscale y\n");
     fprintf(f,
-            "plot '%s' using 2:1 with points notitle ls 1, \\\n"
-            "\t'%s' using 2:1 with lines notitle ls 2\n",
-            dat1_name, dat2_name);
+            "plot '%s' using 1:2 with linespoints title '%s' ls 1, \\\n"
+            "\t'%s' using 1:2 with lines title '%s regression' ls 2",
+            dat1_name, als[0].group->name, dat2_name, als[0].group->name);
+    size_t i = 0;
+    if (plot->count != 1) {
+        foreach_group_by_avg_idx (grp_idx, plot->al) {
+            if (i++ == 0)
+                continue;
+            fprintf(
+                f,
+                ",\\\n\t'%s' using 1:%zu with linespoints ls %zu title "
+                "'%s',\\\n"
+                "\t'%s' using 1:%zu with lines ls %zu title '%s regression'",
+                dat1_name, 1 + i, 1 + (i * 2), als[grp_idx].group->name,
+                dat2_name, 1 + i, 2 + (i * 2), als[grp_idx].group->name);
+        }
+    }
+    fprintf(f, "\n");
     return true;
 }
 
