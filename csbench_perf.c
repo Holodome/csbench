@@ -287,7 +287,8 @@ static uint32_t (*kpc_get_config_count)(uint32_t classes);
 static int (*kpc_get_config)(uint32_t classes, kpc_config_t *config);
 static int (*kpc_set_config)(uint32_t classes, kpc_config_t *config);
 static uint32_t (*kpc_get_counter_count)(uint32_t classes);
-static int (*kpc_get_cpu_counters)(int all_cpus, uint32_t classes, int *curcpu, uint64_t *buf);
+static int (*kpc_get_cpu_counters)(int all_cpus, uint32_t classes, int *curcpu,
+                                   uint64_t *buf);
 static int (*kpc_get_thread_counters)(uint32_t tid, uint32_t buf_count, uint64_t *buf);
 static int (*kpc_force_all_ctrs_set)(int val);
 static int (*kpc_force_all_ctrs_get)(int *val_out);
@@ -525,7 +526,7 @@ static const struct perf_lib_symbol perf_lib_symbols_kperfdata[] = {
 };
 
 #define perf_lib_path_kperf "/System/Library/PrivateFrameworks/kperf.framework/kperf"
-#define perf_lib_path_kperfdata                                                               \
+#define perf_lib_path_kperfdata                                                              \
     "/System/Library/PrivateFrameworks/kperfdata.framework/kperfdata"
 
 static void *perf_lib_handle_kperf = NULL;

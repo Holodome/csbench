@@ -377,9 +377,9 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
     plot->regr_x_step = (plot->highest_x - plot->lowest_x) / plot->nregr;
 }
 
-#define init_kde_small_plot(_distr, _meas, _plot)                                             \
+#define init_kde_small_plot(_distr, _meas, _plot)                                            \
     init_kde_plot_internal(_distr, _meas, true, NULL, _plot)
-#define init_kde_plot(_distr, _meas, _name, _plot)                                            \
+#define init_kde_plot(_distr, _meas, _name, _plot)                                           \
     init_kde_plot_internal(_distr, _meas, false, _name, _plot)
 static void init_kde_plot_internal(const struct distr *distr, const struct meas *meas,
                                    bool is_small, const char *name, struct kde_plot *plot)
@@ -461,9 +461,9 @@ static void init_kde_cmp_plot_internal1(const struct meas_analysis *al, size_t a
     plot->max_y = max_y;
 }
 
-#define init_kde_cmp_small_plot(_al, _bench_idx, _plot)                                       \
+#define init_kde_cmp_small_plot(_al, _bench_idx, _plot)                                      \
     init_kde_cmp_plot_internal(_al, _bench_idx, true, _plot)
-#define init_kde_cmp_plot(_al, _bench_idx, _plot)                                             \
+#define init_kde_cmp_plot(_al, _bench_idx, _plot)                                            \
     init_kde_cmp_plot_internal(_al, _bench_idx, false, _plot)
 static void init_kde_cmp_plot_internal(const struct meas_analysis *al, size_t bench_idx,
                                        bool is_small, struct kde_cmp_plot *plot)
@@ -480,9 +480,9 @@ static void init_kde_cmp_plot_internal(const struct meas_analysis *al, size_t be
                                 plot);
 }
 
-#define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx, _plot)                       \
+#define init_kde_cmp_per_val_small_plot(_al, _grp_idx, _val_idx, _plot)                      \
     init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, true, _plot)
-#define init_kde_cmp_per_val_plot(_al, _grp_idx, _val_idx, _plot)                             \
+#define init_kde_cmp_per_val_plot(_al, _grp_idx, _val_idx, _plot)                            \
     init_kde_cmp_per_val_plot_internal(_al, _grp_idx, _val_idx, false, _plot)
 static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al, size_t grp_idx,
                                                size_t val_idx, bool is_small,
@@ -668,7 +668,8 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
     );
 }
 
-static void make_group_regr_mpl(const struct group_regr_plot *plot, struct plot_maker_ctx *ctx)
+static void make_group_regr_mpl(const struct group_regr_plot *plot,
+                                struct plot_maker_ctx *ctx)
 {
     const struct bench_var *var = plot->al->base->var;
     const struct group_analysis *als = plot->als;
@@ -728,8 +729,7 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot, struct plot_
                "import matplotlib.pyplot as plt\n");
     for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
         fprintf(f,
-                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, "
-                "label=r'%s')\n"
+                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, label=r'%s')\n"
                 "plt.plot(x, y[%zu], '.-', label=r'%s regression')\n",
                 grp_idx,                          //
                 als[grp_idx].group->name,         //
@@ -807,13 +807,13 @@ static void make_kde_plot_mpl(const struct kde_plot *plot, struct plot_maker_ctx
     fprintf(f, "severe_points = list(filter(lambda x: x[0] < %g or x[0] > %g, points))\n",
             distr->outliers.low_severe_x * view->multiplier,
             distr->outliers.high_severe_x * view->multiplier);
-    fprintf(
-        f,
-        "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < x[0] < %f), points))\n",
-        distr->outliers.low_severe_x * view->multiplier,
-        distr->outliers.low_mild_x * view->multiplier,
-        distr->outliers.high_mild_x * view->multiplier,
-        distr->outliers.high_severe_x * view->multiplier);
+    fprintf(f,
+            "mild_points = list(filter(lambda x: (%g < x[0] < %g) or (%g < x[0] < %f), "
+            "points))\n",
+            distr->outliers.low_severe_x * view->multiplier,
+            distr->outliers.low_mild_x * view->multiplier,
+            distr->outliers.high_mild_x * view->multiplier,
+            distr->outliers.high_severe_x * view->multiplier);
     fprintf(f, "reg_points = list(filter(lambda x: %g < x[0] < %g, points))\n",
             distr->outliers.low_mild_x * view->multiplier,
             distr->outliers.high_mild_x * view->multiplier);
@@ -836,7 +836,7 @@ static void make_kde_plot_mpl(const struct kde_plot *plot, struct plot_maker_ctx
             "plt.axvline(x=%f, label='mean')\n"
             "plt.plot(*zip(*reg_points), marker='o', ls='', markersize=2, label='\"clean\" "
             "sample')\n"
-            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, color='orange', "
+            "plt.plot(*zip(*mild_points), marker='o', ls='', markersize=2, color='orange',  "
             "label='mild outliers')\n"
             "plt.plot(*zip(*severe_points), marker='o', ls='', markersize=2, color='red', "
             "label='severe outliers')\n",
@@ -959,37 +959,38 @@ static void make_kde_cmp_plot_mpl(const struct kde_cmp_plot *plot, struct plot_m
     fprintf(f, "]\n");
     const char *a_color = mpl_nth_color(plot->a_idx);
     const char *b_color = mpl_nth_color(plot->b_idx);
-    fprintf(f,
-            "import matplotlib as mpl\n"
-            "mpl.use('svg')\n"
-            "import matplotlib.pyplot as plt\n"
-            "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
-            "PDF')\n"
-            "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, color='%s', "
-            "label=r'%s sample')\n"
-            "plt.axvline(%g, color='%s', label=r'%s mean')\n"
-            "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
-            "PDF')\n"
-            "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, color='%s', "
-            "label=r'%s sample')\n"
-            "plt.axvline(%g, color='%s', label=r'%s mean')\n"
-            "plt.tick_params(left=False, labelleft=False)\n"
-            "plt.xlabel(r'%s [%s]')\n"
-            "plt.ylabel('probability density, runs')\n"
-            "plt.legend(loc='upper right')\n"
-            "plt.title(r'%s')\n"
-            "figure = plt.gcf()\n"
-            "figure.set_size_inches(13, 9)\n"
-            "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
-            a_color, plot->a_name,                                   //
-            a_color, plot->a_name,                                   //
-            a_kde->mean_x * view->multiplier, a_color, plot->a_name, //
-            b_color, plot->b_name,                                   //
-            b_color, plot->b_name,                                   //
-            b_kde->mean_x * view->multiplier, b_color, plot->b_name, //
-            plot->al->meas->name, view->units_str,                   //
-            plot->title,                                             //
-            ctx->image_filename                                      //
+    fprintf(
+        f,
+        "import matplotlib as mpl\n"
+        "mpl.use('svg')\n"
+        "import matplotlib.pyplot as plt\n"
+        "plt.fill_between(x, ay, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
+        "PDF')\n"
+        "plt.plot(*zip(*a_points), marker='o', ls='', markersize=2, color='%s', label=r'%s "
+        "sample')\n"
+        "plt.axvline(%g, color='%s', label=r'%s mean')\n"
+        "plt.fill_between(x, by, interpolate=True, alpha=0.25, facecolor='%s', label=r'%s "
+        "PDF')\n"
+        "plt.plot(*zip(*b_points), marker='o', ls='', markersize=2, color='%s', label=r'%s "
+        "sample')\n"
+        "plt.axvline(%g, color='%s', label=r'%s mean')\n"
+        "plt.tick_params(left=False, labelleft=False)\n"
+        "plt.xlabel(r'%s [%s]')\n"
+        "plt.ylabel('probability density, runs')\n"
+        "plt.legend(loc='upper right')\n"
+        "plt.title(r'%s')\n"
+        "figure = plt.gcf()\n"
+        "figure.set_size_inches(13, 9)\n"
+        "plt.savefig('%s', dpi=100, bbox_inches='tight')\n",
+        a_color, plot->a_name,                                   //
+        a_color, plot->a_name,                                   //
+        a_kde->mean_x * view->multiplier, a_color, plot->a_name, //
+        b_color, plot->b_name,                                   //
+        b_color, plot->b_name,                                   //
+        b_kde->mean_x * view->multiplier, b_color, plot->b_name, //
+        plot->al->meas->name, view->units_str,                   //
+        plot->title,                                             //
+        ctx->image_filename                                      //
     );
 }
 
@@ -1214,8 +1215,8 @@ static bool kde_cmp_per_val_small_mpl(const struct meas_analysis *al, size_t grp
     return true;
 }
 
-static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx, size_t val_idx,
-                                struct plot_maker_ctx *ctx)
+static bool kde_cmp_per_val_mpl(const struct meas_analysis *al, size_t grp_idx,
+                                size_t val_idx, struct plot_maker_ctx *ctx)
 {
     struct kde_cmp_plot plot;
     init_kde_cmp_per_val_plot(al, grp_idx, val_idx, &plot);
@@ -1248,8 +1249,8 @@ static void define_gnuplot_linetypes(double point_size, FILE *f)
             "set style line 8 lc rgb '#7f7f7f' pt 7 ps %f\n"
             "set style line 9 lc rgb '#bcbd22' pt 7 ps %f\n"
             "set style line 10 lc rgb '#17becf' pt 7 ps %f\n",
-            point_size, point_size, point_size, point_size, point_size, point_size, point_size,
-            point_size, point_size, point_size);
+            point_size, point_size, point_size, point_size, point_size, point_size,
+            point_size, point_size, point_size, point_size);
 }
 
 static bool make_bar_gnuplot(const struct bar_plot *plot, struct plot_maker_ctx *ctx)
@@ -1807,25 +1808,25 @@ static bool make_kde_cmp_group_plot_gnuplot(const struct kde_cmp_group_plot *plo
         if (val_idx != 0)
             fprintf(f, "unset arrow 6\n"
                        "unset arrow 7\n");
-        fprintf(f,
-                "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-                "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
-                "set xrange [%g:%g]\n"
-                "set offset 0, 0, graph 0.1, 0\n"
-                "set title '%s'\n"
-                "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls "
-                "%zu,\\\n"
-                "\t'%s' using 1:2 with points ls %zu notitle, \\\n"
-                "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
-                "\t'%s' using 1:2 with points ls %zu notitle\n",
-                a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier, a_color, //
-                b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier, b_color, //
-                cmp->min * view->multiplier, cmp->max * view->multiplier,                    //
-                cmp->title,                                                                  //
-                kde_names[val_idx], bench_group_name(al->base, plot->ref_idx), a_color,      //
-                pts1_names[val_idx], a_color,                                                //
-                kde_names[val_idx], bench_group_name(al->base, plot->grp_idx), b_color,      //
-                pts2_names[val_idx], b_color                                                 //
+        fprintf(
+            f,
+            "set arrow 6 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set arrow 7 from %g, graph 0 to %g, graph 1 nohead ls %zu\n"
+            "set xrange [%g:%g]\n"
+            "set offset 0, 0, graph 0.1, 0\n"
+            "set title '%s'\n"
+            "plot '%s' using 1:2 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu notitle, \\\n"
+            "\t'%s' using 1:3 with filledcurves above y1=0 t '%s' ls %zu,\\\n"
+            "\t'%s' using 1:2 with points ls %zu notitle\n",
+            a_kde->mean_x * view->multiplier, a_kde->mean_x * view->multiplier, a_color, //
+            b_kde->mean_x * view->multiplier, b_kde->mean_x * view->multiplier, b_color, //
+            cmp->min * view->multiplier, cmp->max * view->multiplier,                    //
+            cmp->title,                                                                  //
+            kde_names[val_idx], bench_group_name(al->base, plot->ref_idx), a_color,      //
+            pts1_names[val_idx], a_color,                                                //
+            kde_names[val_idx], bench_group_name(al->base, plot->grp_idx), b_color,      //
+            pts2_names[val_idx], b_color                                                 //
         );
     }
     fprintf(f, "unset multiplot\n");

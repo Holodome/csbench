@@ -548,8 +548,9 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
                         bench_name(base, bench_idx), bench_idx, meas_idx);
             }
         }
-    } else if (g_desired_plots & (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
-                                  MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
+    } else if (g_desired_plots &
+               (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
+                MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
         const struct bench_var *var = base->var;
         size_t val_count = var->value_count;
         if (g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) {
@@ -618,7 +619,8 @@ static bool make_plots_map(const struct analysis *al)
     return true;
 }
 
-static void export_csv_bench_raw(const struct bench *bench, const struct analysis *al, FILE *f)
+static void export_csv_bench_raw(const struct bench *bench, const struct analysis *al,
+                                 FILE *f)
 {
     for (size_t meas_idx = 0; meas_idx < al->meas_count; ++meas_idx) {
         fprintf(f, "%s", al->meas[meas_idx].name);
@@ -854,8 +856,8 @@ static void print_outliers(const struct outliers *outliers, size_t run_count)
                         outliers->high_severe;
     if (outlier_count != 0) {
         printf("%d outliers (%.2f%%) %s (%.1f%%) effect on st dev\n", outlier_count,
-               (double)outlier_count / run_count * 100.0, outliers_variance_str(outliers->var),
-               outliers->var * 100.0);
+               (double)outlier_count / run_count * 100.0,
+               outliers_variance_str(outliers->var), outliers->var * 100.0);
         if (outliers->low_severe)
             printf("  %d (%.2f%%) low severe\n", outliers->low_severe,
                    (double)outliers->low_severe / run_count * 100.0);
@@ -1012,7 +1014,8 @@ static void print_bench_comparison(const struct meas_analysis *al)
     if (base->group_count == 1 && g_regr) {
         const struct group_analysis *grp = al->group_analyses;
         if (grp->values_are_doubles)
-            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity), grp->regress.a);
+            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
+                   grp->regress.a);
     }
 }
 

@@ -557,7 +557,8 @@ multiplex_command_info_input(const struct command_info *src_info, size_t src_idx
     assert(src_string);
     char buf[4096];
     bool replaced = false;
-    if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var->values[0], &replaced)) {
+    if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var->values[0],
+                         &replaced)) {
         error("failed to substitute parameter '%s' in string '%s' with value '%s'", var->name,
               src_info->cmd, var->values[0]);
         return CMD_MULTIPLEX_ERROR;
@@ -683,9 +684,9 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
                             found = true;
                     }
                     if (!found) {
-                        error(
-                            "benchmark group with name '%s' (to be renamed to '%s') not found",
-                            re->old_name, re->name);
+                        error("benchmark group with name '%s' (to be renamed to '%s') not "
+                              "found",
+                              re->old_name, re->name);
                         return false;
                     }
                 } else if (re->n >= data->group_count) {
@@ -770,8 +771,9 @@ static void set_param_names(const struct settings *settings, struct run_info *in
     }
 }
 
-static bool init_benches(const struct settings *settings, const struct command_info *cmd_infos,
-                         bool has_groups, struct run_info *info)
+static bool init_benches(const struct settings *settings,
+                         const struct command_info *cmd_infos, bool has_groups,
+                         struct run_info *info)
 {
     // Short path when there are no groups
     if (!has_groups) {
@@ -987,7 +989,6 @@ void free_bench_data(struct bench_data *data)
         for (size_t j = 0; j < data->meas_count; ++j)
             sb_free(bench->meas[j]);
         free(bench->meas);
-        sb_free(bench->stdout_offsets);
     }
     free(data->benches);
 }
@@ -1074,7 +1075,8 @@ static bool get_bin_name(const char *src, const char **name, bool silent)
         if (access(in_dir, R_OK) == -1) {
             if (!silent)
                 csfmtperror(
-                    "'%s' is not a csbench data directory (file data.csbench not found)", src);
+                    "'%s' is not a csbench data directory (file data.csbench not found)",
+                    src);
             return false;
         }
         *name = in_dir;

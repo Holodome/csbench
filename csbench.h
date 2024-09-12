@@ -222,15 +222,6 @@ struct bench {
     int *exit_codes;
     size_t meas_count;
     double **meas; // [meas_count]
-
-    // The following fields are runtime only information, can be thrown away
-    // later
-    struct progress_bar_bench *progress;
-    // This this is used when running custom measurements
-    size_t *stdout_offsets;
-    // In case of suspension we save the state of running so it can be restored
-    // later
-    double time_run;
 };
 
 struct bench_data_storage {
@@ -476,15 +467,15 @@ enum plot_backend {
     PLOT_BACKEND_GNUPLOT
 };
 
-#define make_kde_cmp_small_params(_a, _b, _meas)                                              \
-    (struct kde_cmp_params)                                                                   \
-    {                                                                                         \
-        _a, _b, _meas, NULL, NULL, NULL                                                       \
+#define make_kde_cmp_small_params(_a, _b, _meas)                                             \
+    (struct kde_cmp_params)                                                                  \
+    {                                                                                        \
+        _a, _b, _meas, NULL, NULL, NULL                                                      \
     }
-#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                          \
-    (struct kde_cmp_params)                                                                   \
-    {                                                                                         \
-        _a, _b, _meas, _a_name, _b_name, _title                                               \
+#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                         \
+    (struct kde_cmp_params)                                                                  \
+    {                                                                                        \
+        _a, _b, _meas, _a_name, _b_name, _title                                              \
     }
 
 struct kde_cmps_params {
@@ -505,7 +496,8 @@ struct plot_maker {
 
     bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
     bool (*group_bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
-    bool (*group_regr)(const struct meas_analysis *al, size_t idx, struct plot_maker_ctx *ctx);
+    bool (*group_regr)(const struct meas_analysis *al, size_t idx,
+                       struct plot_maker_ctx *ctx);
     bool (*kde_small)(const struct distr *distr, const struct meas *meas,
                       struct plot_maker_ctx *ctx);
     bool (*kde)(const struct distr *distr, const struct meas *meas, const char *name,
@@ -549,16 +541,16 @@ enum parse_time_str_result {
 #define sb_needgrow(_a, _n) (((_a) == NULL) || (sb_size(_a) + (_n) >= sb_capacity(_a)))
 #define sb_maybegrow(_a, _n) (sb_needgrow(_a, _n) ? sb_grow(_a, _n) : 0)
 #define sb_grow(_a, _b) (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
-#define sb_reserve(_a, _n)                                                                    \
-    ((_a) != NULL ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a)) : 0)      \
+#define sb_reserve(_a, _n)                                                                   \
+    ((_a) != NULL ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a)) : 0)     \
                   : sb_grow((_a), (_n)))
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 #define sb_ensure(_a, _n) (((_a) == NULL || sb_size(_a) < (_n)) ? sb_resize(_a, _n) : 0)
 
 #define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
-#define sb_pushfront(_a, _v)                                                                  \
-    (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),             \
+#define sb_pushfront(_a, _v)                                                                 \
+    (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),            \
      (_a)[0] = (_v))
 #define sb_last(_a) ((_a)[sb_size(_a) - 1])
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
@@ -828,32 +820,32 @@ static inline const char *bench_group_name(const struct analysis *al, size_t grp
     return al->groups[grp_idx].name;
 }
 
-#define foreach_bench_idx(_idx, _al)                                                          \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));                             \
-         CSUNIQIFY(i) < (_al)->base->bench_count;                                             \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count                       \
-                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))                      \
+#define foreach_bench_idx(_idx, _al)                                                         \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));                            \
+         CSUNIQIFY(i) < (_al)->base->bench_count;                                            \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count                      \
+                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))                     \
                                     : 0)
 
-#define foreach_group_by_avg_idx(_idx, _al)                                                   \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));                      \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                             \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                       \
-                                    ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))               \
+#define foreach_group_by_avg_idx(_idx, _al)                                                  \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));                     \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
+                                    ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))              \
                                     : 0)
 
-#define foreach_group_by_total_idx(_idx, _al)                                                 \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));                    \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                             \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                       \
-                                    ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))             \
+#define foreach_group_by_total_idx(_idx, _al)                                                \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));                   \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
+                                    ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))            \
                                     : 0)
 
-#define foreach_per_val_group_idx(_idx, _val, _al)                                            \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_per_val_group_idx(0, (_val), (_al));             \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                             \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                       \
-                                    ? ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al))      \
+#define foreach_per_val_group_idx(_idx, _val, _al)                                           \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_per_val_group_idx(0, (_val), (_al));            \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
+                                    ? ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al))     \
                                     : 0)
 
 #endif // CSBENCH_H

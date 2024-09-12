@@ -444,12 +444,12 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
 static void html_regr(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
     size_t grp_count = base->group_count;
-    size_t meas_idx = al->meas_idx;
     if (!grp_count || !g_regr)
         return;
+    const struct bench_var *var = base->var;
+    size_t val_count = var->value_count;
+    size_t meas_idx = al->meas_idx;
     fprintf(f,
             "<div id=\"regrs-%zu\">"
             /**/ "<h2>regression analysis</h2>",
@@ -747,10 +747,10 @@ static void html_outliers(const struct outliers *outliers, size_t run_count, FIL
                     (double)outliers->high_severe / run_count * 100.0);
         fprintf(f, "</ul>");
     }
-    fprintf(
-        f,
-        "<p>outlying measurements have %s (%.1f%%) effect on estimated standard deviation</p>",
-        outliers_variance_str(outliers->var), outliers->var * 100.0);
+    fprintf(f,
+            "<p>outlying measurements have %s (%.1f%%) effect on estimated standard "
+            "deviation</p>",
+            outliers_variance_str(outliers->var), outliers->var * 100.0);
 }
 
 static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
@@ -1000,7 +1000,8 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al, FI
         foreach_group_by_avg_idx (grp_idx, al) {
             if (ref_idx == grp_idx)
                 continue;
-            fprintf(f, "<td><a href=\"#cmpg-%zu-%zu\">comparison</a></td>", grp_idx, meas_idx);
+            fprintf(f, "<td><a href=\"#cmpg-%zu-%zu\">comparison</a></td>", grp_idx,
+                    meas_idx);
         }
         fprintf(f, "</tr>");
     }

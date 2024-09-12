@@ -290,30 +290,30 @@ const char *big_o_str(enum big_o complexity)
 #define fitting_curve_logn(_n) log2(_n)
 #define fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
-#define ols(_name, _fitting)                                                                  \
-    static double ols_##_name(const double *x, const double *y, size_t count,                 \
-                              double adjust_y, double *rmsp)                                  \
-    {                                                                                         \
-        (void)x;                                                                              \
-        double sigma_gn_sq = 0.0;                                                             \
-        double sigma_t = 0.0;                                                                 \
-        double sigma_t_gn = 0.0;                                                              \
-        for (size_t i = 0; i < count; ++i) {                                                  \
-            double gn_i = _fitting(x[i] - x[0]);                                              \
-            sigma_gn_sq += gn_i * gn_i;                                                       \
-            sigma_t += y[i] - adjust_y;                                                       \
-            sigma_t_gn += (y[i] - adjust_y) * gn_i;                                           \
-        }                                                                                     \
-        double coef = sigma_t_gn / sigma_gn_sq;                                               \
-        double rms = 0.0;                                                                     \
-        for (size_t i = 0; i < count; ++i) {                                                  \
-            double fit = coef * _fitting(x[i] - x[0]);                                        \
-            double a = (y[i] - adjust_y) - fit;                                               \
-            rms += a * a;                                                                     \
-        }                                                                                     \
-        double mean = sigma_t / count;                                                        \
-        *rmsp = sqrt(rms / count) / mean;                                                     \
-        return coef;                                                                          \
+#define ols(_name, _fitting)                                                                 \
+    static double ols_##_name(const double *x, const double *y, size_t count,                \
+                              double adjust_y, double *rmsp)                                 \
+    {                                                                                        \
+        (void)x;                                                                             \
+        double sigma_gn_sq = 0.0;                                                            \
+        double sigma_t = 0.0;                                                                \
+        double sigma_t_gn = 0.0;                                                             \
+        for (size_t i = 0; i < count; ++i) {                                                 \
+            double gn_i = _fitting(x[i] - x[0]);                                             \
+            sigma_gn_sq += gn_i * gn_i;                                                      \
+            sigma_t += y[i] - adjust_y;                                                      \
+            sigma_t_gn += (y[i] - adjust_y) * gn_i;                                          \
+        }                                                                                    \
+        double coef = sigma_t_gn / sigma_gn_sq;                                              \
+        double rms = 0.0;                                                                    \
+        for (size_t i = 0; i < count; ++i) {                                                 \
+            double fit = coef * _fitting(x[i] - x[0]);                                       \
+            double a = (y[i] - adjust_y) - fit;                                              \
+            rms += a * a;                                                                    \
+        }                                                                                    \
+        double mean = sigma_t / count;                                                       \
+        *rmsp = sqrt(rms / count) / mean;                                                    \
+        return coef;                                                                         \
     }
 
 ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
@@ -333,15 +333,15 @@ ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
     double best_fit_coef, best_fit_rms;
     best_fit_coef = ols_1(x, y, count, min_y, &best_fit_rms);
 
-#define check(_name, _e)                                                                      \
-    do {                                                                                      \
-        double coef, rms;                                                                     \
-        coef = _name(x, y, count, min_y, &rms);                                               \
-        if (rms < best_fit_rms) {                                                             \
-            best_fit = _e;                                                                    \
-            best_fit_coef = coef;                                                             \
-            best_fit_rms = rms;                                                               \
-        }                                                                                     \
+#define check(_name, _e)                                                                     \
+    do {                                                                                     \
+        double coef, rms;                                                                    \
+        coef = _name(x, y, count, min_y, &rms);                                              \
+        if (rms < best_fit_rms) {                                                            \
+            best_fit = _e;                                                                   \
+            best_fit_coef = coef;                                                            \
+            best_fit_rms = rms;                                                              \
+        }                                                                                    \
     } while (0)
 
     check(ols_n, O_N);
@@ -415,8 +415,8 @@ void resample(const double *src, size_t count, double *dst)
     g_rng_state = entropy;
 }
 
-static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp, size_t nresamp,
-                                  struct est *meane, struct est *st_deve)
+static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
+                                  size_t nresamp, struct est *meane, struct est *st_deve)
 {
     double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
     double *tmp_rss = tmp_means + nresamp;

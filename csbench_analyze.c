@@ -246,7 +246,8 @@ static void calculate_fastest_bench_per_value(struct meas_analysis *al)
         for (size_t i = 0; i < base->group_count; ++i)
             al->val_benches_by_mean_time[val_idx][i] = i;
         cssort_ext(al->val_benches_by_mean_time[val_idx], base->group_count,
-                   sizeof(*al->val_benches_by_mean_time[val_idx]), val_bench_sort_cmp, &state);
+                   sizeof(*al->val_benches_by_mean_time[val_idx]), val_bench_sort_cmp,
+                   &state);
     }
 }
 
@@ -418,7 +419,8 @@ static void calculate_per_val_avg_speedups(struct meas_analysis *al)
 }
 
 static void calculate_per_value_ref_speed(const struct meas_analysis *al, size_t ref_idx,
-                                          size_t grp_idx, bool flip, struct point_err_est *dst)
+                                          size_t grp_idx, bool flip,
+                                          struct point_err_est *dst)
 {
     assert(ref_idx != grp_idx);
     struct analysis *base = al->base;

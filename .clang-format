@@ -1,5 +1,5 @@
 BasedOnStyle: llvm
-ColumnLimit: 95
+ColumnLimit: 94
 IndentWidth: 4
 AllowShortIfStatementsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never

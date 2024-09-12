@@ -61,10 +61,10 @@
 #include <dirent.h>
 #include <unistd.h>
 
-#define OPT_ARR(...)                                                                          \
-    (const char *[])                                                                          \
-    {                                                                                         \
-        __VA_ARGS__, NULL                                                                     \
+#define OPT_ARR(...)                                                                         \
+    (const char *[])                                                                         \
+    {                                                                                        \
+        __VA_ARGS__, NULL                                                                    \
     }
 
 const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -181,11 +181,13 @@ static void print_help_and_exit(int rc)
     print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
     print_opt(
         "-S, --shell", OPT_ARR("SHELL"),
-        "Set the shell to be used for executing benchmark commands. Can be both name of shell "
+        "Set the shell to be used for executing benchmark commands. Can be both name of "
+        "shell "
         "executable, like \"bash\", or a command like \"bash --norc\". Either way, arguments "
         "\"-c\" and benchmark command string are appended to shell argument list. "
         "Alternatively, <SHELL> can be set to \"none\". This way commands will be executed "
-        "directly using execve(2) system call, avoiding shell process startup time overhead.");
+        "directly using execve(2) system call, avoiding shell process startup time "
+        "overhead.");
     print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
@@ -217,14 +219,16 @@ static void print_help_and_exit(int rc)
     print_opt("--custom", OPT_ARR("NAME"),
               "Add custom measurement with name <NAME>. This measurement parses stdout of "
               "each command as a single real number and interprets it in seconds.");
-    print_opt("--custom-t", OPT_ARR("NAME", "CMD"),
-              "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
-              "command to <CMD>, parses its output as a single real number and interprets it "
-              "in seconds.");
-    print_opt("--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
-              "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
-              "command to <CMD>, parses its output as a single real number and interprets it "
-              "in <UNITS>.");
+    print_opt(
+        "--custom-t", OPT_ARR("NAME", "CMD"),
+        "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
+        "command to <CMD>, parses its output as a single real number and interprets it "
+        "in seconds.");
+    print_opt(
+        "--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
+        "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
+        "command to <CMD>, parses its output as a single real number and interprets it "
+        "in <UNITS>.");
     print_opt("--custom-re", OPT_ARR("NAME", "UNITS", "RE"),
               "Add custom measurement with name <NAME>, This measurement uses regular "
               "expression <RE> to extract data from stdout of each command, parses first "
@@ -233,26 +237,29 @@ static void print_help_and_exit(int rc)
     print_opt("--param", OPT_ARR("STR"),
               "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
               "a comma-separated list of parameter values.");
-    print_opt("--param-range", OPT_ARR("STR"),
-              "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
-              "<i>, whose values are in range from <n> to <m> with step <s>. <s> is optional, "
-              "default is 1.");
+    print_opt(
+        "--param-range", OPT_ARR("STR"),
+        "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
+        "<i>, whose values are in range from <n> to <m> with step <s>. <s> is optional, "
+        "default is 1.");
     print_opt("--load-text", OPT_ARR(NULL),
               "Load benchmark data from text files in custom format listed in command-line. "
               "<command>... is interpreted as a list of file names.");
-    print_opt(
-        "--load-bin", OPT_ARR(NULL),
-        "Load benchmark data from files in custom binary format. <command>... is "
-        "interpreted as a list of files, or directories which contain file \"data.csbench\".");
+    print_opt("--load-bin", OPT_ARR(NULL),
+              "Load benchmark data from files in custom binary format. <command>... is "
+              "interpreted as a list of files, or directories which contain file "
+              "\"data.csbench\".");
     print_opt("--nrs", OPT_ARR("NUM"),
               "Use <NUM> resamples when computing confidence intervals using bootstrapping.");
-    print_opt("--stat-test", OPT_ARR("TEST"),
-              "Specify statistical test to be used to calculate p-values. Possible values for "
-              "<TEST> are \"mwu\" and \"t-test\". Default is \"mwu\".");
+    print_opt(
+        "--stat-test", OPT_ARR("TEST"),
+        "Specify statistical test to be used to calculate p-values. Possible values for "
+        "<TEST> are \"mwu\" and \"t-test\". Default is \"mwu\".");
     print_opt("--regr", OPT_ARR(NULL),
               "Perform linear regression of measurements in terms of benchmark parameters.");
-    print_opt("--baseline", OPT_ARR("NUM"),
-              "Use benchmark with number <NUM> (starting from 1) as baseline in comparisons.");
+    print_opt(
+        "--baseline", OPT_ARR("NUM"),
+        "Use benchmark with number <NUM> (starting from 1) as baseline in comparisons.");
     print_opt("--baseline-name", OPT_ARR("NAME"),
               "Use benchmark with name <NAME> as baseline in comparisons.");
     print_opt("--rename", OPT_ARR("NUM", "NAME"),
@@ -264,7 +271,8 @@ static void print_help_and_exit(int rc)
               "names.");
     print_opt(
         "--sort", OPT_ARR("METHOD"),
-        "Specify order of benchmarks in reports. Possible values for <METHOD> are: \"auto\" - "
+        "Specify order of benchmarks in reports. Possible values for <METHOD> are: \"auto\" "
+        "- "
         "sort by speed if baseline is not set, keep original order otherwise; \"command\" - "
         "keep original order, \"mean-time\" - sort by mean time (default: \"auto\").");
     print_opt("-o, --out-dir", OPT_ARR("DIR"),
@@ -276,7 +284,8 @@ static void print_help_and_exit(int rc)
               "\"auto\", \"matplotlib\", \"gnuplot\" (default: \"auto\").");
     print_opt("--html", OPT_ARR(NULL), "Generate HTML report.");
     print_opt("--csv", OPT_ARR(NULL), "Save benchmark results to CSV files.");
-    print_opt("--json", OPT_ARR("FILE"), "Export benchmark results to <FILE> in JSON format.");
+    print_opt("--json", OPT_ARR("FILE"),
+              "Export benchmark results to <FILE> in JSON format.");
     print_opt("--save-bin", OPT_ARR(NULL),
               "Save data in custom binary format. It can be later loaded with --load-bin.");
     print_opt("--save-bin-name", OPT_ARR("NAME"),
@@ -894,9 +903,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
             g_desired_plots |= MAKE_PLOT_KDE | MAKE_PLOT_KDE_SMALL | MAKE_PLOT_KDE_CMP |
-                               MAKE_PLOT_KDE_CMP_SMALL | MAKE_PLOT_BAR | MAKE_PLOT_GROUP_REGR |
-                               MAKE_PLOT_ALL_GROUPS_REGR | MAKE_PLOT_KDE_CMP_ALL_GROUPS |
-                               MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL;
+                               MAKE_PLOT_KDE_CMP_SMALL | MAKE_PLOT_BAR |
+                               MAKE_PLOT_GROUP_REGR | MAKE_PLOT_ALL_GROUPS_REGR |
+                               MAKE_PLOT_KDE_CMP_ALL_GROUPS | MAKE_PLOT_KDE_CMP_PER_VAL |
+                               MAKE_PLOT_KDE_CMP_PER_VAL_SMALL;
         } else if (opt_bool(argv, &cursor, "--clear-out", &g_clear_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
