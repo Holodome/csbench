@@ -62,9 +62,12 @@
 #include <unistd.h>
 
 #define OPT_ARR(...)                                                                          \
-    (const char *[]) { __VA_ARGS__, NULL }
+    (const char *[])                                                                          \
+    {                                                                                         \
+        __VA_ARGS__, NULL                                                                     \
+    }
 
-static const struct meas BUILTIN_MEASUREMENTS[] = {
+const struct meas BUILTIN_MEASUREMENTS[] = {
     /* MEAS_CUSTOM */ {"", NULL, NULL, {0}, 0, false, 0},
     /* MEAS_CUSTOM_RE */ {"", NULL, NULL, {0}, 0, false, 0},
     /* MEAS_LOADED */ {"", NULL, NULL, {0}, 0, false, 0},

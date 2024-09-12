@@ -1252,7 +1252,7 @@ bool make_html_report(const struct analysis *al)
 {
     FILE *f = open_file_fmt("w", "%s/index.html", g_out_dir);
     if (f == NULL) {
-        error("failed to create file '%s/index.html'", g_out_dir);
+        csfmtperror("failed to open file '%s/index.html' for writing", g_out_dir);
         return false;
     }
     html_report(al, f);

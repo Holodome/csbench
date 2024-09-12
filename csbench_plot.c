@@ -149,7 +149,7 @@ static FILE *gnuplot_data_file(struct plot_maker_ctx *ctx, const char **name)
     *name = csfmt("%s/gnuplot-data/%zu.data", g_out_dir, (*ctx->gnuplot_data_idx)++);
     FILE *f = fopen(*name, "w");
     if (f == NULL) {
-        error("failed to create file '%s'", *name);
+        csfmtperror("failed to open file '%s' for writing", *name);
         return NULL;
     }
     return f;
@@ -277,7 +277,10 @@ static void init_kde_data(const struct distr *distr, double min, double max,
         linear_interpolate(kde->min, kde->step, kde->data, kde->point_count, kde->mean_x);
 }
 
-static void free_kde_data(struct kde_data *kde) { free(kde->data); }
+static void free_kde_data(struct kde_data *kde)
+{
+    free(kde->data);
+}
 
 static size_t find_closest_lower_square(size_t x)
 {
@@ -415,7 +418,10 @@ static void init_kde_plot_internal(const struct distr *distr, const struct meas 
     }
 }
 
-static void free_kde_plot(struct kde_plot *plot) { free_kde_data(&plot->kde); }
+static void free_kde_plot(struct kde_plot *plot)
+{
+    free_kde_data(&plot->kde);
+}
 
 static void init_kde_cmp_plot_internal1(const struct meas_analysis *al, size_t a_idx,
                                         size_t b_idx, const struct distr *a,

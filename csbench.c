@@ -1001,7 +1001,7 @@ static bool do_save_bin(const struct bench_data *data)
         snprintf(name_buf, sizeof(name_buf), "%s/data.csbench", g_out_dir);
     FILE *f = fopen(name_buf, "wb");
     if (f == NULL) {
-        csfmtperror("failed to create file '%s'", name_buf);
+        csfmtperror("failed to open file '%s' for writing", name_buf);
         return false;
     }
     bool success = save_bench_data_binary(data, f);

@@ -3,7 +3,7 @@ ColumnLimit: 95
 IndentWidth: 4
 AllowShortIfStatementsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
-AllowShortFunctionsOnASingleLine: All
+AllowShortFunctionsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
 BreakBeforeBraces: Linux

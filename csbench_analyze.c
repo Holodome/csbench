@@ -99,7 +99,10 @@ static void init_analyze_task_queue(struct bench_analysis *als, size_t count,
     }
 }
 
-static void free_analyze_task_queue(struct analyze_task_queue *q) { free(q->tasks); }
+static void free_analyze_task_queue(struct analyze_task_queue *q)
+{
+    free(q->tasks);
+}
 
 static struct analyze_task *get_analyze_task(struct analyze_task_queue *q)
 {

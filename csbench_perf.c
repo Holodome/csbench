@@ -65,9 +65,16 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-bool init_perf(void) { return true; }
-void deinit_perf(void) {}
-void perf_signal_cleanup(void) {}
+bool init_perf(void)
+{
+    return true;
+}
+void deinit_perf(void)
+{
+}
+void perf_signal_cleanup(void)
+{
+}
 
 struct perf_events {
     size_t count;
@@ -754,7 +761,10 @@ bool init_perf(void)
     return true;
 }
 
-void deinit_perf(void) { perf_lib_deinit(); }
+void deinit_perf(void)
+{
+    perf_lib_deinit();
+}
 
 bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
 {

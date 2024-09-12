@@ -1161,11 +1161,11 @@ static bool run_custom_measurements_cmd(const struct bench_params *params, struc
 
         for (size_t meas_idx = 0; meas_idx < sb_len(meas_list); ++meas_idx) {
             const struct meas *meas = meas_list[meas_idx];
-            double value;
             if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
             }
+            double value;
             if (!do_custom_measurement_cmd(meas, input_fd, output_fd, &value))
                 goto err;
             sb_push(bench->meas[meas - params->meas], value);

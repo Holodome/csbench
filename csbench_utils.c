@@ -809,7 +809,10 @@ bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, 
 }
 
 #if defined(__APPLE__)
-double get_time(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9; }
+double get_time(void)
+{
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
+}
 #else
 double get_time(void)
 {
@@ -918,7 +921,10 @@ const char *csmkstr(const char *src, size_t len)
     return str;
 }
 
-const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
+const char *csstrdup(const char *str)
+{
+    return csmkstr(str, strlen(str));
+}
 
 // TODO: Remove this function and do the same thing in place it is called
 const char *csstripend(const char *src)

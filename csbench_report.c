@@ -121,7 +121,7 @@ static bool export_json(const struct analysis *al, const char *filename)
 {
     FILE *f = fopen(filename, "w");
     if (f == NULL) {
-        error("failed to open file '%s' for export", filename);
+        csfmtperror("failed to open file '%s' for writing", filename);
         return false;
     }
 
@@ -361,7 +361,7 @@ static bool make_plot_src_walk(struct plot_walker_args *args)
     format_plot_name(src_buf, sizeof(src_buf), args, args->maker.src_extension);
     FILE *src_file = fopen(src_buf, "w");
     if (src_file == NULL) {
-        error("failed to create file %s", src_buf);
+        csfmtperror("failed to open file '%s' for writing", src_buf);
         return false;
     }
     bool success = make_plot_src(args, src_file);
@@ -604,7 +604,7 @@ static bool make_plots_map(const struct analysis *al)
 {
     FILE *f = open_file_fmt("w", "%s/plots_map.md", g_out_dir);
     if (f == NULL) {
-        error("failed to create file %s/plots_map.md", g_out_dir);
+        csfmtperror("failed to open file '%s/plots_map.md' for writing", g_out_dir);
         return false;
     }
     fprintf(f, "# csbench plot map\n");

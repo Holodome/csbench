@@ -54,6 +54,7 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -76,6 +77,18 @@ struct csbench_binary_header {
     uint64_t groups_size;
     uint64_t bench_data_offset;
     uint64_t bench_data_size;
+};
+
+struct parsed_text_data_line {
+    char *name;
+    size_t value_count;
+    double *values;
+};
+
+struct parsed_text_file {
+    const char *filename;
+    size_t line_count;
+    struct parsed_text_data_line *lines;
 };
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
@@ -426,7 +439,7 @@ static bool load_bench_data_binary_file(const char *filename, struct bench_data 
 {
     FILE *f = fopen(filename, "rb");
     if (f == NULL) {
-        csfmtperror("failed to open benchmark data file '%s'", filename);
+        csfmtperror("failed to open file '%s' for reading", filename);
         return false;
     }
     bool success = load_bench_data_binary_file_internal(f, filename, data, storage);
@@ -597,4 +610,212 @@ bool load_bench_data_binary(const char **file_list, struct bench_data *data,
     else
         success = load_bench_data_binary_merge(file_list, data, storage);
     return success;
+}
+
+__attribute__((used)) static bool prefix(const char *pre, const char *str)
+{
+    return strncmp(pre, str, strlen(pre)) == 0;
+}
+
+static bool handle_text_header_tok(const char *tok, struct parsed_text_file *file)
+{
+    if (false) {
+    } else {
+        error("invald header keyword '%s' found in file '%s'", tok, file->filename);
+        return false;
+    }
+    return true;
+}
+
+static bool parse_text_header(const char *line, struct parsed_text_file *file)
+{
+    const char *delimiters = " \t";
+    const char *cursor = line;
+    for (;;) {
+        const char *sep = strpbrk(cursor, delimiters);
+        if (sep == NULL) {
+            if (!handle_text_header_tok(cursor, file))
+                return false;
+            break;
+        }
+        char buf[4096];
+        size_t len = sep - cursor;
+        if (len > sizeof(buf) - 1) {
+            error("invalid header format in file '%s'", file->filename);
+            return false;
+        }
+        memcpy(buf, cursor, len);
+        buf[len] = '\0';
+        if (!handle_text_header_tok(buf, file))
+            return false;
+    }
+    return true;
+}
+
+static bool parse_text_line(const char *line, struct parsed_text_file *file)
+{
+    const char *comma = strchr(line, ',');
+    if (comma == NULL) {
+        error("invalid line format in file '%s'", file->filename);
+        return false;
+    }
+
+    size_t name_len = comma - line;
+    char *name = malloc(name_len + 1);
+    memcpy(name, line, name_len);
+    name[name_len] = '\0';
+
+    char buf[4096];
+    double *values = NULL;
+    const char *cursor = comma + 1;
+    char *str_end = NULL;
+    for (;;) {
+        comma = strchr(cursor, ',');
+        if (comma == NULL) {
+            double v = strtod(cursor, &str_end);
+            if (str_end == cursor) {
+                error("invalid data format in file '%s'", file->filename);
+                goto err;
+            }
+            sb_push(values, v);
+            break;
+        }
+        size_t len = comma - cursor;
+        if (len > sizeof(buf) - 1) {
+            error("invalid data format in file '%s'", file->filename);
+            goto err;
+        }
+        memcpy(buf, cursor, len);
+        buf[len] = '\0';
+
+        double v = strtod(cursor, &str_end);
+        if (str_end == cursor) {
+            error("invalid data format in file '%s'", file->filename);
+            goto err;
+        }
+        sb_push(values, v);
+        cursor = comma + 1;
+    }
+
+    struct parsed_text_data_line data;
+    data.name = name;
+    data.value_count = sb_len(values);
+    data.values = values;
+    sb_push(file->lines, data);
+    ++file->line_count;
+    return true;
+err:
+    free(name);
+    sb_free(values);
+    return false;
+}
+
+static bool load_parsed_text_file_internal(FILE *f, struct parsed_text_file *file)
+{
+    bool success = false;
+    char *line = NULL;
+
+    for (size_t line_idx = 0;; ++line_idx) {
+        size_t len = 0;
+        errno = 0;
+        ssize_t nread = getline(&line, &len, f);
+        if (nread == -1) {
+            if (errno != 0) {
+                csfmtperror("failed to read line from file '%s'", file->filename);
+                goto err;
+            }
+            break;
+        }
+
+        bool parsed = false;
+        if (line_idx == 0 && line[0] == '#')
+            parsed = parse_text_header(line, file);
+        else
+            parsed = parse_text_line(line, file);
+        if (!parsed)
+            goto err;
+    }
+
+    success = true;
+err:
+    free(line);
+    return success;
+}
+
+static void free_parsed_text_file(struct parsed_text_file *file)
+{
+    for (size_t i = 0; i < file->line_count; ++i) {
+        struct parsed_text_data_line *line = file->lines + i;
+        if (line->name)
+            free(line->name);
+        sb_free(line->values);
+    }
+    sb_free(file->lines);
+}
+
+static bool load_parsed_text_file(const char *filename, struct parsed_text_file *file)
+{
+    FILE *f = fopen(filename, "r");
+    if (f == NULL) {
+        csfmtperror("failed to open file '%s' for reading", filename);
+        return false;
+    }
+    memset(file, 0, sizeof(*file));
+    file->filename = filename;
+    bool success = load_parsed_text_file_internal(f, file);
+    fclose(f);
+    if (!success)
+        free_parsed_text_file(file);
+    return success;
+}
+
+static void convert_parsed_text_file(const struct parsed_text_file *parsed,
+                                     struct bench_data *data,
+                                     struct bench_data_storage *storage)
+{
+    memset(data, 0, sizeof(*data));
+    memset(storage, 0, sizeof(*storage));
+
+    // TODO: add support for variables
+    storage->has_var = false;
+    // TODO: add support for custom variables
+    storage->meas_count = 1;
+    storage->meas = calloc(1, sizeof(*storage->meas));
+    storage->meas[0] = BUILTIN_MEASUREMENTS[MEAS_WALL];
+    // TODO: add support for groups
+    storage->group_count = 0;
+
+    data->meas_count = storage->meas_count;
+    data->meas = storage->meas;
+    data->bench_count = parsed->line_count;
+    data->benches = calloc(parsed->line_count, sizeof(*data->benches));
+    for (size_t bench_idx = 0; bench_idx < data->bench_count; ++bench_idx) {
+        const struct parsed_text_data_line *line = parsed->lines + bench_idx;
+        struct bench *bench = data->benches + bench_idx;
+        bench->name = csstrdup(line->name);
+        bench->run_count = line->value_count;
+        bench->meas_count = storage->meas_count;
+        bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
+        for (size_t i = 0; i < bench->run_count; ++i) {
+            sb_push(bench->meas[0], line->values[i]);
+            sb_push(bench->exit_codes, 0);
+        }
+    }
+}
+
+bool load_bench_data_text(const char **file_list, struct bench_data *data,
+                          struct bench_data_storage *storage)
+{
+    if (sb_len(file_list) != 1) {
+        error("only one text file is supported");
+        return false;
+    }
+    struct parsed_text_file parsed;
+    if (!load_parsed_text_file(file_list[0], &parsed))
+        return false;
+
+    convert_parsed_text_file(&parsed, data, storage);
+    free_parsed_text_file(&parsed);
+
+    return true;
 }

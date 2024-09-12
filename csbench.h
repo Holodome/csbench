@@ -233,6 +233,15 @@ struct bench {
     double time_run;
 };
 
+struct bench_data_storage {
+    bool has_var;
+    struct bench_var var;
+    size_t meas_count;
+    struct meas *meas; // [meas_count]
+    size_t group_count;
+    struct bench_var_group *groups; // [group_count]
+};
+
 struct bench_data {
     size_t meas_count;
     const struct meas *meas; // [meas_count]
@@ -443,15 +452,6 @@ enum app_mode {
     APP_LOAD_BIN
 };
 
-struct bench_data_storage {
-    bool has_var;
-    struct bench_var var;
-    size_t meas_count;
-    struct meas *meas; // [meas_count]
-    size_t group_count;
-    struct bench_var_group *groups; // [group_count]
-};
-
 // Decide how output should be sorted
 enum sort_mode {
     // This is sentinel value. We expand it to one of the following values
@@ -477,9 +477,15 @@ enum plot_backend {
 };
 
 #define make_kde_cmp_small_params(_a, _b, _meas)                                              \
-    (struct kde_cmp_params) { _a, _b, _meas, NULL, NULL, NULL }
+    (struct kde_cmp_params)                                                                   \
+    {                                                                                         \
+        _a, _b, _meas, NULL, NULL, NULL                                                       \
+    }
 #define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                          \
-    (struct kde_cmp_params) { _a, _b, _meas, _a_name, _b_name, _title }
+    (struct kde_cmp_params)                                                                   \
+    {                                                                                         \
+        _a, _b, _meas, _a_name, _b_name, _title                                               \
+    }
 
 struct kde_cmps_params {
     const struct analysis *al;
@@ -637,6 +643,8 @@ extern const char *g_baseline_name;
 extern const char *g_python_executable;
 
 void free_bench_data(struct bench_data *data);
+
+extern const struct meas BUILTIN_MEASUREMENTS[];
 
 //
 // csbench_cli.c
