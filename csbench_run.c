@@ -639,7 +639,6 @@ static bool exec_and_measure(const struct bench_params *params, struct bench_run
             break;
         case MEAS_CUSTOM:
         case MEAS_CUSTOM_RE:
-        case MEAS_LOADED:
             ASSERT_UNREACHABLE();
         }
         sb_push(bench->b->meas[meas_idx], val);

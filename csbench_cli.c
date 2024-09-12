@@ -70,7 +70,6 @@
 const struct meas BUILTIN_MEASUREMENTS[] = {
     /* MEAS_CUSTOM */ {"", NULL, NULL, {0}, 0, false, 0},
     /* MEAS_CUSTOM_RE */ {"", NULL, NULL, {0}, 0, false, 0},
-    /* MEAS_LOADED */ {"", NULL, NULL, {0}, 0, false, 0},
     {"wall clock time", NULL, NULL, {MU_S, ""}, MEAS_WALL, false, 0},
     {"usrtime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
     {"systime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
@@ -394,69 +393,19 @@ static bool parse_comma_separated_settings(const char *str, const char **namep,
     return true;
 }
 
-static void parse_units_str(const char *str, struct units *units)
-{
-    if (strcmp(str, "s") == 0) {
-        units->kind = MU_S;
-    } else if (strcmp(str, "ms") == 0) {
-        units->kind = MU_MS;
-    } else if (strcmp(str, "us") == 0) {
-        units->kind = MU_US;
-    } else if (strcmp(str, "ns") == 0) {
-        units->kind = MU_NS;
-    } else if (strcmp(str, "b") == 0) {
-        units->kind = MU_B;
-    } else if (strcmp(str, "kb") == 0) {
-        units->kind = MU_KB;
-    } else if (strcmp(str, "mb") == 0) {
-        units->kind = MU_MB;
-    } else if (strcmp(str, "gb") == 0) {
-        units->kind = MU_GB;
-    } else if (strcmp(str, "none") == 0) {
-        units->kind = MU_NONE;
-    } else {
-        units->kind = MU_CUSTOM;
-        units->str = str;
-    }
-}
-
 static void parse_meas_list(const char *opts, enum meas_kind **meas_list)
 {
     const char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
-        if (strcmp(opt, "wall") == 0) {
-            kind = MEAS_WALL;
-        } else if (strcmp(opt, "stime") == 0) {
-            kind = MEAS_RUSAGE_STIME;
-        } else if (strcmp(opt, "utime") == 0) {
-            kind = MEAS_RUSAGE_UTIME;
-        } else if (strcmp(opt, "maxrss") == 0) {
-            kind = MEAS_RUSAGE_MAXRSS;
-        } else if (strcmp(opt, "minflt") == 0) {
-            kind = MEAS_RUSAGE_MINFLT;
-        } else if (strcmp(opt, "majflt") == 0) {
-            kind = MEAS_RUSAGE_MAJFLT;
-        } else if (strcmp(opt, "nvcsw") == 0) {
-            kind = MEAS_RUSAGE_NVCSW;
-        } else if (strcmp(opt, "nivcsw") == 0) {
-            kind = MEAS_RUSAGE_NIVCSW;
-        } else if (strcmp(opt, "cycles") == 0) {
-            kind = MEAS_PERF_CYCLES;
-            g_use_perf = true;
-        } else if (strcmp(opt, "instructions") == 0) {
-            kind = MEAS_PERF_INS;
-            g_use_perf = true;
-        } else if (strcmp(opt, "branches") == 0) {
-            kind = MEAS_PERF_BRANCH;
-            g_use_perf = true;
-        } else if (strcmp(opt, "branch-misses") == 0) {
-            kind = MEAS_PERF_BRANCHM;
-            g_use_perf = true;
-        } else {
+        if (!parse_meas_str(opt, &kind)) {
             error("invalid measurement name: '%s'", opt);
             exit(EXIT_FAILURE);
+        }
+        if (kind == MEAS_PERF_CYCLES || kind == MEAS_PERF_INS || kind == MEAS_PERF_BRANCH ||
+            kind == MEAS_PERF_BRANCHM) {
+            g_use_perf = true;
         }
         sb_push(*meas_list, kind);
     }

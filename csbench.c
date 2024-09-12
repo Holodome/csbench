@@ -1046,7 +1046,7 @@ static bool do_app_load_text(const struct settings *settings)
     struct bench_data_storage storage;
     struct bench_data data;
     if (!load_bench_data_text(file_list, &data, &storage))
-        goto err;
+        return false;
     if (!do_bench_renames(settings->rename_list, &data, NULL))
         goto err;
     if (!initialize_global_variables(&data))

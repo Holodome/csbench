@@ -54,6 +54,7 @@
 #include "csbench.h"
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,6 +88,8 @@ struct parsed_text_data_line {
 
 struct parsed_text_file {
     const char *filename;
+    char *meas_name;
+    char *meas_units;
     size_t line_count;
     struct parsed_text_data_line *lines;
 };
@@ -612,16 +615,33 @@ bool load_bench_data_binary(const char **file_list, struct bench_data *data,
     return success;
 }
 
-__attribute__((used)) static bool prefix(const char *pre, const char *str)
+static bool keyword_val(const char *str, const char *kw, const char **val)
 {
-    return strncmp(pre, str, strlen(pre)) == 0;
+    size_t kw_len = strlen(kw);
+    bool matches = strncmp(kw, str, kw_len) == 0 ? true : false;
+    if (matches && (matches = str[kw_len] == '=')) {
+        *val = str + kw_len + 1;
+    }
+    return matches;
 }
 
 static bool handle_text_header_tok(const char *tok, struct parsed_text_file *file)
 {
-    if (false) {
+    const char *val = NULL;
+    if (keyword_val(tok, "meas", &val)) {
+        if (strlen(val) == 0) {
+            error("empty meas= value found in file '%s'", file->filename);
+            return false;
+        }
+        file->meas_name = strdup(val);
+    } else if (keyword_val(tok, "units", &val)) {
+        if (strlen(val) == 0) {
+            error("empty units= value found in file '%s'", file->filename);
+            return false;
+        }
+        file->meas_units = strdup(val);
     } else {
-        error("invald header keyword '%s' found in file '%s'", tok, file->filename);
+        error("invalid header keyword '%s' found in file '%s'", tok, file->filename);
         return false;
     }
     return true;
@@ -629,9 +649,14 @@ static bool handle_text_header_tok(const char *tok, struct parsed_text_file *fil
 
 static bool parse_text_header(const char *line, struct parsed_text_file *file)
 {
+    assert(line[0] == '#');
     const char *delimiters = " \t";
-    const char *cursor = line;
+    const char *cursor = line + 1;
     for (;;) {
+        while (isspace(*cursor))
+            ++cursor;
+        if (*cursor == '\0')
+            break;
         const char *sep = strpbrk(cursor, delimiters);
         if (sep == NULL) {
             if (!handle_text_header_tok(cursor, file))
@@ -648,6 +673,7 @@ static bool parse_text_header(const char *line, struct parsed_text_file *file)
         buf[len] = '\0';
         if (!handle_text_header_tok(buf, file))
             return false;
+        cursor = sep + 1;
     }
     return true;
 }
@@ -726,6 +752,8 @@ static bool load_parsed_text_file_internal(FILE *f, struct parsed_text_file *fil
             }
             break;
         }
+        for (ssize_t i = 0; nread > 1 && isspace(line[nread - i - 1]); ++i)
+            line[nread - i - 1] = '\0';
 
         bool parsed = false;
         if (line_idx == 0 && line[0] == '#')
@@ -744,6 +772,8 @@ err:
 
 static void free_parsed_text_file(struct parsed_text_file *file)
 {
+    free(file->meas_name);
+    free(file->meas_units);
     for (size_t i = 0; i < file->line_count; ++i) {
         struct parsed_text_data_line *line = file->lines + i;
         if (line->name)
@@ -769,7 +799,33 @@ static bool load_parsed_text_file(const char *filename, struct parsed_text_file 
     return success;
 }
 
-static void convert_parsed_text_file(const struct parsed_text_file *parsed,
+static void init_parsed_text_meas(const struct parsed_text_file *parsed, struct meas *measp)
+{
+    if (parsed->meas_name == NULL && parsed->meas_units == NULL) {
+        *measp = BUILTIN_MEASUREMENTS[MEAS_WALL];
+        return;
+    }
+    if (parsed->meas_name != NULL) {
+        enum meas_kind kind;
+        if (parse_meas_str(parsed->meas_name, &kind)) {
+            *measp = BUILTIN_MEASUREMENTS[kind];
+            return;
+        }
+    }
+    struct meas meas = {"meas", NULL, NULL, {MU_NONE, NULL}, MEAS_CUSTOM, false, 0};
+    if (parsed->meas_units) {
+        parse_units_str(parsed->meas_units, &meas.units);
+        if (meas.units.str != NULL) {
+            meas.units.str = csstrdup(meas.units.str);
+        }
+    }
+    if (parsed->meas_name) {
+        meas.name = csstrdup(parsed->meas_name);
+    }
+    *measp = meas;
+}
+
+static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
                                      struct bench_data *data,
                                      struct bench_data_storage *storage)
 {
@@ -778,10 +834,9 @@ static void convert_parsed_text_file(const struct parsed_text_file *parsed,
 
     // TODO: add support for variables
     storage->has_var = false;
-    // TODO: add support for custom variables
     storage->meas_count = 1;
     storage->meas = calloc(1, sizeof(*storage->meas));
-    storage->meas[0] = BUILTIN_MEASUREMENTS[MEAS_WALL];
+    init_parsed_text_meas(parsed, storage->meas);
     // TODO: add support for groups
     storage->group_count = 0;
 
@@ -801,6 +856,7 @@ static void convert_parsed_text_file(const struct parsed_text_file *parsed,
             sb_push(bench->exit_codes, 0);
         }
     }
+    return true;
 }
 
 bool load_bench_data_text(const char **file_list, struct bench_data *data,

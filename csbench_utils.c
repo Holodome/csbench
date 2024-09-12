@@ -1183,3 +1183,61 @@ bool rm_rf_dir(const char *name)
     }
     return true;
 }
+
+void parse_units_str(const char *str, struct units *units)
+{
+    if (strcmp(str, "s") == 0) {
+        units->kind = MU_S;
+    } else if (strcmp(str, "ms") == 0) {
+        units->kind = MU_MS;
+    } else if (strcmp(str, "us") == 0) {
+        units->kind = MU_US;
+    } else if (strcmp(str, "ns") == 0) {
+        units->kind = MU_NS;
+    } else if (strcmp(str, "b") == 0) {
+        units->kind = MU_B;
+    } else if (strcmp(str, "kb") == 0) {
+        units->kind = MU_KB;
+    } else if (strcmp(str, "mb") == 0) {
+        units->kind = MU_MB;
+    } else if (strcmp(str, "gb") == 0) {
+        units->kind = MU_GB;
+    } else if (strcmp(str, "none") == 0) {
+        units->kind = MU_NONE;
+    } else {
+        units->kind = MU_CUSTOM;
+        units->str = str;
+    }
+}
+
+bool parse_meas_str(const char *str, enum meas_kind *kind)
+{
+    if (strcmp(str, "wall") == 0) {
+        *kind = MEAS_WALL;
+    } else if (strcmp(str, "stime") == 0) {
+        *kind = MEAS_RUSAGE_STIME;
+    } else if (strcmp(str, "utime") == 0) {
+        *kind = MEAS_RUSAGE_UTIME;
+    } else if (strcmp(str, "maxrss") == 0) {
+        *kind = MEAS_RUSAGE_MAXRSS;
+    } else if (strcmp(str, "minflt") == 0) {
+        *kind = MEAS_RUSAGE_MINFLT;
+    } else if (strcmp(str, "majflt") == 0) {
+        *kind = MEAS_RUSAGE_MAJFLT;
+    } else if (strcmp(str, "nvcsw") == 0) {
+        *kind = MEAS_RUSAGE_NVCSW;
+    } else if (strcmp(str, "nivcsw") == 0) {
+        *kind = MEAS_RUSAGE_NIVCSW;
+    } else if (strcmp(str, "cycles") == 0) {
+        *kind = MEAS_PERF_CYCLES;
+    } else if (strcmp(str, "instructions") == 0) {
+        *kind = MEAS_PERF_INS;
+    } else if (strcmp(str, "branches") == 0) {
+        *kind = MEAS_PERF_BRANCH;
+    } else if (strcmp(str, "branch-misses") == 0) {
+        *kind = MEAS_PERF_BRANCHM;
+    } else {
+        return false;
+    }
+    return true;
+}

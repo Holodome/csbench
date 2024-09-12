@@ -122,7 +122,6 @@ struct units {
 enum meas_kind {
     MEAS_CUSTOM,
     MEAS_CUSTOM_RE,
-    MEAS_LOADED,
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
     MEAS_RUSAGE_STIME,
@@ -732,6 +731,9 @@ bool units_is_time(const struct units *units);
 const char *units_str(const struct units *units);
 enum parse_time_str_result parse_time_str(const char *str, enum units_kind target_units,
                                           double *value);
+
+void parse_units_str(const char *str, struct units *units);
+bool parse_meas_str(const char *str, enum meas_kind *kind);
 
 int format_time(char *dst, size_t sz, double t);
 int format_memory(char *dst, size_t sz, double t);
