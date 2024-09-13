@@ -859,19 +859,51 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
     return true;
 }
 
+static bool load_bench_data_text_file(const char *filename, struct bench_data *data,
+                                      struct bench_data_storage *storage)
+{
+    struct parsed_text_file parsed;
+    if (!load_parsed_text_file(filename, &parsed))
+        return false;
+    convert_parsed_text_file(&parsed, data, storage);
+    free_parsed_text_file(&parsed);
+    return true;
+}
+
+static bool load_bench_data_text_merge(const char **file_list, struct bench_data *data,
+                                       struct bench_data_storage *storage)
+{
+    bool success = false;
+    size_t src_count = sb_len(file_list);
+    struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
+    struct bench_data_storage *src_storages = calloc(src_count, sizeof(*src_storages));
+    for (size_t i = 0; i < src_count; ++i)
+        if (!load_bench_data_text_file(file_list[i], src_datas + i, src_storages + i))
+            goto err;
+
+    if (!merge_bench_data(src_datas, src_storages, src_count, data, storage))
+        goto err;
+
+    success = true;
+err:
+    for (size_t i = 0; i < src_count; ++i) {
+        free_bench_data_storage(src_storages + i);
+        free_bench_data(src_datas + i);
+    }
+    free(src_datas);
+    free(src_storages);
+    return success;
+}
+
 bool load_bench_data_text(const char **file_list, struct bench_data *data,
                           struct bench_data_storage *storage)
 {
-    if (sb_len(file_list) != 1) {
-        error("only one text file is supported");
-        return false;
-    }
-    struct parsed_text_file parsed;
-    if (!load_parsed_text_file(file_list[0], &parsed))
-        return false;
-
-    convert_parsed_text_file(&parsed, data, storage);
-    free_parsed_text_file(&parsed);
-
-    return true;
+    bool success = false;
+    size_t src_count = sb_len(file_list);
+    assert(src_count > 0);
+    if (src_count == 1)
+        success = load_bench_data_text_file(file_list[0], data, storage);
+    else
+        success = load_bench_data_text_merge(file_list, data, storage);
+    return success;
 }
