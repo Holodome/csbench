@@ -1,4 +1,4 @@
-// csbenchr
+// csbench
 // command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench

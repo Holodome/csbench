@@ -1,3 +1,5 @@
+// csbench
+// command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
 //
@@ -1167,7 +1169,7 @@ static bool run(const struct settings *settings)
     case APP_LOAD_BIN:
         return do_app_load_bin(settings);
     }
-    return false;
+    ASSERT_UNREACHABLE();
 }
 
 static void sigint_handler(int sig)
