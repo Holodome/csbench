@@ -598,6 +598,11 @@ static void make_bar_mpl(const struct bar_plot *plot, struct plot_maker_ctx *ctx
         fprintf(f, "%g,", al->benches[bench_idx]->st_dev.point * view->multiplier);
     }
     fprintf(f, "]\n");
+    fprintf(f, "colors = [");
+    foreach_bench_idx (bench_idx, al) {
+        fprintf(f, "'%s',", mpl_nth_color(bench_idx));
+    }
+    fprintf(f, "]\n");
     fprintf(f, "import matplotlib as mpl\n"
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n");
@@ -606,7 +611,7 @@ static void make_bar_mpl(const struct bar_plot *plot, struct plot_maker_ctx *ctx
     fprintf(f,
             "plt.rc('axes', axisbelow=True)\n"
             "plt.grid(axis='y')\n"
-            "plt.bar(range(len(data)), data, yerr=err, alpha=0.6)\n"
+            "plt.bar(range(len(data)), data, yerr=err, alpha=0.6, color=colors)\n"
             "plt.xticks(range(len(data)), names)\n"
             "plt.ylabel(r'%s [%s]')\n"
             "plt.savefig(r'%s', bbox_inches='tight')\n",
