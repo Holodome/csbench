@@ -362,7 +362,9 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                 "<a href=\"#bench-group-%zu-%zu\">"
                 /**/ "<tt>%s</tt>"
                 "</a>",
-                grp_idx, meas_idx, bench_group_name(base, grp_idx));
+                grp_idx, meas_idx,              //
+                bench_group_name(base, grp_idx) //
+        );
         fprintf(f, "<ol>");
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             fprintf(f,
@@ -538,16 +540,18 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
     fprintf(f,
             "</div>"
             /**/ "<div class=\"col\">"
-            /****/ "<p>executed %zu <a href=\"#benches\">benchmarks</a>:</p>"
+            /****/ "<p>executed %zu <a href=\"#benches-%zu\">benchmarks</a>:</p>"
             /****/ "<ol>",
-            base->bench_count);
+            base->bench_count, meas_idx);
     foreach_bench_idx (bench_idx, al) {
         fprintf(f,
                 "<li>"
-                "<a href=\"#bench-%zu\">"
+                "<a href=\"#bench-%zu-%zu\">"
                 /**/ "<tt>%s</tt>"
                 "</a>",
-                bench_idx, bench_name(base, bench_idx));
+                bench_idx, meas_idx,        //
+                bench_name(base, bench_idx) //
+        );
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
@@ -608,11 +612,11 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             /****/ "<div class=\"col\">"
             /******/ "<p>used benchmark parameter %s</p>"
             /******/ "<p>executed %zu groups with %zu total <a "
-            "href=\"#benches\">benchmarks</a>:</p>"
+            "href=\"#benches-%zu\">benchmarks</a>:</p>"
             /******/ "<ol>",
-            meas_idx,                            //
-            param->name,                         //
-            base->group_count, base->bench_count //
+            meas_idx,                                      //
+            param->name,                                   //
+            base->group_count, base->bench_count, meas_idx //
     );
     foreach_group_by_avg_idx (grp_idx, al) {
         fprintf(f,
@@ -620,7 +624,9 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                 "<a href=\"#bench-group-%zu-%zu\">"
                 /**/ "<tt>%s</tt>"
                 "</a>",
-                grp_idx, meas_idx, bench_group_name(base, grp_idx));
+                grp_idx, meas_idx,              //
+                bench_group_name(base, grp_idx) //
+        );
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
