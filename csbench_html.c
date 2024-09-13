@@ -254,8 +254,8 @@ static void html_toc_bench(const struct analysis *al, FILE *f)
 static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     size_t meas_idx = al->meas_idx;
     fprintf(f, "<ol>");
     fprintf(f,
@@ -322,7 +322,7 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                     "<li>"
                     /**/ "<a href=\"#pval-cmps-%zu-%zu\"><tt>%s=%s</tt></a>"
                     /**/ "<ol>",
-                    val_idx, meas_idx, var->name, var->values[val_idx]);
+                    val_idx, meas_idx, param->name, param->values[val_idx]);
             size_t ref_idx = al->pval_cmps[val_idx].ref;
             foreach_group_by_avg_idx (grp_idx, al) {
                 if (ref_idx == grp_idx)
@@ -369,8 +369,8 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                     /****/ "<tt>%s=%s</tt>"
                     /**/ "</a>"
                     "</li>",
-                    grp_idx, val_idx, meas_idx,     //
-                    var->name, var->values[val_idx] //
+                    grp_idx, val_idx, meas_idx,         //
+                    param->name, param->values[val_idx] //
             );
         fprintf(f, "</ol>"
                    "</li>");
@@ -410,7 +410,7 @@ static void html_toc(const struct analysis *al, FILE *f)
 static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
+    const struct bench_param *param = base->param;
     const struct group_analysis *grp = al->group_analyses + grp_idx;
     size_t meas_idx = al->meas_idx;
     char fastest_mean[256], slowest_mean[256];
@@ -431,13 +431,13 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
             /****/ "</div>"
             /**/ "</div>"
             "</div>",
-            grp_idx, meas_idx,                            //
-            bench_group_name(base, grp_idx),              //
-            grp_idx, meas_idx,                            //
-            fastest_mean, var->name, grp->fastest->value, //
-            slowest_mean, var->name, grp->slowest->value, //
-            big_o_str(grp->regress.complexity),           //
-            grp->regress.a, grp->regress.rms              //
+            grp_idx, meas_idx,                              //
+            bench_group_name(base, grp_idx),                //
+            grp_idx, meas_idx,                              //
+            fastest_mean, param->name, grp->fastest->value, //
+            slowest_mean, param->name, grp->slowest->value, //
+            big_o_str(grp->regress.complexity),             //
+            grp->regress.a, grp->regress.rms                //
     );
 }
 
@@ -447,8 +447,8 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
     size_t grp_count = base->group_count;
     if (!grp_count || !g_regr)
         return;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     size_t meas_idx = al->meas_idx;
     fprintf(f,
             "<div id=\"regrs-%zu\">"
@@ -475,10 +475,10 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 grp_idx, meas_idx,               //
                 bench_group_name(base, grp_idx), //
                 grp_idx, meas_idx,               //
-                var->name                        //
+                param->name                      //
         );
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
-            fprintf(f, "<li>%s</li>", var->values[val_idx]);
+            fprintf(f, "<li>%s</li>", param->values[val_idx]);
         fprintf(f,
                 "</ol>"
                 /******/ "<p>lowest time %s with %s=%s</p>"
@@ -488,10 +488,10 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 /****/ "</div>"
                 /**/ "</div>"
                 "</div>",
-                fastest_mean, var->name, grp->fastest->value, //
-                slowest_mean, var->name, grp->slowest->value, //
-                big_o_str(grp->regress.complexity),           //
-                grp->regress.a, grp->regress.rms              //
+                fastest_mean, param->name, grp->fastest->value, //
+                slowest_mean, param->name, grp->slowest->value, //
+                big_o_str(grp->regress.complexity),             //
+                grp->regress.a, grp->regress.rms                //
         );
     } else {
         fprintf(f,
@@ -503,11 +503,11 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 /****/ "<p>made regression agains parameter %s</p>"
                 /****/ "<p>parameter values:</p>"
                 /****/ "<ol>",
-                meas_idx, //
-                var->name //
+                meas_idx,   //
+                param->name //
         );
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
-            fprintf(f, "<li>%s</li>", var->values[val_idx]);
+            fprintf(f, "<li>%s</li>", param->values[val_idx]);
         fprintf(f, "</ol>"
                    "</div>" // col
                    "</div>" // row
@@ -593,8 +593,8 @@ static void html_bench_summary(const struct meas_analysis *al, FILE *f)
 static void html_group_summary(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     size_t meas_idx = al->meas_idx;
     fprintf(f,
             "<div id=\"summary\">"
@@ -609,7 +609,7 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             "href=\"#benches\">benchmarks</a>:</p>"
             /******/ "<ol>",
             meas_idx,                            //
-            var->name,                           //
+            param->name,                         //
             base->group_count, base->bench_count //
     );
     foreach_group_by_avg_idx (grp_idx, al) {
@@ -644,8 +644,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                     /****/ "<tt>%s=%s</tt>"
                     /**/ "</a>"
                     "</li>",
-                    grp_idx, val_idx, meas_idx,     //
-                    var->name, var->values[val_idx] //
+                    grp_idx, val_idx, meas_idx,         //
+                    param->name, param->values[val_idx] //
             );
         fprintf(f, "</ol>"
                    "</li>");
@@ -658,7 +658,7 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                 "<li>"
                 "<tt>%s=%s</tt>"
                 "<ul>",
-                var->name, var->values[val_idx]);
+                param->name, param->values[val_idx]);
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         foreach_per_val_group_idx (grp_idx, val_idx, al) {
             if (grp_idx == ref_idx)
@@ -829,8 +829,8 @@ static void html_benches(const struct meas_analysis *al, FILE *f)
             fprintf(f, "</div>");
         }
     } else {
-        const struct bench_var *var = base->var;
-        size_t val_count = var->value_count;
+        const struct bench_param *param = base->param;
+        size_t val_count = param->value_count;
         foreach_group_by_avg_idx (grp_idx, al) {
             const struct group_analysis *grp_al = al->group_analyses + grp_idx;
             fprintf(f,
@@ -1012,9 +1012,9 @@ static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al, FI
 static void html_compare_groups_per_val_nav(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
+    const struct bench_param *param = base->param;
     size_t meas_idx = al->meas_idx;
-    size_t val_count = var->value_count;
+    size_t val_count = param->value_count;
     switch (g_sort_mode) {
     case SORT_RAW:
     case SORT_SPEED:
@@ -1033,7 +1033,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al, FILE
         fprintf(f,
                 "<div>"
                 "<h5><tt>%s=%s</tt></h5>",
-                var->name, var->values[val_idx]);
+                param->name, param->values[val_idx]);
         switch (g_sort_mode) {
         case SORT_RAW:
         case SORT_SPEED:
@@ -1100,8 +1100,8 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
 static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     size_t meas_idx = al->meas_idx;
     fprintf(f,
             "<div id=\"kde-cmps-%zu\">"
@@ -1151,8 +1151,8 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
         fprintf(f,
                 "<div id=\"pval-cmps-%zu-%zu\">"
                 "<h5><tt>%s=%s</tt></h5>",
-                val_idx, meas_idx,              //
-                var->name, var->values[val_idx] //
+                val_idx, meas_idx,                  //
+                param->name, param->values[val_idx] //
         );
         foreach_group_by_avg_idx (grp_idx, al) {
             if (ref_idx == grp_idx)
@@ -1229,6 +1229,8 @@ static void html_report(const struct analysis *al, FILE *f)
                "th { font-weight: 200 }"
                ".col { flex: 50%% }"
                ".row { display: flex }"
+               /* "@media (prefers-color-scheme: dark) { body { color:#c9d1d9; background:
+                  #0d1117 } a:link { color: #58a6ff } a:visited { color: #8e96f0 } }" */
                "</style></head>");
     fprintf(f, "<body>");
     html_toc(al, f);

@@ -109,25 +109,25 @@ const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
 // XXX: This is hack to use short names for files found in directory specified
-// with --inputd (otherwise because we create variable values which are full
-// names). When opening files and this variable is not null open it relative to
+// with --inputd (otherwise because we create parameter values which are full
+// names). When opening files and this variable is not null, open it relative to
 // this directory.
 const char *g_inputd = NULL;
 const char *g_override_bin_name = NULL;
 const char *g_baseline_name = NULL;
 const char *g_python_executable = "python3";
 
-static bool replace_var_str(char *buf, size_t buf_size, const char *src, const char *name,
-                            const char *value, bool *replaced)
+static bool replace_param_str(char *buf, size_t buf_size, const char *src, const char *name,
+                              const char *value, bool *replaced)
 {
     const char *buf_end = buf + buf_size;
-    size_t var_name_len = strlen(name);
+    size_t param_name_len = strlen(name);
     char *wr_cursor = buf;
     const char *rd_cursor = src;
     while (*rd_cursor) {
-        if (*rd_cursor == '{' && strncmp(rd_cursor + 1, name, var_name_len) == 0 &&
-            rd_cursor[var_name_len + 1] == '}') {
-            rd_cursor += 2 + var_name_len;
+        if (*rd_cursor == '{' && strncmp(rd_cursor + 1, name, param_name_len) == 0 &&
+            rd_cursor[param_name_len + 1] == '}') {
+            rd_cursor += 2 + param_name_len;
             size_t len = strlen(value);
             if (wr_cursor + len >= buf_end)
                 return false;
@@ -376,7 +376,7 @@ static void free_run_info(struct run_info *run_info)
     }
     sb_free(run_info->params);
     for (size_t i = 0; i < sb_len(run_info->groups); ++i) {
-        struct bench_var_group *group = run_info->groups + i;
+        struct bench_group *group = run_info->groups + i;
         free(group->cmd_idxs);
     }
     sb_free(run_info->groups);
@@ -504,15 +504,15 @@ enum cmd_multiplex_result {
 
 static enum cmd_multiplex_result
 multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
-                           const struct bench_var *var, struct command_info **multiplexed)
+                           const struct bench_param *param, struct command_info **multiplexed)
 {
     // Take first value and try to replace it in the command string
     char buf[4096];
     bool replaced = false;
-    if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name, var->values[0],
-                         &replaced)) {
-        error("failed to substitute parameter '%s' in string '%s' with value '%s'", var->name,
-              src_info->cmd, var->values[0]);
+    if (!replace_param_str(buf, sizeof(buf), src_info->cmd, param->name, param->values[0],
+                           &replaced)) {
+        error("failed to substitute parameter '%s' in string '%s' with value '%s'",
+              param->name, src_info->cmd, param->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
@@ -521,12 +521,12 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
 
     // We could reuse the string that is contained in buffer right now,
     // but it is a bit unecessary.
-    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-        const char *var_value = var->values[val_idx];
-        if (!replace_var_str(buf, sizeof(buf), src_info->cmd, var->name, var_value,
-                             &replaced)) {
+    for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
+        const char *param_value = param->values[val_idx];
+        if (!replace_param_str(buf, sizeof(buf), src_info->cmd, param->name, param_value,
+                               &replaced)) {
             error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  var->name, src_info->cmd, var_value);
+                  param->name, src_info->cmd, param_value);
             return CMD_MULTIPLEX_ERROR;
         }
         assert(replaced);
@@ -542,7 +542,8 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
 
 static enum cmd_multiplex_result
 multiplex_command_info_input(const struct command_info *src_info, size_t src_idx,
-                             const struct bench_var *var, struct command_info **multiplexed)
+                             const struct bench_param *param,
+                             struct command_info **multiplexed)
 {
     if (src_info->input.kind != INPUT_POLICY_FILE &&
         src_info->input.kind != INPUT_POLICY_STRING)
@@ -557,22 +558,23 @@ multiplex_command_info_input(const struct command_info *src_info, size_t src_idx
     assert(src_string);
     char buf[4096];
     bool replaced = false;
-    if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var->values[0],
-                         &replaced)) {
-        error("failed to substitute parameter '%s' in string '%s' with value '%s'", var->name,
-              src_info->cmd, var->values[0]);
+    if (!replace_param_str(buf, sizeof(buf), src_string, param->name, param->values[0],
+                           &replaced)) {
+        error("failed to substitute parameter '%s' in string '%s' with value '%s'",
+              param->name, src_info->cmd, param->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
     if (!replaced)
         return CMD_MULTIPLEX_NO_GROUPS;
 
-    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-        const char *var_value = var->values[val_idx];
-        if (!replace_var_str(buf, sizeof(buf), src_string, var->name, var_value, &replaced) ||
+    for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
+        const char *param_value = param->values[val_idx];
+        if (!replace_param_str(buf, sizeof(buf), src_string, param->name, param_value,
+                               &replaced) ||
             !replaced) {
             error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  var->name, src_info->cmd, var_value);
+                  param->name, src_info->cmd, param_value);
             return CMD_MULTIPLEX_ERROR;
         }
         struct command_info info;
@@ -594,7 +596,7 @@ multiplex_command_info_input(const struct command_info *src_info, size_t src_idx
     return CMD_MULTIPLEX_SUCCESS;
 }
 
-static enum cmd_multiplex_result multiplex_command_infos(const struct bench_var *var,
+static enum cmd_multiplex_result multiplex_command_infos(const struct bench_param *param,
                                                          struct command_info **infos)
 {
     struct command_info *multiplexed = NULL;
@@ -602,7 +604,7 @@ static enum cmd_multiplex_result multiplex_command_infos(const struct bench_var 
         const struct command_info *src_info = *infos + src_idx;
         int ret;
 
-        ret = multiplex_command_info_cmd(src_info, src_idx, var, &multiplexed);
+        ret = multiplex_command_info_cmd(src_info, src_idx, param, &multiplexed);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -612,7 +614,7 @@ static enum cmd_multiplex_result multiplex_command_infos(const struct bench_var 
             break;
         }
 
-        ret = multiplex_command_info_input(src_info, src_idx, var, &multiplexed);
+        ret = multiplex_command_info_input(src_info, src_idx, param, &multiplexed);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -731,7 +733,7 @@ static bool do_bench_renames(const struct rename_entry *rename_list, struct benc
     }
     if (storage) {
         for (size_t i = 0; i < storage->group_count; ++i) {
-            struct bench_var_group *group = storage->groups + i;
+            struct bench_group *group = storage->groups + i;
             (void)attempt_rename(rename_list, i, &group->name);
         }
     }
@@ -740,18 +742,19 @@ static bool do_bench_renames(const struct rename_entry *rename_list, struct benc
 
 static bool attempt_rename_with_param_value(const struct rename_entry *rename_list,
                                             size_t bench_idx,
-                                            const struct bench_var_group *groups,
-                                            const struct bench_var *var, const char **name)
+                                            const struct bench_group *groups,
+                                            const struct bench_param *param,
+                                            const char **name)
 {
-    size_t value_count = var->value_count;
+    size_t value_count = param->value_count;
     for (size_t grp_idx = 0; grp_idx < sb_len(groups); ++grp_idx) {
-        const struct bench_var_group *grp = groups + grp_idx;
+        const struct bench_group *grp = groups + grp_idx;
         for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
             if (grp->cmd_idxs[val_idx] != bench_idx)
                 continue;
             const char *tmp_name = *name;
             if (attempt_rename(rename_list, grp_idx, &tmp_name)) {
-                *name = csfmt("%s %s=%s", tmp_name, var->name, var->values[val_idx]);
+                *name = csfmt("%s %s=%s", tmp_name, param->name, param->values[val_idx]);
                 return true;
             }
         }
@@ -764,9 +767,9 @@ static void set_param_names(const struct settings *settings, struct run_info *in
     for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
         struct bench_params *params = info->params + bench_idx;
         if (sb_len(info->groups) != 0) {
-            assert(settings->has_var);
+            assert(settings->has_param);
             attempt_rename_with_param_value(settings->rename_list, bench_idx, info->groups,
-                                            &settings->var, &params->name);
+                                            &settings->param, &params->name);
         }
     }
 }
@@ -785,18 +788,18 @@ static bool init_benches(const struct settings *settings,
         return true;
     }
 
-    assert(settings->has_var);
+    assert(settings->has_param);
     size_t group_count = sb_last(cmd_infos).grp_idx + 1;
-    const struct bench_var *var = &settings->var;
+    const struct bench_param *param = &settings->param;
     const struct command_info *cmd_cursor = cmd_infos;
     for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
         assert(cmd_cursor->grp_idx == grp_idx);
-        struct bench_var_group group = {0};
+        struct bench_group group = {0};
         group.name = cmd_cursor->grp_name;
         (void)attempt_rename(settings->rename_list, sb_len(info->groups), &group.name);
-        group.cmd_count = var->value_count;
-        group.cmd_idxs = calloc(var->value_count, sizeof(*group.cmd_idxs));
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx, ++cmd_cursor) {
+        group.cmd_count = param->value_count;
+        group.cmd_idxs = calloc(param->value_count, sizeof(*group.cmd_idxs));
+        for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx, ++cmd_cursor) {
             if (!init_command(cmd_cursor, info, group.cmd_idxs + val_idx)) {
                 free(group.cmd_idxs);
                 return false;
@@ -815,8 +818,8 @@ static bool init_commands(const struct settings *settings, struct run_info *info
         return false;
 
     bool has_groups = false;
-    if (settings->has_var) {
-        int ret = multiplex_command_infos(&settings->var, &command_infos);
+    if (settings->has_param) {
+        int ret = multiplex_command_infos(&settings->param, &command_infos);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -921,8 +924,8 @@ static bool init_run_info(const struct settings *settings, struct run_info *info
 {
     memset(info, 0, sizeof(*info));
     info->meas = settings->meas;
-    if (settings->has_var)
-        info->var = &settings->var;
+    if (settings->has_param)
+        info->param = &settings->param;
 
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging,
@@ -970,7 +973,7 @@ static void init_bench_data(const struct meas *meas, size_t meas_count,
     data->meas = meas;
     data->group_count = sb_len(info->groups);
     data->groups = info->groups;
-    data->var = info->var;
+    data->param = info->param;
     data->bench_count = sb_len(info->params);
     data->benches = calloc(data->bench_count, sizeof(*data->benches));
     for (size_t i = 0; i < data->bench_count; ++i) {

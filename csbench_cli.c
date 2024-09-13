@@ -359,7 +359,7 @@ static bool parse_param_range_string(const char *settings, const char **namep, d
     return true;
 }
 
-static const char **range_to_var_value_list(double low, double high, double step)
+static const char **range_to_value_list(double low, double high, double step)
 {
     assert(high > low);
     const char **result = NULL;
@@ -682,7 +682,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -693,10 +693,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 exit(EXIT_FAILURE);
             settings->input.kind = INPUT_POLICY_FILE;
             settings->input.file = "{file}";
-            settings->var.name = "file";
-            settings->var.values = files;
-            settings->var.value_count = sb_len(files);
-            settings->has_var = true;
+            settings->param.name = "file";
+            settings->param.values = files;
+            settings->param.value_count = sb_len(files);
+            settings->has_param = true;
             g_inputd = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
@@ -798,7 +798,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             sb_free(list);
             g_rename_all_used = true;
         } else if (opt_arg(argv, &cursor, "--param-range", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -808,13 +808,13 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 error("invalid --param-range argument");
                 exit(EXIT_FAILURE);
             }
-            const char **value_list = range_to_var_value_list(low, high, step);
-            settings->var.name = name;
-            settings->var.values = value_list;
-            settings->var.value_count = sb_len(value_list);
-            settings->has_var = true;
+            const char **value_list = range_to_value_list(low, high, step);
+            settings->param.name = name;
+            settings->param.values = value_list;
+            settings->param.value_count = sb_len(value_list);
+            settings->has_param = true;
         } else if (opt_arg(argv, &cursor, "--param", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -824,10 +824,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 exit(EXIT_FAILURE);
             }
             const char **value_list = parse_comma_separated_list(param_list);
-            settings->var.name = name;
-            settings->var.values = value_list;
-            settings->var.value_count = sb_len(value_list);
-            settings->has_var = true;
+            settings->param.name = name;
+            settings->param.values = value_list;
+            settings->param.value_count = sb_len(value_list);
+            settings->has_param = true;
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"), "job count",
                                &g_threads)) {
         } else if (opt_time(argv, &cursor, OPT_ARR("--progress-bar-interval"), MU_US,
@@ -972,10 +972,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
 
 void free_settings(struct settings *settings)
 {
-    if (settings->has_var) {
-        struct bench_var *var = &settings->var;
-        assert(sb_len(var->values) == var->value_count);
-        sb_free(var->values);
+    if (settings->has_param) {
+        struct bench_param *param = &settings->param;
+        assert(sb_len(param->values) == param->value_count);
+        sb_free(param->values);
     }
     sb_free(settings->args);
     sb_free(settings->meas);

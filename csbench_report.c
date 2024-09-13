@@ -236,8 +236,8 @@ static bool plot_walker(bool (*walk)(struct plot_walker_args *args),
                 return false;
         }
     } else {
-        const struct bench_var *var = base->var;
-        size_t val_count = var->value_count;
+        const struct bench_param *param = base->param;
+        size_t val_count = param->value_count;
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             size_t ref_idx = al->pval_cmps[val_idx].ref;
             foreach_per_val_group_idx (grp_idx, val_idx, al) {
@@ -551,14 +551,14 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
     } else if (g_desired_plots &
                (MAKE_PLOT_KDE_CMP_PER_VAL | MAKE_PLOT_KDE_CMP_PER_VAL_SMALL |
                 MAKE_PLOT_KDE_CMP_ALL_GROUPS)) {
-        const struct bench_var *var = base->var;
-        size_t val_count = var->value_count;
+        const struct bench_param *param = base->param;
+        size_t val_count = param->value_count;
         if (g_desired_plots & MAKE_PLOT_KDE_CMP_PER_VAL_SMALL) {
             fprintf(f, "### benchmark KDE comparison (small)\n");
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
                 size_t ref_idx = al->pval_cmps[val_idx].ref;
                 const char *ref_name = bench_group_name(base, ref_idx);
-                fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
+                fprintf(f, "#### %s=%s\n", param->name, param->values[val_idx]);
                 foreach_per_val_group_idx (grp_idx, val_idx, al) {
                     if (grp_idx == ref_idx)
                         continue;
@@ -575,7 +575,7 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
                 size_t ref_idx = al->pval_cmps[val_idx].ref;
                 const char *ref_name = bench_group_name(base, ref_idx);
-                fprintf(f, "#### %s=%s\n", var->name, var->values[val_idx]);
+                fprintf(f, "#### %s=%s\n", param->name, param->values[val_idx]);
                 foreach_per_val_group_idx (grp_idx, val_idx, al) {
                     if (grp_idx == ref_idx)
                         continue;
@@ -641,8 +641,8 @@ static void export_csv_bench_raw(const struct bench *bench, const struct analysi
 static void export_csv_group(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
-    assert(base->group_count > 0 && base->var);
-    fprintf(f, "%s,", base->var->name);
+    assert(base->group_count > 0 && base->param);
+    fprintf(f, "%s,", base->param->name);
     for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
         char buf[4096];
         json_escape(buf, sizeof(buf), bench_group_name(base, grp_idx));
@@ -651,8 +651,8 @@ static void export_csv_group(const struct meas_analysis *al, FILE *f)
             fprintf(f, ",");
     }
     fprintf(f, "\n");
-    for (size_t val_idx = 0; val_idx < base->var->value_count; ++val_idx) {
-        fprintf(f, "%s,", base->var->values[val_idx]);
+    for (size_t val_idx = 0; val_idx < base->param->value_count; ++val_idx) {
+        fprintf(f, "%s,", base->param->values[val_idx]);
         for (size_t grp_idx = 0; grp_idx < base->group_count; ++grp_idx) {
             fprintf(f, "%g", al->group_analyses[grp_idx].data[val_idx].mean);
             if (grp_idx != base->group_count - 1)
@@ -684,12 +684,12 @@ static void export_csv_bench_stats(const struct meas_analysis *al, FILE *f)
 static void export_csv_group_raw(const struct meas_analysis *al, size_t grp_idx, FILE *f)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
+    const struct bench_param *param = base->param;
     const struct group_analysis *group = al->group_analyses + grp_idx;
-    size_t val_count = var->value_count;
+    size_t val_count = param->value_count;
     for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
         const struct distr *distr = group->data[val_idx].distr;
-        fprintf(f, "%s=%s", var->name, var->values[val_idx]);
+        fprintf(f, "%s=%s", param->name, param->values[val_idx]);
         for (size_t run_idx = 0; run_idx < distr->count; ++run_idx)
             fprintf(f, ",%g", distr->data[run_idx]);
         fprintf(f, "\n");
@@ -1108,23 +1108,23 @@ size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al)
 static void print_group_per_value_speedups(const struct meas_analysis *al, bool abbr_names)
 {
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t value_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t value_count = param->value_count;
 
-    // Align all var=value strings
-    size_t max_var_desc_len = 0;
-    for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
-        const char *value = var->values[val_idx];
-        size_t len = snprintf(NULL, 0, "%s=%s:", var->name, value);
-        if (len > max_var_desc_len)
-            max_var_desc_len = len;
+    // Align all param=value strings
+    size_t max_param_desc_len = 0;
+    for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
+        const char *value = param->values[val_idx];
+        size_t len = snprintf(NULL, 0, "%s=%s:", param->name, value);
+        if (len > max_param_desc_len)
+            max_param_desc_len = len;
     }
 
     for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-        const char *value = var->values[val_idx];
+        const char *value = param->values[val_idx];
         size_t ref_idx = al->pval_cmps[val_idx].ref;
-        size_t len = printf("%s=%s:", var->name, value);
-        for (; len < max_var_desc_len; ++len)
+        size_t len = printf("%s=%s:", param->name, value);
+        for (; len < max_param_desc_len; ++len)
             printf(" ");
 
         if (base->group_count > 2) {

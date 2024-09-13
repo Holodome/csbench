@@ -67,11 +67,11 @@ struct csbench_binary_header {
     uint64_t bench_count;
     uint64_t group_count;
 
-    uint8_t has_var;
+    uint8_t has_param;
     uint8_t reserved0[7];
 
-    uint64_t var_offset;
-    uint64_t var_size;
+    uint64_t param_offset;
+    uint64_t param_size;
     uint64_t meas_offset;
     uint64_t meas_size;
     uint64_t groups_offset;
@@ -134,24 +134,24 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f)
     uint64_t cursor = sizeof(struct csbench_binary_header);
     assert(!(cursor & 0x7));
 
-    if (data->var != NULL) {
-        header.has_var = 1;
-        header.var_offset = cursor;
+    if (data->param != NULL) {
+        header.has_param = 1;
+        header.param_offset = cursor;
         if (fseek(f, cursor, SEEK_SET) == -1) {
             csperror("fseek");
             return false;
         }
-        write_str__(data->var->name, f);
-        write_u64__(data->var->value_count, f);
-        for (size_t i = 0; i < data->var->value_count; ++i)
-            write_str__(data->var->values[i], f);
+        write_str__(data->param->name, f);
+        write_u64__(data->param->value_count, f);
+        for (size_t i = 0; i < data->param->value_count; ++i)
+            write_str__(data->param->values[i], f);
 
         int at = ftell(f);
         if (at == -1) {
             csperror("ftell");
             return false;
         }
-        header.var_size = (uint64_t)at - header.var_offset;
+        header.param_size = (uint64_t)at - header.param_offset;
         cursor = ((uint64_t)at + 0x7) & ~0x7;
     }
 
@@ -183,16 +183,16 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f)
     }
 
     if (data->group_count != 0) {
-        assert(data->var);
+        assert(data->param);
         if (fseek(f, cursor, SEEK_SET) == -1) {
             csperror("fseek");
             return false;
         }
         header.groups_offset = cursor;
         for (size_t i = 0; i < data->group_count; ++i) {
-            const struct bench_var_group *grp = data->groups + i;
+            const struct bench_group *grp = data->groups + i;
             write_str__(grp->name, f);
-            assert(grp->cmd_count == data->var->value_count);
+            assert(grp->cmd_count == data->param->value_count);
             write_u64__(grp->cmd_count, f);
             for (size_t j = 0; j < grp->cmd_count; ++j)
                 write_u64__(grp->cmd_idxs[j], f);
@@ -291,26 +291,26 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         return false;
     }
 
-    if (header.has_var) {
-        if (fseek(f, header.var_offset, SEEK_SET) == -1) {
+    if (header.has_param) {
+        if (fseek(f, header.param_offset, SEEK_SET) == -1) {
             csperror("fseek");
             goto err_raw;
         }
 
-        storage->has_var = true;
-        read_str__(storage->var.name, f);
-        read_u64__(storage->var.value_count, f);
-        sb_resize(storage->var.values, storage->var.value_count);
-        for (size_t i = 0; i < storage->var.value_count; ++i)
-            read_str__(storage->var.values[i], f);
-        data->var = &storage->var;
+        storage->has_param = true;
+        read_str__(storage->param.name, f);
+        read_u64__(storage->param.value_count, f);
+        sb_resize(storage->param.values, storage->param.value_count);
+        for (size_t i = 0; i < storage->param.value_count; ++i)
+            read_str__(storage->param.values[i], f);
+        data->param = &storage->param;
 
         int at = ftell(f);
         if (at == -1) {
             csperror("ftell");
             goto err_raw;
         }
-        if ((uint64_t)at != header.var_offset + header.var_size)
+        if ((uint64_t)at != header.param_offset + header.param_size)
             goto corrupted;
     }
 
@@ -347,7 +347,7 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     }
 
     if (header.group_count) {
-        if (!data->var)
+        if (!data->param)
             goto corrupted;
         if (fseek(f, header.groups_offset, SEEK_SET) == -1) {
             csperror("fseek");
@@ -357,10 +357,10 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         storage->group_count = header.group_count;
         storage->groups = calloc(header.group_count, sizeof(*storage->groups));
         for (size_t i = 0; i < header.group_count; ++i) {
-            struct bench_var_group *grp = storage->groups + i;
+            struct bench_group *grp = storage->groups + i;
             read_str__(grp->name, f);
             read_u64__(grp->cmd_count, f);
-            if (grp->cmd_count != data->var->value_count)
+            if (grp->cmd_count != data->param->value_count)
                 goto corrupted;
             grp->cmd_idxs = calloc(grp->cmd_count, sizeof(*grp->cmd_idxs));
             for (size_t j = 0; j < grp->cmd_count; ++j)
@@ -452,8 +452,8 @@ static bool load_bench_data_binary_file(const char *filename, struct bench_data 
 
 void free_bench_data_storage(struct bench_data_storage *storage)
 {
-    if (storage->has_var) {
-        sb_free(storage->var.values);
+    if (storage->has_param) {
+        sb_free(storage->param.values);
     }
     if (storage->meas) {
         free(storage->meas);
@@ -484,7 +484,7 @@ static bool meas_match(const struct meas *a, const struct meas *b)
     return true;
 }
 
-static bool vars_match(const struct bench_var *a, const struct bench_var *b)
+static bool params_match(const struct bench_param *a, const struct bench_param *b)
 {
     if (strcmp(a->name, b->name) != 0)
         return false;
@@ -503,9 +503,9 @@ static bool bench_data_match(const struct bench_data *a, const struct bench_data
     for (size_t j = 0; j < a->meas_count; ++j)
         if (!meas_match(a->meas + j, b->meas + j))
             return false;
-    if (((a->var != NULL) != (b->var != NULL)))
+    if (((a->param != NULL) != (b->param != NULL)))
         return false;
-    if (a->var != NULL && !vars_match(a->var, b->var))
+    if (a->param != NULL && !params_match(a->param, b->param))
         return false;
     return true;
 }
@@ -529,14 +529,14 @@ static bool merge_bench_data(struct bench_data *src_datas,
     memset(data, 0, sizeof(*data));
     memset(storage, 0, sizeof(*storage));
 
-    // Move measurements and variable
-    storage->has_var = src_storages[0].has_var;
-    if (storage->has_var)
-        data->var = &storage->var;
-    memcpy(&storage->var, &src_storages[0].var, sizeof(storage->var));
+    // Move measurements and param
+    storage->has_param = src_storages[0].has_param;
+    if (storage->has_param)
+        data->param = &storage->param;
+    memcpy(&storage->param, &src_storages[0].param, sizeof(storage->param));
     data->meas_count = storage->meas_count = src_storages[0].meas_count;
     data->meas = storage->meas = src_storages[0].meas;
-    src_storages[0].has_var = false;
+    src_storages[0].has_param = false;
     src_storages[0].meas_count = 0;
     src_storages[0].meas = NULL;
     // Make new benchmark list
@@ -553,16 +553,16 @@ static bool merge_bench_data(struct bench_data *src_datas,
         src->bench_count = 0;
     }
     // Make new group list
-    if (data->var) {
+    if (data->param) {
         data->group_count = storage->group_count = total_group_count;
         data->groups = storage->groups = calloc(total_group_count, sizeof(*storage->groups));
         for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count; ++i) {
             struct bench_data_storage *src = src_storages + i;
             memcpy(storage->groups + group_cursor, src->groups,
-                   sizeof(struct bench_var_group) * src->group_count);
+                   sizeof(struct bench_group) * src->group_count);
             // Fixup command indexes
             for (size_t j = 0; j < src->group_count; ++j) {
-                assert(src->groups[j].cmd_count == data->var->value_count);
+                assert(src->groups[j].cmd_count == data->param->value_count);
                 for (size_t k = 0; k < src->groups[j].cmd_count; ++k)
                     storage->groups[group_cursor + j].cmd_idxs[k] += bench_cursor;
                 bench_cursor += src->groups[j].cmd_count;
@@ -832,8 +832,8 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
     memset(data, 0, sizeof(*data));
     memset(storage, 0, sizeof(*storage));
 
-    // TODO: add support for variables
-    storage->has_var = false;
+    // TODO: add support for params
+    storage->has_param = false;
     storage->meas_count = 1;
     storage->meas = calloc(1, sizeof(*storage->meas));
     init_parsed_text_meas(parsed, storage->meas);

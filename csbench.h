@@ -151,13 +151,13 @@ struct meas {
 };
 
 // Variable which can be substitued in command string.
-struct bench_var {
+struct bench_param {
     const char *name;
     const char **values;
     size_t value_count;
 };
 
-struct bench_var_group {
+struct bench_group {
     const char *name;
     size_t cmd_count;
     size_t *cmd_idxs; // [cmd_count]
@@ -224,12 +224,12 @@ struct bench {
 };
 
 struct bench_data_storage {
-    bool has_var;
-    struct bench_var var;
+    bool has_param;
+    struct bench_param param;
     size_t meas_count;
     struct meas *meas; // [meas_count]
     size_t group_count;
-    struct bench_var_group *groups; // [group_count]
+    struct bench_group *groups; // [group_count]
 };
 
 struct bench_data {
@@ -238,8 +238,8 @@ struct bench_data {
     size_t bench_count;
     struct bench *benches; // [bench_count]
     size_t group_count;
-    const struct bench_var_group *groups; // [group_count]
-    const struct bench_var *var;
+    const struct bench_group *groups; // [group_count]
+    const struct bench_param *param;
 };
 
 struct bench_analysis {
@@ -277,8 +277,8 @@ struct ols_regress {
 };
 
 struct group_analysis {
-    const struct bench_var_group *group;
-    struct cmd_in_group_data *data; // [var->value_count]
+    const struct bench_group *group;
+    struct cmd_in_group_data *data; // [value_count]
     // Pointers to 'data' elements
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
@@ -363,8 +363,8 @@ struct meas_analysis {
 struct analysis {
     // This pointer is const because respective memory is owned by 'struct
     // run_info' instance'
-    const struct bench_var_group *groups; // [group_count]
-    const struct bench_var *var;
+    const struct bench_group *groups; // [group_count]
+    const struct bench_param *param;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
@@ -377,9 +377,9 @@ struct analysis {
 
 struct run_info {
     struct bench_params *params;
-    struct bench_var_group *groups;
+    struct bench_group *groups;
     const struct meas *meas;
-    const struct bench_var *var;
+    const struct bench_param *param;
 };
 
 struct bench_stop_policy {
@@ -416,7 +416,7 @@ struct output_anchor {
 };
 
 // Instruction to rename certain benchmark. 'n' refers to individual
-// benchmark when variable is not used, otherwise it refers to benchmark
+// benchmark when parameter is not used, otherwise it refers to benchmark
 // group.
 struct rename_entry {
     size_t n;
@@ -431,8 +431,8 @@ struct settings {
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
-    bool has_var;
-    struct bench_var var;
+    bool has_param;
+    struct bench_param param;
     struct rename_entry *rename_list;
 };
 

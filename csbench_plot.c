@@ -1,4 +1,4 @@
-// csbench
+// csbenchr
 // command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
@@ -311,12 +311,12 @@ static void init_bar_plot(const struct meas_analysis *al, struct bar_plot *plot)
 static void init_group_bar(const struct meas_analysis *al, struct group_bar_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
-    const struct bench_var *var = al->base->var;
+    const struct bench_param *param = al->base->param;
     size_t grp_count = al->base->group_count;
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
         const struct group_analysis *grp_al = al->group_analyses + grp_idx;
-        for (size_t j = 0; j < var->value_count; ++j) {
+        for (size_t j = 0; j < param->value_count; ++j) {
             double v = grp_al->data[j].mean;
             if (v > max)
                 max = v;
@@ -332,7 +332,7 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
                             struct group_regr_plot *plot)
 {
     memset(plot, 0, sizeof(*plot));
-    const struct bench_var *var = al->base->var;
+    const struct bench_param *param = al->base->param;
     plot->al = al;
     plot->idx = idx;
     if (idx == (size_t)-1) {
@@ -345,7 +345,7 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
 
     double max = -INFINITY, min = INFINITY;
     for (size_t grp_idx = 0; grp_idx < plot->count; ++grp_idx) {
-        for (size_t i = 0; i < var->value_count; ++i) {
+        for (size_t i = 0; i < param->value_count; ++i) {
             double v = plot->als[grp_idx].data[i].mean;
             if (v > max)
                 max = v;
@@ -362,7 +362,7 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
             double low = plot->als[grp_idx].data[0].value_double;
             if (low < plot->lowest_x)
                 plot->lowest_x = low;
-            double high = plot->als[grp_idx].data[var->value_count - 1].value_double;
+            double high = plot->als[grp_idx].data[param->value_count - 1].value_double;
             if (high > plot->highest_x)
                 plot->highest_x = high;
         }
@@ -370,7 +370,7 @@ static void init_group_regr(const struct meas_analysis *al, size_t idx,
         double low = plot->als[0].data[0].value_double;
         if (low < plot->lowest_x)
             plot->lowest_x = low;
-        double high = plot->als[0].data[var->value_count - 1].value_double;
+        double high = plot->als[0].data[param->value_count - 1].value_double;
         if (high > plot->highest_x)
             plot->highest_x = high;
     }
@@ -488,7 +488,7 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al, s
                                                size_t val_idx, bool is_small,
                                                struct kde_cmp_plot *plot)
 {
-    const struct bench_var *var = al->base->var;
+    const struct bench_param *param = al->base->param;
     size_t ref_idx = al->pval_cmps[val_idx].ref;
     const struct group_analysis *a_grp = al->group_analyses + ref_idx;
     const struct group_analysis *b_grp = al->group_analyses + grp_idx;
@@ -498,8 +498,8 @@ static void init_kde_cmp_per_val_plot_internal(const struct meas_analysis *al, s
     const char *b_name = bench_group_name(al->base, grp_idx);
     double p_value = ref_idx == al->pval_cmps[val_idx].p_values[grp_idx];
     double diff = al->pval_cmps[val_idx].speedups[grp_idx].est.point;
-    const char *title = csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", var->name,
-                              var->values[val_idx], a_name, b_name, p_value, diff);
+    const char *title = csfmt("%s=%s %s vs %s p=%.2f diff=%.3fx", param->name,
+                              param->values[val_idx], a_name, b_name, p_value, diff);
     init_kde_cmp_plot_internal1(al, ref_idx, grp_idx, a, b, a_name, b_name, title, is_small,
                                 plot);
 }
@@ -516,8 +516,8 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al, size_t grp_i
     memset(plot, 0, sizeof(*plot));
     size_t ref_idx = al->group_avg_cmp.ref;
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     size_t point_count = KDE_POINT_COUNT;
     plot->rows = find_closest_lower_square(val_count);
     if (plot->rows > 5)
@@ -556,8 +556,8 @@ static void init_kde_cmp_group_plot(const struct meas_analysis *al, size_t grp_i
         cmp->max_y = max_y;
         double p_value = al->group_avg_cmp.pval_cmps[val_idx].p_values[grp_idx];
         double diff = al->group_avg_cmp.pval_cmps[val_idx].speedups[grp_idx].est.point;
-        cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->var->name,
-                           al->base->var->values[val_idx], p_value, diff);
+        cmp->title = csfmt("%s=%s p=%.2f diff=%.3fx", al->base->param->name,
+                           al->base->param->values[val_idx], p_value, diff);
     }
 }
 
@@ -619,13 +619,13 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
 {
     const struct meas_analysis *al = plot->al;
     const struct analysis *base = al->base;
-    const struct bench_var *var = base->var;
+    const struct bench_param *param = base->param;
     const struct plot_view *view = &plot->view;
-    size_t val_count = var->value_count;
+    size_t val_count = param->value_count;
     FILE *f = ctx->f;
-    fprintf(f, "var_values = [");
+    fprintf(f, "param_values = [");
     for (size_t i = 0; i < val_count; ++i)
-        fprintf(f, "'%s', ", var->values[i]);
+        fprintf(f, "'%s', ", param->values[i]);
     fprintf(f, "]\n");
     fprintf(f, "times = {");
     foreach_group_by_avg_idx (grp_idx, al) {
@@ -644,7 +644,7 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n"
                "import numpy as np\n"
-               "x = np.arange(len(var_values))\n"
+               "x = np.arange(len(param_values))\n"
                "width = 1.0 / (len(times) + 1)\n"
                "multiplier = 0\n"
                "fig, ax = plt.subplots()\n"
@@ -657,7 +657,7 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
         fprintf(f, "ax.set_yscale('log')\n");
     fprintf(f,
             "ax.set_ylabel(r'%s [%s]')\n"
-            "plt.xticks(x + width * (%zu - 1) / 2, var_values)\n"
+            "plt.xticks(x + width * (%zu - 1) / 2, param_values)\n"
             "ax.set_axisbelow(True)\n"
             "plt.grid(axis='y')\n"
             "plt.legend(loc='best')\n"
@@ -671,13 +671,13 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
 static void make_group_regr_mpl(const struct group_regr_plot *plot,
                                 struct plot_maker_ctx *ctx)
 {
-    const struct bench_var *var = plot->al->base->var;
+    const struct bench_param *param = plot->al->base->param;
     const struct group_analysis *als = plot->als;
     const struct plot_view *view = &plot->view;
     size_t count = plot->count;
     FILE *f = ctx->f;
     fprintf(f, "x = [");
-    for (size_t i = 0; i < var->value_count; ++i) {
+    for (size_t i = 0; i < param->value_count; ++i) {
         double v = als[0].data[i].value_double;
         fprintf(f, "%g,", v);
     }
@@ -686,13 +686,13 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     if (plot->count != 1) {
         foreach_group_by_avg_idx (grp_idx, plot->al) {
             fprintf(f, "[");
-            for (size_t i = 0; i < var->value_count; ++i)
+            for (size_t i = 0; i < param->value_count; ++i)
                 fprintf(f, "%g,", als[grp_idx].data[i].mean * view->multiplier);
             fprintf(f, "],");
         }
     } else {
         fprintf(f, "[");
-        for (size_t i = 0; i < var->value_count; ++i)
+        for (size_t i = 0; i < param->value_count; ++i)
             fprintf(f, "%g,", als[0].data[i].mean * view->multiplier);
         fprintf(f, "],");
     }
@@ -745,7 +745,7 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
             "plt.xlabel(r'%s')\n"
             "plt.ylabel(r'%s [%s]')\n"
             "plt.savefig(r'%s', bbox_inches='tight')\n",
-            var->name,                             //
+            param->name,                           //
             plot->al->meas->name, view->units_str, //
             ctx->image_filename                    //
     );
@@ -1299,8 +1299,8 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
     const struct meas_analysis *al = plot->al;
     const struct analysis *base = al->base;
     const struct plot_view *view = &plot->view;
-    const struct bench_var *var = base->var;
-    size_t val_count = var->value_count;
+    const struct bench_param *param = base->param;
+    size_t val_count = param->value_count;
     FILE *f = ctx->f;
     const char *dat_name = NULL;
     {
@@ -1308,7 +1308,7 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
         if (dat == NULL)
             return false;
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-            fprintf(dat, "\"%s\"", var->values[val_idx]);
+            fprintf(dat, "\"%s\"", param->values[val_idx]);
             foreach_group_by_avg_idx (grp_idx, al) {
                 fprintf(dat, "\t%g\t%g",
                         al->group_analyses[grp_idx].data[val_idx].mean * view->multiplier,
@@ -1334,7 +1334,7 @@ static bool make_group_bar_gnuplot(const struct group_bar_plot *plot,
             "set ylabel '%s [%s]'\n"
             "set yrange [0:*]\n",
             ctx->image_filename,            //
-            var->name,                      //
+            param->name,                    //
             al->meas->name, view->units_str //
     );
     if (view->logscale)
@@ -1357,14 +1357,14 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
 {
     const struct plot_view *view = &plot->view;
     const struct group_analysis *als = plot->als;
-    const struct bench_var *var = plot->al->base->var;
+    const struct bench_param *param = plot->al->base->param;
     FILE *f = ctx->f;
     const char *dat1_name = NULL, *dat2_name = NULL;
     {
         FILE *dat1 = gnuplot_data_file(ctx, &dat1_name);
         if (dat1 == NULL)
             return false;
-        for (size_t val_idx = 0; val_idx < var->value_count; ++val_idx) {
+        for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
             fprintf(dat1, "%g", als[0].data[val_idx].value_double);
             if (plot->count != 1) {
                 foreach_group_by_avg_idx (grp_idx, plot->al)
@@ -1398,9 +1398,9 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
         fclose(dat2);
     }
     fprintf(f, "set xtics (");
-    for (size_t i = 0; i < var->value_count; ++i) {
-        fprintf(f, "%s", var->values[i]);
-        if (i != var->value_count - 1)
+    for (size_t i = 0; i < param->value_count; ++i) {
+        fprintf(f, "%s", param->values[i]);
+        if (i != param->value_count - 1)
             fprintf(f, ", ");
     }
     fprintf(f, ")\n");
@@ -1413,7 +1413,7 @@ static bool make_group_regr_gnuplot(const struct group_regr_plot *plot,
             "set grid\n"
             "set offset graph 0.1, graph 0.1, graph 0.1, graph 0.1\n",
             ctx->image_filename,                  //
-            var->name,                            //
+            param->name,                          //
             plot->al->meas->name, view->units_str //
     );
     if (view->logscale)
