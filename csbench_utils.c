@@ -525,7 +525,7 @@ static double t_statistic(const double *a, size_t n1, const double *b, size_t n2
 
 double ttest(const double *a, size_t n1, const double *b, size_t n2, size_t nresamp)
 {
-    // This uses algorithm as described in
+    // This uses algorithm described in
     // https://en.wikipedia.org/wiki/Bootstrapping_(statistics)#Bootstrap_hypothesis_testing
     double t = t_statistic(a, n1, b, n2);
     double a_mean = 0, b_mean = 0, z_mean = 0;
