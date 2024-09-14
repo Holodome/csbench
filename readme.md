@@ -70,13 +70,13 @@ fastest command ls
 But just measuring execution time of commands is not very interesting. 
 `csbench` can be used to extract data from command output and analyze it. 
 In this example SQL script is run under `EXPLAIN ANALYZE`, which prints execution time of whole query as well as individual operators. 
-Here we add custom measurement named `exec`, which uses shell command to extract query execution time from command output.
+Here we add custom measurement named `exec`, which uses regular expression to extract query execution time from command output.
 
 ```
-$ csbench 'psql postgres -f 8q.sql' --custom-x exec ms 'grep "Execution Time" | grep -o -E "[.0-9]+"' -R 100 --no-default-meas
+$ csbench 'psql postgres -f 8q.sql' --custom-re exec ms 'Execution Time: ([0-9.]*)' -R 100 --no-default-meas
 100 runs
 measurement exec
-benchmark psql postgres -f $HOME/study/bmstu/sem5_db/lab_03/8q.sql
+benchmark psql postgres -f 8q.sql
  q{024} 14.14 ms 14.65 ms 19.66 ms
    mean 14.65 ms 14.73 ms 14.86 ms
  st dev 102.4 μs 547.5 μs 916.3 μs
@@ -113,9 +113,9 @@ start = timer()
 quicksort(arr)
 end = timer()
 print(end - start)
-$ csbench 'python3 quicksort.py' --custom t --inputs '{n}' --param-range n/100/10000/1000 --html --no-default-meas --regr
+$ csbench 'python3 quicksort.py' --rename-all quicksort --custom t --inputs '{n}' --param-range n/100/10000/1000 --html --no-default-meas --regr 
 ...
-linearithmic (O(N*log(N))) complexity (1.12172e-07)
+linearithmic (O(N*log(N))) complexity (r2=0.94)
 ```
 
 In the following example access to performance counters (cycles and instructions) and `struct rusage` (`ru_stime`, `ru_utime`, `ru_maxrss` field) is shown.

@@ -117,12 +117,14 @@ static cssort_compar(bench_sort_cmp)
     const struct bench_sort_state *state = statep;
     size_t a_idx = *(const size_t *)ap;
     size_t b_idx = *(const size_t *)bp;
-    if (a_idx == b_idx)
-        return 0;
-
+    assert(a_idx != b_idx);
     double va = state->analyses[a_idx].meas[state->meas_idx].mean.point;
     double vb = state->analyses[b_idx].meas[state->meas_idx].mean.point;
-    return va > vb;
+    if (va < vb)
+        return -1;
+    if (va > vb)
+        return 1;
+    return 0;
 }
 
 static void compare_benches(struct analysis *al)
@@ -131,7 +133,6 @@ static void compare_benches(struct analysis *al)
         return;
     size_t bench_count = al->bench_count;
     size_t meas_count = al->meas_count;
-    assert(meas_count != 0);
     for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
         // We don't do comparison for secondary measurements
         if (al->meas[meas_idx].is_secondary)
@@ -144,8 +145,7 @@ static void compare_benches(struct analysis *al)
         for (size_t i = 0; i < bench_count; ++i)
             al->meas_analyses[meas_idx].bench_by_mean_time[i] = i;
         cssort_ext(al->meas_analyses[meas_idx].bench_by_mean_time, bench_count,
-                   sizeof(*al->meas_analyses[meas_idx].bench_by_mean_time), bench_sort_cmp,
-                   &state);
+                   sizeof(size_t), bench_sort_cmp, &state);
     }
 }
 
@@ -222,15 +222,17 @@ static cssort_compar(val_bench_sort_cmp)
     size_t val_idx = state->val_idx;
     size_t a_idx = *(const size_t *)ap;
     size_t b_idx = *(const size_t *)bp;
-    if (a_idx == b_idx)
-        return 0;
-
+    assert(a_idx != b_idx);
     double va = state->group_analyses[a_idx].data[val_idx].mean;
     double vb = state->group_analyses[b_idx].data[val_idx].mean;
-    return va > vb;
+    if (va < vb)
+        return -1;
+    if (va > vb)
+        return 1;
+    return 0;
 }
 
-static void calculate_fastest_bench_per_value(struct meas_analysis *al)
+static void calculate_per_val_by_speed(struct meas_analysis *al)
 {
     const struct analysis *base = al->base;
     size_t grp_count = base->group_count;
@@ -246,9 +248,8 @@ static void calculate_fastest_bench_per_value(struct meas_analysis *al)
         // Initialize array with indexes for sorting
         for (size_t i = 0; i < base->group_count; ++i)
             al->val_benches_by_mean_time[val_idx][i] = i;
-        cssort_ext(al->val_benches_by_mean_time[val_idx], base->group_count,
-                   sizeof(*al->val_benches_by_mean_time[val_idx]), val_bench_sort_cmp,
-                   &state);
+        cssort_ext(al->val_benches_by_mean_time[val_idx], base->group_count, sizeof(size_t),
+                   val_bench_sort_cmp, &state);
     }
 }
 
@@ -483,10 +484,12 @@ static cssort_compar(accum_idx_sort_cmp)
     (void)statep;
     const struct accum_idx *a = ap;
     const struct accum_idx *b = bp;
-    if (a->idx == b->idx)
-        return 0;
-
-    return a->accum > b->accum;
+    assert(a->idx != b->idx);
+    if (a->idx < b->idx)
+        return -1;
+    if (a->idx > b->idx)
+        return 1;
+    return 0;
 }
 
 static void calculate_groups_by_avg_speed(struct meas_analysis *al)
@@ -539,7 +542,7 @@ static void calculate_groups_by_avg_speed(struct meas_analysis *al)
         group_total_accum[i].idx = i;
     }
 
-    cssort_ext(group_total_accum, grp_count, sizeof(*group_total_accum), accum_idx_sort_cmp,
+    cssort_ext(group_total_accum, grp_count, sizeof(struct accum_idx), accum_idx_sort_cmp,
                NULL);
     for (size_t i = 0; i < grp_count; ++i)
         al->groups_by_avg_speed[i] = group_total_accum[i].idx;
@@ -573,12 +576,14 @@ static cssort_compar(group_total_sort_cmp)
     const struct meas_analysis *al = statep;
     size_t a_idx = *(const size_t *)ap;
     size_t b_idx = *(const size_t *)bp;
-    if (a_idx == b_idx)
-        return 0;
-
+    assert(a_idx != b_idx);
     double va = al->group_sum_cmp.times[a_idx].point;
     double vb = al->group_sum_cmp.times[b_idx].point;
-    return va > vb;
+    if (va < vb)
+        return -1;
+    if (va > vb)
+        return 1;
+    return 0;
 }
 
 static void calculate_groups_total_time(struct meas_analysis *al)
@@ -609,8 +614,8 @@ static void calculate_groups_total_time(struct meas_analysis *al)
     // Initialize array with indexes for sorting
     for (size_t i = 0; i < grp_count; ++i)
         al->groups_by_total_speed[i] = i;
-    cssort_ext(al->groups_by_total_speed, grp_count, sizeof(*al->groups_by_total_speed),
-               group_total_sort_cmp, al);
+    cssort_ext(al->groups_by_total_speed, grp_count, sizeof(size_t), group_total_sort_cmp,
+               al);
 }
 
 static void calculate_groups_by_sum_speed(struct meas_analysis *al)
@@ -780,7 +785,7 @@ static bool analyze_benches(struct analysis *al)
         // This has to be done first because other analyses depend on it
         analyze_groups(mal);
 
-        calculate_fastest_bench_per_value(mal);
+        calculate_per_val_by_speed(mal);
         calculate_per_bench_p_values(mal);
         calculate_per_group_p_values(mal);
         calculate_bench_speedups(mal);
