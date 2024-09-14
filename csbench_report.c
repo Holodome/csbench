@@ -1016,8 +1016,8 @@ static void print_bench_comparison(const struct meas_analysis *al)
     if (base->group_count == 1 && g_regr) {
         const struct group_analysis *grp = al->group_analyses;
         if (grp->values_are_doubles)
-            printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
-                   grp->regress.a);
+            printf("%s complexity (r2=%.2f)\n", big_o_str(grp->regress.complexity),
+                   grp->regress.r2);
     }
 }
 
@@ -1349,8 +1349,8 @@ static void print_group_comparison(const struct meas_analysis *al)
             const struct group_analysis *grp = al->group_analyses + grp_idx;
             if (grp->values_are_doubles) {
                 printf_colored(ANSI_BOLD, "%s ", cli_group_name(al, grp_idx, abbr_names));
-                printf("%s complexity (%g)\n", big_o_str(grp->regress.complexity),
-                       grp->regress.a);
+                printf("%s complexity (r2=%.2f)\n", big_o_str(grp->regress.complexity),
+                       grp->regress.r2);
             }
         }
     }

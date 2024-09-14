@@ -273,10 +273,14 @@ struct ols_regress {
     double a;
     double b;
     double c;
+
+    double r;
+    double r2;
     double rms;
 };
 
 struct group_analysis {
+    size_t grp_idx;
     const struct bench_group *group;
     struct cmd_in_group_data *data; // [value_count]
     // Pointers to 'data' elements

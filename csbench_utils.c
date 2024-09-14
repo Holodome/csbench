@@ -317,12 +317,52 @@ const char *big_o_str(enum big_o complexity)
     }
 
 ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
-    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn) ols(nlogn,
-                                                                        fitting_curve_nlogn)
+    ols(n_cube, fitting_curve_n_cube) ols(logn, fitting_curve_logn)
+        ols(nlogn, fitting_curve_nlogn)
 
 #undef ols
 
-        void ols(const double *x, const double *y, size_t count, struct ols_regress *result)
+            static void set_ols_rvalue(const double *xp, const double *yp, size_t count,
+                                       struct ols_regress *result)
+{
+    double x_mean = 0.0;
+    double y_mean = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        x_mean += xp[i];
+        y_mean += yp[i];
+    }
+    x_mean /= count;
+    y_mean /= count;
+
+    double xm = 0.0;
+    double xym = 0.0;
+    double ym = 0.0;
+    for (size_t i = 0; i < count; ++i) {
+        double x = xp[i];
+        double y = yp[i];
+
+        xm += (x - x_mean) * (x - x_mean);
+        ym += (y - y_mean) * (y - y_mean);
+        xym += (x - x_mean) * (y - y_mean);
+    }
+    xm /= count;
+    xym /= count;
+    ym /= count;
+
+    double r = 0.0;
+    if (xm == 0.0 || ym == 0.0) {
+    } else {
+        r = xym / sqrt(xm * ym);
+        if (r > 1.0)
+            r = 1.0;
+        else if (r < -1.0)
+            r = -1.0;
+    }
+    result->r = r;
+    result->r2 = r * r;
+}
+
+void ols(const double *x, const double *y, size_t count, struct ols_regress *result)
 {
     double min_y = INFINITY;
     for (size_t i = 0; i < count; ++i)
@@ -357,6 +397,7 @@ ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
     result->c = x[0];
     result->rms = best_fit_rms;
     result->complexity = best_fit;
+    set_ols_rvalue(x, y, count, result);
 }
 
 double ols_approx(const struct ols_regress *regress, double n)

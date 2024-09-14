@@ -212,6 +212,7 @@ static void analyze_groups(struct meas_analysis *al)
         const struct bench_group *grp = base->groups + grp_idx;
         struct group_analysis *grp_al = al->group_analyses + grp_idx;
         analyze_group(al, grp, grp_al);
+        grp_al->grp_idx = grp_idx;
     }
 }
 

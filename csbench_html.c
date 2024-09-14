@@ -431,7 +431,8 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
             /******/ "<p>lowest time %s with %s=%s</p>"
             /******/ "<p>hightest time %s with %s=%s</p>"
             /******/ "<p>estimated complexity: %s</p>"
-            /******/ "<p>linear coef %g rms %.3f</p>"
+            /******/ "<p>R^2 %.2f</p>"
+            /******/ "<p>linear coef %g</p>"
             /****/ "</div>"
             /**/ "</div>"
             "</div>",
@@ -441,7 +442,8 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
             fastest_mean, param->name, grp->fastest->value, //
             slowest_mean, param->name, grp->slowest->value, //
             big_o_str(grp->regress.complexity),             //
-            grp->regress.a, grp->regress.rms                //
+            grp->regress.r2,                                //
+            grp->regress.a                                  //
     );
 }
 
@@ -488,14 +490,16 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 /******/ "<p>lowest time %s with %s=%s</p>"
                 /******/ "<p>hightest time %s with %s=%s</p>"
                 /******/ "<p>estimated complexity: %s</p>"
-                /******/ "<p>linear coef %g rms %.3f</p>"
+                /******/ "<p>R^2 %.2f</p>"
+                /******/ "<p>linear coef %g</p>"
                 /****/ "</div>"
                 /**/ "</div>"
                 "</div>",
                 fastest_mean, param->name, grp->fastest->value, //
                 slowest_mean, param->name, grp->slowest->value, //
                 big_o_str(grp->regress.complexity),             //
-                grp->regress.a, grp->regress.rms                //
+                grp->regress.r2,                                //
+                grp->regress.a                                  //
         );
     } else {
         fprintf(f,

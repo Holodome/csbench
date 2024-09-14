@@ -679,7 +679,6 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     const struct bench_param *param = plot->al->base->param;
     const struct group_analysis *als = plot->als;
     const struct plot_view *view = &plot->view;
-    size_t count = plot->count;
     FILE *f = ctx->f;
     fprintf(f, "x = [");
     for (size_t i = 0; i < param->value_count; ++i) {
@@ -732,13 +731,26 @@ static void make_group_regr_mpl(const struct group_regr_plot *plot,
     fprintf(f, "import matplotlib as mpl\n"
                "mpl.use('svg')\n"
                "import matplotlib.pyplot as plt\n");
-    for (size_t grp_idx = 0; grp_idx < count; ++grp_idx) {
-        fprintf(f,
-                "plt.plot(regrx, regry[%zu], color='red', alpha=0.3, label=r'%s')\n"
-                "plt.plot(x, y[%zu], '.-', label=r'%s regression')\n",
-                grp_idx,                          //
-                als[grp_idx].group->name,         //
-                grp_idx, als[grp_idx].group->name //
+    if (plot->count != 1) {
+        foreach_group_by_avg_idx (grp_idx, plot->al) {
+            const char *color = mpl_nth_color(grp_idx);
+            fprintf(f,
+                    "plt.plot(x, y[%zu], '.-', color='%s', label=r'%s')\n"
+                    "plt.plot(regrx, regry[%zu], color=r'%s', alpha=0.3, label=r'%s "
+                    "regression')\n",
+                    grp_idx, color, als[grp_idx].group->name, //
+                    grp_idx, color, als[grp_idx].group->name  //
+            );
+        }
+    } else {
+        size_t grp_idx = als[0].grp_idx;
+        const char *color = mpl_nth_color(grp_idx);
+        fprintf(
+            f,
+            "plt.plot(x, y[%zu], '.-', color=r'%s', label=r'%s')\n"
+            "plt.plot(regrx, regry[%zu], color='%s', alpha=0.3, label=r'%s regression')\n",
+            (size_t)0, color, als[0].group->name, //
+            (size_t)0, color, als[0].group->name  //
         );
     }
     if (view->logscale)
