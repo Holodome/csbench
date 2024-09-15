@@ -833,15 +833,22 @@ static void free_parsed_text_file(struct parsed_text_file *file)
 
 static bool load_parsed_text_file(const char *filename, struct parsed_text_file *file)
 {
-    FILE *f = fopen(filename, "r");
-    if (f == NULL) {
-        csfmtperror("failed to open file '%s' for reading", filename);
-        return false;
+    bool is_stdin = strcmp(filename, "-") == 0 ? true : false;
+    FILE *f = NULL;
+    if (is_stdin) {
+        f = stdin;
+    } else {
+        f = fopen(filename, "r");
+        if (f == NULL) {
+            csfmtperror("failed to open file '%s' for reading", filename);
+            return false;
+        }
     }
     memset(file, 0, sizeof(*file));
     file->filename = filename;
     bool success = load_parsed_text_file_internal(f, file);
-    fclose(f);
+    if (!is_stdin)
+        fclose(f);
     if (!success)
         free_parsed_text_file(file);
     return success;

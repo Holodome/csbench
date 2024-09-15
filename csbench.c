@@ -1171,8 +1171,12 @@ static const char **calculate_bin_names(const char **args)
     for (size_t i = 0; i < sb_len(args); ++i) {
         const char *arg = args[i];
         const char *name = NULL;
-        if (!get_bin_name(arg, &name, false))
+        if (strcmp(arg, "-") == 0) {
+            error("- command line option is not supported with --load-bin mode");
             goto err;
+        } else if (!get_bin_name(arg, &name, false)) {
+            goto err;
+        }
         sb_push(names, name);
     }
     const char *name = NULL;

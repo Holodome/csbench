@@ -946,7 +946,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             }
             break;
         } else {
-            if (*argv[cursor] == '-') {
+            if (*argv[cursor] == '-' && argv[cursor][1] != '\0') {
                 error("unknown option %s", argv[cursor]);
                 exit(EXIT_FAILURE);
             }
