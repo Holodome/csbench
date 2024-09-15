@@ -11,7 +11,7 @@ dist_dir=/tmp/.csbench
 if [ -z "$csbench" ]; then
     csbench=./csbench 
 fi
-b=" $csbench -R2 -W0 -o $dist_dir -j$(nproc) --sort=command --baseline=1"
+b="$csbench -R2 -W0 -o $dist_dir -j$(nproc) --sort=command --baseline=1"
 
 die () {
     echo error

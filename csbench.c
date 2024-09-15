@@ -1063,6 +1063,10 @@ void free_bench_data(struct bench_data *data)
     }
     sb_free(data->benches);
     sb_free(data->run_descs);
+    for (size_t i = 0; i < data->group_count; ++i) {
+        free(data->groups[i].bench_idxs);
+    }
+    sb_free(data->groups);
 }
 
 static bool do_save_bin(const struct bench_data *data)

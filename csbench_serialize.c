@@ -59,6 +59,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <regex.h>
+
 struct csbench_binary_header {
     uint32_t magic;
     uint32_t version;
@@ -90,6 +92,7 @@ struct parsed_text_file {
     const char *filename;
     char *meas_name;
     char *meas_units;
+    char *extract_str;
     size_t line_count;
     struct parsed_text_data_line *lines;
 };
@@ -606,49 +609,102 @@ bool load_bench_data_binary(const char **file_list, struct bench_data *data,
     return success;
 }
 
-static bool keyword_val(const char *str, const char *kw, const char **val)
+static bool keyword_val(const char *str, const char *kw, const char *filename, char *val_buf,
+                        size_t val_buf_size, bool *has_match)
 {
+    size_t str_len = strlen(str);
     size_t kw_len = strlen(kw);
     bool matches = strncmp(kw, str, kw_len) == 0 ? true : false;
-    if (matches && (matches = str[kw_len] == '=')) {
-        *val = str + kw_len + 1;
+    if (matches) {
+        matches = str[kw_len] == '=';
+        if (matches) {
+            const char *value_cursor = str + kw_len + 1;
+            size_t len = (str + str_len) - value_cursor;
+            if (*value_cursor == '\'') {
+                if (str[str_len - 1] != '\'') {
+                    error("unterminated keyword %s value in file '%s'", kw, filename);
+                    return false;
+                }
+                value_cursor += 1;
+                len -= 2;
+            }
+            if (val_buf_size + 1 < len) {
+                error("too long keyword %s value in file '%s'", kw, filename);
+                return false;
+            }
+            memcpy(val_buf, value_cursor, len);
+            val_buf[len] = '\0';
+        }
     }
-    return matches;
+    *has_match = matches;
+    return true;
 }
 
 static bool handle_text_header_tok(const char *tok, struct parsed_text_file *file)
 {
-    const char *val = NULL;
-    if (keyword_val(tok, "meas", &val)) {
-        if (strlen(val) == 0) {
-            error("empty meas= value found in file '%s'", file->filename);
+    char val_buf[256];
+    bool has_match;
+    {
+        if (!keyword_val(tok, "meas", file->filename, val_buf, sizeof(val_buf), &has_match))
             return false;
+        if (has_match) {
+            file->meas_name = strdup(val_buf);
+            return true;
         }
-        file->meas_name = strdup(val);
-    } else if (keyword_val(tok, "units", &val)) {
-        if (strlen(val) == 0) {
-            error("empty units= value found in file '%s'", file->filename);
-            return false;
-        }
-        file->meas_units = strdup(val);
-    } else {
-        error("invalid header keyword '%s' found in file '%s'", tok, file->filename);
-        return false;
     }
-    return true;
+    {
+        if (!keyword_val(tok, "units", file->filename, val_buf, sizeof(val_buf), &has_match))
+            return false;
+        if (has_match) {
+            file->meas_units = strdup(val_buf);
+            return true;
+        }
+    }
+    {
+        if (!keyword_val(tok, "extract", file->filename, val_buf, sizeof(val_buf),
+                         &has_match))
+            return false;
+        if (has_match) {
+            file->extract_str = strdup(val_buf);
+            return true;
+        }
+    }
+    error("invalid header keyword '%s' found in file '%s'", tok, file->filename);
+    return false;
 }
 
 static bool parse_text_header(const char *line, struct parsed_text_file *file)
 {
     assert(line[0] == '#');
-    const char *delimiters = " \t";
     const char *cursor = line + 1;
     for (;;) {
         while (isspace(*cursor))
             ++cursor;
         if (*cursor == '\0')
             break;
-        const char *sep = strpbrk(cursor, delimiters);
+        const char *sep = cursor + 1;
+        for (;; ++sep) {
+            if (*sep == '\0') {
+                sep = NULL;
+                break;
+            }
+            if (*sep == '\'') {
+                ++sep;
+                for (;; ++sep) {
+                    if (*sep == '\0') {
+                        sep = NULL;
+                        error("unterminated header string in file '%s'", file->filename);
+                        return false;
+                    }
+                    if (*sep == '\'') {
+                        ++sep;
+                        break;
+                    }
+                }
+            }
+            if (*sep == '\t' || *sep == ' ')
+                break;
+        }
         if (sep == NULL) {
             if (!handle_text_header_tok(cursor, file))
                 return false;
@@ -765,6 +821,7 @@ static void free_parsed_text_file(struct parsed_text_file *file)
 {
     free(file->meas_name);
     free(file->meas_units);
+    free(file->extract_str);
     for (size_t i = 0; i < file->line_count; ++i) {
         struct parsed_text_data_line *line = file->lines + i;
         if (line->name)
@@ -816,6 +873,292 @@ static void init_parsed_text_meas(const struct parsed_text_file *parsed, struct 
     *measp = meas;
 }
 
+static bool validate_extract_str(const char *extract_str, const char *filename,
+                                 bool *has_paramp, char *param_name_buf,
+                                 size_t param_name_buf_size)
+{
+    bool has_name = false;
+    bool has_param = false;
+    const char *cursor = extract_str;
+    for (;;) {
+        const char *pat_start = strchr(cursor, '{');
+        if (pat_start == NULL)
+            break;
+
+        ++pat_start;
+        const char *pat_end = strchr(pat_start, '}');
+        if (pat_end == NULL) {
+            error("unterminated extract str substitution in file '%s'", filename);
+            return false;
+        }
+
+        size_t pat_len = pat_end - pat_start;
+        if (pat_len == 4 && memcmp(pat_start, "name", 4) == 0) {
+            if (has_name) {
+                error("multiple extract str name substitutions found in file '%s'", filename);
+                return false;
+            }
+            has_name = true;
+        } else {
+            if (has_param) {
+                error("multiple extract str parameter substitutions found in file '%s'",
+                      filename);
+                return false;
+            }
+            if (param_name_buf_size < pat_len + 1) {
+                error("too long paramater name in file '%s'", filename);
+                return false;
+            }
+            memcpy(param_name_buf, pat_start, pat_len);
+            param_name_buf[pat_len] = '\0';
+            has_param = true;
+        }
+        cursor = pat_end + 1;
+    }
+    if (!has_name && !has_param) {
+        error("extract str is missing substitutions in file '%s'", filename);
+        return false;
+    }
+    if (!has_name && has_param) {
+        error(
+            "extract str has parameter substitution but lacks name substitution in file '%s'",
+            filename);
+        return false;
+    }
+    *has_paramp = has_param;
+    return true;
+}
+
+static char *extract_str_to_regex(const char *src, bool *name_is_first)
+{
+    char *regex_str = NULL;
+    for (size_t subst_idx = 0;;) {
+        if (*src == '\0')
+            break;
+        if (*src == '{') {
+            ++src;
+            sb_push(regex_str, '(');
+            sb_push(regex_str, '.');
+            sb_push(regex_str, '*');
+            sb_push(regex_str, ')');
+            const char *closing = strchr(src, '}');
+            if (closing - src == 4 && memcmp(src, "name", 4) == 0) {
+                if (subst_idx == 0)
+                    *name_is_first = true;
+            }
+            assert(closing);
+            src = closing + 1;
+            ++subst_idx;
+            continue;
+        }
+        sb_push(regex_str, *src++);
+    }
+    sb_push(regex_str, '\0');
+    return regex_str;
+}
+
+static bool extract_name_and_param(regex_t *regex, const char *regex_str, bool name_is_first,
+                                   const char *src, const char *filename, char *name_buf,
+                                   char *param_buf, size_t buf_size)
+{
+    regmatch_t matches[3];
+    int ret = regexec(regex, src, 3, matches, 0);
+    if (ret != 0 && ret != REG_NOMATCH) {
+        char errbuf[4096];
+        regerror(ret, regex, errbuf, sizeof(errbuf));
+        error("error executing regex '%s': %s", regex_str, errbuf);
+        return false;
+    } else if (ret == REG_NOMATCH) {
+        error("benchmark name does not match extract str in file '%s'", filename);
+        return false;
+    }
+    regmatch_t *name_match = matches + 1, *param_match = matches + 2;
+    if (!name_is_first) {
+        name_match = matches + 2;
+        param_match = matches + 1;
+    }
+    {
+        size_t name_off = name_match->rm_so;
+        size_t name_len = name_match->rm_eo - name_match->rm_so;
+        if (buf_size < name_len + 1) {
+            error("too long name value in file '%s'", filename);
+            return false;
+        }
+        memcpy(name_buf, src + name_off, name_len);
+        name_buf[name_len] = '\0';
+    }
+    {
+        size_t param_off = param_match->rm_so;
+        size_t param_len = param_match->rm_eo - param_match->rm_so;
+        if (buf_size < param_len + 1) {
+            error("too long parameter value in file '%s'", filename);
+            return false;
+        }
+        memcpy(param_buf, src + param_off, param_len);
+        param_buf[param_len] = '\0';
+    }
+    return true;
+}
+
+struct extract_str_data {
+    struct group_info {
+        char *name;
+        size_t count;
+    } *group_infos;
+    char **param_values;
+    struct bench_info {
+        char *name;
+        char *value;
+    } *benches;
+};
+
+static void free_extract_str_data(struct extract_str_data *data)
+{
+    for (size_t i = 0; i < sb_len(data->benches); ++i) {
+        free(data->benches[i].name);
+        free(data->benches[i].value);
+    }
+    sb_free(data->benches);
+    for (size_t i = 0; i < sb_len(data->group_infos); ++i)
+        free(data->group_infos[i].name);
+    sb_free(data->group_infos);
+    for (size_t i = 0; i < sb_len(data->param_values); ++i)
+        free(data->param_values[i]);
+    sb_free(data->param_values);
+}
+
+static bool get_extract_str_data(const struct parsed_text_file *parsed,
+                                 struct extract_str_data *data)
+{
+    bool success = false;
+    bool name_is_first = false;
+    char *regex_str = extract_str_to_regex(parsed->extract_str, &name_is_first);
+    regex_t regex;
+    int ret = regcomp(&regex, regex_str, REG_EXTENDED | REG_NEWLINE);
+    if (ret != 0) {
+        char errbuf[4096];
+        regerror(ret, &regex, errbuf, sizeof(errbuf));
+        error("error compiling regex '%s': %s", regex_str, errbuf);
+        goto err;
+    }
+
+    // This should not happen because we have already validated extract str, but who knowns
+    // what happens actually
+    if (regex.re_nsub != 2) {
+        error("regex '%s' contains %zu subexpressions instead of 2", regex_str,
+              regex.re_nsub);
+        goto err_free_regex;
+    }
+
+    memset(data, 0, sizeof(*data));
+    for (size_t line_idx = 0; line_idx < parsed->line_count; ++line_idx) {
+        const struct parsed_text_data_line *line = parsed->lines + line_idx;
+        char name_buf[256], param_buf[256];
+        if (!extract_name_and_param(&regex, regex_str, name_is_first, line->name,
+                                    parsed->filename, name_buf, param_buf, sizeof(name_buf)))
+            goto err_free_regex;
+        bool found_group = false;
+        for (size_t i = 0; i < sb_len(data->group_infos); ++i) {
+            if (strcmp(data->group_infos[i].name, name_buf) == 0) {
+                ++data->group_infos[i].count;
+                found_group = true;
+                break;
+            }
+        }
+        if (!found_group) {
+            struct group_info *info = sb_new(data->group_infos);
+            info->name = strdup(name_buf);
+            info->count = 1;
+        }
+        bool found_value = false;
+        for (size_t i = 0; i < sb_len(data->param_values); ++i) {
+            if (strcmp(data->param_values[i], param_buf) == 0) {
+                found_value = true;
+                break;
+            }
+        }
+        if (!found_value) {
+            sb_push(data->param_values, strdup(param_buf));
+        }
+
+        struct bench_info *b = sb_new(data->benches);
+        b->name = strdup(name_buf);
+        b->value = strdup(param_buf);
+    }
+
+    size_t val_count = sb_len(data->param_values);
+    for (size_t i = 0; i < sb_len(data->group_infos); ++i) {
+        if (data->group_infos[i].count != val_count) {
+            error("group '%s' benchmark count does not match value count (%zu) in file '%s'",
+                  data->group_infos[i].name, val_count, parsed->filename);
+            goto err_free_regex;
+        }
+    }
+
+    success = true;
+err_free_regex:
+    regfree(&regex);
+err:
+    sb_free(regex_str);
+    return success;
+}
+
+static bool init_extract_str_use(const struct parsed_text_file *parsed,
+                                 struct bench_data *data, struct bench_data_storage *storage)
+{
+    char param_name_buf[256];
+    bool has_param;
+    if (!validate_extract_str(parsed->extract_str, parsed->filename, &has_param,
+                              param_name_buf, sizeof(param_name_buf)))
+        return false;
+
+    if (!has_param)
+        return true;
+
+    struct extract_str_data ex_data;
+    if (!get_extract_str_data(parsed, &ex_data))
+        return false;
+
+    size_t val_count = sb_len(ex_data.param_values);
+    storage->has_param = true;
+    storage->param.name = csstrdup(param_name_buf);
+    storage->param.value_count = val_count;
+    sb_resize(storage->param.values, val_count);
+    for (size_t i = 0; i < val_count; ++i)
+        storage->param.values[i] = csstrdup(ex_data.param_values[i]);
+    data->param = &storage->param;
+    data->group_count = sb_len(ex_data.group_infos);
+    sb_resize(data->groups, data->group_count);
+    for (size_t i = 0; i < data->group_count; ++i) {
+        struct bench_group *grp = data->groups + i;
+        grp->name = csstrdup(ex_data.group_infos[i].name);
+        grp->bench_count = val_count;
+        grp->bench_idxs = calloc(val_count, sizeof(*grp->bench_idxs));
+    }
+
+    for (size_t line_idx = 0; line_idx < parsed->line_count; ++line_idx) {
+        const char *name = ex_data.benches[line_idx].name;
+        const char *value = ex_data.benches[line_idx].value;
+
+        size_t grp_idx = 0;
+        for (size_t i = 0; i < data->group_count; ++i, ++grp_idx) {
+            if (strcmp(data->groups[i].name, name) == 0)
+                break;
+        }
+
+        size_t val_idx = 0;
+        for (size_t i = 0; i < val_count; ++i, ++val_idx) {
+            if (strcmp(ex_data.param_values[i], value) == 0)
+                break;
+        }
+
+        data->groups[grp_idx].bench_idxs[val_idx] = line_idx;
+    }
+
+    free_extract_str_data(&ex_data);
+    return true;
+}
+
 static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
                                      struct bench_data *data,
                                      struct bench_data_storage *storage)
@@ -823,7 +1166,6 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
     memset(data, 0, sizeof(*data));
     memset(storage, 0, sizeof(*storage));
 
-    // TODO: add support for params
     storage->has_param = false;
     storage->meas_count = 1;
     sb_resize(storage->meas, 1);
@@ -831,10 +1173,13 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
 
     data->meas_count = storage->meas_count;
     data->meas = storage->meas;
-    // TODO: add support for groups
     data->group_count = 0;
     data->bench_count = parsed->line_count;
     sb_resize(data->benches, parsed->line_count);
+
+    if (parsed->extract_str && !init_extract_str_use(parsed, data, storage))
+        return false;
+
     for (size_t bench_idx = 0; bench_idx < data->bench_count; ++bench_idx) {
         const struct parsed_text_data_line *line = parsed->lines + bench_idx;
         struct bench *bench = data->benches + bench_idx;
@@ -856,7 +1201,8 @@ static bool load_bench_data_text_file(const char *filename, struct bench_data *d
     struct parsed_text_file parsed;
     if (!load_parsed_text_file(filename, &parsed))
         return false;
-    convert_parsed_text_file(&parsed, data, storage);
+    if (!convert_parsed_text_file(&parsed, data, storage))
+        return false;
     free_parsed_text_file(&parsed);
     return true;
 }
