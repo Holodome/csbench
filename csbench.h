@@ -531,7 +531,7 @@ enum parse_time_str_result {
 #define sb_size(_a) (sb_header(_a)->size)
 #define sb_capacity(_a) (sb_header(_a)->capacity)
 
-#define sb_needgrow(_a, _n) (((_a) == NULL) || (sb_size(_a) + (_n) >= sb_capacity(_a)))
+#define sb_needgrow(_a, _n) (((_a) == NULL) ? true : (sb_size(_a) + (_n) >= sb_capacity(_a)))
 #define sb_maybegrow(_a, _n) (sb_needgrow(_a, _n) ? sb_grow(_a, _n) : 0)
 #define sb_grow(_a, _b) (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
 #define sb_reserve(_a, _n)                                                                   \

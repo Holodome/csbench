@@ -739,7 +739,7 @@ static void differentiate_groups_with_equal_names(struct bench_data *data)
     } *same_names = NULL;
 
     for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
-        struct bench_group *grp = data->groups + grp_idx;
+        const struct bench_group *grp = data->groups + grp_idx;
         bool found = false;
         for (size_t i = 0; i < sb_len(same_names); ++i) {
             if (strcmp(same_names[i].name, grp->name) == 0) {

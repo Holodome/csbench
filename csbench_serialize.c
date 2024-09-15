@@ -103,7 +103,7 @@ struct parsed_text_file {
     do {                                                                                     \
         size_t CSUNIQIFY(cnt) = (_cnt);                                                      \
         if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                     \
-            goto err;                                                                        \
+            goto io_err;                                                                     \
     } while (0)
 
 #define write_u64__(_value, _f)                                                              \
@@ -241,7 +241,7 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f)
     }
     write_raw__(&header, sizeof(header), 1, f);
     return true;
-err:
+io_err:
     csperror("IO error when writing csbench data file");
     return false;
 }
@@ -254,7 +254,7 @@ err:
     do {                                                                                     \
         size_t CSUNIQIFY(cnt) = (_cnt);                                                      \
         if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                      \
-            goto err;                                                                        \
+            goto io_err;                                                                     \
     } while (0)
 
 #define read_u64__(_dst, _f)                                                                 \
@@ -295,10 +295,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     }
 
     if (header.has_param) {
-        if (fseek(f, header.param_offset, SEEK_SET) == -1) {
-            csperror("fseek");
-            goto err_raw;
-        }
+        if (fseek(f, header.param_offset, SEEK_SET) == -1)
+            goto fseek_err;
 
         storage->has_param = true;
         read_str__(storage->param.name, f);
@@ -309,10 +307,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         data->param = &storage->param;
 
         int at = ftell(f);
-        if (at == -1) {
-            csperror("ftell");
-            goto err_raw;
-        }
+        if (at == -1)
+            goto ftell_err;
         if ((uint64_t)at != header.param_offset + header.param_size)
             goto corrupted;
     }
@@ -320,10 +316,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     if (header.meas_count == 0)
         goto corrupted;
     {
-        if (fseek(f, header.meas_offset, SEEK_SET) == -1) {
-            csperror("fseek");
-            goto err_raw;
-        }
+        if (fseek(f, header.meas_offset, SEEK_SET) == -1)
+            goto fseek_err;
 
         storage->meas_count = header.meas_count;
         sb_resize(storage->meas, header.meas_count);
@@ -341,10 +335,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         data->meas = storage->meas;
 
         int at = ftell(f);
-        if (at == -1) {
-            csperror("ftell");
-            goto err_raw;
-        }
+        if (at == -1)
+            goto ftell_err;
         if ((uint64_t)at != header.meas_offset + header.meas_size)
             goto corrupted;
     }
@@ -352,10 +344,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     if (header.group_count) {
         if (!data->param)
             goto corrupted;
-        if (fseek(f, header.groups_offset, SEEK_SET) == -1) {
-            csperror("fseek");
-            goto err_raw;
-        }
+        if (fseek(f, header.groups_offset, SEEK_SET) == -1)
+            goto fseek_err;
 
         data->group_count = header.group_count;
         sb_resize(data->groups, header.group_count);
@@ -371,10 +361,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         }
 
         int at = ftell(f);
-        if (at == -1) {
-            csperror("ftell");
-            goto err_raw;
-        }
+        if (at == -1)
+            goto ftell_err;
         if ((uint64_t)at != header.groups_offset + header.groups_size)
             goto corrupted;
     }
@@ -382,10 +370,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     if (header.bench_count == 0)
         goto corrupted;
     {
-        if (fseek(f, header.bench_data_offset, SEEK_SET) == -1) {
-            csperror("fseek");
-            goto err_raw;
-        }
+        if (fseek(f, header.bench_data_offset, SEEK_SET) == -1)
+            goto fseek_err;
 
         data->bench_count = header.bench_count;
         sb_resize(data->benches, header.bench_count);
@@ -404,10 +390,8 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         }
 
         int at = ftell(f);
-        if (at == -1) {
-            csperror("ftell");
-            goto err_raw;
-        }
+        if (at == -1)
+            goto ftell_err;
         if ((uint64_t)at != header.bench_data_offset + header.bench_data_size)
             goto corrupted;
     }
@@ -416,8 +400,15 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
 corrupted:
     error("csbench data file '%s' is corrupted", filename);
     goto err_raw;
-err:
-    csperror("IO error reading csbench binary file");
+fseek_err:
+    csfmtperror("fseek on '%s'", filename);
+    goto err_raw;
+ftell_err:
+    csfmtperror("ftell on '%s'", filename);
+    goto err_raw;
+io_err:
+    csfmtperror("IO error reading csbench data file '%s'", filename);
+    goto err_raw;
 err_raw:
     if (data->benches) {
         for (size_t i = 0; i < data->bench_count; ++i) {
@@ -452,12 +443,10 @@ static bool load_bench_data_binary_file(const char *filename, struct bench_data 
 
 void free_bench_data_storage(struct bench_data_storage *storage)
 {
-    if (storage->has_param) {
+    if (storage->has_param)
         sb_free(storage->param.values);
-    }
-    if (storage->meas) {
+    if (storage->meas)
         sb_free(storage->meas);
-    }
 }
 
 static bool meas_match(const struct meas *a, const struct meas *b)
@@ -485,9 +474,10 @@ static bool params_match(const struct bench_param *a, const struct bench_param *
         return false;
     if (a->value_count != b->value_count)
         return false;
-    for (size_t i = 0; i < a->value_count; ++i)
+    for (size_t i = 0; i < a->value_count; ++i) {
         if (strcmp(a->values[i], b->values[i]) != 0)
             return false;
+    }
     return true;
 }
 
@@ -495,9 +485,10 @@ static bool bench_data_match(const struct bench_data *a, const struct bench_data
 {
     if (a->meas_count != b->meas_count)
         return false;
-    for (size_t j = 0; j < a->meas_count; ++j)
+    for (size_t j = 0; j < a->meas_count; ++j) {
         if (!meas_match(a->meas + j, b->meas + j))
             return false;
+    }
     if (((a->param != NULL) != (b->param != NULL)))
         return false;
     if (a->param != NULL && !params_match(a->param, b->param))
@@ -578,9 +569,10 @@ static bool load_bench_data_binary_merge(const char **file_list, struct bench_da
     size_t src_count = sb_len(file_list);
     struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
     struct bench_data_storage *src_storages = calloc(src_count, sizeof(*src_storages));
-    for (size_t i = 0; i < src_count; ++i)
+    for (size_t i = 0; i < src_count; ++i) {
         if (!load_bench_data_binary_file(file_list[i], src_datas + i, src_storages + i))
             goto err;
+    }
 
     if (!merge_bench_data(src_datas, src_storages, src_count, data, storage))
         goto err;
@@ -979,7 +971,7 @@ static bool extract_name_and_param(regex_t *regex, const char *regex_str, bool n
         error("benchmark name does not match extract str in file '%s'", filename);
         return false;
     }
-    regmatch_t *name_match = matches + 1, *param_match = matches + 2;
+    const regmatch_t *name_match = matches + 1, *param_match = matches + 2;
     if (!name_is_first) {
         name_match = matches + 2;
         param_match = matches + 1;
@@ -1221,9 +1213,10 @@ static bool load_bench_data_text_merge(const char **file_list, struct bench_data
     size_t src_count = sb_len(file_list);
     struct bench_data *src_datas = calloc(src_count, sizeof(*src_datas));
     struct bench_data_storage *src_storages = calloc(src_count, sizeof(*src_storages));
-    for (size_t i = 0; i < src_count; ++i)
+    for (size_t i = 0; i < src_count; ++i) {
         if (!load_bench_data_text_file(file_list[i], src_datas + i, src_storages + i))
             goto err;
+    }
 
     if (!merge_bench_data(src_datas, src_storages, src_count, data, storage))
         goto err;

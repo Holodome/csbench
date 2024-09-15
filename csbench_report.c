@@ -1379,9 +1379,10 @@ static void print_text_report(const struct analysis *al)
         printf("%d runs\n", g_bench_stop.runs);
     if (al->primary_meas_count == 1) {
         const struct meas *meas = NULL;
-        for (size_t i = 0; i < al->meas_count && meas == NULL; ++i)
+        for (size_t i = 0; i < al->meas_count && meas == NULL; ++i) {
             if (!al->meas[i].is_secondary)
                 meas = al->meas + i;
+        }
         assert(meas != NULL);
         printf("measurement ");
         printf_colored(ANSI_YELLOW, "%s\n", meas->name);

@@ -1245,7 +1245,7 @@ static bool run_re_on_file(const struct bench_run_desc *params, struct bench *be
             } else if (ret == REG_NOMATCH) {
                 continue;
             }
-            regmatch_t *match = matches + 1;
+            const regmatch_t *match = matches + 1;
             size_t off = match->rm_so;
             size_t len = match->rm_eo - match->rm_so;
             memcpy(file_buffer, line + off, len);
