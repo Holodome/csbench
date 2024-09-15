@@ -700,9 +700,7 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
     return false;
 }
 
-// When we initialize benchmarks in init_benches, we set default names. This function handles
-// all other renaming that may happen with these names.
-static bool set_bench_names(const struct rename_entry *rename_list, struct bench_data *data)
+static bool handle_renames(const struct rename_entry *rename_list, struct bench_data *data)
 {
     if (!validate_rename_list(rename_list, data))
         return false;
@@ -725,6 +723,113 @@ static bool set_bench_names(const struct rename_entry *rename_list, struct bench
             }
         }
     }
+    return true;
+}
+
+static void differentiate_groups_with_equal_names(struct bench_data *data)
+{
+    if (data->group_count <= 1)
+        return;
+
+    const struct bench_param *param = data->param;
+
+    struct same_name {
+        const char *name;
+        size_t *idxs;
+    } *same_names = NULL;
+
+    for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+        struct bench_group *grp = data->groups + grp_idx;
+        bool found = false;
+        for (size_t i = 0; i < sb_len(same_names); ++i) {
+            if (strcmp(same_names[i].name, grp->name) == 0) {
+                sb_push(same_names[i].idxs, grp_idx);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            struct same_name *same_name = sb_new(same_names);
+            same_name->name = grp->name;
+            same_name->idxs = NULL;
+            sb_push(same_name->idxs, grp_idx);
+        }
+    }
+
+    for (size_t i = 0; i < sb_len(same_names); ++i) {
+        struct same_name *same_name = same_names + i;
+        size_t count = sb_len(same_name->idxs);
+        if (count != 1) {
+            for (size_t t_idx = 0; t_idx < count; ++t_idx) {
+                size_t grp_idx = same_name->idxs[t_idx];
+                struct bench_group *grp = data->groups + grp_idx;
+                grp->name = csfmt("%s (%zu)", same_name->name, t_idx + 1);
+                for (size_t grp_bench_idx = 0; grp_bench_idx < grp->bench_count;
+                     ++grp_bench_idx) {
+                    struct bench *bench = data->benches + grp->bench_idxs[grp_bench_idx];
+                    bench->name = csfmt("%s %s=%s", grp->name, param->name,
+                                        param->values[grp_bench_idx]);
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < sb_len(same_names); ++i) {
+        sb_free(same_names[i].idxs);
+    }
+    sb_free(same_names);
+}
+
+static void differentiate_benchmarks_with_equal_names(struct bench_data *data)
+{
+    struct same_name {
+        const char *name;
+        size_t *idxs;
+    } *same_names = NULL;
+
+    for (size_t bench_idx = 0; bench_idx < data->bench_count; ++bench_idx) {
+        const struct bench *bench = data->benches + bench_idx;
+        bool found = false;
+        for (size_t i = 0; i < sb_len(same_names); ++i) {
+            if (strcmp(same_names[i].name, bench->name) == 0) {
+                sb_push(same_names[i].idxs, bench_idx);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            struct same_name *same_name = sb_new(same_names);
+            same_name->name = bench->name;
+            same_name->idxs = NULL;
+            sb_push(same_name->idxs, bench_idx);
+        }
+    }
+
+    for (size_t i = 0; i < sb_len(same_names); ++i) {
+        struct same_name *same_name = same_names + i;
+        size_t count = sb_len(same_name->idxs);
+        if (count != 1) {
+            for (size_t t_idx = 0; t_idx < count; ++t_idx) {
+                size_t bench_idx = same_name->idxs[t_idx];
+                data->benches[bench_idx].name = csfmt("%s (%zu)", same_name->name, t_idx + 1);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < sb_len(same_names); ++i) {
+        sb_free(same_names[i].idxs);
+    }
+    sb_free(same_names);
+}
+
+// When we initialize benchmarks in init_benches, we set default names. This function
+// handles all other renaming that may happen with these names.
+static bool set_bench_names(const struct rename_entry *rename_list, struct bench_data *data)
+{
+    if (!handle_renames(rename_list, data))
+        return false;
+    differentiate_groups_with_equal_names(data);
+    differentiate_benchmarks_with_equal_names(data);
     return true;
 }
 
