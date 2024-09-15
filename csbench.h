@@ -159,8 +159,8 @@ struct bench_param {
 
 struct bench_group {
     const char *name;
-    size_t cmd_count;
-    size_t *cmd_idxs; // [cmd_count]
+    size_t bench_count;
+    size_t *bench_idxs; // [bench_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -228,18 +228,17 @@ struct bench_data_storage {
     struct bench_param param;
     size_t meas_count;
     struct meas *meas; // [meas_count]
-    size_t group_count;
-    struct bench_group *groups; // [group_count]
 };
 
 struct bench_data {
     size_t meas_count;
-    const struct meas *meas; // [meas_count]
     size_t bench_count;
-    struct bench *benches; // [bench_count]
     size_t group_count;
-    const struct bench_group *groups; // [group_count]
     const struct bench_param *param;
+    const struct meas *meas;          // [meas_count]
+    struct bench_run_desc *run_descs; // [bench_count]
+    struct bench *benches;            // [bench_count]
+    struct bench_group *groups;       // [group_count]
 };
 
 struct bench_analysis {
@@ -365,25 +364,16 @@ struct meas_analysis {
 // different visualization paths, like plots, html report or command line
 // report.
 struct analysis {
-    // This pointer is const because respective memory is owned by 'struct
-    // run_info' instance'
-    const struct bench_group *groups; // [group_count]
-    const struct bench_param *param;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
+    const struct bench_group *groups;      // [group_count]
+    const struct bench_param *param;       // [bench_count]
     const struct bench *benches;           // [bench_count]
     struct bench_analysis *bench_analyses; // [bench_count]
     const struct meas *meas;               // [meas_count]
     struct meas_analysis *meas_analyses;   // [meas_count]
-};
-
-struct run_info {
-    struct bench_params *params;
-    struct bench_group *groups;
-    const struct meas *meas;
-    const struct bench_param *param;
 };
 
 struct bench_stop_policy {
@@ -395,8 +385,8 @@ struct bench_stop_policy {
 
 // Description of one benchmark, read-only information that is
 // used to run it and choose what information to collect.
-struct bench_params {
-    const char *name;
+struct bench_run_desc {
+    /* const char *name; */
     // Command string that is executed
     const char *str;
     // 'exec' argument to execve
@@ -672,7 +662,7 @@ double ols_approx(const struct ols_regress *regress, double n);
 // csbench_run.c
 //
 
-bool run_benches(const struct bench_params *params, struct bench *benches, size_t count);
+bool run_benches(const struct bench_run_desc *params, struct bench *benches, size_t count);
 
 //
 // csbench_report.c

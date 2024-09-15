@@ -852,7 +852,7 @@ static void html_benches(const struct meas_analysis *al, FILE *f)
                     bench_group_name(base, grp_idx) //
             );
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
-                size_t bench_idx = grp_al->group->cmd_idxs[val_idx];
+                size_t bench_idx = grp_al->group->bench_idxs[val_idx];
                 const struct bench_analysis *bench_al = base->bench_analyses + bench_idx;
                 fprintf(f,
                         "<div id=\"bench-%zu-%zu-%zu\">"
@@ -1171,8 +1171,8 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                 continue;
             const char *a_name = bench_group_name(base, ref_idx);
             const char *b_name = bench_group_name(base, grp_idx);
-            size_t a_bench_idx = al->group_analyses[ref_idx].group->cmd_idxs[val_idx];
-            size_t b_bench_idx = al->group_analyses[grp_idx].group->cmd_idxs[val_idx];
+            size_t a_bench_idx = al->group_analyses[ref_idx].group->bench_idxs[val_idx];
+            size_t b_bench_idx = al->group_analyses[grp_idx].group->bench_idxs[val_idx];
             const struct distr *a_distr = al->benches[a_bench_idx];
             const struct distr *b_distr = al->benches[b_bench_idx];
             fprintf(f,

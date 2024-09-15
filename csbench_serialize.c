@@ -192,10 +192,10 @@ bool save_bench_data_binary(const struct bench_data *data, FILE *f)
         for (size_t i = 0; i < data->group_count; ++i) {
             const struct bench_group *grp = data->groups + i;
             write_str__(grp->name, f);
-            assert(grp->cmd_count == data->param->value_count);
-            write_u64__(grp->cmd_count, f);
-            for (size_t j = 0; j < grp->cmd_count; ++j)
-                write_u64__(grp->cmd_idxs[j], f);
+            assert(grp->bench_count == data->param->value_count);
+            write_u64__(grp->bench_count, f);
+            for (size_t j = 0; j < grp->bench_count; ++j)
+                write_u64__(grp->bench_idxs[j], f);
         }
 
         int at = ftell(f);
@@ -323,7 +323,7 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         }
 
         storage->meas_count = header.meas_count;
-        storage->meas = calloc(header.meas_count, sizeof(*storage->meas));
+        sb_resize(storage->meas, header.meas_count);
         for (size_t i = 0; i < header.meas_count; ++i) {
             struct meas *meas = storage->meas + i;
             read_str__(meas->name, f);
@@ -354,21 +354,18 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
             goto err_raw;
         }
 
-        storage->group_count = header.group_count;
-        storage->groups = calloc(header.group_count, sizeof(*storage->groups));
+        data->group_count = header.group_count;
+        sb_resize(data->groups, header.group_count);
         for (size_t i = 0; i < header.group_count; ++i) {
-            struct bench_group *grp = storage->groups + i;
+            struct bench_group *grp = data->groups + i;
             read_str__(grp->name, f);
-            read_u64__(grp->cmd_count, f);
-            if (grp->cmd_count != data->param->value_count)
+            read_u64__(grp->bench_count, f);
+            if (grp->bench_count != data->param->value_count)
                 goto corrupted;
-            grp->cmd_idxs = calloc(grp->cmd_count, sizeof(*grp->cmd_idxs));
-            for (size_t j = 0; j < grp->cmd_count; ++j)
-                read_u64__(grp->cmd_idxs[j], f);
+            grp->bench_idxs = calloc(grp->bench_count, sizeof(*grp->bench_idxs));
+            for (size_t j = 0; j < grp->bench_count; ++j)
+                read_u64__(grp->bench_idxs[j], f);
         }
-
-        data->group_count = storage->group_count;
-        data->groups = storage->groups;
 
         int at = ftell(f);
         if (at == -1) {
@@ -388,7 +385,7 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
         }
 
         data->bench_count = header.bench_count;
-        data->benches = calloc(header.bench_count, sizeof(*data->benches));
+        sb_resize(data->benches, header.bench_count);
         for (size_t i = 0; i < header.bench_count; ++i) {
             struct bench *bench = data->benches + i;
             read_str__(bench->name, f);
@@ -456,12 +453,7 @@ void free_bench_data_storage(struct bench_data_storage *storage)
         sb_free(storage->param.values);
     }
     if (storage->meas) {
-        free(storage->meas);
-    }
-    if (storage->groups) {
-        for (size_t i = 0; i < storage->group_count; ++i)
-            free(storage->groups[i].cmd_idxs);
-        free(storage->groups);
+        sb_free(storage->meas);
     }
 }
 
@@ -541,36 +533,35 @@ static bool merge_bench_data(struct bench_data *src_datas,
     src_storages[0].meas = NULL;
     // Make new benchmark list
     data->bench_count = total_bench_count;
-    data->benches = calloc(total_bench_count, sizeof(*data->benches));
+    sb_resize(data->benches, total_bench_count);
     for (size_t i = 0, bench_cursor = 0; i < src_count; ++i) {
         struct bench_data *src = src_datas + i;
         memcpy(data->benches + bench_cursor, src->benches,
                sizeof(struct bench) * src->bench_count);
         bench_cursor += src->bench_count;
         // Free data in source as if it never had it
-        free(src->benches);
+        sb_free(src->benches);
         src->benches = NULL;
         src->bench_count = 0;
     }
     // Make new group list
     if (data->param) {
-        data->group_count = storage->group_count = total_group_count;
-        data->groups = storage->groups = calloc(total_group_count, sizeof(*storage->groups));
+        data->group_count = total_group_count;
+        sb_resize(data->groups, total_group_count);
         for (size_t i = 0, group_cursor = 0, bench_cursor = 0; i < src_count; ++i) {
-            struct bench_data_storage *src = src_storages + i;
-            memcpy(storage->groups + group_cursor, src->groups,
+            struct bench_data *src = src_datas + i;
+            memcpy(data->groups + group_cursor, src->groups,
                    sizeof(struct bench_group) * src->group_count);
             // Fixup command indexes
             for (size_t j = 0; j < src->group_count; ++j) {
-                assert(src->groups[j].cmd_count == data->param->value_count);
-                for (size_t k = 0; k < src->groups[j].cmd_count; ++k)
-                    storage->groups[group_cursor + j].cmd_idxs[k] += bench_cursor;
-                bench_cursor += src->groups[j].cmd_count;
+                assert(src->groups[j].bench_count == data->param->value_count);
+                for (size_t k = 0; k < src->groups[j].bench_count; ++k)
+                    data->groups[group_cursor + j].bench_idxs[k] += bench_cursor;
+                bench_cursor += src->groups[j].bench_count;
             }
             group_cursor += src->group_count;
             // Free data in source as if it never had it
-            free(src->groups);
-            src->groups = NULL;
+            sb_free(src->groups);
             src->group_count = 0;
         }
     }
@@ -835,15 +826,15 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
     // TODO: add support for params
     storage->has_param = false;
     storage->meas_count = 1;
-    storage->meas = calloc(1, sizeof(*storage->meas));
+    sb_resize(storage->meas, 1);
     init_parsed_text_meas(parsed, storage->meas);
-    // TODO: add support for groups
-    storage->group_count = 0;
 
     data->meas_count = storage->meas_count;
     data->meas = storage->meas;
+    // TODO: add support for groups
+    data->group_count = 0;
     data->bench_count = parsed->line_count;
-    data->benches = calloc(parsed->line_count, sizeof(*data->benches));
+    sb_resize(data->benches, parsed->line_count);
     for (size_t bench_idx = 0; bench_idx < data->bench_count; ++bench_idx) {
         const struct parsed_text_data_line *line = parsed->lines + bench_idx;
         struct bench *bench = data->benches + bench_idx;

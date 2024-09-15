@@ -140,7 +140,7 @@ struct progress_bar {
 
 struct run_task {
     struct run_task_queue *q;
-    const struct bench_params *param;
+    const struct bench_run_desc *param;
     struct bench_run_data *bench;
 };
 
@@ -156,7 +156,7 @@ struct run_task_queue {
 
 struct custom_measurement_task {
     struct custom_measurement_task_queue *q;
-    const struct bench_params *param;
+    const struct bench_run_desc *param;
     struct bench_run_data *bench;
 };
 
@@ -166,7 +166,7 @@ struct custom_measurement_task_queue {
     volatile size_t cursor;
 };
 
-static void init_custom_measurement_task_queue(const struct bench_params *params,
+static void init_custom_measurement_task_queue(const struct bench_run_desc *params,
                                                struct bench_run_data *benches, size_t count,
                                                struct custom_measurement_task_queue *q)
 {
@@ -213,7 +213,7 @@ static __thread struct run_task_queue *g_q;
         assert(ret == 0);                                                                    \
     } while (0)
 
-static bool init_run_task_queue(const struct bench_params *params,
+static bool init_run_task_queue(const struct bench_run_desc *params,
                                 struct bench_run_data *benches, size_t count,
                                 size_t worker_count, struct run_task_queue *q)
 {
@@ -353,7 +353,7 @@ static void apply_output_policy(enum output_kind policy, int err_pipe_end)
     }
 }
 
-static void exec_cmd_child(const struct bench_params *params, bool use_pmc, bool is_warmup,
+static void exec_cmd_child(const struct bench_run_desc *params, bool use_pmc, bool is_warmup,
                            int err_pipe_end)
 {
     apply_input_policy(params->stdin_fd, err_pipe_end);
@@ -392,7 +392,7 @@ static void exec_cmd_child(const struct bench_params *params, bool use_pmc, bool
     __builtin_unreachable();
 }
 
-static bool exec_cmd_internal(const struct bench_params *params, struct rusage *rusage,
+static bool exec_cmd_internal(const struct bench_run_desc *params, struct rusage *rusage,
                               struct perf_cnt *pmc, bool is_warmup, const int err_pipe[2],
                               int *rc)
 {
@@ -446,7 +446,7 @@ static bool exec_cmd_internal(const struct bench_params *params, struct rusage *
     return true;
 }
 
-static bool exec_cmd(const struct bench_params *params, struct rusage *rusage,
+static bool exec_cmd(const struct bench_run_desc *params, struct rusage *rusage,
                      struct perf_cnt *pmc, bool is_warmup, int *rc)
 {
     int err_pipe[2];
@@ -524,7 +524,7 @@ static bool should_suspend_round(struct run_state *state)
     return result;
 }
 
-static bool warmup(const struct bench_params *cmd)
+static bool warmup(const struct bench_run_desc *cmd)
 {
     if (!should_run(&g_warmup_stop))
         return true;
@@ -557,7 +557,8 @@ static bool warmup(const struct bench_params *cmd)
 // 5. Collect all stdout outputs to a single file if custom measurements are
 //      used and store indexes to be able to identify each run
 // 6. Collect all measurements specified
-static bool exec_and_measure(const struct bench_params *params, struct bench_run_data *bench)
+static bool exec_and_measure(const struct bench_run_desc *params,
+                             struct bench_run_data *bench)
 {
     struct rusage rusage;
     memset(&rusage, 0, sizeof(rusage));
@@ -724,7 +725,7 @@ static bool run_prepare_if_needed(void)
     return true;
 }
 
-static enum bench_run_result run_benchmark_exact_runs(const struct bench_params *params,
+static enum bench_run_result run_benchmark_exact_runs(const struct bench_run_desc *params,
                                                       struct bench_run_data *bench)
 {
     struct run_state round_state;
@@ -746,7 +747,7 @@ static enum bench_run_result run_benchmark_exact_runs(const struct bench_params 
     return BENCH_RUN_FINISHED;
 }
 
-static enum bench_run_result run_benchmark_adaptive_runs(const struct bench_params *params,
+static enum bench_run_result run_benchmark_adaptive_runs(const struct bench_run_desc *params,
                                                          struct bench_run_data *bench)
 {
     double start_time = get_time();
@@ -794,7 +795,7 @@ out:
 // During the benchmark run, progress bar is notified about current state
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
-static enum bench_run_result run_bench(const struct bench_params *params,
+static enum bench_run_result run_bench(const struct bench_run_desc *params,
                                        struct bench_run_data *bench)
 {
     progress_bar_at_warmup(bench->progress);
@@ -1038,7 +1039,7 @@ static bool run_benches_multi_threaded(struct run_task_queue *q, size_t thread_c
     return spawn_threads(run_bench_worker, q, thread_count);
 }
 
-static bool execute_run_tasks(const struct bench_params *params,
+static bool execute_run_tasks(const struct bench_run_desc *params,
                               struct bench_run_data *benches, size_t count,
                               size_t thread_count)
 {
@@ -1129,7 +1130,7 @@ static bool do_custom_measurement_cmd(const struct meas *meas, int input_fd, int
     return true;
 }
 
-static bool run_custom_measurements_cmd(const struct bench_params *params,
+static bool run_custom_measurements_cmd(const struct bench_run_desc *params,
                                         struct bench_run_data *bench, void *copy_buffer,
                                         size_t max_stdout_size, const struct meas **meas_list)
 {
@@ -1220,7 +1221,7 @@ static char **file_to_line_list(const char *start)
     return lines;
 }
 
-static bool run_re_on_file(const struct bench_params *params, struct bench *bench,
+static bool run_re_on_file(const struct bench_run_desc *params, struct bench *bench,
                            char *file_buffer, const struct meas **meas_list, regex_t *regexes)
 {
     bool success = false;
@@ -1275,7 +1276,7 @@ err:
     return success;
 }
 
-static bool run_custom_measurements_re(const struct bench_params *params,
+static bool run_custom_measurements_re(const struct bench_run_desc *params,
                                        struct bench_run_data *bench, void *copy_buffer,
                                        size_t max_stdout_size, const struct meas **meas_list)
 {
@@ -1337,7 +1338,7 @@ err:
     return success;
 }
 
-static bool run_custom_measurements(const struct bench_params *params,
+static bool run_custom_measurements(const struct bench_run_desc *params,
                                     struct bench_run_data *bench)
 {
     int all_stdout_fd = params->stdout_fd;
@@ -1398,7 +1399,7 @@ static void *custom_measurement_bench_worker(void *arg)
     return NULL;
 }
 
-static bool execute_custom_measurement_tasks(const struct bench_params *params,
+static bool execute_custom_measurement_tasks(const struct bench_run_desc *params,
                                              struct bench_run_data *benches, size_t count,
                                              size_t thread_count)
 {
@@ -1435,7 +1436,7 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
-static bool run_benches_internal(const struct bench_params *params,
+static bool run_benches_internal(const struct bench_run_desc *params,
                                  struct bench_run_data *benches, size_t count,
                                  size_t thread_count)
 {
@@ -1476,7 +1477,7 @@ out:
     return success;
 }
 
-bool run_benches(const struct bench_params *params, struct bench *benches, size_t count)
+bool run_benches(const struct bench_run_desc *params, struct bench *benches, size_t count)
 {
     bool success = false;
     struct bench_run_data *run_data = calloc(sb_len(params), sizeof(*run_data));

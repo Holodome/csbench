@@ -566,7 +566,7 @@ static void analyze_group(struct meas_analysis *al, const struct bench_group *gr
     double slowest = -INFINITY, fastest = INFINITY;
     for (size_t cmd_idx = 0; cmd_idx < param->value_count; ++cmd_idx) {
         const char *value = param->values[cmd_idx];
-        size_t bench_idx = grp->cmd_idxs[cmd_idx];
+        size_t bench_idx = grp->bench_idxs[cmd_idx];
         char *end = NULL;
         // Check if value is a double.
         double value_double = strtod(value, &end);

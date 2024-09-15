@@ -366,25 +366,7 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, const char **e
     return true;
 }
 
-static void free_run_info(struct run_info *run_info)
-{
-    for (size_t i = 0; i < sb_len(run_info->params); ++i) {
-        struct bench_params *params = run_info->params + i;
-        if (params->stdout_fd != -1)
-            close(params->stdout_fd);
-        if (params->stdin_fd != -1)
-            close(params->stdin_fd);
-        sb_free(params->argv);
-    }
-    sb_free(run_info->params);
-    for (size_t i = 0; i < sb_len(run_info->groups); ++i) {
-        struct bench_group *group = run_info->groups + i;
-        free(group->cmd_idxs);
-    }
-    sb_free(run_info->groups);
-}
-
-static bool init_bench_stdin(const struct input_policy *input, struct bench_params *params)
+static bool init_bench_stdin(const struct input_policy *input, struct bench_run_desc *params)
 {
     switch (input->kind) {
     case INPUT_POLICY_NULL:
@@ -429,16 +411,15 @@ static bool init_bench_stdin(const struct input_policy *input, struct bench_para
     return true;
 }
 
-static bool init_bench_params(const char *name, const struct input_policy *input,
-                              enum output_kind output, const struct meas *meas,
-                              const char *exec, const char **argv, const char *cmd_str,
-                              struct bench_params *params)
+static bool init_run_desc(const struct input_policy *input, enum output_kind output,
+                          const struct meas *meas, size_t meas_count, const char *exec,
+                          const char **argv, const char *cmd_str,
+                          struct bench_run_desc *params)
 {
     memset(params, 0, sizeof(*params));
-    params->name = name;
     params->output = output;
     params->meas = meas;
-    params->meas_count = sb_len(meas);
+    params->meas_count = meas_count;
     params->exec = exec;
     params->argv = argv;
     params->str = cmd_str;
@@ -446,7 +427,7 @@ static bool init_bench_params(const char *name, const struct input_policy *input
     return init_bench_stdin(input, params);
 }
 
-static bool init_bench_stdout(struct bench_params *params)
+static bool init_bench_stdout(struct bench_run_desc *params)
 {
     int fd = tmpfile_fd();
     if (fd == -1)
@@ -455,21 +436,18 @@ static bool init_bench_stdout(struct bench_params *params)
     return true;
 }
 
-static bool init_command(const struct command_info *cmd, struct run_info *info, size_t *idx)
+static bool init_command(const struct command_info *cmd, const struct meas *meas,
+                         size_t meas_count, struct bench_run_desc *run_desc)
 {
     const char *exec = NULL, **argv = NULL;
     if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv))
         return false;
 
-    struct bench_params bench_params;
-    if (!init_bench_params(cmd->name, &cmd->input, cmd->output, info->meas, exec, argv,
-                           (char *)cmd->cmd, &bench_params)) {
+    if (!init_run_desc(&cmd->input, cmd->output, meas, meas_count, exec, argv,
+                       (char *)cmd->cmd, run_desc)) {
         sb_free(argv);
         return false;
     }
-    sb_push(info->params, bench_params);
-    if (idx)
-        *idx = sb_len(info->params) - 1;
     return true;
 }
 
@@ -722,97 +700,92 @@ static bool attempt_rename(const struct rename_entry *rename_list, size_t idx,
     return false;
 }
 
-static bool do_bench_renames(const struct rename_entry *rename_list, struct bench_data *data,
-                             struct bench_data_storage *storage)
+// When we initialize benchmarks in init_benches, we set default names. This function handles
+// all other renaming that may happen with these names.
+static bool set_bench_names(const struct rename_entry *rename_list, struct bench_data *data)
 {
     if (!validate_rename_list(rename_list, data))
         return false;
-    if (!data->group_count) {
-        for (size_t i = 0; i < data->bench_count; ++i) {
-            struct bench *bench = data->benches + i;
-            (void)attempt_rename(rename_list, i, &bench->name);
+    if (data->group_count == 0) {
+        for (size_t bench_idx = 0; bench_idx < data->bench_count; ++bench_idx) {
+            struct bench *bench = data->benches + bench_idx;
+            (void)attempt_rename(rename_list, bench_idx, &bench->name);
         }
-    }
-    if (storage) {
-        for (size_t i = 0; i < storage->group_count; ++i) {
-            struct bench_group *group = storage->groups + i;
-            (void)attempt_rename(rename_list, i, &group->name);
-        }
-    }
-    return true;
-}
-
-static bool attempt_rename_with_param_value(const struct rename_entry *rename_list,
-                                            size_t bench_idx,
-                                            const struct bench_group *groups,
-                                            const struct bench_param *param,
-                                            const char **name)
-{
-    size_t value_count = param->value_count;
-    for (size_t grp_idx = 0; grp_idx < sb_len(groups); ++grp_idx) {
-        const struct bench_group *grp = groups + grp_idx;
-        for (size_t val_idx = 0; val_idx < value_count; ++val_idx) {
-            if (grp->cmd_idxs[val_idx] != bench_idx)
-                continue;
-            const char *tmp_name = *name;
-            if (attempt_rename(rename_list, grp_idx, &tmp_name)) {
-                *name = csfmt("%s %s=%s", tmp_name, param->name, param->values[val_idx]);
-                return true;
+    } else {
+        const struct bench_param *param = data->param;
+        for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+            struct bench_group *grp = data->groups + grp_idx;
+            if (attempt_rename(rename_list, grp_idx, &grp->name)) {
+                for (size_t grp_bench_idx = 0; grp_bench_idx < grp->bench_count;
+                     ++grp_bench_idx) {
+                    struct bench *bench = data->benches + grp->bench_idxs[grp_bench_idx];
+                    bench->name = csfmt("%s %s=%s", grp->name, param->name,
+                                        param->values[grp_bench_idx]);
+                }
             }
         }
     }
-    return false;
-}
-
-static void set_param_names(const struct settings *settings, struct run_info *info)
-{
-    for (size_t bench_idx = 0; bench_idx < sb_len(info->params); ++bench_idx) {
-        struct bench_params *params = info->params + bench_idx;
-        if (sb_len(info->groups) != 0) {
-            assert(settings->has_param);
-            attempt_rename_with_param_value(settings->rename_list, bench_idx, info->groups,
-                                            &settings->param, &params->name);
-        }
-    }
+    return true;
 }
 
 static bool init_benches(const struct settings *settings,
                          const struct command_info *cmd_infos, bool has_groups,
-                         struct run_info *info)
+                         struct bench_data *data)
 {
     // Short path when there are no groups
     if (!has_groups) {
-        for (size_t cmd_idx = 0; cmd_idx < sb_len(cmd_infos); ++cmd_idx) {
-            const struct command_info *cmd = cmd_infos + cmd_idx;
-            if (!init_command(cmd, info, NULL))
+        size_t bench_count = sb_len(cmd_infos);
+        data->bench_count = bench_count;
+        sb_resize(data->run_descs, bench_count);
+        sb_resize(data->benches, data->bench_count);
+        for (size_t bench_idx = 0; bench_idx < sb_len(cmd_infos); ++bench_idx) {
+            const struct command_info *cmd = cmd_infos + bench_idx;
+            struct bench_run_desc *run_desc = data->run_descs + bench_idx;
+            struct bench *bench = data->benches + bench_idx;
+            if (!init_command(cmd, data->meas, data->meas_count, run_desc))
                 return false;
+            bench->name = cmd->name;
         }
-        return true;
-    }
-
-    assert(settings->has_param);
-    size_t group_count = sb_last(cmd_infos).grp_idx + 1;
-    const struct bench_param *param = &settings->param;
-    const struct command_info *cmd_cursor = cmd_infos;
-    for (size_t grp_idx = 0; grp_idx < group_count; ++grp_idx) {
-        assert(cmd_cursor->grp_idx == grp_idx);
-        struct bench_group group = {0};
-        group.name = cmd_cursor->grp_name;
-        (void)attempt_rename(settings->rename_list, sb_len(info->groups), &group.name);
-        group.cmd_count = param->value_count;
-        group.cmd_idxs = calloc(param->value_count, sizeof(*group.cmd_idxs));
-        for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx, ++cmd_cursor) {
-            if (!init_command(cmd_cursor, info, group.cmd_idxs + val_idx)) {
-                free(group.cmd_idxs);
-                return false;
+    } else {
+        assert(settings->has_param);
+        size_t grp_count = sb_last(cmd_infos).grp_idx + 1;
+        const struct bench_param *param = &settings->param;
+        size_t bench_count = grp_count * param->value_count;
+        size_t val_count = param->value_count;
+        data->group_count = grp_count;
+        data->bench_count = bench_count;
+        sb_resize(data->run_descs, bench_count);
+        sb_resize(data->benches, data->bench_count);
+        sb_resize(data->groups, grp_count);
+        for (size_t grp_idx = 0; grp_idx < grp_count; ++grp_idx) {
+            struct bench_group *group = data->groups + grp_idx;
+            group->name = cmd_infos[grp_idx * val_count].grp_name;
+            group->bench_count = param->value_count;
+            group->bench_idxs = calloc(val_count, sizeof(*group->bench_idxs));
+            for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
+                size_t bench_idx = grp_idx * val_count + val_idx;
+                group->bench_idxs[val_idx] = bench_idx;
+                struct bench_run_desc *run_desc = data->run_descs + bench_idx;
+                const struct command_info *cmd = cmd_infos + bench_idx;
+                struct bench *bench = data->benches + bench_idx;
+                if (!init_command(cmd, data->meas, data->meas_count, run_desc)) {
+                    free(group->bench_idxs);
+                    return false;
+                }
+                bench->name =
+                    csfmt("%s %s=%s", group->name, param->name, param->values[val_idx]);
             }
         }
-        sb_push(info->groups, group);
+    }
+    for (size_t i = 0; i < data->bench_count; ++i) {
+        struct bench *bench = data->benches + i;
+        bench->meas_count = data->meas_count;
+        bench->meas = calloc(bench->meas_count, sizeof(*bench->meas));
     }
     return true;
 }
 
-static bool init_commands(const struct settings *settings, struct run_info *info)
+static bool init_commands(const struct settings *settings, struct bench_data *data)
 {
     bool success = false;
     struct command_info *command_infos = NULL;
@@ -832,7 +805,7 @@ static bool init_commands(const struct settings *settings, struct run_info *info
         }
     }
 
-    if (!init_benches(settings, command_infos, has_groups, info))
+    if (!init_benches(settings, command_infos, has_groups, data))
         goto err;
 
     success = true;
@@ -922,12 +895,18 @@ static bool initialize_global_variables(const struct bench_data *data)
     return true;
 }
 
-static bool init_run_info(const struct settings *settings, struct run_info *info)
+static bool init_run_info(const struct settings *settings, struct bench_data *data)
 {
-    memset(info, 0, sizeof(*info));
-    info->meas = settings->meas;
+    if (sb_len(settings->meas) == 0) {
+        error("no measurements specified");
+        return false;
+    }
+
+    memset(data, 0, sizeof(*data));
+    data->meas_count = sb_len(settings->meas);
+    data->meas = settings->meas;
     if (settings->has_param)
-        info->param = &settings->param;
+        data->param = &settings->param;
 
     // Silently disable progress bar if output is inherit. The reasoning for
     // this is that inheriting output should only be used when debugging,
@@ -936,12 +915,7 @@ static bool init_run_info(const struct settings *settings, struct run_info *info
         g_progress_bar = false;
     }
 
-    if (sb_len(settings->meas) == 0) {
-        error("no measurements specified");
-        return false;
-    }
-
-    if (!init_commands(settings, info))
+    if (!init_commands(settings, data))
         return false;
 
     bool has_custom_meas = false;
@@ -953,37 +927,16 @@ static bool init_run_info(const struct settings *settings, struct run_info *info
         }
     }
     if (has_custom_meas) {
-        for (size_t i = 0; i < sb_len(info->params); ++i) {
-            if (!init_bench_stdout(info->params + i))
+        for (size_t i = 0; i < data->bench_count; ++i) {
+            if (!init_bench_stdout(data->run_descs + i))
                 goto err;
         }
     }
 
-    set_param_names(settings, info);
-
     return true;
 err:
-    free_run_info(info);
+    free_bench_data(data);
     return false;
-}
-
-static void init_bench_data(const struct meas *meas, size_t meas_count,
-                            const struct run_info *info, struct bench_data *data)
-{
-    memset(data, 0, sizeof(*data));
-    data->meas_count = meas_count;
-    data->meas = meas;
-    data->group_count = sb_len(info->groups);
-    data->groups = info->groups;
-    data->param = info->param;
-    data->bench_count = sb_len(info->params);
-    data->benches = calloc(data->bench_count, sizeof(*data->benches));
-    for (size_t i = 0; i < data->bench_count; ++i) {
-        struct bench *bench = data->benches + i;
-        bench->meas_count = data->meas_count;
-        bench->meas = calloc(data->meas_count, sizeof(*bench->meas));
-        bench->name = info->params[i].name;
-    }
 }
 
 void free_bench_data(struct bench_data *data)
@@ -994,8 +947,17 @@ void free_bench_data(struct bench_data *data)
         for (size_t j = 0; j < data->meas_count; ++j)
             sb_free(bench->meas[j]);
         free(bench->meas);
+        if (data->run_descs) {
+            struct bench_run_desc *run_desc = data->run_descs + i;
+            if (run_desc->stdout_fd != -1)
+                close(run_desc->stdout_fd);
+            if (run_desc->stdin_fd != -1)
+                close(run_desc->stdin_fd);
+            sb_free(run_desc->argv);
+        }
     }
-    free(data->benches);
+    sb_free(data->benches);
+    sb_free(data->run_descs);
 }
 
 static bool do_save_bin(const struct bench_data *data)
@@ -1018,16 +980,14 @@ static bool do_save_bin(const struct bench_data *data)
 static bool do_app_bench(const struct settings *settings)
 {
     bool success = false;
-    struct run_info info;
-    if (!init_run_info(settings, &info))
-        return false;
     struct bench_data data;
-    init_bench_data(settings->meas, sb_len(settings->meas), &info, &data);
-    if (!do_bench_renames(settings->rename_list, &data, NULL))
+    if (!init_run_info(settings, &data))
+        return false;
+    if (!set_bench_names(settings->rename_list, &data))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
-    if (!run_benches(info.params, data.benches, data.bench_count))
+    if (!run_benches(data.run_descs, data.benches, data.bench_count))
         goto err;
     if (g_save_bin && !do_save_bin(&data))
         goto err;
@@ -1036,7 +996,6 @@ static bool do_app_bench(const struct settings *settings)
     success = true;
 err:
     free_bench_data(&data);
-    free_run_info(&info);
     return success;
 }
 
@@ -1052,7 +1011,7 @@ static bool do_app_load_text(const struct settings *settings)
     struct bench_data data;
     if (!load_bench_data_text(file_list, &data, &storage))
         return false;
-    if (!do_bench_renames(settings->rename_list, &data, NULL))
+    if (!set_bench_names(settings->rename_list, &data))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
@@ -1128,7 +1087,7 @@ static bool do_app_load_bin(const struct settings *settings)
     struct bench_data data;
     if (!load_bench_data_binary(src_list, &data, &storage))
         goto err;
-    if (!do_bench_renames(settings->rename_list, &data, &storage))
+    if (!set_bench_names(settings->rename_list, &data))
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
