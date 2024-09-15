@@ -140,7 +140,7 @@ static void html_speedup_explain(const struct speedup *sp, const char *a_name,
     else
         fprintf(f, "<tt>%s</tt>", a_name);
     fprintf(f, "</p>"
-               "<p>");
+               "<p class=\"offset-text\">");
     if (sp->is_slower)
         fprintf(f, "%.2f%% slowdown", (sp->inv_est.point - 1.0) * 100.0);
     else
@@ -153,14 +153,18 @@ static void html_p_value_explain(double p_value, FILE *f)
     fprintf(f, "<p>");
     switch (g_stat_test) {
     case STAT_TEST_MWU:
-        fprintf(f, "Mann-Whitney U-test p-value=%.2f", p_value);
+        fprintf(f, "Mann-Whitney U-test:");
         break;
     case STAT_TEST_TTEST:
-        fprintf(f, "Welch's t-test p-value=%.2f", p_value);
+        fprintf(f, "Welch's t-test");
         break;
     }
-    fprintf(f, "</p>"
-               "<p>");
+    fprintf(f,
+            "</p>"
+            "<p class=\"offset-text\">"
+            "p-value: %.2f"
+            "<br>",
+            p_value);
     switch (g_stat_test) {
     case STAT_TEST_MWU:
         if (p_value < 0.05)
@@ -420,6 +424,8 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
     char fastest_mean[256], slowest_mean[256];
     format_time(fastest_mean, sizeof(fastest_mean), grp->fastest->mean);
     format_time(slowest_mean, sizeof(slowest_mean), grp->slowest->mean);
+    char linear_coef[256];
+    format_meas(linear_coef, sizeof(linear_coef), grp->regress.a, &al->meas->units);
     fprintf(f,
             "<div class=\"regr-%zu-%zu\">"
             /**/ "<h3>group %s</h3>"
@@ -428,11 +434,11 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
             /******/ "<img src=\"group_%zu_%zu.svg\">"
             /****/ "</div>"
             /****/ "<div class=\"col stats\">"
-            /******/ "<p>lowest time %s with %s=%s</p>"
-            /******/ "<p>hightest time %s with %s=%s</p>"
+            /******/ "<p>lowest %s with %s=%s</p>"
+            /******/ "<p>hightest %s with %s=%s</p>"
             /******/ "<p>estimated complexity: %s</p>"
             /******/ "<p>R^2 %.2f</p>"
-            /******/ "<p>linear coef %g</p>"
+            /******/ "<p>linear coef %s</p>"
             /****/ "</div>"
             /**/ "</div>"
             "</div>",
@@ -443,7 +449,7 @@ static void html_regr_bench_group(const struct meas_analysis *al, size_t grp_idx
             slowest_mean, param->name, grp->slowest->value, //
             big_o_str(grp->regress.complexity),             //
             grp->regress.r2,                                //
-            grp->regress.a                                  //
+            linear_coef                                     //
     );
 }
 
@@ -485,13 +491,15 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
         );
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             fprintf(f, "<li>%s</li>", param->values[val_idx]);
+        char linear_coef[256];
+        format_meas(linear_coef, sizeof(linear_coef), grp->regress.a, &al->meas->units);
         fprintf(f,
                 "</ol>"
                 /******/ "<p>lowest time %s with %s=%s</p>"
                 /******/ "<p>hightest time %s with %s=%s</p>"
                 /******/ "<p>estimated complexity: %s</p>"
                 /******/ "<p>R^2 %.2f</p>"
-                /******/ "<p>linear coef %g</p>"
+                /******/ "<p>linear coef %s</p>"
                 /****/ "</div>"
                 /**/ "</div>"
                 "</div>",
@@ -499,7 +507,7 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 slowest_mean, param->name, grp->slowest->value, //
                 big_o_str(grp->regress.complexity),             //
                 grp->regress.r2,                                //
-                grp->regress.a                                  //
+                linear_coef                                     //
         );
     } else {
         fprintf(f,
@@ -508,7 +516,7 @@ static void html_regr(const struct meas_analysis *al, FILE *f)
                 /****/ "<img src=\"groups_%zu.svg\">"
                 /**/ "</div>"
                 /**/ "<div class=\"col\">"
-                /****/ "<p>made regression agains parameter %s</p>"
+                /****/ "<p>made regression against parameter %s</p>"
                 /****/ "<p>parameter values:</p>"
                 /****/ "<ol>",
                 meas_idx,   //
@@ -743,8 +751,10 @@ static void html_outliers(const struct outliers *outliers, size_t run_count, FIL
     int outlier_count = outliers->low_mild + outliers->high_mild + outliers->low_severe +
                         outliers->high_severe;
     if (outlier_count != 0) {
-        fprintf(f, "<p>found %d outliers (%.2f%%)</p><ul>", outlier_count,
-                (double)outlier_count / run_count * 100.0);
+        fprintf(f,
+                "<p>found %d outliers (%.2f%%):</p>"
+                "<ul>",
+                outlier_count, (double)outlier_count / run_count * 100.0);
         if (outliers->low_severe)
             fprintf(f, "<li>%d (%.2f%%) low severe</li>", outliers->low_severe,
                     (double)outliers->low_severe / run_count * 100.0);
@@ -772,37 +782,66 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
     const struct bench *bench = analysis->bench;
     const struct meas *meas = al->meas + meas_idx;
     assert(!meas->is_secondary);
-    char min_buf[256], max_buf[256];
+    char min_buf[256], median_buf[256], max_buf[256];
     format_meas(min_buf, sizeof(min_buf), distr->min, &meas->units);
+    format_meas(median_buf, sizeof(median_buf), distr->median, &meas->units);
     format_meas(max_buf, sizeof(max_buf), distr->max, &meas->units);
-    fprintf(f,
-            "<div class=\"row\">"
-            /**/ "<div class=\"col\">"
-            /****/ "<h3>%s kde plot</h3>"
-            /****/ "<a href=\"kde_%zu_%zu.svg\">"
-            /******/ "<img src=\"kde_small_%zu_%zu.svg\">"
-            /****/ "</a>"
-            "</div>"
-            "<div class=\"col\">"
-            /**/ "<h3>statistics</h3>"
-            /**/ "<div class=\"stats\">"
-            /****/ "<p>%zu runs</p>"
-            /****/ "<p>min %s</p>"
-            /****/ "<p>max %s</p>"
-            /****/ "<table>"
-            /******/ "<thead><tr>"
-            /********/ "<th></th>"
-            /********/ "<th class=\"est-bound\">lower bound</th>"
-            /********/ "<th class=\"est-bound\">estimate</th>"
-            /********/ "<th class=\"est-bound\">upper bound</th>"
-            /******/ "</tr></thead>"
-            /******/ "<tbody>",
-            meas->name,          //
-            bench_idx, meas_idx, //
-            bench_idx, meas_idx, //
-            bench->run_count,    //
-            min_buf,             //
-            max_buf              //
+    char p1_buf[256], p5_buf[256], p25_buf[256], p75_buf[256], p95_buf[256], p99_buf[256];
+    format_meas(p1_buf, sizeof(p1_buf), distr->p1, &meas->units);
+    format_meas(p5_buf, sizeof(p5_buf), distr->p5, &meas->units);
+    format_meas(p25_buf, sizeof(p25_buf), distr->q1, &meas->units);
+    format_meas(p75_buf, sizeof(p75_buf), distr->q3, &meas->units);
+    format_meas(p95_buf, sizeof(p95_buf), distr->p95, &meas->units);
+    format_meas(p99_buf, sizeof(p99_buf), distr->p99, &meas->units);
+    fprintf(
+        f,
+        "<div class=\"row\">"
+        /**/ "<div class=\"col\">"
+        /****/ "<h3>%s kde plot</h3>"
+        /****/ "<a href=\"kde_%zu_%zu.svg\">"
+        /******/ "<img src=\"kde_small_%zu_%zu.svg\">"
+        /****/ "</a>"
+        "</div>"
+        "<div class=\"col\">"
+        /**/ "<h3>statistics</h3>"
+        /**/ "<div class=\"stats\">"
+        /****/ "<p>%zu runs</p>"
+        /****/ "<h5>quantiles</h5>"
+        /****/ "<table>"
+        /******/ "<thead><tr>"
+        /********/ "<th>min</th><th>median</th><th>max</th>"
+        /******/ "</tr></thead>"
+        /******/ "<tbody>"
+        /********/ "<tr><td>%s</td><td>%s</td><td>%s</td></tr>"
+        /******/ "</tbody>"
+        /****/ "</table>"
+        /****/ "<details>"
+        /******/ "<summary>percentiles</summary>"
+        /******/ "<table>"
+        /********/ "<thead><tr>"
+        /**********/ "<th>p1</th><th>p5</th><th>p25</th><th>p75</th><th>p95</th><th>p99</th>"
+        /********/ "</tr></thead>"
+        /********/ "<tbody>"
+        /**********/ "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</"
+        "td></tr>"
+        /********/ "</tbody>"
+        /******/ "</table>"
+        /****/ "</details>"
+        /****/ "<h5>bootstrap estimates</h5>"
+        /****/ "<table>"
+        /******/ "<thead><tr>"
+        /********/ "<th></th>"
+        /********/ "<th class=\"est-bound\">lower bound</th>"
+        /********/ "<th class=\"est-bound\">estimate</th>"
+        /********/ "<th class=\"est-bound\">upper bound</th>"
+        /******/ "</tr></thead>"
+        /******/ "<tbody>",
+        meas->name,                                        //
+        bench_idx, meas_idx,                               //
+        bench_idx, meas_idx,                               //
+        bench->run_count,                                  //
+        min_buf, median_buf, max_buf,                      //
+        p1_buf, p5_buf, p25_buf, p75_buf, p95_buf, p99_buf //
     );
     html_estimate("mean", &distr->mean, &meas->units, f);
     html_estimate("st dev", &distr->st_dev, &meas->units, f);
@@ -1044,7 +1083,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al, FILE
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div>"
-                "<h5><tt>%s=%s</tt></h5>",
+                "<h4><tt>%s=%s</tt></h4>",
                 param->name, param->values[val_idx]);
         switch (g_sort_mode) {
         case SORT_RAW:
@@ -1138,13 +1177,13 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                     a_name, b_name,    //
                     grp_idx, meas_idx  //
             );
-            fprintf(f,
-                    "<p>Average difference by geometric mean of per-value differences:</p>");
+            fprintf(
+                f, "<h5>Average difference by geometric mean of per-value differences:</h5>");
             {
                 const struct speedup *speedup = al->group_avg_cmp.speedups + grp_idx;
                 html_speedup_explain(speedup, a_name, b_name, f);
             }
-            fprintf(f, "<p>Average difference by sum:</p>");
+            fprintf(f, "<h5>Average difference by sum of per-value measurements:</h5>");
             {
                 // TODO: This has to use other order
                 const struct speedup *speedup = al->group_sum_cmp.speedups + grp_idx;
@@ -1162,7 +1201,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div id=\"pval-cmps-%zu-%zu\">"
-                "<h5><tt>%s=%s</tt></h5>",
+                "<h4><tt>%s=%s</tt></h4>",
                 val_idx, meas_idx,                  //
                 param->name, param->values[val_idx] //
         );
@@ -1177,7 +1216,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
             const struct distr *b_distr = al->benches[b_bench_idx];
             fprintf(f,
                     "<div id=\"cmp-%zu-%zu-%zu\">"
-                    /**/ "<h6><tt>%s</tt> vs <tt>%s</tt></h6>"
+                    /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
                     /**/ "<div class=\"row\">"
                     /****/ "<div class=\"col\">"
                     /******/ "<a href=\"kde_pval_cmp_%zu_%zu_%zu.svg\">"
@@ -1234,15 +1273,16 @@ static void html_report(const struct analysis *al, FILE *f)
                "initial-scale=1.0\">"
                "<title>csbench</title>"
                "<style>body { margin: 40px auto; max-width: 960px; line-height: "
-               "1.6; color: #444; padding: 0 10px; font: 14px Helvetica Neue }"
+               "1.6; color: #454545; padding: 0 10px; font: 14px Helvetica Neue }"
                "h1, h2, h3, h4 { line-height: 1.2; text-align: center }"
                ".est-bound { opacity: 0.5 }"
+               "a { color: #07a }"
+               "a:visited { color: #941352 }"
                "th, td { padding-right: 3px; padding-bottom: 3px }"
                "th { font-weight: 200 }"
                ".col { flex: 50%% }"
                ".row { display: flex }"
-               /* "@media (prefers-color-scheme: dark) { body { color:#c9d1d9; background:
-                  #0d1117 } a:link { color: #58a6ff } a:visited { color: #8e96f0 } }" */
+               ".offset-text { margin-left: 20px }"
                "</style></head>");
     fprintf(f, "<body>");
     html_toc(al, f);

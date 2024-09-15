@@ -661,12 +661,14 @@ static void make_group_bar_mpl(const struct group_bar_plot *plot, struct plot_ma
     if (view->logscale)
         fprintf(f, "ax.set_yscale('log')\n");
     fprintf(f,
+            "ax.set_xlabel(r'%s')\n"
             "ax.set_ylabel(r'%s [%s]')\n"
             "plt.xticks(x + width * (%zu - 1) / 2, param_values)\n"
             "ax.set_axisbelow(True)\n"
             "plt.grid(axis='y')\n"
             "plt.legend(loc='best')\n"
             "plt.savefig(r'%s', dpi=100, bbox_inches='tight')\n",
+            param->name,                     //
             al->meas->name, view->units_str, //
             base->group_count,               //
             ctx->image_filename              //
