@@ -458,17 +458,6 @@ __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, cons
     return fopen(buf, mode);
 }
 
-__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode, const char *fmt,
-                                                      ...)
-{
-    char buf[4096];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    return open(buf, flags, mode);
-}
-
 int tmpfile_fd(void)
 {
     char path[] = "/tmp/csbench_XXXXXX";
@@ -478,7 +467,7 @@ int tmpfile_fd(void)
         return -1;
     }
     if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-        csperror("fcntl");
+        csfmtperror("fcntl on '%s'", path);
         return false;
     }
     unlink(path);
@@ -499,7 +488,7 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param, size_t thread_count)
         if (pthread_create(id, NULL, worker_fn, param) != 0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_ids[j], NULL);
-            error("failed to spawn thread");
+            csfmtperror("failed to spawn thread");
             goto out;
         }
         thread_ids[i] = *id;
@@ -551,17 +540,6 @@ const char *csstrdup(const char *str)
     return csmkstr(str, strlen(str));
 }
 
-// TODO: Remove this function and do the same thing in place it is called
-const char *csstripend(const char *src)
-{
-    size_t len = strlen(src);
-    char *str = (char *)csmkstr(src, len);
-    // XXX: I don't remember why this exists...
-    while (len && str[len - 1] == '\n')
-        str[len-- - 1] = '\0';
-    return str;
-}
-
 const char *csfmt(const char *fmt, ...)
 {
     char buf[4096];
@@ -592,7 +570,7 @@ const char **parse_comma_separated_list(const char *str)
     while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
-            const char *new_str = csstripend(cursor);
+            const char *new_str = csstrdup(cursor);
             sb_push(value_list, new_str);
             break;
         }
@@ -703,6 +681,7 @@ bool pipe_cloexec(int fd[2])
         return false;
     }
     if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 || fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
+        csperror("fcntl");
         close(fd[0]);
         close(fd[1]);
         return false;

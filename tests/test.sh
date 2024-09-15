@@ -7,11 +7,12 @@
 
 set -eox pipefail
 
+
 dist_dir=/tmp/.csbench
 if [ -z "$csbench" ]; then
     csbench=./csbench 
 fi
-b="$csbench -R2 -W0 -o $dist_dir -j$(nproc) --sort=command --baseline=1"
+b="$csbench -R2 -W0 -o $dist_dir -j$(nproc) --sort=command --baseline=1 --plot-backend=gnuplot"
 
 die () {
     echo error
@@ -21,6 +22,16 @@ die () {
 distclean() {
     rm -rf "$dist_dir"
     mkdir "$dist_dir"
+}
+
+check_all_files() {
+    local count=$(($1+1))
+    local files=$(echo "$2" | sed 's/.py/.gp/g')
+    [ $(ls "$dist_dir" | wc -l) -eq "$count" ] || die
+    for file in $files ; do
+        f=$(echo "$dist_dir/$file" | sed "s/svg/gp/")
+        [ -f "$f" ] || die
+    done
 }
 
 #
@@ -86,6 +97,8 @@ $b ls --html --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 distclean 
 $b 'echo {n}' --html --param n/1,2 > /dev/null || die
 [ -f "$dist_dir/index.html" ] || die
+$b 'echo {n}' 'echo 1{n}' --html --param n/1,2 > /dev/null || die
+[ -f "$dist_dir/index.html" ] || die
 
 #
 # check that quicksort example works
@@ -118,15 +131,10 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --plot-src > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 41 ] || die
-files="bar_0.py        kde_0_0.py      kde_1_0.py      kde_2_0.py      kde_3_0.py      kde_4_0.py      kde_cmp_1_0.py  kde_cmp_2_0.py  kde_cmp_3_0.py  kde_cmp_4_0.py  plots_map.md
+files="plots_map.md
 bar_0.svg       kde_0_0.svg     kde_1_0.svg     kde_2_0.svg     kde_3_0.svg     kde_4_0.svg     kde_cmp_1_0.svg kde_cmp_2_0.svg kde_cmp_3_0.svg kde_cmp_4_0.svg
-bar_3.py        kde_0_3.py      kde_1_3.py      kde_2_3.py      kde_3_3.py      kde_4_3.py      kde_cmp_1_3.py  kde_cmp_2_3.py  kde_cmp_3_3.py  kde_cmp_4_3.py
 bar_3.svg       kde_0_3.svg     kde_1_3.svg     kde_2_3.svg     kde_3_3.svg     kde_4_3.svg     kde_cmp_1_3.svg kde_cmp_2_3.svg kde_cmp_3_3.svg kde_cmp_4_3.svg"
-for file in $files ; do
-    f=$(echo "$dist_dir/$file" | sed "s/svg/py/")
-    [ -f "$f" ] || die
-done
+check_all_files 41 "$files"
 
 #
 # check json schema
@@ -215,9 +223,29 @@ out=$($b ls --rename 1 test || die)
 echo "$out" | grep -q test || die 
 echo "$out" | grep -qv ls || die 
 
+distclean 
+out=$($b ls --rename-name ls test || die)
+echo "$out" | grep -q test || die 
+echo "$out" | grep -qv ls || die 
+
+distclean 
+out=$($b ls --rename-all test || die)
+echo "$out" | grep -q test || die 
+echo "$out" | grep -qv ls || die 
+
 #
 # check that renaming works for groups
 #
+
+distclean
+out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename 1 quick)
+echo "$out" | grep -qv 'quicksort.py' || die 
+echo "$out" | grep -q quick || die 
+
+distclean
+out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename-name 'echo {n} | python3 tests/quicksort.py' quick)
+echo "$out" | grep -qv 'quicksort.py' || die 
+echo "$out" | grep -q quick || die 
 
 distclean
 out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename-all quick)
@@ -292,8 +320,60 @@ $b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 7 ]
 
 #
-# check save-bin and --load-bin without parameters
+# check save-bin and --load-bin without parameters (and merging)
 #
+distclean
 $b ls -o /tmp/csbench1 --save-bin > /dev/null || die 
 $b pwd -o /tmp/csbench2 --save-bin > /dev/null || die 
 $b --load-bin /tmp/csbench1 /tmp/csbench2 --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check save-bin and --load-bin with parameters
+#
+distclean
+$b 'echo {n}' 'echo 1{n}' --param n/1,2 -o /tmp/csbench1 --save-bin > /dev/null || die 
+$b --load-bin /tmp/csbench1 --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text with loading just benchmarks
+#
+distclean 
+$b --load-text tests/1.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --load-text with custom measurement
+#
+distclean 
+$b --load-text tests/2.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --load-text with parameters
+#
+distclean 
+$b --load-text tests/3.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text mergin
+#
+distclean 
+$b --load-text tests/1.txt tests/1.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text reading from stdin
+#
+distclean 
+cat tests/1.txt | $b --load-text - --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --custom-re option
+#
+distclean
+$b 'echo hello, $(shuf -i 1-1000000 -n 1)' --custom-re meas s 'hello, ([0-9.]+)' --plot > /dev/null || die 
+[ $(ls "$dist_dir" | wc -l) -eq 3 ]

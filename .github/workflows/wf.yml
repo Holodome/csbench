@@ -9,7 +9,7 @@ jobs:
         uses: actions/checkout@master
       - name: install stuff
         run: |
-          python3 -m pip install matplotlib
+          apt update && apt install gnuplot
       - name: test
         run: |
           make

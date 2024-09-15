@@ -1,4 +1,4 @@
-CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -Werror
+CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -Werror -g -O0
 LDFLAGS += -lm -lpthread 
 
 ifdef DEBUG

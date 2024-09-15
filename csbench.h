@@ -749,8 +749,6 @@ int tmpfile_fd(void);
 
 __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, const char *fmt,
                                                           ...);
-__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode, const char *fmt,
-                                                      ...);
 
 const char **parse_comma_separated_list(const char *str);
 
@@ -780,7 +778,6 @@ static inline uint32_t pcg32_fast(uint64_t *state)
 void cs_free_strings(void);
 const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);
-const char *csstripend(const char *str);
 char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 
