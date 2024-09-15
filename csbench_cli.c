@@ -939,6 +939,12 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 error("invalid --progress_bar option");
                 exit(EXIT_FAILURE);
             }
+        } else if (strcmp(argv[cursor], "--") == 0) {
+            ++cursor;
+            while (cursor < argc) {
+                sb_push(settings->args, argv[cursor++]);
+            }
+            break;
         } else {
             if (*argv[cursor] == '-') {
                 error("unknown option %s", argv[cursor]);
