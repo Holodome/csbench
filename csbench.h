@@ -791,6 +791,10 @@ __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 typedef cssort_compar(cssort_compar_fn);
 void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar, void *arg);
 
+//
+// Misc definitions
+//
+
 static inline const char *bench_name(const struct analysis *al, size_t bench_idx)
 {
     return al->benches[bench_idx].name;

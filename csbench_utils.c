@@ -66,6 +66,7 @@
 #include <ftw.h>
 #include <poll.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -843,5 +844,17 @@ bool parse_meas_str(const char *str, enum meas_kind *kind)
     } else {
         return false;
     }
+    return true;
+}
+
+bool get_term_win_size(size_t *rows, size_t *cols)
+{
+    struct winsize ws;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) {
+        csperror("ioctl");
+        return false;
+    }
+    *rows = ws.ws_row;
+    *cols = ws.ws_col;
     return true;
 }

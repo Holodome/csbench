@@ -136,6 +136,10 @@ struct progress_bar {
     struct progress_bar_bench *bar_benches;
     const struct bench_run_data *benches;
     struct progress_bar_state *states;
+    char **line_bufs; // [line_count]
+    size_t line_buf_size;
+    bool abbr_names;
+    size_t length;
 };
 
 struct run_task {
@@ -866,13 +870,140 @@ static void *run_bench_worker(void *raw)
     return NULL;
 }
 
+static void write_progress_bar_line(struct progress_bar *bar, size_t line_idx,
+                                    double current_time, FILE *f)
+{
+    const struct progress_bar_bench *bench = bar->bar_benches + line_idx;
+    struct progress_bar_state *state = bar->states + line_idx;
+
+    struct progress_bar_bench data = {0};
+    // explicitly load all atomics to avoid UB (tsan)
+    atomic_fence();
+    data.bar = atomic_load(&bench->bar);
+    data.finished = atomic_load(&bench->finished);
+    data.aborted = atomic_load(&bench->aborted);
+    data.suspended = atomic_load(&bench->suspended);
+    data.warmup = atomic_load(&bench->warmup);
+    data.has_been_run = atomic_load(&bench->has_been_run);
+    data.runs = atomic_load(&bench->runs);
+    data.time.u = atomic_load(&bench->time.u);
+    data.start_time.u = atomic_load(&bench->start_time.u);
+    data.time_passed.u = atomic_load(&bench->time_passed.u);
+    if (bar->abbr_names)
+        fprintf(f, "%c ", (int)('A' + line_idx));
+    else
+        fprintf_colored(f, ANSI_BOLD, "%*s ", (int)bar->max_name_len,
+                        bar->benches[line_idx].b->name);
+    char buf[41] = {0};
+    size_t c = data.bar * bar->length / 100;
+    if (c > bar->length)
+        c = bar->length;
+    for (size_t j = 0; j < c; ++j)
+        buf[j] = '#';
+    fprintf_colored(f, ANSI_BRIGHT_BLUE, "%s", buf);
+    for (size_t j = 0; j < bar->length - c; ++j)
+        buf[j] = '-';
+    buf[bar->length - c] = '\0';
+    fprintf_colored(f, ANSI_BLUE, "%s", buf);
+    if (data.aborted) {
+        memcpy(&data.id, &bench->id, sizeof(data.id));
+        for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
+            const struct output_anchor *anchor = g_output_anchors + j;
+            if (pthread_equal(anchor->id, data.id)) {
+                assert(anchor->has_message);
+                fprintf_colored(f, ANSI_RED, " error: ");
+                fprintf(f, "%s", anchor->buffer);
+                break;
+            }
+        }
+        return;
+    }
+
+    if (g_bench_stop.runs != 0) {
+        char eta_buf[256] = "N/A     ";
+        // I don't hope that anyone would be able to understand ETA
+        // calculating code, but it is roughly divided in three parts.
+        // First, there is some tracker of benchmark time in total
+        // (data.time_passed.d and passed_time variable). It should grow
+        // linearly and reflect the actual time spent running. Next,
+        // we calculate ETA when run count changes using this total passed
+        // time. There are corner cases with this number when benchmark goes
+        // from suspended to running and vice versa. We have to explicitly
+        // recalculate ETA in this case because it will otherwise be
+        // inconsistent (state->last_running). Lastly, when
+        // benchmark is actually running, we subtract from ETA time passed
+        // in current round to update it dynamically.
+        if (data.start_time.d != 0 && (data.suspended || data.warmup || data.finished)) {
+            if (state->last_running || (state->runs != data.runs)) {
+                state->eta = (g_bench_stop.runs - data.runs) * data.time_passed.d / data.runs;
+                state->runs = data.runs;
+            }
+            double eta = state->eta;
+            if (isfinite(eta))
+                format_time(eta_buf, sizeof(eta_buf), eta);
+            state->last_running = false;
+        } else if (data.start_time.d != 0.0) {
+            // Check if the benchmark updated progress bar since
+            // last time we checked and recalculate ETA accordingly
+            if (!state->last_running || state->runs != data.runs) {
+                double passed_time = data.time_passed.d + current_time - data.start_time.d;
+                state->eta = (g_bench_stop.runs - data.runs) * passed_time / data.runs;
+                state->time = current_time;
+                state->runs = data.runs;
+            }
+            // Adjust ETA using time that has passed in current run
+            double eta = state->eta - (current_time - state->time);
+            if (isfinite(eta))
+                format_time(eta_buf, sizeof(eta_buf), eta);
+            state->last_running = true;
+        }
+        char total_buf[256];
+        snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
+        fprintf(f, " %*zu/%s eta %s", (int)strlen(total_buf), (size_t)data.runs, total_buf,
+                eta_buf);
+    } else {
+        char buf1[256], buf2[256];
+        format_time(buf1, sizeof(buf1), data.time.d);
+        format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
+        fprintf(f, " %s/ %s", buf1, buf2);
+    }
+
+    if (data.warmup) {
+        fprintf_colored(f, ANSI_MAGENTA, " W  ");
+    } else if (data.finished) {
+        fprintf_colored(f, ANSI_BLUE, " F  ");
+    } else if (data.suspended || !data.has_been_run) {
+        fprintf_colored(f, ANSI_YELLOW, " S  ");
+    } else {
+        fprintf_colored(f, ANSI_GREEN, " R  ");
+    }
+}
+
+static void update_progress_bar_lines(struct progress_bar *bar)
+{
+    double current_time = get_time();
+    for (size_t i = 0; i < bar->count; ++i) {
+        FILE *f = fmemopen(bar->line_bufs[i], bar->line_buf_size, "w");
+        write_progress_bar_line(bar, i, current_time, f);
+        fclose(f);
+        // fmemopen does not necessary always set the null byte:
+        //
+        // > When a stream that has been opened for writing is flushed
+        // > (fflush(3)) or closed (fclose(3)), a null byte is written at the
+        // > end of the buffer if there is space.  The caller should ensure
+        // > that an extra byte is available in the buffer (and that size
+        // > counts that byte) to allow for this.
+        //
+        // So we always set the null byte ourselves, even though it can truncate.
+        bar->line_bufs[i][bar->line_buf_size - 1] = '\0';
+    }
+}
+
 static void redraw_progress_bar(struct progress_bar *bar)
 {
-    bool abbr_names = bar->max_name_len > 40;
-    int length = 40;
     if (!bar->was_drawn) {
         bar->was_drawn = true;
-        if (abbr_names) {
+        if (bar->abbr_names) {
             for (size_t i = 0; i < bar->count; ++i) {
                 printf("%c = ", (int)('A' + i));
                 printf_colored(ANSI_BOLD, "%s\n", bar->benches[i].b->name);
@@ -882,115 +1013,8 @@ static void redraw_progress_bar(struct progress_bar *bar)
         printf("\x1b[%zuA\r", bar->count);
     }
 
-    double current_time = get_time();
-    for (size_t i = 0; i < bar->count; ++i) {
-        struct progress_bar_bench data = {0};
-        // explicitly load all atomics to avoid UB (tsan)
-        atomic_fence();
-        data.bar = atomic_load(&bar->bar_benches[i].bar);
-        data.finished = atomic_load(&bar->bar_benches[i].finished);
-        data.aborted = atomic_load(&bar->bar_benches[i].aborted);
-        data.suspended = atomic_load(&bar->bar_benches[i].suspended);
-        data.warmup = atomic_load(&bar->bar_benches[i].warmup);
-        data.has_been_run = atomic_load(&bar->bar_benches[i].has_been_run);
-        data.runs = atomic_load(&bar->bar_benches[i].runs);
-        data.time.u = atomic_load(&bar->bar_benches[i].time.u);
-        data.start_time.u = atomic_load(&bar->bar_benches[i].start_time.u);
-        data.time_passed.u = atomic_load(&bar->bar_benches[i].time_passed.u);
-        if (abbr_names)
-            printf("%c ", (int)('A' + i));
-        else
-            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len,
-                           bar->benches[i].b->name);
-        char buf[41] = {0};
-        int c = data.bar * length / 100;
-        if (c > length)
-            c = length;
-        for (int j = 0; j < c; ++j)
-            buf[j] = '#';
-        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
-        for (int j = 0; j < length - c; ++j)
-            buf[j] = '-';
-        buf[length - c] = '\0';
-        printf_colored(ANSI_BLUE, "%s", buf);
-        if (data.aborted) {
-            memcpy(&data.id, &bar->bar_benches[i].id, sizeof(data.id));
-            for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
-                const struct output_anchor *anchor = g_output_anchors + j;
-                if (pthread_equal(anchor->id, data.id)) {
-                    assert(anchor->has_message);
-                    printf_colored(ANSI_RED, " error: ");
-                    printf("%s", anchor->buffer);
-                    break;
-                }
-            }
-            printf("\n");
-            continue;
-        }
-
-        if (g_bench_stop.runs != 0) {
-            char eta_buf[256] = "N/A     ";
-            // I don't hope that anyone would be able to understand ETA
-            // calculating code, but it is roughly divided in three parts.
-            // First, there is some tracker of benchmark time in total
-            // (data.time_passed.d and passed_time variable). It should grow
-            // linearly and reflect the actual time spent running. Next,
-            // we calculate ETA when run count changes using this total passed
-            // time. There are corner cases with this number when benchmark goes
-            // from suspended to running and vice versa. We have to explicitly
-            // recalculate ETA in this case because it will otherwise be
-            // inconsistent (bar->states[i].last_running). Lastly, when
-            // benchmark is actually running, we subtract from ETA time passed
-            // in current round to update it dynamically.
-            if (data.start_time.d != 0 && (data.suspended || data.warmup || data.finished)) {
-                if (bar->states[i].last_running || (bar->states[i].runs != data.runs)) {
-                    bar->states[i].eta =
-                        (g_bench_stop.runs - data.runs) * data.time_passed.d / data.runs;
-                    bar->states[i].runs = data.runs;
-                }
-                double eta = bar->states[i].eta;
-                if (isfinite(eta))
-                    format_time(eta_buf, sizeof(eta_buf), eta);
-                bar->states[i].last_running = false;
-            } else if (data.start_time.d != 0.0) {
-                // Check if the benchmark updated progress bar since
-                // last time we checked and recalculate ETA accordingly
-                if (!bar->states[i].last_running || bar->states[i].runs != data.runs) {
-                    double passed_time =
-                        data.time_passed.d + current_time - data.start_time.d;
-                    bar->states[i].eta =
-                        (g_bench_stop.runs - data.runs) * passed_time / data.runs;
-                    bar->states[i].time = current_time;
-                    bar->states[i].runs = data.runs;
-                }
-                // Adjust ETA using time that has passed in current run
-                double eta = bar->states[i].eta - (current_time - bar->states[i].time);
-                if (isfinite(eta))
-                    format_time(eta_buf, sizeof(eta_buf), eta);
-                bar->states[i].last_running = true;
-            }
-            char total_buf[256];
-            snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
-            printf(" %*zu/%s eta %s", (int)strlen(total_buf), (size_t)data.runs, total_buf,
-                   eta_buf);
-        } else {
-            char buf1[256], buf2[256];
-            format_time(buf1, sizeof(buf1), data.time.d);
-            format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
-            printf(" %s/ %s", buf1, buf2);
-        }
-
-        if (data.warmup) {
-            printf_colored(ANSI_MAGENTA, " W  ");
-        } else if (data.finished) {
-            printf_colored(ANSI_BLUE, " F  ");
-        } else if (data.suspended || !data.has_been_run) {
-            printf_colored(ANSI_YELLOW, " S  ");
-        } else {
-            printf_colored(ANSI_GREEN, " R  ");
-        }
-        printf("\n");
-    }
+    for (size_t i = 0; i < bar->count; ++i)
+        printf("%s\n", bar->line_bufs[i]);
 }
 
 static void *progress_bar_thread_worker(void *arg)
@@ -1001,6 +1025,7 @@ static void *progress_bar_thread_worker(void *arg)
     redraw_progress_bar(bar);
     do {
         usleep(g_progress_bar_interval_us);
+        update_progress_bar_lines(bar);
         redraw_progress_bar(bar);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i)
@@ -1026,10 +1051,20 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
         if (name_len > bar->max_name_len)
             bar->max_name_len = name_len;
     }
+    size_t line_buf_size = 4096;
+    bar->line_buf_size = line_buf_size;
+    bar->line_bufs = calloc(count, sizeof(*bar->line_bufs));
+    for (size_t i = 0; i < count; ++i)
+        bar->line_bufs[i] = malloc(line_buf_size);
+    bar->abbr_names = bar->max_name_len > 40;
+    bar->length = 40;
 }
 
 static void free_progress_bar(struct progress_bar *bar)
 {
+    for (size_t i = 0; i < bar->count; ++i)
+        free(bar->line_bufs[i]);
+    free(bar->line_bufs);
     free(bar->bar_benches);
     free(bar->states);
 }
