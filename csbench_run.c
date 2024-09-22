@@ -135,6 +135,7 @@ struct progress_bar_line {
 };
 
 struct progress_bar_visual {
+    size_t term_width, term_height;
     struct progress_bar *data;
     size_t count;
     size_t max_name_len;
@@ -1015,6 +1016,11 @@ static void update_progress_bar(struct progress_bar *bar)
     }
 }
 
+static void clear_progress_bar_line(struct progress_bar_visual *bar)
+{
+    printf("%*s\r", (int)bar->term_width, "");
+}
+
 static void draw_progress_bar(struct progress_bar_visual *bar)
 {
     if (!bar->was_drawn) {
@@ -1031,6 +1037,7 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
     bar->last_drawn_lines = 0;
 
     if (bar->n_finished) {
+        clear_progress_bar_line(bar);
         printf("%*s %zu benchmarks finished running\n", (int)bar->max_name_len, "",
                bar->n_finished);
         ++bar->last_drawn_lines;
@@ -1056,11 +1063,13 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         ++bar->last_drawn_lines;
     }
     if (bar->n_suspended) {
+        clear_progress_bar_line(bar);
         printf("%*s %zu benchmarks suspended\n", (int)bar->max_name_len, "",
                bar->n_suspended);
         ++bar->last_drawn_lines;
     }
     if (bar->n_not_started) {
+        clear_progress_bar_line(bar);
         printf("%*s %zu benchmarks not started\n", (int)bar->max_name_len, "",
                bar->n_not_started);
         ++bar->last_drawn_lines;
@@ -1087,8 +1096,8 @@ static void *progress_bar_thread_worker(void *arg)
     return NULL;
 }
 
-static void init_progress_bar(struct bench_run_data *benches, size_t count,
-                              struct progress_bar *bar)
+static void init_progress_bar(struct bench_run_data *benches, size_t count, size_t term_width,
+                              size_t term_height, struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
     bar->count = count;
@@ -1103,6 +1112,8 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
         if (name_len > max_name_len)
             max_name_len = name_len;
     }
+    bar->vis.term_width = term_width;
+    bar->vis.term_height = term_height;
     bar->vis.data = bar;
     bar->vis.count = count;
     bar->vis.max_name_len = max_name_len;
@@ -1535,8 +1546,11 @@ static bool run_benches_internal(const struct bench_run_desc *params,
     bool success = false;
     struct progress_bar *progress_bar = NULL;
     if (g_progress_bar) {
+        size_t term_width, term_height;
+        if (!get_term_win_size(&term_height, &term_width))
+            return false;
         progress_bar = calloc(1, sizeof(*progress_bar));
-        init_progress_bar(benches, count, progress_bar);
+        init_progress_bar(benches, count, term_width, term_height, progress_bar);
         if (pthread_create(&progress_bar->thread, NULL, progress_bar_thread_worker,
                            progress_bar) != 0) {
             error("failed to spawn thread");

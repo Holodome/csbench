@@ -745,6 +745,8 @@ bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd, int
 bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent);
 bool rm_rf_dir(const char *name);
 
+bool get_term_win_size(size_t *rows, size_t *cols);
+
 int tmpfile_fd(void);
 
 __attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, const char *fmt,
