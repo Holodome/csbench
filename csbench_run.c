@@ -128,6 +128,12 @@ struct progress_bar_state {
     bool last_running;
 };
 
+struct progress_bar_line {
+    char name_buf[256];
+    char info_buf[4096];
+    int percent;
+};
+
 struct progress_bar {
     pthread_t thread;
     bool was_drawn;
@@ -136,10 +142,10 @@ struct progress_bar {
     struct progress_bar_bench *bar_benches;
     const struct bench_run_data *benches;
     struct progress_bar_state *states;
-    char **line_bufs; // [line_count]
-    size_t line_buf_size;
-    bool abbr_names;
+
+    struct progress_bar_line *lines;
     size_t length;
+    bool abbr_names;
 };
 
 struct run_task {
@@ -870,8 +876,8 @@ static void *run_bench_worker(void *raw)
     return NULL;
 }
 
-static void write_progress_bar_line(struct progress_bar *bar, size_t line_idx,
-                                    double current_time, FILE *f)
+static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
+                                    double current_time, FILE *f, int *percent)
 {
     const struct progress_bar_bench *bench = bar->bar_benches + line_idx;
     struct progress_bar_state *state = bar->states + line_idx;
@@ -889,22 +895,6 @@ static void write_progress_bar_line(struct progress_bar *bar, size_t line_idx,
     data.time.u = atomic_load(&bench->time.u);
     data.start_time.u = atomic_load(&bench->start_time.u);
     data.time_passed.u = atomic_load(&bench->time_passed.u);
-    if (bar->abbr_names)
-        fprintf(f, "%c ", (int)('A' + line_idx));
-    else
-        fprintf_colored(f, ANSI_BOLD, "%*s ", (int)bar->max_name_len,
-                        bar->benches[line_idx].b->name);
-    char buf[41] = {0};
-    size_t c = data.bar * bar->length / 100;
-    if (c > bar->length)
-        c = bar->length;
-    for (size_t j = 0; j < c; ++j)
-        buf[j] = '#';
-    fprintf_colored(f, ANSI_BRIGHT_BLUE, "%s", buf);
-    for (size_t j = 0; j < bar->length - c; ++j)
-        buf[j] = '-';
-    buf[bar->length - c] = '\0';
-    fprintf_colored(f, ANSI_BLUE, "%s", buf);
     if (data.aborted) {
         memcpy(&data.id, &bench->id, sizeof(data.id));
         for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
@@ -918,6 +908,8 @@ static void write_progress_bar_line(struct progress_bar *bar, size_t line_idx,
         }
         return;
     }
+
+    *percent = data.bar;
 
     if (g_bench_stop.runs != 0) {
         char eta_buf[256] = "N/A     ";
@@ -983,8 +975,9 @@ static void update_progress_bar_lines(struct progress_bar *bar)
 {
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
-        FILE *f = fmemopen(bar->line_bufs[i], bar->line_buf_size, "w");
-        write_progress_bar_line(bar, i, current_time, f);
+        struct progress_bar_line *line = bar->lines + i;
+        FILE *f = fmemopen(line->info_buf, sizeof(line->info_buf), "w");
+        write_progress_bar_info(bar, i, current_time, f, &line->percent);
         fclose(f);
         // fmemopen does not necessary always set the null byte:
         //
@@ -995,11 +988,11 @@ static void update_progress_bar_lines(struct progress_bar *bar)
         // > counts that byte) to allow for this.
         //
         // So we always set the null byte ourselves, even though it can truncate.
-        bar->line_bufs[i][bar->line_buf_size - 1] = '\0';
+        line->info_buf[sizeof(line->info_buf) - 1] = '\0';
     }
 }
 
-static void redraw_progress_bar(struct progress_bar *bar)
+static void draw_progress_bar(struct progress_bar *bar)
 {
     if (!bar->was_drawn) {
         bar->was_drawn = true;
@@ -1013,8 +1006,25 @@ static void redraw_progress_bar(struct progress_bar *bar)
         printf("\x1b[%zuA\r", bar->count);
     }
 
-    for (size_t i = 0; i < bar->count; ++i)
-        printf("%s\n", bar->line_bufs[i]);
+    for (size_t i = 0; i < bar->count; ++i) {
+        const struct progress_bar_line *line = bar->lines + i;
+
+        printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len, line->name_buf);
+
+        char buf[41] = {0};
+        size_t c = line->percent * bar->length / 100;
+        if (c > bar->length)
+            c = bar->length;
+        for (size_t j = 0; j < c; ++j)
+            buf[j] = '#';
+        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
+        for (size_t j = 0; j < bar->length - c; ++j)
+            buf[j] = '-';
+        buf[bar->length - c] = '\0';
+        printf_colored(ANSI_BLUE, "%s", buf);
+
+        printf(" %s\n", line->info_buf);
+    }
 }
 
 static void *progress_bar_thread_worker(void *arg)
@@ -1022,17 +1032,18 @@ static void *progress_bar_thread_worker(void *arg)
     assert(g_progress_bar);
     struct progress_bar *bar = arg;
     bool is_finished = false;
-    redraw_progress_bar(bar);
+    draw_progress_bar(bar);
     do {
         usleep(g_progress_bar_interval_us);
         update_progress_bar_lines(bar);
-        redraw_progress_bar(bar);
+        draw_progress_bar(bar);
         is_finished = true;
-        for (size_t i = 0; i < bar->count && is_finished; ++i)
+        for (size_t i = 0; i < bar->count && is_finished; ++i) {
             if (!atomic_load(&bar->bar_benches[i].finished))
                 is_finished = false;
+        }
     } while (!is_finished);
-    redraw_progress_bar(bar);
+    draw_progress_bar(bar);
     return NULL;
 }
 
@@ -1040,6 +1051,7 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
                               struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
+    bar->length = 40;
     bar->count = count;
     bar->bar_benches = calloc(count, sizeof(*bar->bar_benches));
     bar->states = calloc(count, sizeof(*bar->states));
@@ -1051,20 +1063,21 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
         if (name_len > bar->max_name_len)
             bar->max_name_len = name_len;
     }
-    size_t line_buf_size = 4096;
-    bar->line_buf_size = line_buf_size;
-    bar->line_bufs = calloc(count, sizeof(*bar->line_bufs));
-    for (size_t i = 0; i < count; ++i)
-        bar->line_bufs[i] = malloc(line_buf_size);
-    bar->abbr_names = bar->max_name_len > 40;
-    bar->length = 40;
+    bool abbr_names = bar->max_name_len > 40;
+    bar->abbr_names = abbr_names;
+    bar->lines = calloc(count, sizeof(*bar->lines));
+    for (size_t i = 0; i < count; ++i) {
+        struct progress_bar_line *line = bar->lines + i;
+        if (abbr_names)
+            snprintf(line->name_buf, sizeof(line->name_buf), "%c", (int)('A' + i));
+        else
+            snprintf(line->name_buf, sizeof(line->name_buf), "%s", benches[i].b->name);
+    }
 }
 
 static void free_progress_bar(struct progress_bar *bar)
 {
-    for (size_t i = 0; i < bar->count; ++i)
-        free(bar->line_bufs[i]);
-    free(bar->line_bufs);
+    free(bar->lines);
     free(bar->bar_benches);
     free(bar->states);
 }
