@@ -121,6 +121,13 @@ struct progress_bar_bench {
     pthread_t id;
 } __attribute__((aligned(64)));
 
+enum progress_bar_bench_state {
+    BENCH_STATE_NOT_STARTED,
+    BENCH_STATE_RUNNING,
+    BENCH_STATE_SUSPENDED,
+    BENCH_STATE_FINISHED
+};
+
 struct progress_bar_state {
     size_t runs;
     double eta;
@@ -132,6 +139,7 @@ struct progress_bar_line {
     char name_buf[256];
     char info_buf[4096];
     int percent;
+    enum progress_bar_bench_state state;
 };
 
 struct progress_bar_visual {
@@ -143,11 +151,6 @@ struct progress_bar_visual {
     size_t length;
     bool was_drawn;
     bool abbr_names;
-
-    size_t n_running;
-    size_t n_suspended;
-    size_t n_not_started;
-    size_t n_finished;
     size_t last_drawn_lines;
 };
 
@@ -219,20 +222,20 @@ get_custom_measurement_task(struct custom_measurement_task_queue *q)
 // Used by 'should_i_suspend'
 static __thread struct run_task_queue *g_q;
 
-#define lock_mutex(_mutex)                                                                   \
-    do {                                                                                     \
-        /* Mutex would not fail in normal circumstances, we can just use assert */           \
-        int ret = pthread_mutex_lock(&q->mutex);                                             \
-        (void)ret;                                                                           \
-        assert(ret == 0);                                                                    \
+#define lock_mutex(_mutex)                                                                  \
+    do {                                                                                    \
+        /* Mutex would not fail in normal circumstances, we can just use assert */          \
+        int ret = pthread_mutex_lock(&q->mutex);                                            \
+        (void)ret;                                                                          \
+        assert(ret == 0);                                                                   \
     } while (0)
 
-#define unlock_mutex(_mutex)                                                                 \
-    do {                                                                                     \
-        /* Mutex would not fail in normal circumstances, we can just use assert */           \
-        int ret = pthread_mutex_unlock(&q->mutex);                                           \
-        (void)ret;                                                                           \
-        assert(ret == 0);                                                                    \
+#define unlock_mutex(_mutex)                                                                \
+    do {                                                                                    \
+        /* Mutex would not fail in normal circumstances, we can just use assert */          \
+        int ret = pthread_mutex_unlock(&q->mutex);                                          \
+        (void)ret;                                                                          \
+        assert(ret == 0);                                                                   \
     } while (0)
 
 static bool init_run_task_queue(const struct bench_run_desc *params,
@@ -889,8 +892,9 @@ static void *run_bench_worker(void *raw)
 }
 
 static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
-                                    double current_time, FILE *f, int *percent,
-                                    struct progress_bar_visual *vis)
+                                    double current_time, FILE *f,
+                                    struct progress_bar_line *line)
+
 {
     const struct progress_bar_bench *bench = bar->bar_benches + line_idx;
     struct progress_bar_state *state = bar->states + line_idx;
@@ -922,7 +926,7 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         return;
     }
 
-    *percent = data.bar;
+    line->percent = data.bar;
 
     if (g_bench_stop.runs != 0) {
         char eta_buf[256] = "N/A     ";
@@ -940,7 +944,8 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         // in current round to update it dynamically.
         if (data.start_time.d != 0 && (data.suspended || data.warmup || data.finished)) {
             if (state->last_running || (state->runs != data.runs)) {
-                state->eta = (g_bench_stop.runs - data.runs) * data.time_passed.d / data.runs;
+                state->eta =
+                    (g_bench_stop.runs - data.runs) * data.time_passed.d / data.runs;
                 state->runs = data.runs;
             }
             double eta = state->eta;
@@ -975,33 +980,30 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
 
     if (data.warmup) {
         fprintf_colored(f, ANSI_MAGENTA, " W  ");
-        ++vis->n_running;
+        line->state = BENCH_STATE_RUNNING;
     } else if (data.finished) {
         fprintf_colored(f, ANSI_BLUE, " F  ");
-        ++vis->n_finished;
+        line->state = BENCH_STATE_FINISHED;
     } else if (data.suspended || !data.has_been_run) {
         fprintf_colored(f, ANSI_YELLOW, " S  ");
         if (!data.has_been_run)
-            ++vis->n_not_started;
+            line->state = BENCH_STATE_NOT_STARTED;
         else
-            ++vis->n_suspended;
+            line->state = BENCH_STATE_SUSPENDED;
     } else {
         fprintf_colored(f, ANSI_GREEN, " R  ");
-        ++vis->n_running;
+        line->state = BENCH_STATE_RUNNING;
     }
 }
 
 static void update_progress_bar(struct progress_bar *bar)
 {
     struct progress_bar_visual *vis = &bar->vis;
-    vis->n_suspended = 0;
-    vis->n_finished = 0;
-    vis->n_not_started = 0;
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
         struct progress_bar_line *line = vis->lines + i;
         FILE *f = fmemopen(line->info_buf, sizeof(line->info_buf), "w");
-        write_progress_bar_info(bar, i, current_time, f, &line->percent, vis);
+        write_progress_bar_info(bar, i, current_time, f, line);
         fclose(f);
         // fmemopen does not necessary always set the null byte:
         //
@@ -1034,20 +1036,49 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
     } else {
         printf("\x1b[%zuA\r", bar->last_drawn_lines);
     }
+    size_t previous_drawn_lines = bar->last_drawn_lines;
     bar->last_drawn_lines = 0;
 
-    if (bar->n_finished) {
-        clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks finished running\n", (int)bar->max_name_len, "",
-               bar->n_finished);
-        ++bar->last_drawn_lines;
+    size_t count = bar->count;
+    size_t n_finished = 0;
+    size_t n_running = 0;
+    size_t n_not_started = 0;
+    size_t n_suspended = 0;
+    for (size_t i = 0; i < bar->count; ++i) {
+        const struct progress_bar_line *line = bar->lines + i;
+        switch (line->state) {
+        case BENCH_STATE_NOT_STARTED:
+            ++n_not_started;
+            break;
+        case BENCH_STATE_RUNNING:
+            ++n_running;
+            break;
+        case BENCH_STATE_SUSPENDED:
+            ++n_suspended;
+            break;
+        case BENCH_STATE_FINISHED:
+            ++n_finished;
+            break;
+        }
     }
+
+    bool should_collapse_progress_bar = count > 20 ? true : false;
+    size_t n_displayed = 0;
     for (size_t i = 0; i < bar->count; ++i) {
         const struct progress_bar_line *line = bar->lines + i;
 
+        if (should_collapse_progress_bar) {
+            if (count - n_finished > 20) {
+                if (line->state == BENCH_STATE_FINISHED)
+                    continue;
+            }
+            if (n_displayed > 20)
+                continue;
+        }
+
         printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len, line->name_buf);
 
-        char buf[41] = {0};
+        char buf[256] = {0};
         size_t c = line->percent * bar->length / 100;
         if (c > bar->length)
             c = bar->length;
@@ -1061,18 +1092,38 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
 
         printf(" %s\n", line->info_buf);
         ++bar->last_drawn_lines;
+        ++n_displayed;
     }
-    if (bar->n_suspended) {
+    if (should_collapse_progress_bar && n_running) {
         clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks suspended\n", (int)bar->max_name_len, "",
-               bar->n_suspended);
+        printf("%*s %zu benchmarks currently running\n", (int)bar->max_name_len, "",
+               n_running);
         ++bar->last_drawn_lines;
     }
-    if (bar->n_not_started) {
+    if (should_collapse_progress_bar && n_suspended) {
+        clear_progress_bar_line(bar);
+        printf("%*s %zu benchmarks suspended\n", (int)bar->max_name_len, "", n_suspended);
+        ++bar->last_drawn_lines;
+    }
+    if (should_collapse_progress_bar && n_finished) {
+        clear_progress_bar_line(bar);
+        printf("%*s %zu benchmarks finished running\n", (int)bar->max_name_len, "",
+               n_finished);
+        ++bar->last_drawn_lines;
+    }
+    if (should_collapse_progress_bar && n_not_started) {
         clear_progress_bar_line(bar);
         printf("%*s %zu benchmarks not started\n", (int)bar->max_name_len, "",
-               bar->n_not_started);
+               n_not_started);
         ++bar->last_drawn_lines;
+    }
+    if (bar->last_drawn_lines < previous_drawn_lines) {
+        size_t to_clear = previous_drawn_lines - bar->last_drawn_lines;
+        for (size_t i = 0; i < to_clear; ++i) {
+            clear_progress_bar_line(bar);
+            printf("\n");
+        }
+        printf("\x1b[%zuA\r", to_clear);
     }
 }
 
@@ -1096,8 +1147,9 @@ static void *progress_bar_thread_worker(void *arg)
     return NULL;
 }
 
-static void init_progress_bar(struct bench_run_data *benches, size_t count, size_t term_width,
-                              size_t term_height, struct progress_bar *bar)
+static void init_progress_bar(struct bench_run_data *benches, size_t count,
+                              size_t term_width, size_t term_height,
+                              struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
     bar->count = count;
@@ -1117,7 +1169,7 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count, size
     bar->vis.data = bar;
     bar->vis.count = count;
     bar->vis.max_name_len = max_name_len;
-    bar->vis.length = 40;
+    bar->vis.length = 60;
     bool abbr_names = max_name_len > 40;
     bar->vis.abbr_names = abbr_names;
     bar->vis.lines = calloc(count, sizeof(*bar->vis.lines));
@@ -1235,7 +1287,8 @@ static bool do_custom_measurement_cmd(const struct meas *meas, int input_fd, int
 
 static bool run_custom_measurements_cmd(const struct bench_run_desc *params,
                                         struct bench_run_data *bench, void *copy_buffer,
-                                        size_t max_stdout_size, const struct meas **meas_list)
+                                        size_t max_stdout_size,
+                                        const struct meas **meas_list)
 {
     bool success = false;
 
@@ -1325,7 +1378,8 @@ static char **file_to_line_list(const char *start)
 }
 
 static bool run_re_on_file(const struct bench_run_desc *params, struct bench *bench,
-                           char *file_buffer, const struct meas **meas_list, regex_t *regexes)
+                           char *file_buffer, const struct meas **meas_list,
+                           regex_t *regexes)
 {
     bool success = false;
     size_t meas_count = sb_len(meas_list);
@@ -1479,8 +1533,9 @@ static bool run_custom_measurements(const struct bench_run_desc *params,
         success = run_custom_measurements_cmd(params, bench, copy_buffer, max_stdout_size,
                                               custom_meas_list);
     if (custom_re_meas_list != NULL)
-        success = success && run_custom_measurements_re(params, bench, copy_buffer,
-                                                        max_stdout_size, custom_re_meas_list);
+        success =
+            success && run_custom_measurements_re(params, bench, copy_buffer,
+                                                  max_stdout_size, custom_re_meas_list);
 
     free(copy_buffer);
     sb_free(custom_meas_list);
