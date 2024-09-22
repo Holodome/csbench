@@ -135,20 +135,26 @@ struct progress_bar_line {
 };
 
 struct progress_bar_visual {
+    struct progress_bar *data;
     size_t count;
-    bool was_drawn;
     size_t max_name_len;
     struct progress_bar_line *lines;
     size_t length;
+    bool was_drawn;
     bool abbr_names;
-    struct progress_bar *data;
+
+    size_t n_running;
+    size_t n_suspended;
+    size_t n_not_started;
+    size_t n_finished;
+    size_t last_drawn_lines;
 };
 
 struct progress_bar {
     pthread_t thread;
     size_t count;
-    struct progress_bar_bench *bar_benches;
     const struct bench_run_data *benches;
+    struct progress_bar_bench *bar_benches;
     struct progress_bar_state *states;
     struct progress_bar_visual vis;
 };
@@ -882,7 +888,8 @@ static void *run_bench_worker(void *raw)
 }
 
 static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
-                                    double current_time, FILE *f, int *percent)
+                                    double current_time, FILE *f, int *percent,
+                                    struct progress_bar_visual *vis)
 {
     const struct progress_bar_bench *bench = bar->bar_benches + line_idx;
     struct progress_bar_state *state = bar->states + line_idx;
@@ -967,22 +974,33 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
 
     if (data.warmup) {
         fprintf_colored(f, ANSI_MAGENTA, " W  ");
+        ++vis->n_running;
     } else if (data.finished) {
         fprintf_colored(f, ANSI_BLUE, " F  ");
+        ++vis->n_finished;
     } else if (data.suspended || !data.has_been_run) {
         fprintf_colored(f, ANSI_YELLOW, " S  ");
+        if (!data.has_been_run)
+            ++vis->n_not_started;
+        else
+            ++vis->n_suspended;
     } else {
         fprintf_colored(f, ANSI_GREEN, " R  ");
+        ++vis->n_running;
     }
 }
 
-static void update_progress_bar_lines(struct progress_bar *bar)
+static void update_progress_bar(struct progress_bar *bar)
 {
+    struct progress_bar_visual *vis = &bar->vis;
+    vis->n_suspended = 0;
+    vis->n_finished = 0;
+    vis->n_not_started = 0;
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
-        struct progress_bar_line *line = bar->vis.lines + i;
+        struct progress_bar_line *line = vis->lines + i;
         FILE *f = fmemopen(line->info_buf, sizeof(line->info_buf), "w");
-        write_progress_bar_info(bar, i, current_time, f, &line->percent);
+        write_progress_bar_info(bar, i, current_time, f, &line->percent, vis);
         fclose(f);
         // fmemopen does not necessary always set the null byte:
         //
@@ -1008,9 +1026,15 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
             }
         }
     } else {
-        printf("\x1b[%zuA\r", bar->count);
+        printf("\x1b[%zuA\r", bar->last_drawn_lines);
     }
+    bar->last_drawn_lines = 0;
 
+    if (bar->n_finished) {
+        printf("%*s %zu benchmarks finished running\n", (int)bar->max_name_len, "",
+               bar->n_finished);
+        ++bar->last_drawn_lines;
+    }
     for (size_t i = 0; i < bar->count; ++i) {
         const struct progress_bar_line *line = bar->lines + i;
 
@@ -1029,6 +1053,17 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         printf_colored(ANSI_BLUE, "%s", buf);
 
         printf(" %s\n", line->info_buf);
+        ++bar->last_drawn_lines;
+    }
+    if (bar->n_suspended) {
+        printf("%*s %zu benchmarks suspended\n", (int)bar->max_name_len, "",
+               bar->n_suspended);
+        ++bar->last_drawn_lines;
+    }
+    if (bar->n_not_started) {
+        printf("%*s %zu benchmarks not started\n", (int)bar->max_name_len, "",
+               bar->n_not_started);
+        ++bar->last_drawn_lines;
     }
 }
 
@@ -1040,7 +1075,7 @@ static void *progress_bar_thread_worker(void *arg)
     draw_progress_bar(&bar->vis);
     do {
         usleep(g_progress_bar_interval_us);
-        update_progress_bar_lines(bar);
+        update_progress_bar(bar);
         draw_progress_bar(&bar->vis);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i) {
