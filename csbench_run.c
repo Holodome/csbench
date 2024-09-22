@@ -134,18 +134,23 @@ struct progress_bar_line {
     int percent;
 };
 
-struct progress_bar {
-    pthread_t thread;
+struct progress_bar_visual {
+    size_t count;
     bool was_drawn;
     size_t max_name_len;
+    struct progress_bar_line *lines;
+    size_t length;
+    bool abbr_names;
+    struct progress_bar *data;
+};
+
+struct progress_bar {
+    pthread_t thread;
     size_t count;
     struct progress_bar_bench *bar_benches;
     const struct bench_run_data *benches;
     struct progress_bar_state *states;
-
-    struct progress_bar_line *lines;
-    size_t length;
-    bool abbr_names;
+    struct progress_bar_visual vis;
 };
 
 struct run_task {
@@ -975,7 +980,7 @@ static void update_progress_bar_lines(struct progress_bar *bar)
 {
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
-        struct progress_bar_line *line = bar->lines + i;
+        struct progress_bar_line *line = bar->vis.lines + i;
         FILE *f = fmemopen(line->info_buf, sizeof(line->info_buf), "w");
         write_progress_bar_info(bar, i, current_time, f, &line->percent);
         fclose(f);
@@ -992,14 +997,14 @@ static void update_progress_bar_lines(struct progress_bar *bar)
     }
 }
 
-static void draw_progress_bar(struct progress_bar *bar)
+static void draw_progress_bar(struct progress_bar_visual *bar)
 {
     if (!bar->was_drawn) {
         bar->was_drawn = true;
         if (bar->abbr_names) {
             for (size_t i = 0; i < bar->count; ++i) {
                 printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n", bar->benches[i].b->name);
+                printf_colored(ANSI_BOLD, "%s\n", bar->data->benches[i].b->name);
             }
         }
     } else {
@@ -1032,18 +1037,18 @@ static void *progress_bar_thread_worker(void *arg)
     assert(g_progress_bar);
     struct progress_bar *bar = arg;
     bool is_finished = false;
-    draw_progress_bar(bar);
+    draw_progress_bar(&bar->vis);
     do {
         usleep(g_progress_bar_interval_us);
         update_progress_bar_lines(bar);
-        draw_progress_bar(bar);
+        draw_progress_bar(&bar->vis);
         is_finished = true;
         for (size_t i = 0; i < bar->count && is_finished; ++i) {
             if (!atomic_load(&bar->bar_benches[i].finished))
                 is_finished = false;
         }
     } while (!is_finished);
-    draw_progress_bar(bar);
+    draw_progress_bar(&bar->vis);
     return NULL;
 }
 
@@ -1051,23 +1056,27 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
                               struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
-    bar->length = 40;
     bar->count = count;
     bar->bar_benches = calloc(count, sizeof(*bar->bar_benches));
     bar->states = calloc(count, sizeof(*bar->states));
     bar->benches = benches;
+    size_t max_name_len = 0;
     for (size_t i = 0; i < count; ++i) {
         bar->states[i].runs = -1;
         benches[i].progress = bar->bar_benches + i;
         size_t name_len = strlen(benches[i].b->name);
-        if (name_len > bar->max_name_len)
-            bar->max_name_len = name_len;
+        if (name_len > max_name_len)
+            max_name_len = name_len;
     }
-    bool abbr_names = bar->max_name_len > 40;
-    bar->abbr_names = abbr_names;
-    bar->lines = calloc(count, sizeof(*bar->lines));
+    bar->vis.data = bar;
+    bar->vis.count = count;
+    bar->vis.max_name_len = max_name_len;
+    bar->vis.length = 40;
+    bool abbr_names = max_name_len > 40;
+    bar->vis.abbr_names = abbr_names;
+    bar->vis.lines = calloc(count, sizeof(*bar->vis.lines));
     for (size_t i = 0; i < count; ++i) {
-        struct progress_bar_line *line = bar->lines + i;
+        struct progress_bar_line *line = bar->vis.lines + i;
         if (abbr_names)
             snprintf(line->name_buf, sizeof(line->name_buf), "%c", (int)('A' + i));
         else
@@ -1077,7 +1086,7 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
 
 static void free_progress_bar(struct progress_bar *bar)
 {
-    free(bar->lines);
+    free(bar->vis.lines);
     free(bar->bar_benches);
     free(bar->states);
 }
