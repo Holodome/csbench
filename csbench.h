@@ -460,15 +460,15 @@ enum plot_backend {
     PLOT_BACKEND_GNUPLOT
 };
 
-#define make_kde_cmp_small_params(_a, _b, _meas)                                             \
-    (struct kde_cmp_params)                                                                  \
-    {                                                                                        \
-        _a, _b, _meas, NULL, NULL, NULL                                                      \
+#define make_kde_cmp_small_params(_a, _b, _meas)                                            \
+    (struct kde_cmp_params)                                                                 \
+    {                                                                                       \
+        _a, _b, _meas, NULL, NULL, NULL                                                     \
     }
-#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                         \
-    (struct kde_cmp_params)                                                                  \
-    {                                                                                        \
-        _a, _b, _meas, _a_name, _b_name, _title                                              \
+#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                        \
+    (struct kde_cmp_params)                                                                 \
+    {                                                                                       \
+        _a, _b, _meas, _a_name, _b_name, _title                                             \
     }
 
 struct kde_cmps_params {
@@ -527,6 +527,12 @@ enum parse_time_str_result {
     PARSE_TIME_STR_ERR_NEG,
 };
 
+struct string_writer {
+    char *start;
+    char *cursor;
+    char *end;
+};
+
 #define sb_header(_a) ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
 #define sb_capacity(_a) (sb_header(_a)->capacity)
@@ -534,16 +540,16 @@ enum parse_time_str_result {
 #define sb_needgrow(_a, _n) (((_a) == NULL) ? true : (sb_size(_a) + (_n) >= sb_capacity(_a)))
 #define sb_maybegrow(_a, _n) (sb_needgrow(_a, _n) ? sb_grow(_a, _n) : 0)
 #define sb_grow(_a, _b) (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
-#define sb_reserve(_a, _n)                                                                   \
-    ((_a) != NULL ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a)) : 0)     \
+#define sb_reserve(_a, _n)                                                                  \
+    ((_a) != NULL ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a)) : 0)    \
                   : sb_grow((_a), (_n)))
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 #define sb_ensure(_a, _n) (((_a) == NULL || sb_size(_a) < (_n)) ? sb_resize(_a, _n) : 0)
 
 #define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
-#define sb_pushfront(_a, _v)                                                                 \
-    (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),            \
+#define sb_pushfront(_a, _v)                                                                \
+    (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),           \
      (_a)[0] = (_v))
 #define sb_last(_a) ((_a)[sb_size(_a) - 1])
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
@@ -767,6 +773,22 @@ static inline uint32_t pcg32_fast(uint64_t *state)
     return (uint32_t)(x >> (22 + count));
 }
 
+static inline struct string_writer strwriter(char *buf, size_t buf_size)
+{
+    struct string_writer writer;
+    writer.start = buf;
+    writer.cursor = buf;
+    writer.end = buf + buf_size;
+    return writer;
+}
+
+void strwriter_vprintf(struct string_writer *writer, const char *fmt, va_list args);
+__attribute__((format(printf, 2, 3))) void strwriter_printf(struct string_writer *writer,
+                                                            const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) void
+strwriter_printf_colored(struct string_writer *writer, const char *how, const char *fmt,
+                         ...);
+
 // This is global interface for allocating and deallocating strings.
 // This program is not string-heavy, most of the times they arise during
 // configuration parsing and benchmark initialization.
@@ -807,32 +829,32 @@ static inline const char *bench_group_name(const struct analysis *al, size_t grp
     return al->groups[grp_idx].name;
 }
 
-#define foreach_bench_idx(_idx, _al)                                                         \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));                            \
-         CSUNIQIFY(i) < (_al)->base->bench_count;                                            \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count                      \
-                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))                     \
+#define foreach_bench_idx(_idx, _al)                                                        \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));                           \
+         CSUNIQIFY(i) < (_al)->base->bench_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count                     \
+                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))                    \
                                     : 0)
 
-#define foreach_group_by_avg_idx(_idx, _al)                                                  \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));                     \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
-                                    ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))              \
+#define foreach_group_by_avg_idx(_idx, _al)                                                 \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));                    \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))             \
                                     : 0)
 
-#define foreach_group_by_total_idx(_idx, _al)                                                \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));                   \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
-                                    ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))            \
+#define foreach_group_by_total_idx(_idx, _al)                                               \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));                  \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))           \
                                     : 0)
 
-#define foreach_per_val_group_idx(_idx, _val, _al)                                           \
-    for (size_t CSUNIQIFY(i) = 0, _idx = ith_per_val_group_idx(0, (_val), (_al));            \
-         CSUNIQIFY(i) < (_al)->base->group_count;                                            \
-         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                      \
-                                    ? ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al))     \
+#define foreach_per_val_group_idx(_idx, _val, _al)                                          \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_per_val_group_idx(0, (_val), (_al));           \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al))    \
                                     : 0)
 
 #endif // CSBENCH_H

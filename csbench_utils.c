@@ -337,8 +337,8 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
     return true;
 }
 
-static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                                  int err_pipe[2], pid_t *pidp)
+static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
+                                  int stderr_fd, int err_pipe[2], pid_t *pidp)
 {
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -596,6 +596,39 @@ void fprintf_colored(FILE *f, const char *how, const char *fmt, ...)
         va_list args;
         va_start(args, fmt);
         vfprintf(f, fmt, args);
+        va_end(args);
+    }
+}
+
+void strwriter_vprintf(struct string_writer *writer, const char *fmt, va_list args)
+{
+    int advance = vsnprintf(writer->cursor, writer->end - writer->cursor, fmt, args);
+    writer->cursor += advance;
+}
+
+__attribute__((format(printf, 2, 3))) void strwriter_printf(struct string_writer *writer,
+                                                            const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    strwriter_vprintf(writer, fmt, args);
+    va_end(args);
+}
+
+__attribute__((format(printf, 3, 4))) void
+strwriter_printf_colored(struct string_writer *writer, const char *how, const char *fmt, ...)
+{
+    if (g_colored_output) {
+        strwriter_printf(writer, "\x1b[%sm", how);
+        va_list args;
+        va_start(args, fmt);
+        strwriter_vprintf(writer, fmt, args);
+        va_end(args);
+        strwriter_printf(writer, "\x1b[0m");
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        strwriter_vprintf(writer, fmt, args);
         va_end(args);
     }
 }

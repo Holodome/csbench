@@ -152,6 +152,8 @@ struct progress_bar_visual {
     bool was_drawn;
     bool abbr_names;
     size_t last_drawn_lines;
+    size_t buffer_size;
+    char *buffer;
 };
 
 struct progress_bar {
@@ -892,10 +894,10 @@ static void *run_bench_worker(void *raw)
 }
 
 static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
-                                    double current_time, FILE *f,
-                                    struct progress_bar_line *line)
+                                    double current_time, struct progress_bar_line *line)
 
 {
+    struct string_writer writer = strwriter(line->info_buf, sizeof(line->info_buf));
     const struct progress_bar_bench *bench = bar->bar_benches + line_idx;
     struct progress_bar_state *state = bar->states + line_idx;
 
@@ -918,8 +920,8 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
             const struct output_anchor *anchor = g_output_anchors + j;
             if (pthread_equal(anchor->id, data.id)) {
                 assert(anchor->has_message);
-                fprintf_colored(f, ANSI_RED, " error: ");
-                fprintf(f, "%s", anchor->buffer);
+                strwriter_printf_colored(&writer, ANSI_RED, " error: ");
+                strwriter_printf(&writer, "%s", anchor->buffer);
                 break;
             }
         }
@@ -969,29 +971,29 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         }
         char total_buf[256];
         snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
-        fprintf(f, " %*zu/%s eta %s", (int)strlen(total_buf), (size_t)data.runs, total_buf,
-                eta_buf);
+        strwriter_printf(&writer, " %*zu/%s eta %s", (int)strlen(total_buf),
+                         (size_t)data.runs, total_buf, eta_buf);
     } else {
         char buf1[256], buf2[256];
         format_time(buf1, sizeof(buf1), data.time.d);
         format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
-        fprintf(f, " %s/ %s", buf1, buf2);
+        strwriter_printf(&writer, " %s/ %s", buf1, buf2);
     }
 
     if (data.warmup) {
-        fprintf_colored(f, ANSI_MAGENTA, " W  ");
+        strwriter_printf_colored(&writer, ANSI_MAGENTA, " W  ");
         line->state = BENCH_STATE_RUNNING;
     } else if (data.finished) {
-        fprintf_colored(f, ANSI_BLUE, " F  ");
+        strwriter_printf_colored(&writer, ANSI_BLUE, " F  ");
         line->state = BENCH_STATE_FINISHED;
     } else if (data.suspended || !data.has_been_run) {
-        fprintf_colored(f, ANSI_YELLOW, " S  ");
+        strwriter_printf_colored(&writer, ANSI_YELLOW, " S  ");
         if (!data.has_been_run)
             line->state = BENCH_STATE_NOT_STARTED;
         else
             line->state = BENCH_STATE_SUSPENDED;
     } else {
-        fprintf_colored(f, ANSI_GREEN, " R  ");
+        strwriter_printf_colored(&writer, ANSI_GREEN, " R  ");
         line->state = BENCH_STATE_RUNNING;
     }
 }
@@ -1002,29 +1004,19 @@ static void update_progress_bar(struct progress_bar *bar)
     double current_time = get_time();
     for (size_t i = 0; i < bar->count; ++i) {
         struct progress_bar_line *line = vis->lines + i;
-        FILE *f = fmemopen(line->info_buf, sizeof(line->info_buf), "w");
-        write_progress_bar_info(bar, i, current_time, f, line);
-        fclose(f);
-        // fmemopen does not necessary always set the null byte:
-        //
-        // > When a stream that has been opened for writing is flushed
-        // > (fflush(3)) or closed (fclose(3)), a null byte is written at the
-        // > end of the buffer if there is space.  The caller should ensure
-        // > that an extra byte is available in the buffer (and that size
-        // > counts that byte) to allow for this.
-        //
-        // So we always set the null byte ourselves, even though it can truncate.
-        line->info_buf[sizeof(line->info_buf) - 1] = '\0';
+        write_progress_bar_info(bar, i, current_time, line);
     }
 }
 
-static void clear_progress_bar_line(struct progress_bar_visual *bar)
+static void clear_progress_bar_line(struct progress_bar_visual *bar,
+                                    struct string_writer *writer)
 {
-    printf("%*s\r", (int)bar->term_width, "");
+    strwriter_printf(writer, "%*s\r", (int)bar->term_width, "");
 }
 
 static void draw_progress_bar(struct progress_bar_visual *bar)
 {
+    struct string_writer writer = strwriter(bar->buffer, bar->buffer_size);
     if (!bar->was_drawn) {
         bar->was_drawn = true;
         if (bar->abbr_names) {
@@ -1034,7 +1026,7 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
             }
         }
     } else {
-        printf("\x1b[%zuA\r", bar->last_drawn_lines);
+        strwriter_printf(&writer, "\x1b[%zuA\r", bar->last_drawn_lines);
     }
     size_t previous_drawn_lines = bar->last_drawn_lines;
     bar->last_drawn_lines = 0;
@@ -1076,7 +1068,8 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
                 continue;
         }
 
-        printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len, line->name_buf);
+        strwriter_printf_colored(&writer, ANSI_BOLD, "%*s ", (int)bar->max_name_len,
+                                 line->name_buf);
 
         char buf[256] = {0};
         size_t c = line->percent * bar->length / 100;
@@ -1084,47 +1077,49 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
             c = bar->length;
         for (size_t j = 0; j < c; ++j)
             buf[j] = '#';
-        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
+        strwriter_printf_colored(&writer, ANSI_BRIGHT_BLUE, "%s", buf);
         for (size_t j = 0; j < bar->length - c; ++j)
             buf[j] = '-';
         buf[bar->length - c] = '\0';
-        printf_colored(ANSI_BLUE, "%s", buf);
+        strwriter_printf_colored(&writer, ANSI_BLUE, "%s", buf);
 
-        printf(" %s\n", line->info_buf);
+        strwriter_printf(&writer, " %s\n", line->info_buf);
         ++bar->last_drawn_lines;
         ++n_displayed;
     }
     if (should_collapse_progress_bar && n_running) {
-        clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks currently running\n", (int)bar->max_name_len, "",
-               n_running);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks currently running\n",
+                         (int)bar->max_name_len, "", n_running);
         ++bar->last_drawn_lines;
     }
     if (should_collapse_progress_bar && n_suspended) {
-        clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks suspended\n", (int)bar->max_name_len, "", n_suspended);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks suspended\n", (int)bar->max_name_len,
+                         "", n_suspended);
         ++bar->last_drawn_lines;
     }
     if (should_collapse_progress_bar && n_finished) {
-        clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks finished running\n", (int)bar->max_name_len, "",
-               n_finished);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks finished running\n",
+                         (int)bar->max_name_len, "", n_finished);
         ++bar->last_drawn_lines;
     }
     if (should_collapse_progress_bar && n_not_started) {
-        clear_progress_bar_line(bar);
-        printf("%*s %zu benchmarks not started\n", (int)bar->max_name_len, "",
-               n_not_started);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks not started\n", (int)bar->max_name_len,
+                         "", n_not_started);
         ++bar->last_drawn_lines;
     }
     if (bar->last_drawn_lines < previous_drawn_lines) {
         size_t to_clear = previous_drawn_lines - bar->last_drawn_lines;
         for (size_t i = 0; i < to_clear; ++i) {
-            clear_progress_bar_line(bar);
-            printf("\n");
+            clear_progress_bar_line(bar, &writer);
+            strwriter_printf(&writer, "\n");
         }
-        printf("\x1b[%zuA\r", to_clear);
+        strwriter_printf(&writer, "\x1b[%zuA\r", to_clear);
     }
+    printf("%s", writer.start);
 }
 
 static void *progress_bar_thread_worker(void *arg)
@@ -1180,6 +1175,10 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
         else
             snprintf(line->name_buf, sizeof(line->name_buf), "%s", benches[i].b->name);
     }
+    // We allocate one big buffer where we will write all output and use only a single system
+    // call to put in on screen instead of calling printf repeatedly
+    bar->vis.buffer_size = 64 * 1024;
+    bar->vis.buffer = calloc(bar->vis.buffer_size, 1);
 }
 
 static void free_progress_bar(struct progress_bar *bar)
