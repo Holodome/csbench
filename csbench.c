@@ -1101,7 +1101,7 @@ static bool do_app_bench(const struct settings *settings)
         goto err;
     if (!initialize_global_variables(&data))
         goto err;
-    if (!run_benches(data.run_descs, data.benches, data.bench_count))
+    if (!run_benches(&data))
         goto err;
     if (g_save_bin && !do_save_bin(&data))
         goto err;

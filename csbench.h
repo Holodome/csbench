@@ -668,7 +668,7 @@ double ols_approx(const struct ols_regress *regress, double n);
 // csbench_run.c
 //
 
-bool run_benches(const struct bench_run_desc *params, struct bench *benches, size_t count);
+bool run_benches(struct bench_data *data);
 
 //
 // csbench_report.c

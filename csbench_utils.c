@@ -931,9 +931,11 @@ const char *abbreviated_name(size_t idx)
     assert(power < sizeof(buf));
     buf[power] = '\0';
     char *cursor = buf + power - 1;
+    int align = 0;
     while (idx != 0) {
-        *cursor-- = 'A' + (idx % base);
+        *cursor-- = 'A' + (idx % base - align);
         idx /= base;
+        align = 1;
     }
     return csstrdup(buf);
 }
