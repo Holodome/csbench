@@ -484,7 +484,8 @@ enum cmd_multiplex_result {
 
 static enum cmd_multiplex_result
 multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
-                           const struct bench_param *param, struct command_info **multiplexed)
+                           const struct bench_param *param,
+                           struct command_info **multiplexed)
 {
     // Take first value and try to replace it in the command string
     char buf[4096];
@@ -622,9 +623,10 @@ static bool validate_rename_list(const struct rename_entry *rename_list,
     if (data->group_count == 0) {
         if (g_rename_all_used) {
             if (sb_len(rename_list) != data->bench_count) {
-                error("number (%zu) of benchmarks to be renamed (supplied with --rename-all) "
-                      "does not match number of benchmarks (%zu)",
-                      sb_len(rename_list), data->bench_count);
+                error(
+                    "number (%zu) of benchmarks to be renamed (supplied with --rename-all) "
+                    "does not match number of benchmarks (%zu)",
+                    sb_len(rename_list), data->bench_count);
                 return false;
             }
         } else {
@@ -811,7 +813,8 @@ static void differentiate_benchmarks_with_equal_names(struct bench_data *data)
         if (count != 1) {
             for (size_t t_idx = 0; t_idx < count; ++t_idx) {
                 size_t bench_idx = same_name->idxs[t_idx];
-                data->benches[bench_idx].name = csfmt("%s (%zu)", same_name->name, t_idx + 1);
+                data->benches[bench_idx].name =
+                    csfmt("%s (%zu)", same_name->name, t_idx + 1);
             }
         }
     }
@@ -933,9 +936,10 @@ static bool validate_and_set_baseline(const struct bench_data *data)
                     }
                 }
                 if (g_baseline == -1) {
-                    error("there is no benchmark with name '%s' (specified as baseline using "
-                          "--baseline-name)",
-                          g_baseline_name);
+                    error(
+                        "there is no benchmark with name '%s' (specified as baseline using "
+                        "--baseline-name)",
+                        g_baseline_name);
                     return false;
                 }
             } else {
@@ -946,9 +950,10 @@ static bool validate_and_set_baseline(const struct bench_data *data)
                     }
                 }
                 if (g_baseline == -1) {
-                    error("there is no benchmark group with name '%s' (specified as baseline "
-                          "using --baseline-name)",
-                          g_baseline_name);
+                    error(
+                        "there is no benchmark group with name '%s' (specified as baseline "
+                        "using --baseline-name)",
+                        g_baseline_name);
                     return false;
                 }
             }

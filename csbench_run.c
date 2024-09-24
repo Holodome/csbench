@@ -419,7 +419,14 @@ static void exec_cmd_child(const struct bench_run_desc *params, bool use_pmc, bo
         }
     }
     if (execvp(params->exec, (char **)params->argv) == -1) {
-        csfdperror(err_pipe_end, "execvp");
+        char argv_str[4096] = {0};
+        struct string_writer writer = strwriter(argv_str, sizeof(argv_str));
+        for (char **argv = (char **)params->argv; *argv != NULL; ++argv) {
+            strwriter_printf(&writer, "%s", *argv);
+            if (argv[1] != NULL)
+                strwriter_printf(&writer, " ");
+        }
+        csfdfmtperror(err_pipe_end, "execvp(\"%s\", \"%s\")", params->exec, argv_str);
         _exit(-1);
     }
 

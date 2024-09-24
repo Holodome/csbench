@@ -721,6 +721,7 @@ void errorv(const char *fmt, va_list args);
 void csperror(const char *msg);
 void csfmtperror(const char *fmt, ...);
 void csfdperror(int fd, const char *msg);
+void csfdfmtperror(int fd, const char *fmt, ...);
 
 bool pipe_cloexec(int fd[2]);
 bool check_and_handle_err_pipe(int read_end, int timeout);
@@ -779,6 +780,9 @@ static inline struct string_writer strwriter(char *buf, size_t buf_size)
     writer.start = buf;
     writer.cursor = buf;
     writer.end = buf + buf_size;
+    // Make sure that even if we don't call printf output is valid
+    if (buf_size)
+        *buf = '\0';
     return writer;
 }
 

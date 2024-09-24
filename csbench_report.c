@@ -352,7 +352,8 @@ static bool make_plot_src(struct plot_walker_args *args, FILE *f)
     case PLOT_KDE_CMP_PER_VAL:
         return plot_maker->kde_cmp_per_val(al, args->compared_idx, args->val_idx, &ctx);
     case PLOT_KDE_CMP_PER_VAL_SMALL:
-        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx, &ctx);
+        return plot_maker->kde_cmp_per_val_small(al, args->compared_idx, args->val_idx,
+                                                 &ctx);
     }
     ASSERT_UNREACHABLE();
 }
@@ -525,8 +526,8 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
     if (g_desired_plots & MAKE_PLOT_KDE) {
         fprintf(f, "### benchmark KDE\n");
         foreach_bench_idx (bench_idx, al) {
-            fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n", bench_name(base, bench_idx),
-                    bench_idx, meas_idx);
+            fprintf(f, "- [benchmark %s KDE](kde_%zu_%zu.svg)\n",
+                    bench_name(base, bench_idx), bench_idx, meas_idx);
         }
     }
     if (grp_count <= 1) {
@@ -537,7 +538,8 @@ static void make_plots_map_meas(const struct meas_analysis *al, FILE *f)
             foreach_bench_idx (bench_idx, al) {
                 if (bench_idx == ref_idx)
                     continue;
-                fprintf(f, "- [%s vs %s KDE comparison (small)](kde_cmp_small_%zu_%zu.svg)\n",
+                fprintf(f,
+                        "- [%s vs %s KDE comparison (small)](kde_cmp_small_%zu_%zu.svg)\n",
                         ref_name, bench_name(base, bench_idx), bench_idx, meas_idx);
             }
         }
@@ -878,8 +880,9 @@ static void print_outliers(const struct outliers *outliers, size_t run_count)
     }
 }
 
-static void print_estimate(const char *name, const struct est *est, const struct units *units,
-                           const char *prim_color, const char *sec_color)
+static void print_estimate(const char *name, const struct est *est,
+                           const struct units *units, const char *prim_color,
+                           const char *sec_color)
 {
     char buf1[256], buf2[256], buf3[256];
     format_meas(buf1, sizeof(buf1), est->lower, units);
@@ -1034,7 +1037,8 @@ static bool should_abbreviate_names(const struct meas_analysis *al)
     return false;
 }
 
-static const char *cli_group_name(const struct meas_analysis *al, size_t idx, bool abbr_names)
+static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
+                                  bool abbr_names)
 {
     if (abbr_names) {
         // Algorithm below does not handle zeroes on its own
@@ -1139,7 +1143,8 @@ static void print_group_per_value_speedups(const struct meas_analysis *al, bool 
                 printf(" (baseline)");
             printf("\n");
             printf("  slowest is ");
-            size_t slowest_idx = al->val_benches_by_mean_time[val_idx][base->group_count - 1];
+            size_t slowest_idx =
+                al->val_benches_by_mean_time[val_idx][base->group_count - 1];
             printf_colored(ANSI_BOLD, "%s", cli_group_name(al, slowest_idx, abbr_names));
             if (g_baseline != -1 && slowest_idx == (size_t)g_baseline)
                 printf(" (baseline)");

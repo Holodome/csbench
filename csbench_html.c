@@ -1178,7 +1178,8 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                     grp_idx, meas_idx  //
             );
             fprintf(
-                f, "<h5>Average difference by geometric mean of per-value differences:</h5>");
+                f,
+                "<h5>Average difference by geometric mean of per-value differences:</h5>");
             {
                 const struct speedup *speedup = al->group_avg_cmp.speedups + grp_idx;
                 html_speedup_explain(speedup, a_name, b_name, f);

@@ -126,7 +126,7 @@ Example:
 .HP
 \fB\-S\fR, \fB\-\-shell\fR \fISHELL\fP
 .IP
-Set the shell to be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
+Set the shell to be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none", or "inherit". If set to "none", commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead. If set to "inherit", uses the shell set in \fISHELL\fP variable of calling process.
 .HP
 .B \-N
 .IP

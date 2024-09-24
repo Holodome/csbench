@@ -143,30 +143,30 @@ static void resample(const double *src, size_t count, double *dst)
 #define fitting_curve_logn(_n) log2(_n)
 #define fitting_curve_nlogn(_n) ((_n) * log2(_n))
 
-#define ols(_name, _fitting)                                                                 \
-    static double ols_##_name(const double *x, const double *y, size_t count,                \
-                              double adjust_y, double *rmsp)                                 \
-    {                                                                                        \
-        (void)x;                                                                             \
-        double sigma_gn_sq = 0.0;                                                            \
-        double sigma_t = 0.0;                                                                \
-        double sigma_t_gn = 0.0;                                                             \
-        for (size_t i = 0; i < count; ++i) {                                                 \
-            double gn_i = _fitting(x[i] - x[0]);                                             \
-            sigma_gn_sq += gn_i * gn_i;                                                      \
-            sigma_t += y[i] - adjust_y;                                                      \
-            sigma_t_gn += (y[i] - adjust_y) * gn_i;                                          \
-        }                                                                                    \
-        double coef = sigma_t_gn / sigma_gn_sq;                                              \
-        double rms = 0.0;                                                                    \
-        for (size_t i = 0; i < count; ++i) {                                                 \
-            double fit = coef * _fitting(x[i] - x[0]);                                       \
-            double a = (y[i] - adjust_y) - fit;                                              \
-            rms += a * a;                                                                    \
-        }                                                                                    \
-        double mean = sigma_t / count;                                                       \
-        *rmsp = sqrt(rms / count) / mean;                                                    \
-        return coef;                                                                         \
+#define ols(_name, _fitting)                                                                \
+    static double ols_##_name(const double *x, const double *y, size_t count,               \
+                              double adjust_y, double *rmsp)                                \
+    {                                                                                       \
+        (void)x;                                                                            \
+        double sigma_gn_sq = 0.0;                                                           \
+        double sigma_t = 0.0;                                                               \
+        double sigma_t_gn = 0.0;                                                            \
+        for (size_t i = 0; i < count; ++i) {                                                \
+            double gn_i = _fitting(x[i] - x[0]);                                            \
+            sigma_gn_sq += gn_i * gn_i;                                                     \
+            sigma_t += y[i] - adjust_y;                                                     \
+            sigma_t_gn += (y[i] - adjust_y) * gn_i;                                         \
+        }                                                                                   \
+        double coef = sigma_t_gn / sigma_gn_sq;                                             \
+        double rms = 0.0;                                                                   \
+        for (size_t i = 0; i < count; ++i) {                                                \
+            double fit = coef * _fitting(x[i] - x[0]);                                      \
+            double a = (y[i] - adjust_y) - fit;                                             \
+            rms += a * a;                                                                   \
+        }                                                                                   \
+        double mean = sigma_t / count;                                                      \
+        *rmsp = sqrt(rms / count) / mean;                                                   \
+        return coef;                                                                        \
     }
 
 ols(1, fitting_curve_1) ols(n, fitting_curve_n) ols(n_sq, fitting_curve_n_sq)
@@ -253,15 +253,15 @@ static void ols(const double *x, const double *y, size_t count, struct ols_regre
     double best_fit_coef, best_fit_rms;
     best_fit_coef = ols_1(x, y, count, min_y, &best_fit_rms);
 
-#define check(_name, _e)                                                                     \
-    do {                                                                                     \
-        double coef, rms;                                                                    \
-        coef = _name(x, y, count, min_y, &rms);                                              \
-        if (rms < best_fit_rms) {                                                            \
-            best_fit = _e;                                                                   \
-            best_fit_coef = coef;                                                            \
-            best_fit_rms = rms;                                                              \
-        }                                                                                    \
+#define check(_name, _e)                                                                    \
+    do {                                                                                    \
+        double coef, rms;                                                                   \
+        coef = _name(x, y, count, min_y, &rms);                                             \
+        if (rms < best_fit_rms) {                                                           \
+            best_fit = _e;                                                                  \
+            best_fit_coef = coef;                                                           \
+            best_fit_rms = rms;                                                             \
+        }                                                                                   \
     } while (0)
 
     check(ols_n, O_N);
@@ -1150,8 +1150,9 @@ static bool parallel_execute_bench_analyses(struct bench_analysis *als, size_t c
 static bool analyze_benches(struct analysis *al)
 {
     // Benchmarks analyses are done in parallel because they are quite time-consuming because
-    // of all the bootstrapping. Ideally we would parallelize the loop here too, but that will
-    // require careful handling of threads creation and deletion, so leave it as is for now.
+    // of all the bootstrapping. Ideally we would parallelize the loop here too, but that
+    // will require careful handling of threads creation and deletion, so leave it as is for
+    // now.
     if (!parallel_execute_bench_analyses(al->bench_analyses, al->bench_count))
         return false;
 
@@ -1206,7 +1207,8 @@ static void init_meas_analysis(struct analysis *base, size_t meas_idx,
         }
         al->groups_by_avg_speed = calloc(grp_count, sizeof(*al->groups_by_avg_speed));
         al->group_avg_cmp.speedups = calloc(grp_count, sizeof(*al->group_avg_cmp.speedups));
-        al->group_avg_cmp.pval_cmps = calloc(val_count, sizeof(*al->group_avg_cmp.pval_cmps));
+        al->group_avg_cmp.pval_cmps =
+            calloc(val_count, sizeof(*al->group_avg_cmp.pval_cmps));
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             al->group_avg_cmp.pval_cmps[val_idx].speedups =
                 calloc(grp_count, sizeof(*al->group_avg_cmp.pval_cmps[val_idx].speedups));

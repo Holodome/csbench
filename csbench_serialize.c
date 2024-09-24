@@ -99,30 +99,30 @@ struct parsed_text_file {
 
 #define CSBENCH_MAGIC (uint32_t)('C' | ('S' << 8) | ('B' << 16) | ('H' << 24))
 
-#define write_raw__(_arr, _elemsz, _cnt, _f)                                                 \
-    do {                                                                                     \
-        size_t CSUNIQIFY(cnt) = (_cnt);                                                      \
-        if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                     \
-            goto io_err;                                                                     \
+#define write_raw__(_arr, _elemsz, _cnt, _f)                                                \
+    do {                                                                                    \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                                     \
+        if (fwrite(_arr, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                    \
+            goto io_err;                                                                    \
     } while (0)
 
-#define write_u64__(_value, _f)                                                              \
-    do {                                                                                     \
-        uint64_t CSUNIQIFY(value) = (_value);                                                \
-        write_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, _f);                             \
+#define write_u64__(_value, _f)                                                             \
+    do {                                                                                    \
+        uint64_t CSUNIQIFY(value) = (_value);                                               \
+        write_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, _f);                            \
     } while (0)
 
-#define write_str__(_str, _f)                                                                \
-    do {                                                                                     \
-        const char *CSUNIQIFY(str) = (_str);                                                 \
-        if (CSUNIQIFY(str) == NULL) {                                                        \
-            uint32_t CSUNIQIFY(len) = 0;                                                     \
-            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                            \
-        } else {                                                                             \
-            uint32_t CSUNIQIFY(len) = strlen(CSUNIQIFY(str)) + 1;                            \
-            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                            \
-            write_raw__(CSUNIQIFY(str), 1, CSUNIQIFY(len), f);                               \
-        }                                                                                    \
+#define write_str__(_str, _f)                                                               \
+    do {                                                                                    \
+        const char *CSUNIQIFY(str) = (_str);                                                \
+        if (CSUNIQIFY(str) == NULL) {                                                       \
+            uint32_t CSUNIQIFY(len) = 0;                                                    \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                           \
+        } else {                                                                            \
+            uint32_t CSUNIQIFY(len) = strlen(CSUNIQIFY(str)) + 1;                           \
+            write_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                           \
+            write_raw__(CSUNIQIFY(str), 1, CSUNIQIFY(len), f);                              \
+        }                                                                                   \
     } while (0)
 
 bool save_bench_data_binary(const struct bench_data *data, FILE *f)
@@ -250,30 +250,30 @@ io_err:
 #undef write_u64__
 #undef write_str__
 
-#define read_raw__(_dst, _elemsz, _cnt, _f)                                                  \
-    do {                                                                                     \
-        size_t CSUNIQIFY(cnt) = (_cnt);                                                      \
-        if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                      \
-            goto io_err;                                                                     \
+#define read_raw__(_dst, _elemsz, _cnt, _f)                                                 \
+    do {                                                                                    \
+        size_t CSUNIQIFY(cnt) = (_cnt);                                                     \
+        if (fread(_dst, _elemsz, CSUNIQIFY(cnt), _f) != CSUNIQIFY(cnt))                     \
+            goto io_err;                                                                    \
     } while (0)
 
-#define read_u64__(_dst, _f)                                                                 \
-    do {                                                                                     \
-        uint64_t CSUNIQIFY(value);                                                           \
-        read_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, f);                               \
-        (_dst) = CSUNIQIFY(value);                                                           \
+#define read_u64__(_dst, _f)                                                                \
+    do {                                                                                    \
+        uint64_t CSUNIQIFY(value);                                                          \
+        read_raw__(&CSUNIQIFY(value), sizeof(uint64_t), 1, f);                              \
+        (_dst) = CSUNIQIFY(value);                                                          \
     } while (0)
 
-#define read_str__(_dst, _f)                                                                 \
-    do {                                                                                     \
-        uint32_t CSUNIQIFY(len);                                                             \
-        read_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                                 \
-        char *CSUNIQIFY(res) = NULL;                                                         \
-        if (CSUNIQIFY(len) != 0) {                                                           \
-            CSUNIQIFY(res) = csstralloc(CSUNIQIFY(len) - 1);                                 \
-            read_raw__(CSUNIQIFY(res), 1, CSUNIQIFY(len), f);                                \
-        }                                                                                    \
-        (_dst) = (const char *)CSUNIQIFY(res);                                               \
+#define read_str__(_dst, _f)                                                                \
+    do {                                                                                    \
+        uint32_t CSUNIQIFY(len);                                                            \
+        read_raw__(&CSUNIQIFY(len), sizeof(uint32_t), 1, f);                                \
+        char *CSUNIQIFY(res) = NULL;                                                        \
+        if (CSUNIQIFY(len) != 0) {                                                          \
+            CSUNIQIFY(res) = csstralloc(CSUNIQIFY(len) - 1);                                \
+            read_raw__(CSUNIQIFY(res), 1, CSUNIQIFY(len), f);                               \
+        }                                                                                   \
+        (_dst) = (const char *)CSUNIQIFY(res);                                              \
     } while (0)
 
 static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
@@ -894,7 +894,8 @@ static bool validate_extract_str(const char *extract_str, const char *filename,
         size_t pat_len = pat_end - pat_start;
         if (pat_len == 4 && memcmp(pat_start, "name", 4) == 0) {
             if (has_name) {
-                error("multiple extract str name substitutions found in file '%s'", filename);
+                error("multiple extract str name substitutions found in file '%s'",
+                      filename);
                 return false;
             }
             has_name = true;
@@ -919,9 +920,9 @@ static bool validate_extract_str(const char *extract_str, const char *filename,
         return false;
     }
     if (!has_name && has_param) {
-        error(
-            "extract str has parameter substitution but lacks name substitution in file '%s'",
-            filename);
+        error("extract str has parameter substitution but lacks name substitution in file "
+              "'%s'",
+              filename);
         return false;
     }
     *has_paramp = has_param;

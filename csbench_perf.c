@@ -191,7 +191,8 @@ bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt)
                                  PERF_COUNT_HW_BRANCH_INSTRUCTIONS,
                                  PERF_COUNT_HW_BRANCH_MISSES};
 
-    struct perf_events *events = open_counters(config, sizeof(config) / sizeof(*config), pid);
+    struct perf_events *events =
+        open_counters(config, sizeof(config) / sizeof(*config), pid);
     if (events == NULL)
         return false;
 
@@ -449,7 +450,8 @@ static int (*kpep_db_aliases)(struct kpep_db *db, const char **buf, size_t buf_s
 static int (*kpep_db_counters_count)(struct kpep_db *db, uint8_t classes, size_t *count);
 static int (*kpep_db_events_count)(struct kpep_db *db, size_t *count);
 static int (*kpep_db_events)(struct kpep_db *db, struct kpep_event **buf, size_t buf_size);
-static int (*kpep_db_event)(struct kpep_db *db, const char *name, struct kpep_event **ev_ptr);
+static int (*kpep_db_event)(struct kpep_db *db, const char *name,
+                            struct kpep_event **ev_ptr);
 static int (*kpep_event_name)(struct kpep_event *ev, const char **name_ptr);
 static int (*kpep_event_alias)(struct kpep_event *ev, const char **alias_ptr);
 static int (*kpep_event_description)(struct kpep_event *ev, const char **str_ptr);
@@ -526,7 +528,7 @@ static const struct perf_lib_symbol perf_lib_symbols_kperfdata[] = {
 };
 
 #define perf_lib_path_kperf "/System/Library/PrivateFrameworks/kperf.framework/kperf"
-#define perf_lib_path_kperfdata                                                              \
+#define perf_lib_path_kperfdata                                                             \
     "/System/Library/PrivateFrameworks/kperfdata.framework/kperfdata"
 
 static void *perf_lib_handle_kperf = NULL;

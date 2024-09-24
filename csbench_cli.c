@@ -63,10 +63,10 @@
 #include <dirent.h>
 #include <unistd.h>
 
-#define OPT_ARR(...)                                                                         \
-    (const char *[])                                                                         \
-    {                                                                                        \
-        __VA_ARGS__, NULL                                                                    \
+#define OPT_ARR(...)                                                                        \
+    (const char *[])                                                                        \
+    {                                                                                       \
+        __VA_ARGS__, NULL                                                                   \
     }
 
 const struct meas BUILTIN_MEASUREMENTS[] = {
@@ -152,11 +152,12 @@ static void print_help_and_exit(int rc)
     printf("\n");
     printf_colored(ANSI_BOLD_UNDERLINE, "Arguments:\n");
     printf("  <command>...\n");
-    print_tabulated("The command to benchmark. Can be a shell command line, like 'ls $(pwd) "
-                    "&& echo 1', or a direct executable invocation, like 'sleep 0.5'. Former "
-                    "is not available when --shell none is specified. Can contain parameters "
-                    "in the form 'sleep {n}', see --param-* family of options. If multiple "
-                    "commands are given, their comparison will be performed.");
+    print_tabulated(
+        "The command to benchmark. Can be a shell command line, like 'ls $(pwd) "
+        "&& echo 1', or a direct executable invocation, like 'sleep 0.5'. Former "
+        "is not available when --shell none is specified. Can contain parameters "
+        "in the form 'sleep {n}', see --param-* family of options. If multiple "
+        "commands are given, their comparison will be performed.");
     printf("\n");
     printf_colored(ANSI_BOLD_UNDERLINE, "Options:\n");
     print_opt("-R, --runs", OPT_ARR("NUM"),
@@ -166,7 +167,8 @@ static void print_help_and_exit(int rc)
     print_opt("--min-runs", OPT_ARR("NUM"), "Run each benchmark at least <NUM> times.");
     print_opt("--max-runs", OPT_ARR("NUM"), "Run each benchmark at most <NUM> times.");
     print_opt("--warmup-runs", OPT_ARR("NUM"), "Perform exactly <NUM> warmup runs.");
-    print_opt("-W, --warmup", OPT_ARR("DURATION"), "Perform warmup for at least <DURATION>.");
+    print_opt("-W, --warmup", OPT_ARR("DURATION"),
+              "Perform warmup for at least <DURATION>.");
     print_opt("--min-warmup-runs", OPT_ARR("NUM"), "Perform at least <NUM> warmup runs.");
     print_opt("--max-warmup-runs", OPT_ARR("NUM"), "Perform at most <NUM> warmup runs.");
     print_opt("--no-warmup", OPT_ARR(NULL), "Disable warmup.");
@@ -180,15 +182,14 @@ static void print_help_and_exit(int rc)
               "In a single round perform at most <NUM> warmup runs.");
     print_opt("--no-round", OPT_ARR(NULL), "Do not split execution into rounds.");
     print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
-    print_opt(
-        "-S, --shell", OPT_ARR("SHELL"),
-        "Set the shell to be used for executing benchmark commands. Can be both name of "
-        "shell "
-        "executable, like \"bash\", or a command like \"bash --norc\". Either way, arguments "
-        "\"-c\" and benchmark command string are appended to shell argument list. "
-        "Alternatively, <SHELL> can be set to \"none\". This way commands will be executed "
-        "directly using execve(2) system call, avoiding shell process startup time "
-        "overhead.");
+    print_opt("-S, --shell", OPT_ARR("SHELL"),
+              "Set the shell to be used for executing benchmark commands. Can be both name "
+              "of shell executable, like \"bash\", or a command like \"bash --norc\". "
+              "Either way, arguments \"-c\" and benchmark command string are appended to "
+              "shell argument list. Alternatively, <SHELL> can be set to \"none\", or "
+              "\"inherit\". If set to \"none\", commands will be executed directly using "
+              "execve system call, avoiding shell process startup time overhead. If set to "
+              "\"inherit\", uses the shell set in \fISHELL\fP variable of calling process.");
     print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
@@ -235,9 +236,10 @@ static void print_help_and_exit(int rc)
               "expression <RE> to extract data from stdout of each command, parses first "
               "subexpression as a single real number and interprets it in <UNITS>.");
     print_opt("--no-default-meas", OPT_ARR(NULL), "Do not use default measurements.");
-    print_opt("--param", OPT_ARR("STR"),
-              "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
-              "a comma-separated list of parameter values.");
+    print_opt(
+        "--param", OPT_ARR("STR"),
+        "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
+        "a comma-separated list of parameter values.");
     print_opt(
         "--param-range", OPT_ARR("STR"),
         "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
@@ -250,8 +252,9 @@ static void print_help_and_exit(int rc)
               "Load benchmark data from files in custom binary format. <command>... is "
               "interpreted as a list of files, or directories which contain file "
               "\"data.csbench\".");
-    print_opt("--nrs", OPT_ARR("NUM"),
-              "Use <NUM> resamples when computing confidence intervals using bootstrapping.");
+    print_opt(
+        "--nrs", OPT_ARR("NUM"),
+        "Use <NUM> resamples when computing confidence intervals using bootstrapping.");
     print_opt(
         "--stat-test", OPT_ARR("TEST"),
         "Specify statistical test to be used to calculate p-values. Possible values for "
@@ -289,9 +292,10 @@ static void print_help_and_exit(int rc)
               "Export benchmark results to <FILE> in JSON format.");
     print_opt("--save-bin", OPT_ARR(NULL),
               "Save data in custom binary format. It can be later loaded with --load-bin.");
-    print_opt("--save-bin-name", OPT_ARR("NAME"),
-              "Override file that --save-bin will save to. <NAME> is new file name (default: "
-              "\".csbench/data.csbench\").");
+    print_opt(
+        "--save-bin-name", OPT_ARR("NAME"),
+        "Override file that --save-bin will save to. <NAME> is new file name (default: "
+        "\".csbench/data.csbench\").");
     print_opt("--color", OPT_ARR("WHEN"),
               "Use colored output. Possible values for <WHEN> are \"never\", \"auto\", "
               "\"always\" (default: \"auto\").");
@@ -649,8 +653,15 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                                &g_nresamp)) {
         } else if (opt_arg(argv, &cursor, "--shell", &g_shell) ||
                    opt_arg(argv, &cursor, "-S", &g_shell)) {
-            if (strcmp(g_shell, "none") == 0)
+            if (strcmp(g_shell, "none") == 0) {
                 g_shell = NULL;
+            } else if (strcmp(g_shell, "inherit") == 0) {
+                g_shell = getenv("SHELL");
+                if (g_shell == NULL) {
+                    error("--shell is set to \"inherit\", but SHELL variable is not set");
+                    exit(EXIT_FAILURE);
+                }
+            }
         } else if (strcmp(argv[cursor], "-N") == 0) {
             ++cursor;
             g_shell = NULL;
@@ -888,7 +899,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (strcmp(argv[cursor], "--load-bin") == 0) {
             ++cursor;
             g_mode = APP_LOAD_BIN;
-        } else if (strcmp(argv[cursor], "--simple") == 0 || strcmp(argv[cursor], "-s") == 0) {
+        } else if (strcmp(argv[cursor], "--simple") == 0 ||
+                   strcmp(argv[cursor], "-s") == 0) {
             ++cursor;
             g_threads = simple_get_thread_count();
             g_warmup_stop.time_limit = 0.0;
