@@ -915,3 +915,25 @@ bool get_term_win_size(size_t *rows, size_t *cols)
     *cols = ws.ws_col;
     return true;
 }
+
+const char *abbreviated_name(size_t idx)
+{
+    // Algorithm below does not handle zeroes on its own
+    if (idx == 0)
+        return "A";
+
+    size_t base = 'Z' - 'A' + 1;
+    size_t power = 0;
+    for (size_t t = idx; t != 0; t /= base, ++power)
+        ;
+
+    char buf[256];
+    assert(power < sizeof(buf));
+    buf[power] = '\0';
+    char *cursor = buf + power - 1;
+    while (idx != 0) {
+        *cursor-- = 'A' + (idx % base);
+        idx /= base;
+    }
+    return csstrdup(buf);
+}

@@ -1040,26 +1040,8 @@ static bool should_abbreviate_names(const struct meas_analysis *al)
 static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
                                   bool abbr_names)
 {
-    if (abbr_names) {
-        // Algorithm below does not handle zeroes on its own
-        if (idx == 0)
-            return "A";
-
-        size_t base = 'Z' - 'A' + 1;
-        size_t power = 0;
-        for (size_t t = idx; t != 0; t /= base, ++power)
-            ;
-
-        char buf[256];
-        assert(power < sizeof(buf));
-        buf[power] = '\0';
-        char *cursor = buf + power - 1;
-        while (idx != 0) {
-            *cursor-- = 'A' + (idx % base);
-            idx /= base;
-        }
-        return csstrdup(buf);
-    }
+    if (abbr_names)
+        return abbreviated_name(idx);
     return bench_group_name(al->base, idx);
 }
 

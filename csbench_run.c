@@ -1234,12 +1234,19 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
     bar->vis.line_count = count;
     bar->vis.lines = calloc(count, sizeof(*bar->vis.lines));
     for (size_t i = 0; i < count; ++i) {
-        struct progress_bar_line *line = bar->vis.lines + i;
+        // Iterate backward to handle alignment
+        size_t idx = count - i - 1;
+        struct progress_bar_line *line = bar->vis.lines + idx;
         if (abbr_names)
-            snprintf(line->name_buf, sizeof(line->name_buf), "%c", (int)('A' + i));
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                     abbreviated_name(idx));
         else
-            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len,
-                     benches[i].b->name);
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                     benches[idx].b->name);
+        // Update align in case abbreviated name is long
+        size_t len = strlen(line->name_buf);
+        if (len > bar->vis.name_align)
+            bar->vis.name_align = len;
     }
     // We allocate one big buffer where we will write all output and use only a single system
     // call to put in on screen instead of calling printf repeatedly
@@ -1677,7 +1684,7 @@ static bool run_benches_internal(const struct bench_run_desc *params,
         init_progress_bar(benches, count, term_width, term_height, progress_bar);
         if (progress_bar->vis.abbr_names) {
             for (size_t i = 0; i < progress_bar->count; ++i) {
-                printf("%c = ", (int)('A' + i));
+                printf("%s = ", progress_bar->vis.lines[i].name_buf);
                 printf_colored(ANSI_BOLD, "%s\n", benches[i].b->name);
             }
             fflush(stdout);
