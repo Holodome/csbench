@@ -1201,7 +1201,49 @@ static void *progress_bar_thread_worker(void *arg)
     return NULL;
 }
 
-static void init_progress_bar_names(struct progress_bar *bar)
+static bool init_progress_bar_abbr_group_names(const struct bench_data *data,
+                                               struct progress_bar *bar)
+{
+    if (data->group_count <= 1)
+        return false;
+
+    size_t max_name_len = 0;
+    for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+        const struct bench_group *group = data->groups + grp_idx;
+        char group_name[256];
+        abbreviated_name(group_name, sizeof(group_name), grp_idx);
+        for (size_t i = 0; i < group->bench_count; ++i) {
+            char buf[256];
+            size_t len = snprintf(buf, sizeof(buf), "%s %s=%s", group_name,
+                                  data->param->name, data->param->values[i]);
+            if (len > max_name_len)
+                max_name_len = len;
+        }
+    }
+
+    // Still too long, can't abbreviate this way
+    if (max_name_len > PROGRESS_BAR_MAX_NAME_LEN)
+        return false;
+
+    bar->vis.name_abbr = ABBR_NAMES_GROUPS;
+    bar->vis.name_align = max_name_len;
+    for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+        const struct bench_group *group = data->groups + grp_idx;
+        char group_name[256];
+        abbreviated_name(group_name, sizeof(group_name), grp_idx);
+        for (size_t i = 0; i < group->bench_count; ++i) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "%s %s=%s", group_name, data->param->name,
+                     data->param->values[i]);
+            struct progress_bar_item_visual *line = bar->vis.lines + group->bench_idxs[i];
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len, buf);
+        }
+    }
+
+    return true;
+}
+
+static void init_progress_bar_names(const struct bench_data *data, struct progress_bar *bar)
 {
     size_t count = bar->count;
     size_t max_name_len = 0;
@@ -1211,25 +1253,30 @@ static void init_progress_bar_names(struct progress_bar *bar)
             max_name_len = name_len;
     }
     bool abbr_names = max_name_len > PROGRESS_BAR_MAX_NAME_LEN;
-    if (abbr_names) {
-        bar->vis.name_align = 1;
-    } else {
+    if (!abbr_names) {
         bar->vis.name_align = max_name_len;
+        bar->vis.name_abbr = ABBR_NAMES_NO;
+        for (size_t i = 0; i < count; ++i) {
+            struct progress_bar_item_visual *line = bar->vis.lines + i;
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                     bar->rds[i].bench->name);
+        }
+        return;
     }
-    bar->vis.name_abbr = abbr_names ? ABBR_NAMES_BENCHES : ABBR_NAMES_NO;
+    // Try to set abbreviated names using groups. If it is not possible too, or there are no
+    // groups just abbreviate individual benchmarks
+    if (init_progress_bar_abbr_group_names(data, bar))
+        return;
+
+    bar->vis.name_abbr = ABBR_NAMES_BENCHES;
     for (size_t i = 0; i < count; ++i) {
         // Iterate backward to handle alignment
         size_t idx = count - i - 1;
         struct progress_bar_item_visual *line = bar->vis.lines + idx;
-        if (abbr_names) {
-            char buf[256];
-            abbreviated_name(buf, sizeof(buf), idx);
-            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
-                     buf);
-        } else {
-            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
-                     bar->rds[idx].bench->name);
-        }
+        char buf[256];
+        abbreviated_name(buf, sizeof(buf), idx);
+        snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                 buf);
         // Update align in case abbreviated name is long
         size_t len = strlen(line->name_buf);
         if (len > bar->vis.name_align)
@@ -1237,7 +1284,7 @@ static void init_progress_bar_names(struct progress_bar *bar)
     }
 }
 
-static void init_progress_bar(struct bench_data *data, struct bench_run_data *rds,
+static void init_progress_bar(const struct bench_data *data, struct bench_run_data *rds,
                               size_t term_width, size_t term_height,
                               struct progress_bar *bar)
 {
@@ -1263,7 +1310,7 @@ static void init_progress_bar(struct bench_data *data, struct bench_run_data *rd
     // call to put in on screen instead of calling printf repeatedly
     bar->vis.buffer_size = 64 * 1024;
     bar->vis.buffer = calloc(bar->vis.buffer_size, 1);
-    init_progress_bar_names(bar);
+    init_progress_bar_names(data, bar);
 }
 
 static void free_progress_bar(struct progress_bar *bar)
@@ -1697,9 +1744,14 @@ static bool run_benches_internal(struct bench_data *data, struct bench_run_data 
             }
             break;
         case ABBR_NAMES_GROUPS:
+            for (size_t i = 0; i < data->group_count; ++i) {
+                char group_name[256];
+                abbreviated_name(group_name, sizeof(group_name), i);
+                printf("%s = %s\n", group_name, data->groups[i].name);
+            }
             break;
         }
-        // Flush stdout because from now on progress bar will be writing to stdout
+        // Flush stdout because from now on progress bar will be writing there
         fflush(stdout);
         if (pthread_create(&progress_bar->thread, NULL, progress_bar_thread_worker,
                            progress_bar) != 0) {
