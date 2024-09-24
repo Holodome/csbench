@@ -151,6 +151,7 @@ struct progress_bar_visual {
 
     size_t name_align;
     size_t bar_width;
+    size_t max_benchmarks_displayed;
 
     bool was_drawn;
     size_t n_last_drawn_lines;
@@ -1020,6 +1021,65 @@ static void clear_progress_bar_line(struct progress_bar_visual *bar,
     strwriter_printf(writer, "%*s\r", (int)bar->term_width, "");
 }
 
+static size_t *benchmarks_to_display_at_progress_bar(struct progress_bar_visual *bar,
+                                                     size_t n_finished, size_t n_running,
+                                                     size_t n_not_started,
+                                                     size_t n_suspended)
+{
+    (void)n_finished;
+    size_t *to_display = NULL;
+    size_t max_displayed = bar->max_benchmarks_displayed;
+    if (bar->line_count < max_displayed) {
+        // Cover simple case where we don't collapse output
+        for (size_t i = 0; i < bar->line_count; ++i)
+            sb_push(to_display, i);
+    } else if (n_running > max_displayed) {
+        // One of the simpler cases: filter out only running benchmarks
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING)
+                sb_push(to_display, i);
+        }
+    } else if (n_running + n_suspended > max_displayed) {
+        // Show all running and part of suspended
+        size_t max_suspended = max_displayed - n_running;
+        size_t shown_suspended = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state == BENCH_STATE_SUSPENDED &&
+                       shown_suspended < max_suspended) {
+                sb_push(to_display, i);
+                ++shown_suspended;
+            }
+        }
+    } else if (n_suspended == 0 && n_running + n_not_started > max_displayed) {
+        size_t max_not_started = max_displayed - n_running;
+        size_t shown_not_started = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state == BENCH_STATE_NOT_STARTED &&
+                       shown_not_started < max_not_started) {
+                sb_push(to_display, i);
+                ++shown_not_started;
+            }
+        }
+    } else {
+        size_t max_not_running = max_displayed - n_running;
+        size_t shown_not_running = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state != BENCH_STATE_FINISHED &&
+                       shown_not_running < max_not_running) {
+                sb_push(to_display, i);
+                ++shown_not_running;
+            }
+        }
+    }
+    return to_display;
+}
+
 static void draw_progress_bar(struct progress_bar_visual *bar)
 {
     struct string_writer writer = strwriter(bar->buffer, bar->buffer_size);
@@ -1050,19 +1110,12 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         }
     }
 
-    bool should_collapse_progress_bar = bar->line_count > 20 ? true : false;
-    size_t n_displayed = 0;
-    for (size_t i = 0; i < bar->line_count && n_displayed < 20; ++i) {
-        /* clear_progress_bar_line(bar, &writer); */
-        const struct progress_bar_line *line = bar->lines + i;
-
-        if (should_collapse_progress_bar) {
-            if (bar->line_count - n_finished > 20) {
-                if (line->state == BENCH_STATE_FINISHED)
-                    continue;
-            }
-        }
-
+    bool should_collapse_progress_bar =
+        bar->line_count > bar->max_benchmarks_displayed ? true : false;
+    size_t *benchmarks_to_show = benchmarks_to_display_at_progress_bar(
+        bar, n_finished, n_running, n_not_started, n_suspended);
+    for (size_t i = 0; i < sb_len(benchmarks_to_show); ++i) {
+        const struct progress_bar_line *line = bar->lines + benchmarks_to_show[i];
         strwriter_printf_colored(&writer, ANSI_BOLD, "%s ", line->name_buf);
 
         char buf[256] = {0};
@@ -1080,10 +1133,8 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
 
         strwriter_printf(&writer, " %s\n", line->info_buf);
         ++bar->n_last_drawn_lines;
-        ++n_displayed;
     }
-    assert(bar->n_last_drawn_lines == n_displayed);
-    assert(n_displayed == 20);
+    sb_free(benchmarks_to_show);
 
     if (should_collapse_progress_bar && n_running) {
         clear_progress_bar_line(bar, &writer);
@@ -1162,6 +1213,7 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
     bar->vis.term_width = term_width;
     bar->vis.term_height = term_height;
     bar->vis.data = bar;
+    bar->vis.max_benchmarks_displayed = 20;
     bar->vis.bar_width = term_width / 2;
     if (term_width - bar->vis.bar_width < 30)
         bar->vis.bar_width = term_width - 30;
