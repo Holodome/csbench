@@ -1221,12 +1221,15 @@ static void init_progress_bar_names(struct progress_bar *bar)
         // Iterate backward to handle alignment
         size_t idx = count - i - 1;
         struct progress_bar_item_visual *line = bar->vis.lines + idx;
-        if (abbr_names)
+        if (abbr_names) {
+            char buf[256];
+            abbreviated_name(buf, sizeof(buf), idx);
             snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
-                     abbreviated_name(idx));
-        else
+                     buf);
+        } else {
             snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
                      bar->rds[idx].bench->name);
+        }
         // Update align in case abbreviated name is long
         size_t len = strlen(line->name_buf);
         if (len > bar->vis.name_align)

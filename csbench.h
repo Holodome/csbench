@@ -793,7 +793,7 @@ __attribute__((format(printf, 3, 4))) void
 strwriter_printf_colored(struct string_writer *writer, const char *how, const char *fmt,
                          ...);
 
-const char *abbreviated_name(size_t idx);
+void abbreviated_name(char *buf, size_t buf_size, size_t idx);
 
 // This is global interface for allocating and deallocating strings.
 // This program is not string-heavy, most of the times they arise during

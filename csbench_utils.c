@@ -916,19 +916,25 @@ bool get_term_win_size(size_t *rows, size_t *cols)
     return true;
 }
 
-const char *abbreviated_name(size_t idx)
+void abbreviated_name(char *buf, size_t buf_size, size_t idx)
 {
     // Algorithm below does not handle zeroes on its own
-    if (idx == 0)
-        return "A";
+    if (idx == 0) {
+        snprintf(buf, buf_size, "A");
+        return;
+    }
 
     size_t base = 'Z' - 'A' + 1;
     size_t power = 0;
     for (size_t t = idx; t != 0; t /= base, ++power)
         ;
 
-    char buf[256];
-    assert(power < sizeof(buf));
+    // This is error case, put practically it will never be hit
+    if (power >= buf_size) {
+        if (buf_size)
+            *buf = '\0';
+        return;
+    }
     buf[power] = '\0';
     char *cursor = buf + power - 1;
     int align = 0;
@@ -937,5 +943,4 @@ const char *abbreviated_name(size_t idx)
         idx /= base;
         align = 1;
     }
-    return csstrdup(buf);
 }

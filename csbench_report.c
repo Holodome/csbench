@@ -1040,8 +1040,11 @@ static bool should_abbreviate_names(const struct meas_analysis *al)
 static const char *cli_group_name(const struct meas_analysis *al, size_t idx,
                                   bool abbr_names)
 {
-    if (abbr_names)
-        return abbreviated_name(idx);
+    if (abbr_names) {
+        char buf[256];
+        abbreviated_name(buf, sizeof(buf), idx);
+        return csstrdup(buf);
+    }
     return bench_group_name(al->base, idx);
 }
 
