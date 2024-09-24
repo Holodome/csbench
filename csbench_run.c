@@ -145,10 +145,10 @@ struct progress_bar_line {
 struct progress_bar_visual {
     size_t term_width, term_height;
     struct progress_bar *data;
-    size_t count;
+    size_t bar_width;
     size_t max_name_len;
     struct progress_bar_line *lines;
-    size_t length;
+    size_t line_count;
     bool was_drawn;
     bool abbr_names;
     size_t last_drawn_lines;
@@ -1018,25 +1018,18 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
 {
     struct string_writer writer = strwriter(bar->buffer, bar->buffer_size);
     if (!bar->was_drawn) {
-        bar->was_drawn = true;
-        if (bar->abbr_names) {
-            for (size_t i = 0; i < bar->count; ++i) {
-                printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n", bar->data->benches[i].b->name);
-            }
-        }
-    } else {
         strwriter_printf(&writer, "\x1b[%zuA\r", bar->last_drawn_lines);
+    } else {
+        bar->was_drawn = true;
     }
     size_t previous_drawn_lines = bar->last_drawn_lines;
     bar->last_drawn_lines = 0;
 
-    size_t count = bar->count;
     size_t n_finished = 0;
     size_t n_running = 0;
     size_t n_not_started = 0;
     size_t n_suspended = 0;
-    for (size_t i = 0; i < bar->count; ++i) {
+    for (size_t i = 0; i < bar->line_count; ++i) {
         const struct progress_bar_line *line = bar->lines + i;
         switch (line->state) {
         case BENCH_STATE_NOT_STARTED:
@@ -1054,13 +1047,13 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         }
     }
 
-    bool should_collapse_progress_bar = count > 20 ? true : false;
+    bool should_collapse_progress_bar = bar->line_count > 20 ? true : false;
     size_t n_displayed = 0;
-    for (size_t i = 0; i < bar->count; ++i) {
+    for (size_t i = 0; i < bar->line_count; ++i) {
         const struct progress_bar_line *line = bar->lines + i;
 
         if (should_collapse_progress_bar) {
-            if (count - n_finished > 20) {
+            if (bar->line_count - n_finished > 20) {
                 if (line->state == BENCH_STATE_FINISHED)
                     continue;
             }
@@ -1072,15 +1065,15 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
                                  line->name_buf);
 
         char buf[256] = {0};
-        size_t c = line->percent * bar->length / 100;
-        if (c > bar->length)
-            c = bar->length;
+        size_t c = line->percent * bar->bar_width / 100;
+        if (c > bar->bar_width)
+            c = bar->bar_width;
         for (size_t j = 0; j < c; ++j)
             buf[j] = '#';
         strwriter_printf_colored(&writer, ANSI_BRIGHT_BLUE, "%s", buf);
-        for (size_t j = 0; j < bar->length - c; ++j)
+        for (size_t j = 0; j < bar->bar_width - c; ++j)
             buf[j] = '-';
-        buf[bar->length - c] = '\0';
+        buf[bar->bar_width - c] = '\0';
         strwriter_printf_colored(&writer, ANSI_BLUE, "%s", buf);
 
         strwriter_printf(&writer, " %s\n", line->info_buf);
@@ -1111,6 +1104,7 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
                          "", n_not_started);
         ++bar->last_drawn_lines;
     }
+    // Clear the lines that were drawn on last iteration but were not drawn on current
     if (bar->last_drawn_lines < previous_drawn_lines) {
         size_t to_clear = previous_drawn_lines - bar->last_drawn_lines;
         for (size_t i = 0; i < to_clear; ++i) {
@@ -1119,7 +1113,8 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         }
         strwriter_printf(&writer, "\x1b[%zuA\r", to_clear);
     }
-    printf("%s", writer.start);
+    // Use 'write' directly
+    (void)write(STDOUT_FILENO, writer.start, writer.cursor - writer.start);
 }
 
 static void *progress_bar_thread_worker(void *arg)
@@ -1162,11 +1157,13 @@ static void init_progress_bar(struct bench_run_data *benches, size_t count,
     bar->vis.term_width = term_width;
     bar->vis.term_height = term_height;
     bar->vis.data = bar;
-    bar->vis.count = count;
+    bar->vis.bar_width = term_width / 2;
+    if (term_width - bar->vis.bar_width < 30)
+        bar->vis.bar_width = term_width - 30;
     bar->vis.max_name_len = max_name_len;
-    bar->vis.length = 60;
     bool abbr_names = max_name_len > 40;
     bar->vis.abbr_names = abbr_names;
+    bar->vis.line_count = count;
     bar->vis.lines = calloc(count, sizeof(*bar->vis.lines));
     for (size_t i = 0; i < count; ++i) {
         struct progress_bar_line *line = bar->vis.lines + i;
@@ -1611,6 +1608,12 @@ static bool run_benches_internal(const struct bench_run_desc *params,
             free_progress_bar(progress_bar);
             free(progress_bar);
             return false;
+        }
+        if (progress_bar->vis.abbr_names) {
+            for (size_t i = 0; i < progress_bar->count; ++i) {
+                printf("%c = ", (int)('A' + i));
+                printf_colored(ANSI_BOLD, "%s\n", benches[i].b->name);
+            }
         }
     }
 
