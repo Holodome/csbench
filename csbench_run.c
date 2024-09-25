@@ -1234,11 +1234,19 @@ static bool init_progress_bar_abbr_group_names(const struct bench_data *data,
         char group_name[256];
         abbreviated_name(group_name, sizeof(group_name), grp_idx);
         for (size_t i = 0; i < group->bench_count; ++i) {
+            // Ignore this moronic warning
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
             char buf[512];
             snprintf(buf, sizeof(buf), "%s %s=%s", group_name, data->param->name,
                      data->param->values[i]);
             struct progress_bar_item_visual *line = bar->vis.lines + group->bench_idxs[i];
             snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len, buf);
+#ifndef __GNUC__
+#pragma GCC diagnostic pop
+#endif
         }
     }
 
