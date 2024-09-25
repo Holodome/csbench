@@ -68,6 +68,8 @@
 #include <unistd.h>
 
 #define PROGRESS_BAR_MAX_NAME_LEN 20
+// 4 is the numbe of lines we display, plus 1 for blank line where cursor will be
+#define PROGRESS_BAR_INFO_LINES (4 + 1)
 
 struct bench_run_data {
     const struct bench_run_desc *desc;
@@ -1300,7 +1302,9 @@ static void init_progress_bar(const struct bench_data *data, struct bench_run_da
     bar->vis.term_width = term_width;
     bar->vis.term_height = term_height;
     bar->vis.data = bar;
-    bar->vis.max_benchmarks_displayed = 20;
+    bar->vis.max_benchmarks_displayed = data->bench_count;
+    if (term_height - PROGRESS_BAR_INFO_LINES < data->bench_count)
+        bar->vis.max_benchmarks_displayed = term_height - PROGRESS_BAR_INFO_LINES;
     bar->vis.bar_width = term_width / 2;
     if (term_width - bar->vis.bar_width < 30)
         bar->vis.bar_width = term_width - 30;
