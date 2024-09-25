@@ -189,7 +189,7 @@ static void print_help_and_exit(int rc)
               "shell argument list. Alternatively, <SHELL> can be set to \"none\", or "
               "\"inherit\". If set to \"none\", commands will be executed directly using "
               "execve system call, avoiding shell process startup time overhead. If set to "
-              "\"inherit\", uses the shell set in \fISHELL\fP variable of calling process.");
+              "\"inherit\", uses the shell set in SHELL variable of calling process.");
     print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
