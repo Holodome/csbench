@@ -962,7 +962,7 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         // benchmark is actually running, we subtract from ETA time passed
         // in current round to update it dynamically.
         if (comm.start_time.d != 0 && (comm.suspended || comm.warmup || comm.finished)) {
-            if (state->last_running || (state->runs != comm.runs)) {
+            if (state->last_running || state->runs != comm.runs) {
                 state->eta =
                     (g_bench_stop.runs - comm.runs) * comm.time_passed.d / comm.runs;
                 state->runs = comm.runs;
@@ -1234,19 +1234,15 @@ static bool init_progress_bar_abbr_group_names(const struct bench_data *data,
         char group_name[256];
         abbreviated_name(group_name, sizeof(group_name), grp_idx);
         for (size_t i = 0; i < group->bench_count; ++i) {
-            // Ignore this moronic warning
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-#endif
+            // Here GCC produces warning with -Wformat-truncation which is enabled by default
+            // starting with GCC 7.1. To circumvent we use strwriter
             char buf[512];
-            snprintf(buf, sizeof(buf), "%s %s=%s", group_name, data->param->name,
-                     data->param->values[i]);
+            struct string_writer w = strwriter(buf, sizeof(buf));
+            strwriter_printf(&w, "%s %s=%s", group_name, data->param->name,
+                             data->param->values[i]);
             struct progress_bar_item_visual *line = bar->vis.lines + group->bench_idxs[i];
-            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len, buf);
-#ifndef __GNUC__
-#pragma GCC diagnostic pop
-#endif
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len,
+                     w.start);
         }
     }
 
