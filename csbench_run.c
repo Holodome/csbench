@@ -1234,7 +1234,7 @@ static bool init_progress_bar_abbr_group_names(const struct bench_data *data,
         char group_name[256];
         abbreviated_name(group_name, sizeof(group_name), grp_idx);
         for (size_t i = 0; i < group->bench_count; ++i) {
-            char buf[256];
+            char buf[512];
             snprintf(buf, sizeof(buf), "%s %s=%s", group_name, data->param->name,
                      data->param->values[i]);
             struct progress_bar_item_visual *line = bar->vis.lines + group->bench_idxs[i];
@@ -1303,8 +1303,8 @@ static void init_progress_bar(const struct bench_data *data, struct bench_run_da
     bar->vis.term_height = term_height;
     bar->vis.data = bar;
     bar->vis.max_benchmarks_displayed = data->bench_count;
-    if (term_height - PROGRESS_BAR_INFO_LINES < data->bench_count)
-        bar->vis.max_benchmarks_displayed = term_height - PROGRESS_BAR_INFO_LINES;
+    if (term_height - PROGRESS_BAR_INFO_LINES - 1 < data->bench_count)
+        bar->vis.max_benchmarks_displayed = term_height - PROGRESS_BAR_INFO_LINES - 1;
     bar->vis.bar_width = term_width / 2;
     if (term_width - bar->vis.bar_width < 30)
         bar->vis.bar_width = term_width - 30;
