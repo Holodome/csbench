@@ -134,9 +134,9 @@ enum progress_bar_bench_state {
 
 struct progress_bar_item_state {
     size_t runs;
+    double estimated_total_time;
+    double update_time;
     double eta;
-    double time;
-    bool last_running;
 };
 
 struct progress_bar_item_visual {
@@ -179,6 +179,7 @@ struct progress_bar {
     struct progress_bar_comm *comms;
     struct progress_bar_item_state *states;
     struct progress_bar_visual vis;
+    size_t thread_count;
 };
 
 struct run_task {
@@ -707,7 +708,6 @@ static void progress_bar_start(struct progress_bar_comm *bench, double time)
     atomic_store(&bench->start_time.u, u);
     atomic_store(&bench->warmup, false);
     atomic_store(&bench->time.u, 0);
-    atomic_store(&bench->runs, 0);
     atomic_store(&bench->has_been_run, true);
 }
 
@@ -741,12 +741,15 @@ static void progress_bar_update_time(struct progress_bar_comm *bench, int percen
 }
 
 static void progress_bar_update_runs(struct progress_bar_comm *bench, int percent,
-                                     size_t runs)
+                                     size_t runs, double time_passed)
 {
     if (!g_progress_bar)
         return;
     atomic_store(&bench->bar, percent);
     atomic_store(&bench->runs, runs);
+    uint64_t u;
+    memcpy(&u, &time_passed, sizeof(u));
+    atomic_store(&bench->time_passed.u, u);
 }
 
 static void progress_bar_suspend(struct progress_bar_comm *bench, double time_passed)
@@ -778,14 +781,16 @@ static enum bench_run_result run_benchmark_exact_runs(struct bench_run_data *rd)
         if (!exec_and_measure(rd))
             return BENCH_RUN_ERROR;
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
-        progress_bar_update_runs(rd->comm, percent, run_idx + 1);
+        progress_bar_update_runs(rd->comm, percent, rd->comm->runs + 1,
+                                 get_time() - round_state.start_time + rd->time_run);
         // Check if we should suspend, but only if not this is the last round
         if (run_idx != g_bench_stop.runs - 1 && should_suspend_round(&round_state)) {
             rd->time_run += get_time() - round_state.start_time;
             return BENCH_RUN_SUSPENDED;
         }
     }
-    progress_bar_update_runs(rd->comm, 100, g_bench_stop.runs);
+    progress_bar_update_runs(rd->comm, 100, g_bench_stop.runs,
+                             get_time() - round_state.start_time + rd->time_run);
     return BENCH_RUN_FINISHED;
 }
 
@@ -947,49 +952,41 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
 
     line->percent = comm.bar;
 
+    (void)current_time;
     if (g_bench_stop.runs != 0) {
         char eta_buf[256] = "N/A     ";
-        // I don't hope that anyone would be able to understand ETA
-        // calculating code, but it is roughly divided in three parts.
-        // First, there is some tracker of benchmark time in total
-        // (data.time_passed.d and passed_time variable). It should grow
-        // linearly and reflect the actual time spent running. Next,
-        // we calculate ETA when run count changes using this total passed
-        // time. There are corner cases with this number when benchmark goes
-        // from suspended to running and vice versa. We have to explicitly
-        // recalculate ETA in this case because it will otherwise be
-        // inconsistent (state->last_running). Lastly, when
-        // benchmark is actually running, we subtract from ETA time passed
-        // in current round to update it dynamically.
-        if (comm.start_time.d != 0 && (comm.suspended || comm.warmup || comm.finished)) {
-            if (state->last_running || state->runs != comm.runs) {
-                state->eta =
-                    (g_bench_stop.runs - comm.runs) * comm.time_passed.d / comm.runs;
+        if (state->estimated_total_time == 0 && comm.runs != 0) {
+            double time_per_run = comm.time_passed.d / comm.runs;
+            state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
+            state->runs = comm.runs;
+            state->update_time = current_time;
+            double eta = state->estimated_total_time - comm.time_passed.d;
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
+        } else if (state->estimated_total_time == 0) {
+        } else if (comm.suspended || comm.warmup || comm.finished) {
+            double time_per_run = comm.time_passed.d / comm.runs;
+            state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
+            state->update_time = current_time;
+            double eta = state->estimated_total_time - comm.time_passed.d;
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
+        } else {
+            if (comm.runs != state->runs) {
+                double time_per_run = comm.time_passed.d / comm.runs;
+                state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
                 state->runs = comm.runs;
+                state->update_time = current_time;
             }
-            double eta = state->eta;
-            if (isfinite(eta))
-                format_time(eta_buf, sizeof(eta_buf), eta);
-            state->last_running = false;
-        } else if (comm.start_time.d != 0.0) {
-            // Check if the benchmark updated progress bar since
-            // last time we checked and recalculate ETA accordingly
-            if (!state->last_running || state->runs != comm.runs) {
-                double passed_time = comm.time_passed.d + current_time - comm.start_time.d;
-                state->eta = (g_bench_stop.runs - comm.runs) * passed_time / comm.runs;
-                state->time = current_time;
-                state->runs = comm.runs;
-            }
-            // Adjust ETA using time that has passed in current run
-            double eta = state->eta - (current_time - state->time);
-            if (isfinite(eta))
-                format_time(eta_buf, sizeof(eta_buf), eta);
-            state->last_running = true;
+            double eta = state->estimated_total_time -
+                         (current_time - state->update_time + comm.time_passed.d);
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
         }
         char total_buf[256];
-        snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
-        strwriter_printf(&writer, " %*zu/%s eta %s", (int)strlen(total_buf),
-                         (size_t)comm.runs, total_buf, eta_buf);
+        int l = snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
+        strwriter_printf(&writer, " %*zu/%s eta %s", l, (size_t)comm.runs, total_buf,
+                         eta_buf);
     } else {
         char buf1[256], buf2[256];
         format_time(buf1, sizeof(buf1), comm.time.d);
@@ -1164,11 +1161,27 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
                          (int)bar->name_align, "", n_finished);
         ++bar->n_last_drawn_lines;
     }
-    if (should_collapse_progress_bar && n_not_started) {
-        clear_progress_bar_line(bar, &writer);
-        strwriter_printf(&writer, "%*s %zu benchmarks not started\n", (int)bar->name_align,
-                         "", n_not_started);
-        ++bar->n_last_drawn_lines;
+    if (should_collapse_progress_bar) {
+        if (n_not_started) {
+            clear_progress_bar_line(bar, &writer);
+            strwriter_printf(&writer, "%*s %zu benchmarks not started\n",
+                             (int)bar->name_align, "", n_not_started);
+            ++bar->n_last_drawn_lines;
+        } else {
+            double total_eta = 0.0;
+            for (size_t i = 0; i < bar->line_count; ++i) {
+                const struct progress_bar_item_visual *line = bar->lines + i;
+                if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_RUN_SUSPENDED)
+                    continue;
+                total_eta += bar->data->states[i].eta;
+            }
+            char eta_buf[256];
+            format_time(eta_buf, sizeof(eta_buf), total_eta / bar->data->thread_count);
+            clear_progress_bar_line(bar, &writer);
+            strwriter_printf(&writer, "%*s total eta %s\n", (int)bar->name_align, "",
+                             eta_buf);
+            ++bar->n_last_drawn_lines;
+        }
     }
     // Clear the lines that were drawn on last iteration but were not drawn on current
     if (bar->was_drawn && bar->n_last_drawn_lines < previous_drawn_lines) {
@@ -1291,7 +1304,7 @@ static void init_progress_bar_names(const struct bench_data *data, struct progre
 }
 
 static void init_progress_bar(const struct bench_data *data, struct bench_run_data *rds,
-                              size_t term_width, size_t term_height,
+                              size_t term_width, size_t term_height, size_t thread_count,
                               struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
@@ -1303,6 +1316,7 @@ static void init_progress_bar(const struct bench_data *data, struct bench_run_da
         bar->states[i].runs = -1;
         rds[i].comm = bar->comms + i;
     }
+    bar->thread_count = thread_count;
     bar->vis.term_width = term_width;
     bar->vis.term_height = term_height;
     bar->vis.data = bar;
@@ -1741,7 +1755,7 @@ static bool run_benches_internal(struct bench_data *data, struct bench_run_data 
         if (term_height == 0)
             term_height = 40;
         progress_bar = calloc(1, sizeof(*progress_bar));
-        init_progress_bar(data, rds, term_width, term_height, progress_bar);
+        init_progress_bar(data, rds, term_width, term_height, thread_count, progress_bar);
         switch (progress_bar->vis.name_abbr) {
         case ABBR_NAMES_NO:
             break;
