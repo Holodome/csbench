@@ -401,6 +401,10 @@ struct bench_run_desc {
     int stdin_fd;
     // If not -1, pipe stdout to this file
     int stdout_fd;
+    // Shell command to be executed before each run
+    const char *prepare;
+    // Shell cimmand to be executed before each round
+    const char *round_prepare;
 };
 
 struct output_anchor {
@@ -428,6 +432,8 @@ struct settings {
     bool has_param;
     struct bench_param param;
     struct rename_entry *rename_list;
+    const char *prepare;
+    const char *round_prepare;
 };
 
 enum app_mode {
@@ -627,8 +633,6 @@ extern const char *g_json_export_filename;
 extern const char *g_out_dir;
 extern const char *g_shell;
 extern const char *g_common_argstring;
-extern const char *g_prepare;
-extern const char *g_round_prepare;
 extern const char *g_inputd;
 extern const char *g_override_bin_name;
 extern const char *g_baseline_name;

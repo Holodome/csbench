@@ -569,18 +569,18 @@ static bool should_suspend_round(struct bench_run_state *state)
     return result;
 }
 
-static bool run_prepare_if_needed(void)
+static bool run_prepare_if_needed(const char *prepare)
 {
-    if (g_prepare && !shell_execute(g_prepare, -1, -1, -1, true)) {
+    if (prepare && !shell_execute(prepare, -1, -1, -1, true)) {
         error("failed to execute prepare command");
         return false;
     }
     return true;
 }
 
-static bool run_round_prepare_if_needed(void)
+static bool run_round_prepare_if_needed(const char *prepare)
 {
-    if (g_round_prepare && !shell_execute(g_round_prepare, -1, -1, -1, true)) {
+    if (prepare && !shell_execute(prepare, -1, -1, -1, true)) {
         error("failed to execute round prepare command");
         return false;
     }
@@ -595,7 +595,7 @@ static bool warmup(const struct bench_run_desc *desc)
     struct bench_run_state state;
     init_run_state(get_time(), &g_warmup_stop, 0, 0, &state);
     for (;;) {
-        if (!run_prepare_if_needed())
+        if (!run_prepare_if_needed(desc->prepare))
             return false;
         if (!exec_cmd(desc, NULL, NULL, true, NULL)) {
             error("failed to execute warmup command");
@@ -772,6 +772,14 @@ static void progress_bar_update_runs(struct progress_bar_comm *bench, int percen
     atomic_store(&bench->time_passed.u, u);
 }
 
+static void progress_bar_inc_runs(struct progress_bar_comm *bench, int percent,
+                                  double time_passed)
+{
+    if (!g_progress_bar)
+        return;
+    progress_bar_update_runs(bench, percent, bench->runs + 1, time_passed);
+}
+
 static void progress_bar_suspend(struct progress_bar_comm *bench, double time_passed)
 {
     if (!g_progress_bar)
@@ -787,16 +795,17 @@ static enum bench_run_result run_benchmark_exact_runs(struct bench_run_data *rd)
     struct bench_run_state round_state;
     init_run_state(get_time(), &g_round_stop, 0, 0, &round_state);
     for (int run_idx = rd->bench->run_count; run_idx < g_bench_stop.runs; ++run_idx) {
-        if (!run_prepare_if_needed())
+        if (!run_prepare_if_needed(rd->desc->prepare))
             return BENCH_RUN_ERROR;
         if (!exec_and_measure(rd))
             return BENCH_RUN_ERROR;
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
-        progress_bar_update_runs(rd->comm, percent, rd->comm->runs + 1,
-                                 get_time() - round_state.start_time + rd->time_run);
+        double time = get_time();
+        progress_bar_inc_runs(rd->comm, percent,
+                              time - round_state.start_time + rd->time_run);
         // Check if we should suspend, but only if not this is the last round
         if (run_idx != g_bench_stop.runs - 1 && should_suspend_round(&round_state)) {
-            rd->time_run += get_time() - round_state.start_time;
+            rd->time_run += time - round_state.start_time;
             return BENCH_RUN_SUSPENDED;
         }
     }
@@ -812,7 +821,7 @@ static enum bench_run_result run_benchmark_adaptive_runs(struct bench_run_data *
     init_run_state(start_time, &g_bench_stop, rd->bench->run_count, rd->time_run, &state);
     init_run_state(start_time, &g_round_stop, 0, 0, &round_state);
     for (;;) {
-        if (!run_prepare_if_needed())
+        if (!run_prepare_if_needed(rd->desc->prepare))
             return BENCH_RUN_ERROR;
         if (!exec_and_measure(rd))
             return BENCH_RUN_ERROR;
@@ -856,7 +865,7 @@ static enum bench_run_result run_bench(struct bench_run_data *rd)
 {
     progress_bar_at_warmup(rd->comm);
 
-    if (!run_round_prepare_if_needed())
+    if (!run_round_prepare_if_needed(rd->desc->round_prepare))
         return BENCH_RUN_ERROR;
 
     if (!warmup(rd->desc))
@@ -1159,25 +1168,25 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
     }
     sb_free(benchmarks_to_show);
 
-    if (should_collapse_progress_bar && n_running) {
+    if (should_collapse_progress_bar && n_running != 0) {
         clear_progress_bar_line(bar, &writer);
         strwriter_printf(&writer, "%*s %zu benchmarks currently running\n",
                          (int)bar->name_align, "", n_running);
         ++bar->n_last_drawn_lines;
     }
-    if (should_collapse_progress_bar && n_suspended) {
+    if (should_collapse_progress_bar && n_suspended != 0) {
         clear_progress_bar_line(bar, &writer);
         strwriter_printf(&writer, "%*s %zu benchmarks suspended\n", (int)bar->name_align, "",
                          n_suspended);
         ++bar->n_last_drawn_lines;
     }
-    if (should_collapse_progress_bar && n_finished) {
+    if (should_collapse_progress_bar && n_finished != 0) {
         clear_progress_bar_line(bar, &writer);
         strwriter_printf(&writer, "%*s %zu benchmarks finished running\n",
                          (int)bar->name_align, "", n_finished);
         ++bar->n_last_drawn_lines;
     }
-    if (should_collapse_progress_bar && n_not_started) {
+    if (should_collapse_progress_bar && n_not_started != 0) {
         clear_progress_bar_line(bar, &writer);
         strwriter_printf(&writer, "%*s %zu benchmarks not started\n", (int)bar->name_align,
                          "", n_not_started);
@@ -1225,7 +1234,14 @@ static void *progress_bar_thread_worker(void *arg)
                 is_finished = false;
         }
     } while (!is_finished);
-    draw_progress_bar(&bar->vis);
+    if (bar->vis.was_drawn) {
+        struct string_writer writer = strwriter(bar->vis.buffer, bar->vis.buffer_size);
+        for (size_t i = 0; i < bar->vis.n_last_drawn_lines; ++i) {
+            clear_progress_bar_line(&bar->vis, &writer);
+            printf("\x1b[1A\r");
+        }
+        fwrite(writer.start, writer.cursor - writer.start, 1, stdout);
+    }
     return NULL;
 }
 

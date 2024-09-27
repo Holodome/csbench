@@ -71,6 +71,14 @@ struct command_info {
     enum output_kind output;
     size_t grp_idx;
     const char *grp_name;
+    const char *prepare;
+    const char *round_prepare;
+};
+
+enum cmd_multiplex_result {
+    CMD_MULTIPLEX_ERROR,
+    CMD_MULTIPLEX_NO_GROUPS,
+    CMD_MULTIPLEX_SUCCESS
 };
 
 __thread uint64_t g_rng_state;
@@ -109,8 +117,6 @@ const char *g_json_export_filename = NULL;
 const char *g_out_dir = ".csbench";
 const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
-const char *g_prepare = NULL;
-const char *g_round_prepare = NULL;
 // XXX: This is hack to use short names for files found in directory specified
 // with --inputd (otherwise because we create parameter values which are full
 // names). When opening files and this variable is not null, open it relative to
@@ -367,11 +373,12 @@ static bool init_cmd_exec(const char *shell, const char *cmd_str, const char **e
     return true;
 }
 
-static bool init_bench_stdin(const struct input_policy *input, struct bench_run_desc *params)
+static bool init_run_desc_stdin(const struct input_policy *input,
+                                struct bench_run_desc *desc)
 {
     switch (input->kind) {
     case INPUT_POLICY_NULL:
-        params->stdin_fd = -1;
+        desc->stdin_fd = -1;
         break;
     case INPUT_POLICY_FILE: {
         char buf[4096];
@@ -387,7 +394,7 @@ static bool init_bench_stdin(const struct input_policy *input, struct bench_run_
                         input->file);
             return false;
         }
-        params->stdin_fd = fd;
+        desc->stdin_fd = fd;
         break;
     }
     case INPUT_POLICY_STRING: {
@@ -405,96 +412,90 @@ static bool init_bench_stdin(const struct input_policy *input, struct bench_run_
             csperror("lseek");
             return false;
         }
-        params->stdin_fd = fd;
+        desc->stdin_fd = fd;
         break;
     }
     }
     return true;
 }
 
-static bool init_run_desc(const struct input_policy *input, enum output_kind output,
-                          const struct meas *meas, size_t meas_count, const char *exec,
-                          const char **argv, const char *cmd_str,
-                          struct bench_run_desc *params)
+static bool init_run_desc_internal(const struct input_policy *input, enum output_kind output,
+                                   const struct meas *meas, size_t meas_count,
+                                   const char *exec, const char **argv, const char *cmd_str,
+                                   const char *prepare, const char *round_prepare,
+                                   struct bench_run_desc *desc)
 {
-    memset(params, 0, sizeof(*params));
-    params->output = output;
-    params->meas = meas;
-    params->meas_count = meas_count;
-    params->exec = exec;
-    params->argv = argv;
-    params->str = cmd_str;
-    params->stdout_fd = -1;
-    return init_bench_stdin(input, params);
+    memset(desc, 0, sizeof(*desc));
+    desc->output = output;
+    desc->meas = meas;
+    desc->meas_count = meas_count;
+    desc->exec = exec;
+    desc->argv = argv;
+    desc->str = cmd_str;
+    desc->stdout_fd = -1;
+    desc->prepare = prepare;
+    desc->round_prepare = round_prepare;
+    return init_run_desc_stdin(input, desc);
 }
 
-static bool init_bench_stdout(struct bench_run_desc *params)
+static bool init_run_desc_stdout(struct bench_run_desc *desc)
 {
     int fd = tmpfile_fd();
     if (fd == -1)
         return false;
-    params->stdout_fd = fd;
+    desc->stdout_fd = fd;
     return true;
 }
 
-static bool init_command(const struct command_info *cmd, const struct meas *meas,
-                         size_t meas_count, struct bench_run_desc *run_desc)
+static bool init_run_desc(const struct command_info *cmd, const struct meas *meas,
+                          size_t meas_count, struct bench_run_desc *desc)
 {
     const char *exec = NULL, **argv = NULL;
     if (!init_cmd_exec(g_shell, cmd->cmd, &exec, &argv))
         return false;
 
-    if (!init_run_desc(&cmd->input, cmd->output, meas, meas_count, exec, argv,
-                       (char *)cmd->cmd, run_desc)) {
+    if (!init_run_desc_internal(&cmd->input, cmd->output, meas, meas_count, exec, argv,
+                                (char *)cmd->cmd, cmd->prepare, cmd->round_prepare, desc)) {
         sb_free(argv);
         return false;
     }
     return true;
 }
 
-static bool init_raw_command_infos(const struct settings *settings,
-                                   struct command_info **infos)
+static struct command_info *init_raw_command_infos(const struct settings *settings)
 {
-    size_t cmd_count = sb_len(settings->args);
-    if (cmd_count == 0) {
-        error("no commands specified");
-        return false;
-    }
-    for (size_t i = 0; i < cmd_count; ++i) {
+    struct command_info *cmds = NULL;
+    for (size_t i = 0; i < sb_len(settings->args); ++i) {
         const char *cmd_str = settings->args[i];
         if (g_common_argstring) {
             cmd_str = csfmt("%s %s", cmd_str, g_common_argstring);
         }
 
-        struct command_info info;
-        memset(&info, 0, sizeof(info));
-        info.name = info.cmd = cmd_str;
-        info.output = settings->output;
-        info.input = settings->input;
-        info.grp_name = cmd_str;
-        sb_push(*infos, info);
+        struct command_info cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        cmd.name = cmd.cmd = cmd_str;
+        cmd.output = settings->output;
+        cmd.input = settings->input;
+        cmd.grp_name = cmd_str;
+        cmd.prepare = settings->prepare;
+        cmd.round_prepare = settings->round_prepare;
+        sb_push(cmds, cmd);
     }
-    return true;
+    return cmds;
 }
 
-enum cmd_multiplex_result {
-    CMD_MULTIPLEX_ERROR,
-    CMD_MULTIPLEX_NO_GROUPS,
-    CMD_MULTIPLEX_SUCCESS
-};
-
 static enum cmd_multiplex_result
-multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
+multiplex_command_info_cmd(const struct command_info *src_cmd, size_t src_idx,
                            const struct bench_param *param,
                            struct command_info **multiplexed)
 {
     // Take first value and try to replace it in the command string
     char buf[4096];
     bool replaced = false;
-    if (!replace_param_str(buf, sizeof(buf), src_info->cmd, param->name, param->values[0],
+    if (!replace_param_str(buf, sizeof(buf), src_cmd->cmd, param->name, param->values[0],
                            &replaced)) {
         error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-              param->name, src_info->cmd, param->values[0]);
+              param->name, src_cmd->cmd, param->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
@@ -504,38 +505,38 @@ multiplex_command_info_cmd(const struct command_info *src_info, size_t src_idx,
     // We could reuse the string that is contained in buffer right now,
     // but it is a bit unecessary.
     for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
-        const char *param_value = param->values[val_idx];
-        if (!replace_param_str(buf, sizeof(buf), src_info->cmd, param->name, param_value,
+        const char *value = param->values[val_idx];
+        if (!replace_param_str(buf, sizeof(buf), src_cmd->cmd, param->name, value,
                                &replaced)) {
             error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  param->name, src_info->cmd, param_value);
+                  param->name, src_cmd->cmd, value);
             return CMD_MULTIPLEX_ERROR;
         }
         assert(replaced);
-        struct command_info info;
-        memcpy(&info, src_info, sizeof(info));
-        info.name = info.cmd = csstrdup(buf);
-        info.grp_idx = src_idx;
-        info.grp_name = src_info->grp_name;
-        sb_push(*multiplexed, info);
+        struct command_info cmd;
+        memcpy(&cmd, src_cmd, sizeof(cmd));
+        cmd.name = cmd.cmd = csstrdup(buf);
+        cmd.grp_idx = src_idx;
+        cmd.grp_name = src_cmd->grp_name;
+        sb_push(*multiplexed, cmd);
     }
     return CMD_MULTIPLEX_SUCCESS;
 }
 
 static enum cmd_multiplex_result
-multiplex_command_info_input(const struct command_info *src_info, size_t src_idx,
+multiplex_command_info_input(const struct command_info *src_cmd, size_t src_idx,
                              const struct bench_param *param,
                              struct command_info **multiplexed)
 {
-    if (src_info->input.kind != INPUT_POLICY_FILE &&
-        src_info->input.kind != INPUT_POLICY_STRING)
+    if (src_cmd->input.kind != INPUT_POLICY_FILE &&
+        src_cmd->input.kind != INPUT_POLICY_STRING)
         return CMD_MULTIPLEX_NO_GROUPS;
 
     const char *src_string = NULL;
-    if (src_info->input.kind == INPUT_POLICY_FILE)
-        src_string = src_info->input.file;
-    else if (src_info->input.kind == INPUT_POLICY_STRING)
-        src_string = src_info->input.string;
+    if (src_cmd->input.kind == INPUT_POLICY_FILE)
+        src_string = src_cmd->input.file;
+    else if (src_cmd->input.kind == INPUT_POLICY_STRING)
+        src_string = src_cmd->input.string;
 
     assert(src_string);
     char buf[4096];
@@ -543,7 +544,7 @@ multiplex_command_info_input(const struct command_info *src_info, size_t src_idx
     if (!replace_param_str(buf, sizeof(buf), src_string, param->name, param->values[0],
                            &replaced)) {
         error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-              param->name, src_info->cmd, param->values[0]);
+              param->name, src_cmd->cmd, param->values[0]);
         return CMD_MULTIPLEX_ERROR;
     }
 
@@ -556,37 +557,37 @@ multiplex_command_info_input(const struct command_info *src_info, size_t src_idx
                                &replaced) ||
             !replaced) {
             error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  param->name, src_info->cmd, param_value);
+                  param->name, src_cmd->cmd, param_value);
             return CMD_MULTIPLEX_ERROR;
         }
-        struct command_info info;
-        memcpy(&info, src_info, sizeof(info));
-        info.cmd = src_info->cmd;
-        info.grp_idx = src_idx;
-        info.grp_name = src_info->grp_name;
-        if (src_info->input.kind == INPUT_POLICY_FILE) {
-            info.input.file = csstrdup(buf);
-            snprintf(buf, sizeof(buf), "%s < %s", info.cmd, info.input.file);
-            info.name = csstrdup(buf);
-        } else if (src_info->input.kind == INPUT_POLICY_STRING) {
-            info.input.string = csstrdup(buf);
-            snprintf(buf, sizeof(buf), "%s <<< \"%s\"", info.cmd, info.input.string);
-            info.name = csstrdup(buf);
+        struct command_info cmd;
+        memcpy(&cmd, src_cmd, sizeof(cmd));
+        cmd.cmd = src_cmd->cmd;
+        cmd.grp_idx = src_idx;
+        cmd.grp_name = src_cmd->grp_name;
+        if (src_cmd->input.kind == INPUT_POLICY_FILE) {
+            cmd.input.file = csstrdup(buf);
+            snprintf(buf, sizeof(buf), "%s < %s", cmd.cmd, cmd.input.file);
+            cmd.name = csstrdup(buf);
+        } else if (src_cmd->input.kind == INPUT_POLICY_STRING) {
+            cmd.input.string = csstrdup(buf);
+            snprintf(buf, sizeof(buf), "%s <<< \"%s\"", cmd.cmd, cmd.input.string);
+            cmd.name = csstrdup(buf);
         }
-        sb_push(*multiplexed, info);
+        sb_push(*multiplexed, cmd);
     }
     return CMD_MULTIPLEX_SUCCESS;
 }
 
 static enum cmd_multiplex_result multiplex_command_infos(const struct bench_param *param,
-                                                         struct command_info **infos)
+                                                         struct command_info **cmds)
 {
     struct command_info *multiplexed = NULL;
-    for (size_t src_idx = 0; src_idx < sb_len(*infos); ++src_idx) {
-        const struct command_info *src_info = *infos + src_idx;
+    for (size_t src_idx = 0; src_idx < sb_len(*cmds); ++src_idx) {
+        const struct command_info *src_cmd = *cmds + src_idx;
         int ret;
 
-        ret = multiplex_command_info_cmd(src_info, src_idx, param, &multiplexed);
+        ret = multiplex_command_info_cmd(src_cmd, src_idx, param, &multiplexed);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -596,7 +597,7 @@ static enum cmd_multiplex_result multiplex_command_infos(const struct bench_para
             break;
         }
 
-        ret = multiplex_command_info_input(src_info, src_idx, param, &multiplexed);
+        ret = multiplex_command_info_input(src_cmd, src_idx, param, &multiplexed);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
@@ -606,12 +607,12 @@ static enum cmd_multiplex_result multiplex_command_infos(const struct bench_para
             break;
         }
 
-        error("command '%s' does not contain parameters", src_info->cmd);
+        error("command '%s' does not contain parameters", src_cmd->cmd);
         goto err;
     }
 
-    sb_free(*infos);
-    *infos = multiplexed;
+    sb_free(*cmds);
+    *cmds = multiplexed;
     return CMD_MULTIPLEX_SUCCESS;
 err:
     sb_free(multiplexed);
@@ -849,9 +850,9 @@ static bool init_benches(const struct settings *settings,
         sb_resize(data->benches, data->bench_count);
         for (size_t bench_idx = 0; bench_idx < sb_len(cmd_infos); ++bench_idx) {
             const struct command_info *cmd = cmd_infos + bench_idx;
-            struct bench_run_desc *run_desc = data->run_descs + bench_idx;
+            struct bench_run_desc *desc = data->run_descs + bench_idx;
             struct bench *bench = data->benches + bench_idx;
-            if (!init_command(cmd, data->meas, data->meas_count, run_desc))
+            if (!init_run_desc(cmd, data->meas, data->meas_count, desc))
                 return false;
             bench->name = cmd->name;
         }
@@ -874,10 +875,10 @@ static bool init_benches(const struct settings *settings,
             for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
                 size_t bench_idx = grp_idx * val_count + val_idx;
                 group->bench_idxs[val_idx] = bench_idx;
-                struct bench_run_desc *run_desc = data->run_descs + bench_idx;
+                struct bench_run_desc *desc = data->run_descs + bench_idx;
                 const struct command_info *cmd = cmd_infos + bench_idx;
                 struct bench *bench = data->benches + bench_idx;
-                if (!init_command(cmd, data->meas, data->meas_count, run_desc)) {
+                if (!init_run_desc(cmd, data->meas, data->meas_count, desc)) {
                     free(group->bench_idxs);
                     return false;
                 }
@@ -896,12 +897,13 @@ static bool init_benches(const struct settings *settings,
 
 static bool init_commands(const struct settings *settings, struct bench_data *data)
 {
-    bool success = false;
-    struct command_info *command_infos = NULL;
-    if (!init_raw_command_infos(settings, &command_infos))
+    if (sb_len(settings->args) == 0) {
+        error("no commands specified");
         return false;
-
+    }
     bool has_groups = false;
+    bool success = false;
+    struct command_info *command_infos = init_raw_command_infos(settings);
     if (settings->has_param) {
         int ret = multiplex_command_infos(&settings->param, &command_infos);
         switch (ret) {
@@ -1039,7 +1041,7 @@ static bool init_run_info(const struct settings *settings, struct bench_data *da
     }
     if (has_custom_meas) {
         for (size_t i = 0; i < data->bench_count; ++i) {
-            if (!init_bench_stdout(data->run_descs + i))
+            if (!init_run_desc_stdout(data->run_descs + i))
                 goto err;
         }
     }
@@ -1059,12 +1061,12 @@ void free_bench_data(struct bench_data *data)
             sb_free(bench->meas[j]);
         free(bench->meas);
         if (data->run_descs) {
-            struct bench_run_desc *run_desc = data->run_descs + i;
-            if (run_desc->stdout_fd != -1)
-                close(run_desc->stdout_fd);
-            if (run_desc->stdin_fd != -1)
-                close(run_desc->stdin_fd);
-            sb_free(run_desc->argv);
+            struct bench_run_desc *desc = data->run_descs + i;
+            if (desc->stdout_fd != -1)
+                close(desc->stdout_fd);
+            if (desc->stdin_fd != -1)
+                close(desc->stdin_fd);
+            sb_free(desc->argv);
         }
     }
     sb_free(data->benches);

@@ -649,8 +649,8 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                                &g_bench_stop.max_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-round-runs"),
                                "maximum round run count", &g_round_stop.max_runs)) {
-        } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
-        } else if (opt_arg(argv, &cursor, "--round-prepare", &g_round_prepare)) {
+        } else if (opt_arg(argv, &cursor, "--prepare", &settings->prepare)) {
+        } else if (opt_arg(argv, &cursor, "--round-prepare", &settings->round_prepare)) {
         } else if (opt_arg(argv, &cursor, "--common-args", &g_common_argstring)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"), "resamples count",
                                &g_nresamp)) {

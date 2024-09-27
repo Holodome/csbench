@@ -139,11 +139,6 @@ static bool export_json(const struct analysis *al, const char *filename)
         const struct bench_analysis *analysis = bench_analyses + bench_idx;
         const struct bench *bench = analysis->bench;
         fprintf(f, "{ ");
-        if (g_prepare)
-            json_escape(buf, sizeof(buf), g_prepare);
-        else
-            *buf = '\0';
-        fprintf(f, "\"prepare\": \"%s\", ", buf);
         json_escape(buf, sizeof(buf), bench_name(al, bench_idx));
         fprintf(f, "\"command\": \"%s\", ", buf);
         size_t run_count = bench->run_count;

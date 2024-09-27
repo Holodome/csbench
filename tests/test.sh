@@ -153,7 +153,6 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
     cat $j | jq -e '.["benches"]' > /dev/null || die
     cat $j | jq -e '.["benches"][]' > /dev/null || die
-    cat $j | jq -e '.["benches"][] | .["prepare"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["command"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["run_count"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["meas"][]' > /dev/null || die
