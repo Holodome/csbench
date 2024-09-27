@@ -81,6 +81,13 @@ enum cmd_multiplex_result {
     CMD_MULTIPLEX_SUCCESS
 };
 
+enum {
+    SUBST_CMD = 0x1,
+    SUBST_INPUT = 0x2,
+    SUBST_PREPARE = 0x4,
+    SUBST_ROUND_PREPARE = 0x8
+};
+
 __thread uint64_t g_rng_state;
 bool g_colored_output = false;
 bool g_ignore_failure = false;
@@ -512,113 +519,127 @@ static const char *subst_param_str(const char *src, const char *param_name,
     return csstrdup(buf);
 }
 
-static enum cmd_multiplex_result
-multiplex_command_info_cmd(const struct command_info *src_cmd, size_t src_idx,
-                           const struct bench_param *param,
-                           struct command_info **multiplexed)
+static enum cmd_multiplex_result get_subst_options(const struct command_info *cmd,
+                                                   const char *param_name, int *optp)
 {
-    enum cmd_multiplex_result ret;
-    if ((ret = string_contains_param_subst(src_cmd->cmd, param->name)) !=
-        CMD_MULTIPLEX_SUCCESS)
-        return ret;
+    int opt = 0;
+    enum cmd_multiplex_result ret = string_contains_param_subst(cmd->cmd, param_name);
+    switch (ret) {
+    case CMD_MULTIPLEX_ERROR:
+        return CMD_MULTIPLEX_ERROR;
+    case CMD_MULTIPLEX_SUCCESS:
+        opt |= SUBST_CMD;
+        break;
+    case CMD_MULTIPLEX_NO_GROUPS:
+        break;
+    }
 
-    // We could reuse the string that is contained in buffer right now,
-    // but it is a bit unecessary.
+    switch (cmd->input.kind) {
+    case INPUT_POLICY_FILE:
+        ret = string_contains_param_subst(cmd->input.file, param_name);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            return CMD_MULTIPLEX_ERROR;
+        case CMD_MULTIPLEX_SUCCESS:
+            opt |= SUBST_INPUT;
+            break;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
+        }
+        break;
+    case INPUT_POLICY_STRING:
+        ret = string_contains_param_subst(cmd->input.string, param_name);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            return CMD_MULTIPLEX_ERROR;
+        case CMD_MULTIPLEX_SUCCESS:
+            opt |= SUBST_INPUT;
+            break;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
+        }
+    default:
+        break;
+    }
+
+    if (cmd->prepare) {
+        ret = string_contains_param_subst(cmd->prepare, param_name);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            return CMD_MULTIPLEX_ERROR;
+        case CMD_MULTIPLEX_SUCCESS:
+            opt |= SUBST_PREPARE;
+            break;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
+        }
+    }
+
+    if (cmd->round_prepare) {
+        ret = string_contains_param_subst(cmd->round_prepare, param_name);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            return CMD_MULTIPLEX_ERROR;
+        case CMD_MULTIPLEX_SUCCESS:
+            opt |= SUBST_ROUND_PREPARE;
+            break;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            break;
+        }
+    }
+
+    if (opt == 0)
+        return CMD_MULTIPLEX_NO_GROUPS;
+    *optp = opt;
+    return CMD_MULTIPLEX_SUCCESS;
+}
+
+static enum cmd_multiplex_result multiplex_command(const struct command_info *src_cmd,
+                                                   size_t src_idx,
+                                                   const struct bench_param *param, int opt,
+                                                   struct command_info **multiplexed)
+{
     for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
         const char *param_value = param->values[val_idx];
-        const char *new_cmd = subst_param_str(src_cmd->cmd, param->name, param_value);
-        if (!new_cmd)
-            return CMD_MULTIPLEX_ERROR;
         struct command_info cmd;
         memcpy(&cmd, src_cmd, sizeof(cmd));
-        cmd.name = cmd.cmd = new_cmd;
+        if (opt & SUBST_CMD) {
+            const char *new_cmd = subst_param_str(src_cmd->cmd, param->name, param_value);
+            if (!new_cmd)
+                return CMD_MULTIPLEX_ERROR;
+            cmd.name = cmd.cmd = new_cmd;
+        }
         cmd.grp_idx = src_idx;
         cmd.grp_name = src_cmd->grp_name;
-        switch (src_cmd->input.kind) {
-        case INPUT_POLICY_FILE:
-            ret = string_contains_param_subst(src_cmd->input.file, param->name);
-            switch (ret) {
-            case CMD_MULTIPLEX_SUCCESS:
+        if (opt & SUBST_INPUT) {
+            switch (src_cmd->input.kind) {
+            case INPUT_POLICY_FILE:
                 cmd.input.file =
                     subst_param_str(src_cmd->input.file, param->name, param_value);
                 if (cmd.input.file == NULL)
                     return CMD_MULTIPLEX_ERROR;
+                cmd.name = csfmt("%s < %s", cmd.cmd, cmd.input.file);
                 break;
-            case CMD_MULTIPLEX_NO_GROUPS:
-                break;
-            case CMD_MULTIPLEX_ERROR:
-                return CMD_MULTIPLEX_ERROR;
-            }
-            break;
-        case INPUT_POLICY_STRING:
-            ret = string_contains_param_subst(src_cmd->input.string, param->name);
-            switch (ret) {
-            case CMD_MULTIPLEX_SUCCESS:
+            case INPUT_POLICY_STRING:
                 cmd.input.string =
                     subst_param_str(src_cmd->input.string, param->name, param_value);
                 if (cmd.input.string == NULL)
                     return CMD_MULTIPLEX_ERROR;
+                cmd.name = csfmt("%s <<< \"%s\"", cmd.cmd, cmd.input.string);
                 break;
-            case CMD_MULTIPLEX_NO_GROUPS:
+            default:
                 break;
-            case CMD_MULTIPLEX_ERROR:
-                return CMD_MULTIPLEX_ERROR;
             }
-            break;
-        default:
-            break;
         }
-        sb_push(*multiplexed, cmd);
-    }
-    return CMD_MULTIPLEX_SUCCESS;
-}
-
-static enum cmd_multiplex_result
-multiplex_command_info_input(const struct command_info *src_cmd, size_t src_idx,
-                             const struct bench_param *param,
-                             struct command_info **multiplexed)
-{
-    const char *src_string = NULL;
-    switch (src_cmd->input.kind) {
-    case INPUT_POLICY_FILE:
-        src_string = src_cmd->input.file;
-        break;
-    case INPUT_POLICY_STRING:
-        src_string = src_cmd->input.string;
-        break;
-    default:
-        return CMD_MULTIPLEX_NO_GROUPS;
-    }
-    assert(src_string);
-
-    int ret;
-    if ((ret = string_contains_param_subst(src_string, param->name)) !=
-        CMD_MULTIPLEX_SUCCESS)
-        return ret;
-
-    for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
-        const char *param_value = param->values[val_idx];
-        const char *new_input = subst_param_str(src_string, param->name, param_value);
-        if (new_input == NULL)
-            return CMD_MULTIPLEX_ERROR;
-        struct command_info cmd;
-        memcpy(&cmd, src_cmd, sizeof(cmd));
-        cmd.cmd = src_cmd->cmd;
-        cmd.grp_idx = src_idx;
-        cmd.grp_name = src_cmd->grp_name;
-        switch (src_cmd->input.kind) {
-        case INPUT_POLICY_FILE: {
-            cmd.input.file = new_input;
-            cmd.name = csfmt("%s < %s", cmd.cmd, cmd.input.file);
-            break;
+        if (opt & SUBST_PREPARE) {
+            cmd.prepare = subst_param_str(cmd.prepare, param->name, param_value);
+            if (cmd.prepare == NULL)
+                return CMD_MULTIPLEX_ERROR;
         }
-        case INPUT_POLICY_STRING: {
-            cmd.input.string = new_input;
-            cmd.name = csfmt("%s <<< \"%s\"", cmd.cmd, cmd.input.string);
-            break;
-        }
-        default:
-            ASSERT_UNREACHABLE();
+        if (opt & SUBST_ROUND_PREPARE) {
+            cmd.round_prepare = subst_param_str(cmd.round_prepare, param->name, param_value);
+            if (cmd.prepare == NULL)
+                return CMD_MULTIPLEX_ERROR;
         }
         sb_push(*multiplexed, cmd);
     }
@@ -628,40 +649,64 @@ multiplex_command_info_input(const struct command_info *src_cmd, size_t src_idx,
 static enum cmd_multiplex_result multiplex_command_infos(const struct bench_param *param,
                                                          struct command_info **cmds)
 {
+    size_t count = sb_len(*cmds);
+    int *subst_opts = calloc(count, sizeof(*subst_opts));
+    for (size_t i = 0; i < count; ++i) {
+        int ret = get_subst_options((*cmds) + i, param->name, subst_opts + i);
+        switch (ret) {
+        case CMD_MULTIPLEX_ERROR:
+            return CMD_MULTIPLEX_ERROR;
+        case CMD_MULTIPLEX_SUCCESS:
+            break;
+        case CMD_MULTIPLEX_NO_GROUPS:
+            free(subst_opts);
+            return CMD_MULTIPLEX_NO_GROUPS;
+        }
+    }
+
+    int nonzero_opt = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (subst_opts[i] != 0) {
+            if (nonzero_opt != 0 && nonzero_opt != subst_opts[i]) {
+                error("substitution count in different commands does not match");
+                free(subst_opts);
+                return CMD_MULTIPLEX_ERROR;
+            }
+            nonzero_opt = subst_opts[i];
+        }
+    }
+
+    if (nonzero_opt == 0) {
+        free(subst_opts);
+        return CMD_MULTIPLEX_NO_GROUPS;
+    }
+
     struct command_info *multiplexed = NULL;
     for (size_t src_idx = 0; src_idx < sb_len(*cmds); ++src_idx) {
+        int opt = subst_opts[src_idx];
         const struct command_info *src_cmd = *cmds + src_idx;
-        int ret;
-
-        ret = multiplex_command_info_cmd(src_cmd, src_idx, param, &multiplexed);
+        if (opt == 0) {
+            sb_push(multiplexed, *src_cmd);
+            continue;
+        }
+        int ret = multiplex_command(src_cmd, src_idx, param, opt, &multiplexed);
         switch (ret) {
         case CMD_MULTIPLEX_ERROR:
             goto err;
         case CMD_MULTIPLEX_SUCCESS:
-            continue;
-        case CMD_MULTIPLEX_NO_GROUPS:
             break;
-        }
-
-        ret = multiplex_command_info_input(src_cmd, src_idx, param, &multiplexed);
-        switch (ret) {
-        case CMD_MULTIPLEX_ERROR:
-            goto err;
-        case CMD_MULTIPLEX_SUCCESS:
-            continue;
         case CMD_MULTIPLEX_NO_GROUPS:
-            break;
+            assert(0);
         }
-
-        error("command '%s' does not contain parameters", src_cmd->cmd);
-        goto err;
     }
 
     sb_free(*cmds);
+    free(subst_opts);
     *cmds = multiplexed;
     return CMD_MULTIPLEX_SUCCESS;
 err:
     sb_free(multiplexed);
+    free(subst_opts);
     return CMD_MULTIPLEX_ERROR;
 }
 
