@@ -992,6 +992,8 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         format_time(buf1, sizeof(buf1), comm.time.d);
         format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
         strwriter_printf(&writer, " %s/ %s", buf1, buf2);
+
+        state->eta = g_bench_stop.time_limit - comm.time.d;
     }
 
     if (comm.warmup) {
@@ -1161,27 +1163,24 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
                          (int)bar->name_align, "", n_finished);
         ++bar->n_last_drawn_lines;
     }
-    if (should_collapse_progress_bar) {
-        if (n_not_started) {
-            clear_progress_bar_line(bar, &writer);
-            strwriter_printf(&writer, "%*s %zu benchmarks not started\n",
-                             (int)bar->name_align, "", n_not_started);
-            ++bar->n_last_drawn_lines;
-        } else {
-            double total_eta = 0.0;
-            for (size_t i = 0; i < bar->line_count; ++i) {
-                const struct progress_bar_item_visual *line = bar->lines + i;
-                if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_RUN_SUSPENDED)
-                    continue;
-                total_eta += bar->data->states[i].eta;
-            }
-            char eta_buf[256];
-            format_time(eta_buf, sizeof(eta_buf), total_eta / bar->data->thread_count);
-            clear_progress_bar_line(bar, &writer);
-            strwriter_printf(&writer, "%*s total eta %s\n", (int)bar->name_align, "",
-                             eta_buf);
-            ++bar->n_last_drawn_lines;
+    if (should_collapse_progress_bar && n_not_started) {
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks not started\n", (int)bar->name_align,
+                         "", n_not_started);
+        ++bar->n_last_drawn_lines;
+    } else if (n_not_started == 0) {
+        double total_eta = 0.0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            const struct progress_bar_item_visual *line = bar->lines + i;
+            if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_RUN_SUSPENDED)
+                continue;
+            total_eta += bar->data->states[i].eta;
         }
+        char eta_buf[256];
+        format_time(eta_buf, sizeof(eta_buf), total_eta / bar->data->thread_count);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s total eta %s\n", (int)bar->name_align, "", eta_buf);
+        ++bar->n_last_drawn_lines;
     }
     // Clear the lines that were drawn on last iteration but were not drawn on current
     if (bar->was_drawn && bar->n_last_drawn_lines < previous_drawn_lines) {
