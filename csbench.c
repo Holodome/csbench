@@ -126,8 +126,8 @@ const char *g_override_bin_name = NULL;
 const char *g_baseline_name = NULL;
 const char *g_python_executable = "python3";
 
-static bool replace_param_str(char *buf, size_t buf_size, const char *src, const char *name,
-                              const char *value, bool *replaced)
+static bool subst_param_str_buf(char *buf, size_t buf_size, const char *src,
+                                const char *name, const char *value, bool *replaced)
 {
     const char *buf_end = buf + buf_size;
     size_t param_name_len = strlen(name);
@@ -484,40 +484,90 @@ static struct command_info *init_raw_command_infos(const struct settings *settin
     return cmds;
 }
 
+static enum cmd_multiplex_result string_contains_param_subst(const char *src,
+                                                             const char *param_name)
+{
+    char buf[4096];
+    bool replaced = false;
+    if (!subst_param_str_buf(buf, sizeof(buf), src, param_name, "a", &replaced)) {
+        error("failed to substitute parameter '%s' in string '%s'", param_name, src);
+        return CMD_MULTIPLEX_ERROR;
+    }
+    if (!replaced)
+        return CMD_MULTIPLEX_NO_GROUPS;
+    return CMD_MULTIPLEX_SUCCESS;
+}
+
+static const char *subst_param_str(const char *src, const char *param_name,
+                                   const char *value)
+{
+    bool replaced = false;
+    char buf[4096];
+    if (!subst_param_str_buf(buf, sizeof(buf), src, param_name, value, &replaced)) {
+        error("failed to substitute parameter '%s' in string '%s' with value '%s'",
+              param_name, src, value);
+        return NULL;
+    }
+    assert(replaced);
+    return csstrdup(buf);
+}
+
 static enum cmd_multiplex_result
 multiplex_command_info_cmd(const struct command_info *src_cmd, size_t src_idx,
                            const struct bench_param *param,
                            struct command_info **multiplexed)
 {
-    // Take first value and try to replace it in the command string
-    char buf[4096];
-    bool replaced = false;
-    if (!replace_param_str(buf, sizeof(buf), src_cmd->cmd, param->name, param->values[0],
-                           &replaced)) {
-        error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-              param->name, src_cmd->cmd, param->values[0]);
-        return CMD_MULTIPLEX_ERROR;
-    }
-
-    if (!replaced)
-        return CMD_MULTIPLEX_NO_GROUPS;
+    enum cmd_multiplex_result ret;
+    if ((ret = string_contains_param_subst(src_cmd->cmd, param->name)) !=
+        CMD_MULTIPLEX_SUCCESS)
+        return ret;
 
     // We could reuse the string that is contained in buffer right now,
     // but it is a bit unecessary.
     for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
-        const char *value = param->values[val_idx];
-        if (!replace_param_str(buf, sizeof(buf), src_cmd->cmd, param->name, value,
-                               &replaced)) {
-            error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  param->name, src_cmd->cmd, value);
+        const char *param_value = param->values[val_idx];
+        const char *new_cmd = subst_param_str(src_cmd->cmd, param->name, param_value);
+        if (!new_cmd)
             return CMD_MULTIPLEX_ERROR;
-        }
-        assert(replaced);
         struct command_info cmd;
         memcpy(&cmd, src_cmd, sizeof(cmd));
-        cmd.name = cmd.cmd = csstrdup(buf);
+        cmd.name = cmd.cmd = new_cmd;
         cmd.grp_idx = src_idx;
         cmd.grp_name = src_cmd->grp_name;
+        switch (src_cmd->input.kind) {
+        case INPUT_POLICY_FILE:
+            ret = string_contains_param_subst(src_cmd->input.file, param->name);
+            switch (ret) {
+            case CMD_MULTIPLEX_SUCCESS:
+                cmd.input.file =
+                    subst_param_str(src_cmd->input.file, param->name, param_value);
+                if (cmd.input.file == NULL)
+                    return CMD_MULTIPLEX_ERROR;
+                break;
+            case CMD_MULTIPLEX_NO_GROUPS:
+                break;
+            case CMD_MULTIPLEX_ERROR:
+                return CMD_MULTIPLEX_ERROR;
+            }
+            break;
+        case INPUT_POLICY_STRING:
+            ret = string_contains_param_subst(src_cmd->input.string, param->name);
+            switch (ret) {
+            case CMD_MULTIPLEX_SUCCESS:
+                cmd.input.string =
+                    subst_param_str(src_cmd->input.string, param->name, param_value);
+                if (cmd.input.string == NULL)
+                    return CMD_MULTIPLEX_ERROR;
+                break;
+            case CMD_MULTIPLEX_NO_GROUPS:
+                break;
+            case CMD_MULTIPLEX_ERROR:
+                return CMD_MULTIPLEX_ERROR;
+            }
+            break;
+        default:
+            break;
+        }
         sb_push(*multiplexed, cmd);
     }
     return CMD_MULTIPLEX_SUCCESS;
@@ -528,51 +578,47 @@ multiplex_command_info_input(const struct command_info *src_cmd, size_t src_idx,
                              const struct bench_param *param,
                              struct command_info **multiplexed)
 {
-    if (src_cmd->input.kind != INPUT_POLICY_FILE &&
-        src_cmd->input.kind != INPUT_POLICY_STRING)
-        return CMD_MULTIPLEX_NO_GROUPS;
-
     const char *src_string = NULL;
-    if (src_cmd->input.kind == INPUT_POLICY_FILE)
+    switch (src_cmd->input.kind) {
+    case INPUT_POLICY_FILE:
         src_string = src_cmd->input.file;
-    else if (src_cmd->input.kind == INPUT_POLICY_STRING)
+        break;
+    case INPUT_POLICY_STRING:
         src_string = src_cmd->input.string;
-
-    assert(src_string);
-    char buf[4096];
-    bool replaced = false;
-    if (!replace_param_str(buf, sizeof(buf), src_string, param->name, param->values[0],
-                           &replaced)) {
-        error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-              param->name, src_cmd->cmd, param->values[0]);
-        return CMD_MULTIPLEX_ERROR;
-    }
-
-    if (!replaced)
+        break;
+    default:
         return CMD_MULTIPLEX_NO_GROUPS;
+    }
+    assert(src_string);
+
+    int ret;
+    if ((ret = string_contains_param_subst(src_string, param->name)) !=
+        CMD_MULTIPLEX_SUCCESS)
+        return ret;
 
     for (size_t val_idx = 0; val_idx < param->value_count; ++val_idx) {
         const char *param_value = param->values[val_idx];
-        if (!replace_param_str(buf, sizeof(buf), src_string, param->name, param_value,
-                               &replaced) ||
-            !replaced) {
-            error("failed to substitute parameter '%s' in string '%s' with value '%s'",
-                  param->name, src_cmd->cmd, param_value);
+        const char *new_input = subst_param_str(src_string, param->name, param_value);
+        if (new_input == NULL)
             return CMD_MULTIPLEX_ERROR;
-        }
         struct command_info cmd;
         memcpy(&cmd, src_cmd, sizeof(cmd));
         cmd.cmd = src_cmd->cmd;
         cmd.grp_idx = src_idx;
         cmd.grp_name = src_cmd->grp_name;
-        if (src_cmd->input.kind == INPUT_POLICY_FILE) {
-            cmd.input.file = csstrdup(buf);
-            snprintf(buf, sizeof(buf), "%s < %s", cmd.cmd, cmd.input.file);
-            cmd.name = csstrdup(buf);
-        } else if (src_cmd->input.kind == INPUT_POLICY_STRING) {
-            cmd.input.string = csstrdup(buf);
-            snprintf(buf, sizeof(buf), "%s <<< \"%s\"", cmd.cmd, cmd.input.string);
-            cmd.name = csstrdup(buf);
+        switch (src_cmd->input.kind) {
+        case INPUT_POLICY_FILE: {
+            cmd.input.file = new_input;
+            cmd.name = csfmt("%s < %s", cmd.cmd, cmd.input.file);
+            break;
+        }
+        case INPUT_POLICY_STRING: {
+            cmd.input.string = new_input;
+            cmd.name = csfmt("%s <<< \"%s\"", cmd.cmd, cmd.input.string);
+            break;
+        }
+        default:
+            ASSERT_UNREACHABLE();
         }
         sb_push(*multiplexed, cmd);
     }
