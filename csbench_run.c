@@ -1195,7 +1195,7 @@ static void draw_progress_bar(struct progress_bar_visual *bar)
         double total_eta = 0.0;
         for (size_t i = 0; i < bar->line_count; ++i) {
             const struct progress_bar_item_visual *line = bar->lines + i;
-            if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_RUN_SUSPENDED)
+            if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_STATE_SUSPENDED)
                 continue;
             total_eta += bar->data->states[i].eta;
         }
