@@ -134,7 +134,7 @@ An alias no \fB\-\-shell=none\fR.
 .HP
 \fB\-P\fR, \fB\-\-prepare\fR \fICMD\fP
 .IP
-Execute \fICMD\fP in shell before each benchmark run.
+Execute \fICMD\fP in shell before each benchmark run. \fICMD\fP may contain parameter substitutions.
 .IP
 .RS
 Example:
@@ -142,6 +142,10 @@ Example:
 \fBcsbench\fR \fB\-\-prepare\fR='make clean' make
 .RE
 .RE
+.HP
+\fB\-\-round-prepare\fR \fICMD\fP
+.IP
+Execute \fICMD\fP in shell in the beggining of each round, before the warmup. \fICMD\fP may contain parameter substitutions.
 .HP
 \fB\-j\fR, \fB\-\-jobs\fR \fINUM\fP
 .IP

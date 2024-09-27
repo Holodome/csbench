@@ -110,6 +110,7 @@ const char *g_out_dir = ".csbench";
 const char *g_shell = "/bin/sh";
 const char *g_common_argstring = NULL;
 const char *g_prepare = NULL;
+const char *g_round_prepare = NULL;
 // XXX: This is hack to use short names for files found in directory specified
 // with --inputd (otherwise because we create parameter values which are full
 // names). When opening files and this variable is not null, open it relative to

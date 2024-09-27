@@ -628,6 +628,7 @@ extern const char *g_out_dir;
 extern const char *g_shell;
 extern const char *g_common_argstring;
 extern const char *g_prepare;
+extern const char *g_round_prepare;
 extern const char *g_inputd;
 extern const char *g_override_bin_name;
 extern const char *g_baseline_name;

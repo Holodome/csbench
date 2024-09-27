@@ -569,6 +569,24 @@ static bool should_suspend_round(struct bench_run_state *state)
     return result;
 }
 
+static bool run_prepare_if_needed(void)
+{
+    if (g_prepare && !shell_execute(g_prepare, -1, -1, -1, true)) {
+        error("failed to execute prepare command");
+        return false;
+    }
+    return true;
+}
+
+static bool run_round_prepare_if_needed(void)
+{
+    if (g_round_prepare && !shell_execute(g_round_prepare, -1, -1, -1, true)) {
+        error("failed to execute round prepare command");
+        return false;
+    }
+    return true;
+}
+
 static bool warmup(const struct bench_run_desc *desc)
 {
     if (!should_run(&g_warmup_stop))
@@ -577,6 +595,8 @@ static bool warmup(const struct bench_run_desc *desc)
     struct bench_run_state state;
     init_run_state(get_time(), &g_warmup_stop, 0, 0, &state);
     for (;;) {
+        if (!run_prepare_if_needed())
+            return false;
         if (!exec_cmd(desc, NULL, NULL, true, NULL)) {
             error("failed to execute warmup command");
             return false;
@@ -762,15 +782,6 @@ static void progress_bar_suspend(struct progress_bar_comm *bench, double time_pa
     atomic_store(&bench->suspended, true);
 }
 
-static bool run_prepare_if_needed(void)
-{
-    if (g_prepare && !shell_execute(g_prepare, -1, -1, -1, true)) {
-        error("failed to execute prepare command");
-        return false;
-    }
-    return true;
-}
-
 static enum bench_run_result run_benchmark_exact_runs(struct bench_run_data *rd)
 {
     struct bench_run_state round_state;
@@ -844,6 +855,9 @@ out:
 static enum bench_run_result run_bench(struct bench_run_data *rd)
 {
     progress_bar_at_warmup(rd->comm);
+
+    if (!run_round_prepare_if_needed())
+        return BENCH_RUN_ERROR;
 
     if (!warmup(rd->desc))
         return BENCH_RUN_ERROR;

@@ -192,6 +192,8 @@ static void print_help_and_exit(int rc)
               "\"inherit\", uses the shell set in SHELL variable of calling process.");
     print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
+    print_opt("--round-prepare", OPT_ARR("CMD"),
+              "Execute <CMD> in the beggining of each round, before the warmup.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
               "Execute benchmarks in parallel using <NUM> system threads (default: 1).");
     print_opt("-i, --ignore-failure", OPT_ARR(NULL),
@@ -648,6 +650,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-round-runs"),
                                "maximum round run count", &g_round_stop.max_runs)) {
         } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
+        } else if (opt_arg(argv, &cursor, "--round-prepare", &g_round_prepare)) {
         } else if (opt_arg(argv, &cursor, "--common-args", &g_common_argstring)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"), "resamples count",
                                &g_nresamp)) {
