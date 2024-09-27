@@ -112,10 +112,6 @@ struct progress_bar_comm {
     union {
         uint64_t u;
         double d;
-    } start_time;
-    union {
-        uint64_t u;
-        double d;
     } time_passed;
     uint64_t runs;
     union {
@@ -688,18 +684,22 @@ static bool exec_and_measure(struct bench_run_data *rd)
             break;
         case MEAS_PERF_CYCLES:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->cycles;
             break;
         case MEAS_PERF_INS:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->instructions;
             break;
         case MEAS_PERF_BRANCH:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->branches;
             break;
         case MEAS_PERF_BRANCHM:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
@@ -725,7 +725,6 @@ static void progress_bar_start(struct progress_bar_comm *bench, double time)
         return;
     uint64_t u;
     memcpy(&u, &time, sizeof(u));
-    atomic_store(&bench->start_time.u, u);
     atomic_store(&bench->warmup, false);
     atomic_store(&bench->time.u, 0);
     atomic_store(&bench->has_been_run, true);
@@ -953,7 +952,6 @@ static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
         comm.has_been_run = atomic_load(&comm_src->has_been_run);
         comm.runs = atomic_load(&comm_src->runs);
         comm.time.u = atomic_load(&comm_src->time.u);
-        comm.start_time.u = atomic_load(&comm_src->start_time.u);
         comm.time_passed.u = atomic_load(&comm_src->time_passed.u);
         // This is the only non-atomic load, but this field is not updated and only set
         // during initialization
@@ -1053,7 +1051,7 @@ static void clear_progress_bar_line(struct progress_bar_visual *bar,
     strwriter_printf(writer, "%*s\r", (int)bar->term_width, "");
 }
 
-static size_t *benchmarks_to_display_at_progress_bar(struct progress_bar_visual *bar,
+static size_t *benchmarks_to_display_at_progress_bar(const struct progress_bar_visual *bar,
                                                      size_t n_finished, size_t n_running,
                                                      size_t n_not_started,
                                                      size_t n_suspended)
