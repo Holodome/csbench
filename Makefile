@@ -23,8 +23,8 @@ csbench: csbench.c csbench_perf.c csbench_plot.c csbench_utils.c \
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 install: csbench
-	install csbench /usr/local/bin
-	install -g 0 -o 0 -m 0644 docs/csbench.1 /usr/local/share/man/man1
+	install csbench /opt/homebrew/bin || install csbench /usr/local/bin 
+	install -g 0 -o 0 -m 0644 docs/csbench.1 /opt/homebrew/share/man/man1 || install -g 0 -o 0 -m 0644 docs/csbench.1 /usr/local/share/man/man1
 
 clean:
 	rm -f csbench

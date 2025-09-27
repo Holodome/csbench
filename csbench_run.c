@@ -594,7 +594,6 @@ static bool warmup(const struct bench_run_desc *desc)
         if (!run_prepare_if_needed(desc->prepare))
             return false;
         if (!exec_cmd(desc, NULL, NULL, true, NULL)) {
-            error("failed to execute warmup command");
             return false;
         }
         if (should_finish_running(&state, 1))
@@ -864,11 +863,15 @@ static enum bench_run_result run_bench(struct bench_run_data *rd)
 {
     progress_bar_at_warmup(rd->comm);
 
-    if (!run_round_prepare_if_needed(rd->desc->round_prepare))
+    if (!run_round_prepare_if_needed(rd->desc->round_prepare)) {
+        progress_bar_abort(rd->comm);
         return BENCH_RUN_ERROR;
+    }
 
-    if (!warmup(rd->desc))
+    if (!warmup(rd->desc)) {
+        progress_bar_abort(rd->comm);
         return BENCH_RUN_ERROR;
+    }
 
     assert(should_run(&g_bench_stop));
     progress_bar_start(rd->comm, get_time());
@@ -1220,6 +1223,7 @@ static void *progress_bar_thread_worker(void *arg)
     assert(g_progress_bar);
     struct progress_bar *bar = arg;
     bool is_finished = false;
+    bool is_error = false;
     draw_progress_bar(&bar->vis);
     bar->vis.was_drawn = true;
     do {
@@ -1230,9 +1234,11 @@ static void *progress_bar_thread_worker(void *arg)
         for (size_t i = 0; i < bar->count && is_finished; ++i) {
             if (!atomic_load(&bar->comms[i].finished))
                 is_finished = false;
+            if (atomic_load(&bar->comms[i].aborted))
+                is_error = true;
         }
-    } while (!is_finished);
-    if (bar->vis.was_drawn) {
+    } while (!is_finished && !is_error);
+    if (bar->vis.was_drawn && !is_error) {
         struct string_writer writer = strwriter(bar->vis.buffer, bar->vis.buffer_size);
         for (size_t i = 0; i < bar->vis.n_last_drawn_lines; ++i) {
             clear_progress_bar_line(&bar->vis, &writer);

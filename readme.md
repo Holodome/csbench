@@ -2,6 +2,8 @@
 
 `csbench` is cross-platform batteries included benchmarking tool.
 
+![img](docs/out.png)
+
 ## Introduction
 
 Benchmarking is too hard and time-consuming to be employed commonly during development. 
@@ -21,6 +23,12 @@ But still work from the developer is being done akin to more complex task.
 * Parameterized benchmarking 
 * Easy access to `struct rusage` fields or performance counters (cross-platform minimal `perf stat` or `/usr/bin/time` analog)
 * Benchmark comparison
+* Parameter analysis and comparison
+* Generate plots using `matplotlib`, `gnuplot`
+* Generate html report
+* Load benchmark data 
+
+See [Man page](https://holodome.github.io/csbench/man.html) for more information.
 
 ## Dependencies
 
@@ -138,8 +146,8 @@ usrtime 4.009 ms 4.229 ms 4.456 ms
  maxrss 3.938 MB 3.938 MB 3.938 MB
 ```
 
-If you want to see example of advanced csbench usage, try running the following command and explore the outputs:
-```
+If you want to see example of advanced csbench usage, try running the following command and explore [the outputs](https://holodome.github.io/csbench/sort):
+```sh
 csbench 'python3 tests/quicksort.py' \
         'python3 tests/bubble.py' \
         --rename-all quicksort,bubble \
@@ -148,6 +156,8 @@ csbench 'python3 tests/quicksort.py' \
         -W 0.1 -j$(nproc) -R10 \
         --plot --plot-src --regr
 ```
+
+![img](docs/demo.gif)
 
 ## License 
 
