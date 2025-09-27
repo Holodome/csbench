@@ -53,16 +53,21 @@
 //    limitations under the License.
 #include "csbench.h"
 
+#include <assert.h>
 #include <errno.h>
 #include <math.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include <fcntl.h>
+#include <ftw.h>
 #include <poll.h>
 #include <pthread.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -92,8 +97,7 @@ void *sb_grow_impl(void *arr, size_t inc, size_t stride)
     size_t min = header->size + inc;
 
     size_t new_capacity = double_current > min ? double_current : min;
-    void *result =
-        realloc(header, sizeof(struct sb_header) + stride * new_capacity);
+    void *result = realloc(header, sizeof(struct sb_header) + stride * new_capacity);
     header = result;
     header->capacity = new_capacity;
     return header + 1;
@@ -187,8 +191,7 @@ int format_memory(char *dst, size_t sz, double t)
     return count;
 }
 
-void format_meas(char *buf, size_t buf_size, double value,
-                 const struct units *units)
+void format_meas(char *buf, size_t buf_size, double value, const struct units *units)
 {
     switch (units->kind) {
     case MU_S:
@@ -281,395 +284,6 @@ const char *big_o_str(enum big_o complexity)
     return NULL;
 }
 
-#define fitting_curve_1(...) (1.0)
-#define fitting_curve_n(_n) (_n)
-#define fitting_curve_n_sq(_n) ((_n) * (_n))
-#define fitting_curve_n_cube(_n) ((_n) * (_n) * (_n))
-#define fitting_curve_logn(_n) log2(_n)
-#define fitting_curve_nlogn(_n) ((_n) * log2(_n))
-
-#define ols(_name, _fitting)                                                   \
-    static double ols_##_name(const double *x, const double *y, size_t count,  \
-                              double adjust_y, double *rmsp)                   \
-    {                                                                          \
-        (void)x;                                                               \
-        double sigma_gn_sq = 0.0;                                              \
-        double sigma_t = 0.0;                                                  \
-        double sigma_t_gn = 0.0;                                               \
-        for (size_t i = 0; i < count; ++i) {                                   \
-            double gn_i = _fitting(x[i] - x[0]);                               \
-            sigma_gn_sq += gn_i * gn_i;                                        \
-            sigma_t += y[i] - adjust_y;                                        \
-            sigma_t_gn += (y[i] - adjust_y) * gn_i;                            \
-        }                                                                      \
-        double coef = sigma_t_gn / sigma_gn_sq;                                \
-        double rms = 0.0;                                                      \
-        for (size_t i = 0; i < count; ++i) {                                   \
-            double fit = coef * _fitting(x[i] - x[0]);                         \
-            double a = (y[i] - adjust_y) - fit;                                \
-            rms += a * a;                                                      \
-        }                                                                      \
-        double mean = sigma_t / count;                                         \
-        *rmsp = sqrt(rms / count) / mean;                                      \
-        return coef;                                                           \
-    }
-
-ols(1, fitting_curve_1)
-ols(n, fitting_curve_n)
-ols(n_sq, fitting_curve_n_sq)
-ols(n_cube, fitting_curve_n_cube)
-ols(logn, fitting_curve_logn)
-ols(nlogn, fitting_curve_nlogn)
-
-#undef ols
-
-void ols(const double *x, const double *y, size_t count,
-         struct ols_regress *result)
-{
-    double min_y = INFINITY;
-    for (size_t i = 0; i < count; ++i)
-        if (y[i] < min_y)
-            min_y = y[i];
-
-    enum big_o best_fit = O_1;
-    double best_fit_coef, best_fit_rms;
-    best_fit_coef = ols_1(x, y, count, min_y, &best_fit_rms);
-
-#define check(_name, _e)                                                       \
-    do {                                                                       \
-        double coef, rms;                                                      \
-        coef = _name(x, y, count, min_y, &rms);                                \
-        if (rms < best_fit_rms) {                                              \
-            best_fit = _e;                                                     \
-            best_fit_coef = coef;                                              \
-            best_fit_rms = rms;                                                \
-        }                                                                      \
-    } while (0)
-
-    check(ols_n, O_N);
-    check(ols_n_sq, O_N_SQ);
-    check(ols_n_cube, O_N_CUBE);
-    check(ols_logn, O_LOGN);
-    check(ols_nlogn, O_NLOGN);
-
-#undef check
-
-    result->a = best_fit_coef;
-    result->b = min_y;
-    result->c = x[0];
-    result->rms = best_fit_rms;
-    result->complexity = best_fit;
-}
-
-double ols_approx(const struct ols_regress *regress, double n)
-{
-    double f = 1.0;
-    n -= regress->c;
-    switch (regress->complexity) {
-    case O_1:
-        f = fitting_curve_1(n);
-        break;
-    case O_N:
-        f = fitting_curve_n(n);
-        break;
-    case O_N_SQ:
-        f = fitting_curve_n_sq(n);
-        break;
-    case O_N_CUBE:
-        f = fitting_curve_n_cube(n);
-        break;
-    case O_LOGN:
-        f = fitting_curve_logn(n);
-        break;
-    case O_NLOGN:
-        f = fitting_curve_nlogn(n);
-        break;
-    }
-    return regress->a * f + regress->b;
-}
-
-static int compare_doubles(const void *a, const void *b)
-{
-    double arg1 = *(const double *)a;
-    double arg2 = *(const double *)b;
-    if (arg1 < arg2)
-        return -1;
-    if (arg1 > arg2)
-        return 1;
-    return 0;
-}
-
-static void resample(const double *src, size_t count, double *dst)
-{
-    uint64_t entropy = pcg32_fast(&g_rng_state);
-    // Resample with replacement
-    for (size_t i = 0; i < count; ++i)
-        dst[i] = src[pcg32_fast(&entropy) % count];
-    g_rng_state = entropy;
-}
-
-static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
-                                  size_t nresamp, struct est *meane,
-                                  struct est *st_deve)
-{
-    double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
-    double *tmp_rss = tmp_means + nresamp;
-    double sum = 0;
-    for (size_t i = 0; i < count; ++i)
-        sum += src[i];
-    double mean = sum / count;
-    meane->point = mean;
-    double rss = 0;
-    for (size_t i = 0; i < count; ++i) {
-        double a = src[i] - mean;
-        rss += a * a;
-    }
-    st_deve->point = sqrt(rss / (count - 1));
-    for (size_t sample = 0; sample < nresamp; ++sample) {
-        resample(src, count, tmp);
-        sum = 0;
-        for (size_t i = 0; i < count; ++i)
-            sum += tmp[i];
-        mean = sum / count;
-        tmp_means[sample] = mean;
-        rss = 0.0;
-        for (size_t i = 0; i < count; ++i) {
-            double a = tmp[i] - mean;
-            rss += a * a;
-        }
-        tmp_rss[sample] = rss;
-    }
-    qsort(tmp_means, nresamp, sizeof(*tmp_means), compare_doubles);
-    qsort(tmp_rss, nresamp, sizeof(*tmp_rss), compare_doubles);
-    meane->lower = tmp_means[25 * nresamp / 1000];
-    meane->upper = tmp_means[975 * nresamp / 1000];
-    st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / (count - 1));
-    st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / (count - 1));
-    free(tmp_means);
-}
-
-void shuffle(size_t *arr, size_t count)
-{
-    for (size_t i = 0; i < count - 1; ++i) {
-        size_t mod = count - i;
-        size_t j = pcg32_fast(&g_rng_state) % mod + i;
-        size_t tmp = arr[i];
-        arr[i] = arr[j];
-        arr[j] = tmp;
-    }
-}
-
-static double t_statistic(const double *a, size_t n1, const double *b,
-                          size_t n2)
-{
-    double a_mean = 0;
-    for (size_t i = 0; i < n1; ++i)
-        a_mean += a[i];
-    a_mean /= n1;
-    double b_mean = 0;
-    for (size_t i = 0; i < n2; ++i)
-        b_mean += b[i];
-    b_mean /= n2;
-
-    double a_s2 = 0;
-    for (size_t i = 0; i < n1; ++i) {
-        double v = (a[i] - a_mean);
-        a_s2 += v * v;
-    }
-    a_s2 /= (n1 - 1);
-    double b_s2 = 0;
-    for (size_t i = 0; i < n2; ++i) {
-        double v = (b[i] - b_mean);
-        b_s2 += v * v;
-    }
-    b_s2 /= (n2 - 1);
-
-    double t = (a_mean - b_mean) / sqrt(a_s2 / n1 + b_s2 / n2);
-    return t;
-}
-
-double ttest(const double *a, size_t n1, const double *b, size_t n2,
-             size_t nresamp)
-{
-    // This uses algorithm as described in
-    // https://en.wikipedia.org/wiki/Bootstrapping_(statistics)#Bootstrap_hypothesis_testing
-    double t = t_statistic(a, n1, b, n2);
-    double a_mean = 0, b_mean = 0, z_mean = 0;
-    for (size_t i = 0; i < n1; ++i) {
-        a_mean += a[i];
-        z_mean += a[i];
-    }
-    for (size_t i = 0; i < n2; ++i) {
-        b_mean += b[i];
-        z_mean += b[i];
-    }
-    a_mean /= n1;
-    b_mean /= n2;
-    z_mean /= n1 + n2;
-    double *a_new_sample = calloc(n1, sizeof(*a_new_sample));
-    double *b_new_sample = calloc(n2, sizeof(*b_new_sample));
-    for (size_t i = 0; i < n1; ++i)
-        a_new_sample[i] = a[i] - a_mean + z_mean;
-    for (size_t i = 0; i < n2; ++i)
-        b_new_sample[i] = b[i] - b_mean + z_mean;
-
-    double *a_tmp = calloc(n1, sizeof(*a_tmp));
-    double *b_tmp = calloc(n2, sizeof(*b_tmp));
-
-    size_t count = 0;
-    for (size_t i = 0; i < nresamp; ++i) {
-        resample(a_new_sample, n1, a_tmp);
-        resample(b_new_sample, n2, b_tmp);
-        double t_resampled = t_statistic(a_tmp, n1, b_tmp, n2);
-        if (fabs(t_resampled) >= fabs(t))
-            ++count;
-    }
-    double p = (double)count / nresamp;
-    free(b_tmp);
-    free(a_tmp);
-    free(b_new_sample);
-    free(a_new_sample);
-    return p;
-}
-
-double mwu(const double *a, size_t n1, const double *b, size_t n2)
-{
-    double *sorted_a = calloc(n1, sizeof(*sorted_a));
-    double *sorted_b = calloc(n2, sizeof(*sorted_b));
-    for (size_t i = 0; i < n1; ++i)
-        sorted_a[i] = a[i];
-    for (size_t i = 0; i < n2; ++i)
-        sorted_b[i] = b[i];
-    qsort(sorted_a, n1, sizeof(*sorted_a), compare_doubles);
-    qsort(sorted_b, n2, sizeof(*sorted_b), compare_doubles);
-
-    size_t *a_ranks = calloc(n1, sizeof(*a_ranks));
-    size_t *b_ranks = calloc(n2, sizeof(*b_ranks));
-    for (size_t rank = 1, a_cursor = 0, b_cursor = 0;
-         a_cursor != n1 || b_cursor != n2; ++rank) {
-        if (a_cursor == n1)
-            b_ranks[b_cursor++] = rank;
-        else if (b_cursor == n2)
-            a_ranks[a_cursor++] = rank;
-        else if (sorted_a[a_cursor] < sorted_b[b_cursor])
-            a_ranks[a_cursor++] = rank;
-        else
-            b_ranks[b_cursor++] = rank;
-    }
-    size_t r1 = 0;
-    for (size_t i = 0; i < n1; ++i)
-        r1 += a_ranks[i];
-
-    double u1 = r1 - n1 * (n1 + 1) / 2.0;
-    double u2 = n1 * n2 - u1;
-    double u = fmax(u1, u2);
-
-    double mu = n1 * n2 / 2.0;
-    double sigma_u = sqrt((n1 * n2 * (n1 + n2 + 1)) / 12.0);
-
-    double z = (u - mu - 0.5) / sigma_u;
-    double p = 1.0 - 0.5 * erfc(-z / M_SQRT2);
-    p *= 2.0;
-    if (p < 0.0)
-        p = 0.0;
-    else if (p > 1.0)
-        p = 1.0;
-
-    free(a_ranks);
-    free(b_ranks);
-    free(sorted_a);
-    free(sorted_b);
-    return p;
-}
-
-static double c_max(double x, double u_a, double a, double sigma_b_2,
-                    double sigma_g_2)
-{
-    double k = u_a - x;
-    double d = k * k;
-    double ad = a * d;
-    double k1 = sigma_b_2 - a * sigma_g_2 + ad;
-    double k0 = -a * ad;
-    double det = k1 * k1 - 4 * sigma_g_2 * k0;
-    return floor(-2.0 * k0 / (k1 + sqrt(det)));
-}
-
-static double var_out(double c, double a, double sigma_b_2, double sigma_g_2)
-{
-    double ac = a - c;
-    return (ac / a) * (sigma_b_2 - ac * sigma_g_2);
-}
-
-static double outlier_variance(double mean, double st_dev, double a)
-{
-    double sigma_b = st_dev;
-    double u_a = mean / a;
-    double u_g_min = u_a / 2.0;
-    double sigma_g = fmin(u_g_min / 4.0, sigma_b / sqrt(a));
-    double sigma_g_2 = sigma_g * sigma_g;
-    double sigma_b_2 = sigma_b * sigma_b;
-    double var_out_min =
-        fmin(var_out(1, a, sigma_b_2, sigma_g_2),
-             var_out(fmin(c_max(0, u_a, a, sigma_b_2, sigma_g_2),
-                          c_max(u_g_min, u_a, a, sigma_b_2, sigma_g_2)),
-                     a, sigma_b_2, sigma_g_2)) /
-        sigma_b_2;
-    return var_out_min;
-}
-
-static void classify_outliers(struct distr *distr)
-{
-    struct outliers *outliers = &distr->outliers;
-    double q1 = distr->q1;
-    double q3 = distr->q3;
-    double iqr = q3 - q1;
-    double los = q1 - (iqr * 3.0);
-    double lom = q1 - (iqr * 1.5);
-    double him = q3 + (iqr * 1.5);
-    double his = q3 + (iqr * 3.0);
-
-    outliers->low_severe_x = los;
-    outliers->low_mild_x = lom;
-    outliers->high_mild_x = him;
-    outliers->high_severe_x = his;
-    for (size_t i = 0; i < distr->count; ++i) {
-        double v = distr->data[i];
-        if (v < los)
-            ++outliers->low_severe;
-        else if (v > his)
-            ++outliers->high_severe;
-        else if (v < lom)
-            ++outliers->low_mild;
-        else if (v > him)
-            ++outliers->high_mild;
-    }
-    outliers->var =
-        outlier_variance(distr->mean.point, distr->st_dev.point, distr->count);
-}
-
-void estimate_distr(const double *data, size_t count, size_t nresamp,
-                    struct distr *distr)
-{
-    double *tmp = malloc(sizeof(*tmp) * count);
-    distr->data = data;
-    distr->count = count;
-    bootstrap_mean_st_dev(data, count, tmp, nresamp, &distr->mean,
-                          &distr->st_dev);
-    memcpy(tmp, data, count * sizeof(*tmp));
-    qsort(tmp, count, sizeof(*tmp), compare_doubles);
-    distr->median = tmp[count / 2];
-    distr->q1 = tmp[count / 4];
-    distr->q3 = tmp[count * 3 / 4];
-    distr->p1 = tmp[count / 100];
-    distr->p5 = tmp[count * 5 / 100];
-    distr->p95 = tmp[count * 95 / 100];
-    distr->p99 = tmp[count * 99 / 100];
-    distr->min = tmp[0];
-    distr->max = tmp[count - 1];
-    classify_outliers(distr);
-    free(tmp);
-}
-
 bool process_wait_finished_correctly(pid_t pid, bool silent)
 {
     int status = 0;
@@ -723,8 +337,8 @@ bool check_and_handle_err_pipe(int read_end, int timeout)
     return true;
 }
 
-static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
-                                   int stderr_fd, int err_pipe[2], pid_t *pidp)
+static bool shell_launch_internal(const char *cmd, int stdin_fd, int stdout_fd,
+                                  int stderr_fd, int err_pipe[2], pid_t *pidp)
 {
     char *argv[] = {"sh", "-c", NULL, NULL};
     argv[2] = (char *)cmd;
@@ -749,8 +363,7 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
             if (stderr_fd == -1)
                 stderr_fd = fd;
         }
-        if (dup2(stdin_fd, STDIN_FILENO) == -1 ||
-            dup2(stdout_fd, STDOUT_FILENO) == -1 ||
+        if (dup2(stdin_fd, STDIN_FILENO) == -1 || dup2(stdout_fd, STDOUT_FILENO) == -1 ||
             dup2(stderr_fd, STDERR_FILENO) == -1) {
             csfdperror(err_pipe[1], "dup2");
             _exit(-1);
@@ -760,7 +373,14 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
         if (write(err_pipe[1], "", 1) < 0)
             _exit(-1);
         if (execv("/bin/sh", argv) == -1) {
-            csfdperror(err_pipe[1], "execv");
+            char argv_str[4096] = {0};
+            struct string_writer writer = strwriter(argv_str, sizeof(argv_str));
+            for (char **argv_cursor = argv; *argv_cursor != NULL; ++argv_cursor) {
+                strwriter_printf(&writer, "%s", *argv_cursor);
+                if (argv_cursor[1] != NULL)
+                    strwriter_printf(&writer, " ");
+            }
+            csfdfmtperror(err_pipe[1], "execv(\"/bin/sh\", \"%s\"", argv_str);
             _exit(-1);
         }
         __builtin_unreachable();
@@ -769,42 +389,63 @@ static bool shell_execute_internal(const char *cmd, int stdin_fd, int stdout_fd,
     return check_and_handle_err_pipe(err_pipe[0], -1);
 }
 
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   pid_t *pid)
+bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, pid_t *pid)
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return false;
-    bool success = shell_execute_internal(cmd, stdin_fd, stdout_fd, stderr_fd,
-                                          err_pipe, pid);
+    bool success = shell_launch_internal(cmd, stdin_fd, stdout_fd, stderr_fd, err_pipe, pid);
     close(err_pipe[0]);
     close(err_pipe[1]);
     return success;
 }
 
-bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
-                            int stderr_fd)
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd, int stderr_fd,
+                             pid_t *pidp)
+{
+    int pipe_fds[2];
+    if (!pipe_cloexec(pipe_fds))
+        return false;
+
+    bool success = shell_launch(cmd, pipe_fds[0], stdout_fd, stderr_fd, pidp);
+    if (!success) {
+        close(pipe_fds[0]);
+        close(pipe_fds[1]);
+        return false;
+    }
+    close(pipe_fds[0]);
+    FILE *f = fdopen(pipe_fds[1], "w");
+    if (f == NULL) {
+        csperror("fdopen");
+        // Not a very nice way of handling errors, but it seems correct.
+        close(pipe_fds[1]);
+        kill(*pidp, SIGKILL);
+        for (;;) {
+            int err = waitpid(*pidp, NULL, 0);
+            if (err == -1 && errno == EINTR)
+                continue;
+            break;
+        }
+        return false;
+    }
+    *in_pipe = f;
+    return true;
+}
+
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent)
 {
     pid_t pid = 0;
-    bool success = shell_execute(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
+    bool success = shell_launch(cmd, stdin_fd, stdout_fd, stderr_fd, &pid);
     if (success)
-        success = process_wait_finished_correctly(pid, false);
+        success = process_wait_finished_correctly(pid, silent);
     return success;
 }
 
-size_t csstrlcpy(char *dst, const char *src, size_t size)
-{
-    size_t ret = strlen(src);
-    if (size) {
-        size_t len = (ret >= size) ? size - 1 : ret;
-        memcpy(dst, src, len);
-        dst[len] = '\0';
-    }
-    return ret;
-}
-
 #if defined(__APPLE__)
-double get_time(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9; }
+double get_time(void)
+{
+    return clock_gettime_nsec_np(CLOCK_UPTIME_RAW) / 1e9;
+}
 #else
 double get_time(void)
 {
@@ -814,7 +455,8 @@ double get_time(void)
 }
 #endif
 
-FILE *open_file_fmt(const char *mode, const char *fmt, ...)
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, const char *fmt,
+                                                          ...)
 {
     char buf[4096];
     va_list args;
@@ -822,16 +464,6 @@ FILE *open_file_fmt(const char *mode, const char *fmt, ...)
     vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     return fopen(buf, mode);
-}
-
-int open_fd_fmt(int flags, mode_t mode, const char *fmt, ...)
-{
-    char buf[4096];
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, args);
-    va_end(args);
-    return open(buf, flags, mode);
 }
 
 int tmpfile_fd(void)
@@ -843,7 +475,7 @@ int tmpfile_fd(void)
         return -1;
     }
     if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1) {
-        csperror("fcntl");
+        csfmtperror("fcntl on '%s'", path);
         return false;
     }
     unlink(path);
@@ -864,7 +496,7 @@ bool spawn_threads(void *(*worker_fn)(void *), void *param, size_t thread_count)
         if (pthread_create(id, NULL, worker_fn, param) != 0) {
             for (size_t j = 0; j < i; ++j)
                 pthread_join(thread_ids[j], NULL);
-            error("failed to spawn thread");
+            csfmtperror("failed to spawn thread");
             goto out;
         }
         thread_ids[i] = *id;
@@ -911,17 +543,9 @@ const char *csmkstr(const char *src, size_t len)
     return str;
 }
 
-const char *csstrdup(const char *str) { return csmkstr(str, strlen(str)); }
-
-// TODO: Remove this function and do the same thing in place it is called
-const char *csstripend(const char *src)
+const char *csstrdup(const char *str)
 {
-    size_t len = strlen(src);
-    char *str = (char *)csmkstr(src, len);
-    // XXX: I don't remember why this exists...
-    while (len && str[len - 1] == '\n')
-        str[len-- - 1] = '\0';
-    return str;
+    return csmkstr(str, strlen(str));
 }
 
 const char *csfmt(const char *fmt, ...)
@@ -954,7 +578,7 @@ const char **parse_comma_separated_list(const char *str)
     while (cursor != end) {
         const char *next = strchr(cursor, ',');
         if (next == NULL) {
-            const char *new_str = csstripend(cursor);
+            const char *new_str = csstrdup(cursor);
             sb_push(value_list, new_str);
             break;
         }
@@ -983,6 +607,39 @@ void fprintf_colored(FILE *f, const char *how, const char *fmt, ...)
     }
 }
 
+void strwriter_vprintf(struct string_writer *writer, const char *fmt, va_list args)
+{
+    int advance = vsnprintf(writer->cursor, writer->end - writer->cursor, fmt, args);
+    writer->cursor += advance;
+}
+
+__attribute__((format(printf, 2, 3))) void strwriter_printf(struct string_writer *writer,
+                                                            const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    strwriter_vprintf(writer, fmt, args);
+    va_end(args);
+}
+
+__attribute__((format(printf, 3, 4))) void
+strwriter_printf_colored(struct string_writer *writer, const char *how, const char *fmt, ...)
+{
+    if (g_colored_output) {
+        strwriter_printf(writer, "\x1b[%sm", how);
+        va_list args;
+        va_start(args, fmt);
+        strwriter_vprintf(writer, fmt, args);
+        va_end(args);
+        strwriter_printf(writer, "\x1b[0m");
+    } else {
+        va_list args;
+        va_start(args, fmt);
+        strwriter_vprintf(writer, fmt, args);
+        va_end(args);
+    }
+}
+
 void errorv(const char *fmt, va_list args)
 {
     pthread_t tid = pthread_self();
@@ -992,8 +649,8 @@ void errorv(const char *fmt, va_list args)
         // should) is always a single one
         if (pthread_equal(tid, g_output_anchors[i].id) &&
             !atomic_load(&g_output_anchors[i].has_message)) {
-            vsnprintf(g_output_anchors[i].buffer,
-                      sizeof(g_output_anchors[i].buffer), fmt, args);
+            vsnprintf(g_output_anchors[i].buffer, sizeof(g_output_anchors[i].buffer), fmt,
+                      args);
             atomic_fence();
             atomic_store(&g_output_anchors[i].has_message, true);
             va_end(args);
@@ -1058,14 +715,31 @@ void csfdperror(int fd, const char *msg)
         _exit(-1);
 }
 
+void csfdfmtperror(int fd, const char *fmt, ...)
+{
+    int err = errno;
+    char errbuf[4096];
+    const char *err_msg = csstrerror(errbuf, sizeof(errbuf), err);
+
+    char buf[4096];
+    struct string_writer writer = strwriter(buf, sizeof(buf));
+    va_list args;
+    va_start(args, fmt);
+    strwriter_vprintf(&writer, fmt, args);
+    va_end(args);
+    strwriter_printf(&writer, ": %s", err_msg);
+    if (write(fd, writer.start, writer.cursor - writer.start + 1) < 0)
+        _exit(-1);
+}
+
 bool pipe_cloexec(int fd[2])
 {
     if (pipe(fd) == -1) {
         csperror("pipe");
         return false;
     }
-    if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 ||
-        fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
+    if (fcntl(fd[0], F_SETFD, FD_CLOEXEC) == -1 || fcntl(fd[1], F_SETFD, FD_CLOEXEC) == -1) {
+        csperror("fcntl");
         close(fd[0]);
         close(fd[1]);
         return false;
@@ -1073,8 +747,7 @@ bool pipe_cloexec(int fd[2])
     return true;
 }
 
-void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
-                void *arg)
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar, void *arg)
 {
 #ifdef __linux__
     qsort_r(base, nmemb, size, compar, arg);
@@ -1083,4 +756,191 @@ void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
 #else
 #error
 #endif
+}
+
+enum parse_time_str_result parse_time_str(const char *str, enum units_kind target_units,
+                                          double *valuep)
+{
+    char *str_end;
+    double value = strtod(str, &str_end);
+    if (str_end == str)
+        return PARSE_TIME_STR_ERR_FORMAT;
+
+    if (value < 0.0)
+        return PARSE_TIME_STR_ERR_NEG;
+
+    const char *cursor = str_end;
+    switch (*cursor) {
+    case '\0':
+        break;
+    case 's':
+        if (cursor[1] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        break;
+    case 'm':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-3;
+        break;
+    case 'u':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-6;
+        break;
+    case 'n':
+        if (cursor[1] != 's' || cursor[2] != '\0')
+            return PARSE_TIME_STR_ERR_UNITS;
+        value *= 1e-9;
+        break;
+    default:
+        return PARSE_TIME_STR_ERR_UNITS;
+    }
+
+    switch (target_units) {
+    case MU_S:
+        break;
+    case MU_MS:
+        value *= 1e3;
+        break;
+    case MU_US:
+        value *= 1e6;
+        break;
+    case MU_NS:
+        value *= 1e9;
+        break;
+    default:
+        assert(0);
+    }
+
+    *valuep = value;
+    return PARSE_TIME_STR_OK;
+}
+
+static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
+                     struct FTW *ftwbuf)
+{
+    (void)sb;
+    (void)typeflag;
+    (void)ftwbuf;
+    int rv = remove(fpath);
+    if (rv)
+        csfmtperror("failed to delete file '%s'", fpath);
+    return rv;
+}
+
+bool rm_rf_dir(const char *name)
+{
+    struct stat st;
+    if (stat(name, &st) != 0) {
+        if (errno == ENOENT)
+            return true;
+        csfmtperror("failed to get information about file '%s'", name);
+        return false;
+    }
+
+    int ret = nftw(name, unlink_cb, 64, FTW_DEPTH | FTW_PHYS);
+    if (ret != 0) {
+        csfmtperror("failed to delete out directory '%s'", name);
+        return false;
+    }
+    return true;
+}
+
+void parse_units_str(const char *str, struct units *units)
+{
+    if (strcmp(str, "s") == 0) {
+        units->kind = MU_S;
+    } else if (strcmp(str, "ms") == 0) {
+        units->kind = MU_MS;
+    } else if (strcmp(str, "us") == 0) {
+        units->kind = MU_US;
+    } else if (strcmp(str, "ns") == 0) {
+        units->kind = MU_NS;
+    } else if (strcmp(str, "b") == 0) {
+        units->kind = MU_B;
+    } else if (strcmp(str, "kb") == 0) {
+        units->kind = MU_KB;
+    } else if (strcmp(str, "mb") == 0) {
+        units->kind = MU_MB;
+    } else if (strcmp(str, "gb") == 0) {
+        units->kind = MU_GB;
+    } else if (strcmp(str, "none") == 0) {
+        units->kind = MU_NONE;
+    } else {
+        units->kind = MU_CUSTOM;
+        units->str = str;
+    }
+}
+
+bool parse_meas_str(const char *str, enum meas_kind *kind)
+{
+    if (strcmp(str, "wall") == 0) {
+        *kind = MEAS_WALL;
+    } else if (strcmp(str, "stime") == 0) {
+        *kind = MEAS_RUSAGE_STIME;
+    } else if (strcmp(str, "utime") == 0) {
+        *kind = MEAS_RUSAGE_UTIME;
+    } else if (strcmp(str, "maxrss") == 0) {
+        *kind = MEAS_RUSAGE_MAXRSS;
+    } else if (strcmp(str, "minflt") == 0) {
+        *kind = MEAS_RUSAGE_MINFLT;
+    } else if (strcmp(str, "majflt") == 0) {
+        *kind = MEAS_RUSAGE_MAJFLT;
+    } else if (strcmp(str, "nvcsw") == 0) {
+        *kind = MEAS_RUSAGE_NVCSW;
+    } else if (strcmp(str, "nivcsw") == 0) {
+        *kind = MEAS_RUSAGE_NIVCSW;
+    } else if (strcmp(str, "cycles") == 0) {
+        *kind = MEAS_PERF_CYCLES;
+    } else if (strcmp(str, "instructions") == 0) {
+        *kind = MEAS_PERF_INS;
+    } else if (strcmp(str, "branches") == 0) {
+        *kind = MEAS_PERF_BRANCH;
+    } else if (strcmp(str, "branch-misses") == 0) {
+        *kind = MEAS_PERF_BRANCHM;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool get_term_win_size(size_t *rows, size_t *cols)
+{
+    struct winsize ws;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1) {
+        csperror("ioctl");
+        return false;
+    }
+    *rows = ws.ws_row;
+    *cols = ws.ws_col;
+    return true;
+}
+
+void abbreviated_name(char *buf, size_t buf_size, size_t idx)
+{
+    // Algorithm below does not handle zeroes on its own
+    if (idx == 0) {
+        snprintf(buf, buf_size, "A");
+        return;
+    }
+
+    size_t base = 'Z' - 'A' + 1;
+    size_t power = 0;
+    for (size_t t = idx; t != 0; t /= base, ++power)
+        ;
+
+    // This is error case, put practically it will never be hit
+    if (power >= buf_size) {
+        if (buf_size)
+            *buf = '\0';
+        return;
+    }
+    buf[power] = '\0';
+    char *cursor = buf + power - 1;
+    int align = 0;
+    while (idx != 0) {
+        *cursor-- = 'A' + (idx % base - align);
+        idx /= base;
+        align = 1;
+    }
 }

@@ -58,9 +58,9 @@ Command\-line benchmarking tool which includes:
 .IP
 Run each benchmark exactly \fINUM\fP times in total (not including warmup). When set, \fB\-\-time\-limit\fR, \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR have no effect.
 .HP
-\fB\-T\fR, \fB\-\-time\-limit\fR \fINUM\fP
+\fB\-T\fR, \fB\-\-time\-limit\fR \fIDURATION\fP
 .IP
-Run each benchmark for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR.
+Run each benchmark for at least \fIDURATION\fP seconds in total. Affected by \fB\-\-min\-runs\fR and \fB\-\-max\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-runs\fR \fINUM\fP
 .IP
@@ -77,7 +77,7 @@ Perform exactly \fINUM\fP warmup runs. When set, \fB\-\-warmup\fR, \fB\-\-min\-w
 .HP
 \fB\-W\fR, \fB\-\-warmup\fR \fINUM\fP
 .IP
-Perform warmup for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR.
+Perform warmup for at least \fINUM\fP seconds in total. Affected by \fB\-\-min\-warmup\-runs\fR and \fB\-\-max\-warmup\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-warmup\-runs\fR \fINUM\fP
 .IP
@@ -98,7 +98,7 @@ In a single round perform exactly \fINUM\fP runs. When set, \fB\-\-round\-time\f
 .HP
 \fB\-\-round\-time\fR \fINUM\fP
 .IP
-Each benchmark will be run for at least \fINUM\fP seconds in row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR.
+Each benchmark will be run for at least \fINUM\fP seconds in row. Affected by \fB\-\-min\-round\-runs\fR and \fB\-\-max\-round\-runs\fR. \fIDURARION\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
 \fB\-\-min\-round\-runs\fR \fINUM\fP
 .IP
@@ -126,7 +126,7 @@ Example:
 .HP
 \fB\-S\fR, \fB\-\-shell\fR \fISHELL\fP
 .IP
-Set the shell to be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none". This way commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead.
+Set the shell to be used for executing benchmark commands. Can be both name of shell executable, like "bash", or a command like "bash \-\-norc". Either way, arguments "-c" and benchmark command string are appended to shell argument list. Alternatively, \fISHELL\fP can be set to "none", or "inherit". If set to "none", commands will be executed directly using execve(2) system call, avoiding shell process startup time overhead. If set to "inherit", uses the shell set in \fISHELL\fP variable of calling process.
 .HP
 .B \-N
 .IP
@@ -134,7 +134,7 @@ An alias no \fB\-\-shell=none\fR.
 .HP
 \fB\-P\fR, \fB\-\-prepare\fR \fICMD\fP
 .IP
-Execute \fICMD\fP in shell before each benchmark run.
+Execute \fICMD\fP in shell before each benchmark run. \fICMD\fP may contain parameter substitutions.
 .IP
 .RS
 Example:
@@ -142,6 +142,10 @@ Example:
 \fBcsbench\fR \fB\-\-prepare\fR='make clean' make
 .RE
 .RE
+.HP
+\fB\-\-round-prepare\fR \fICMD\fP
+.IP
+Execute \fICMD\fP in shell in the beggining of each round, before the warmup. \fICMD\fP may contain parameter substitutions.
 .HP
 \fB\-j\fR, \fB\-\-jobs\fR \fINUM\fP
 .IP
@@ -154,6 +158,10 @@ Do not abort benchmarking when benchmark commands finishes with non\-zero exit c
 \fB\-s\fR, \fB\-\-simple\fR
 .IP
 Preset to run benchmarks using system thread count obtained by executing nproc(1), for 1 second without warmup and rounds.
+.HP
+.B \-\-shuffle\-runs
+.IP
+Randomize the order in which benchmarks are run. By default they are run round-robin from first to last.
 .SS Command input and output options
 .HP
 \fB\-\-input\fR \fIFILE\fP
@@ -262,6 +270,17 @@ no units
 Use <UNITS\-NAME> as name
 .RE
 .HP
+\fB\-\-custom\-re\fR \fINAME\fP \fIUNITS\fP \fIRE\fP
+.IP
+Add custom measurement with name \fINAME\fP. This measurement regular expression \fIRE\fP to extract data from stdout of each command, parses first subexpression as a single real number and interprets it in \fIUNITS\fP.
+.IP
+.RS
+Example:
+.RS
+\fBcsbench\fR 'echo hello, $RANDOM' \fB\-\-custom\-re\fR m s 'hello, ([0-9.]+)'
+.RE
+.RE
+.HP
 .B \-\-no\-default\-meas
 .IP
 Do not use default measurements (which are "wall", "stime", "utime").
@@ -274,6 +293,8 @@ Do not use default measurements (which are "wall", "stime", "utime").
 .RS
 Example:
 .RS
+.IP auto 
+select 
 \fBcsbench\fR \fB\-\-param\fR n/100,200,400,800 'python3 quicksort.py {n}'
 .RE
 .RE
@@ -290,23 +311,47 @@ Example:
 .RE
 .SS Alternative mode options
 .HP
-.B \-\-load\-csv
+.B \-\-load\-text
 .IP
+    
 Load benchmark data from CSV files listed in command-line. CSV can either be generated by \fBcsbench\fR using \fB\-\-csv\fR option, or any external source. This option changes interpretation of \fBcommand...\fR from list of commands to benchmark to list of CSV file names.
 .IP
 Format of CSV files is the same as generated by csbench for "bench_raw_*.csv" files. First line should contain measurement names, all other lines should contain values for these measurements.
 .RS
 Example:
 .RS
-\fBcsbench\fR \fB\-\-load\-csv\fR .csbench/bench_raw_0.csv .csbench/bench_raw_1.csv
+\fBcsbench\fR \fB\-\-load\-text\fR .csbench/benches_raw_0.csv .csbench/bench_raw_1.csv
 .RE
-or
+.RE
 .RS
-\fBcsbench\fR \fB\-\-load\-csv\fR .csbench/*
+Format description:
+.RS
+.nf
+   # \fBextract\fR='{name} n={n}' \fBmeas\fR=<measname> \fBunits\fR=<unit>
+   <bench1>,<val1>,<val2>,...
+   <bench2>,<val1>,<val2>,...
+ Header (optional, #-prefixed)
+ - \fBextract\fR - pattern for parsing benchmark names.
+   - {name} - group name
+   - {<var>} - variable placeholder for parameter analysis
+ - \fBmeas\fR - label of the measurement (e.g. time, size).
+ - \fBunits\fR - measurement units: ns, us, ms, s, b, kb, mb, gb, none.
+ Data lines
+ Start with benchmark name (<bench>). Then values, e.g. 1,2,3...
+ Simple Example:
+   option1,1,2,3
+   option2,4,5,6
+ Complex Example:
+   # \fBextract\fR='{name} n={n}' \fBmeas\fR=mymeas \fBunits\fR=ns
+   a n=1,1,2,3
+   a n=2,4,5,6
+   b n=1,10,20
+   b n=2,100,200
+.fi
 .RE
 .RE
 .IP
-Note that all options listed above in this man page are not usable in this mode. Loaded data cannot be parameterized, as CSV format does not store any meta-information. For feature-complete serialization/deserialization refer to \fB\-\-load\-bin\fR option. All the options listed below can be used (rename, set baseline, generate plots, export data etc.).
+Note that all options listed above in this man page are not usable in this mode. All the options listed below can be used (rename, set baseline, generate plots, export data etc.).
 .HP
 .B \-\-load\-bin
 .IP
@@ -406,11 +451,25 @@ Place all outputs to directory \fIDIR\fP. Default value is ".csbench".
 .HP
 .B \-\-plot
 .IP
-Generate plots to output directory. "python3" with "matplotlib" installed must be available at search path.
+Generate plots to output directory. "python3" with "matplotlib" installed must be available at search path. Generates file "plots_map.md" containing list and descriptions of generated files.
 .HP
 .B \-\-plot\-src
 .IP
-Save python sources used to generate plots to output directory.
+Save sources used to generate plots to output directory.
+.HP
+\fB\-\-plot\-backend\fR \fIBACKEND\fP
+.IP
+Select backend used to generate plots. Possible values for \fIBACKEND\fP are:
+.RS
+.IP auto 
+Select best available backend (default).
+.IP matplotlib 
+Use python with "matplotlib" library.
+.IP gnuplot
+Use gnuplot. 
+.RE
+.IP
+Note that gnuplot version in inferior to matplotlib in terms of visuals. That is way matplotlib is chosen if available when using "auto" option. 
 .HP
 .B \-\-html
 .IP
@@ -418,7 +477,7 @@ Generate HTML report. Implies \fB\-\-plot\fR.
 .HP
 .B \-\-csv
 .IP
-Save benchmark results to CSV files placed in output directory.
+Save benchmark results to CSV files placed in output directory. Also generates file "csv_map.md" containing list and descriptions of generated files.
 .HP
 \fB\-\-json\fR \fIFILE\fP
 .IP
@@ -441,13 +500,21 @@ Use colored output. Possible values for \fIWHEN\fP are "never", "auto", "always"
 .IP
 Display dynamically updated progress bar when running benchmarks. Possible values for \fIWHEN\fP are "never", "auto", "always".
 .HP
-\fB\-\-progress\-bar-interval\fR \fIUS\fP
+\fB\-\-progress\-bar-interval\fR \fITIME\fP
 .IP
-Set redraw interval of progress bar to \fIUS\fP microseconds. Default is 100000 (100 milliseconds).
+Set redraw interval of progress bar to \fITIME\fP. Default is 100ms (100 milliseconds). \fITIME\fP is a real number optionally followed by measurement units ("s", "ms", "us", "ns"). If units are not specified, seconds are assumed.
 .HP
-.B \-\-python\-output
+.B \-\-plot\-debug
 .IP
-Do not silence python output. This can be used for debugging.
+Do not silence output of program which is used to make plots.
+.HP
+\fB\-\-python\-executable\fR \fIEXE\fP
+.IP
+Use file \fIEXE\fP as python executable when making plots. Default is "python3".
+.HP
+.B \-\-clear\-out
+.IP 
+Clear out directory (specified using \fB\-\-out\-dir\fR) before execution.
 .HP
 .B \-\-help
 .IP

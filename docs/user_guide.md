@@ -65,7 +65,7 @@ $ cat test.py # not actual code
 start = time()
 n = fib(100) # do something
 print(time() - start)
-$ csbench 'python3 test.py' --custom py-time --no-wall
+$ csbench 'python3 test.py' --custom py-time --no-default-meas
 ```
 #### run parameterized benchmark and use custom parameter
 ```sh
@@ -73,7 +73,9 @@ $ cat test.py # not actual code
 start = time()
 n = fib(int(input())) # do something
 print(time() - start)
-$ csbench 'echo {n} | python3 test.py' --custom py-time --no-wall --param-range n/1/100/10
+$ csbench 'echo {n} | python3 test.py' --custom py-time --no-default-meas --param-range n/1/100/10
+# or 
+$ csbench 'python3 test.py' --custom py-time --no-default-meas --inputs '{n}' --param-range n/1/100/10
 ```
 
 ## How to understand and use `csbench` output
@@ -122,7 +124,7 @@ slowest is sleep 0.5
   sleep 0.1 is 2.782 ± 0.042 times faster than sleep 0.3 (p=0.00)
   sleep 0.1 is 3.660 ± 0.067 times faster than sleep 0.4 (p=0.00)
   sleep 0.1 is 4.576 ± 0.068 times faster than sleep 0.5 (p=0.00)
-linear (O(N)) complexity (1.00488)                                  # 3
+linear (O(N)) complexity (r2=0.98)                                  # 3
 ```
 
 1. Executing parameterized benchmark is partially equivalent to running same benchmark with explicitly generating all commands:
@@ -135,6 +137,7 @@ linear (O(N)) complexity (1.00488)                                  # 3
     It considers following complexities: O(1), O(N), O(N^2), O(N^3), O(logN), O(NlogN).
     Number given is a linear multiplier of complexity.
     It becomes most evident and useful when plotted.
+    Also the value of [coefficient of determination](https://en.wikipedia.org/wiki/Coefficient_of_determination) is given (r2).
 
 Now let's look at some of the plots. 
 First plot is [KDE](https://en.wikipedia.org/wiki/Kernel_density_estimation).
@@ -198,7 +201,7 @@ Its argument is a command that expands in shell invocation. Command is executed 
 
 If user specifies custom measurement, chances that they prefer these results over wall clock time analysis.
 However, wall clock time information is still included. 
-Option `--no-wall` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report. 
+Option `--no-default-meas` can be set to explicitly remove wall clock analysis from CLI output, plots, and html report. 
 
 ### Parallel benchmarking
 

@@ -9,7 +9,7 @@ jobs:
         uses: actions/checkout@master
       - name: install stuff
         run: |
-          python3 -m pip install matplotlib
+          sudo apt-get install -y gnuplot
       - name: test
         run: |
           make
@@ -26,7 +26,7 @@ jobs:
         run: |
           gcc csbench_amalgamated.c -lm -lpthread
       - name: upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: csbench_amalgamated.c
           path: csbench_amalgamated.c

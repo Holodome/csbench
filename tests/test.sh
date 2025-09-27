@@ -7,11 +7,12 @@
 
 set -eox pipefail
 
+
 dist_dir=/tmp/.csbench
 if [ -z "$csbench" ]; then
     csbench=./csbench 
 fi
-b="$csbench -R2 -W0 -o $dist_dir -j$(nproc)"
+b="$csbench -R2 -W0 -o $dist_dir -j$(nproc) --sort=command --baseline=1 --plot-backend=gnuplot"
 
 die () {
     echo error
@@ -21,6 +22,16 @@ die () {
 distclean() {
     rm -rf "$dist_dir"
     mkdir "$dist_dir"
+}
+
+check_all_files() {
+    local count=$(($1+1))
+    local files=$(echo "$2" | sed 's/.py/.gp/g')
+    [ $(ls "$dist_dir" | wc -l) -eq "$count" ] || die
+    for file in $files ; do
+        f=$(echo "$dist_dir/$file" | sed "s/svg/gp/")
+        [ -f "$f" ] || die
+    done
 }
 
 #
@@ -35,9 +46,8 @@ $b --version > /dev/null || die
 
 distclean
 $b ls --plot > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 2 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/plots_map.md" ] || die
 
 #
 # check that plots are generated for two commands
@@ -45,11 +55,10 @@ $b ls --plot > /dev/null || die
 
 distclean
 $b ls pwd --plot > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] && \
+[ -f "$dist_dir/plots_map.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_1_0.svg" ] || die
 
 #
 # check that plots are generated for custom measurement
@@ -57,10 +66,9 @@ $b ls pwd --plot > /dev/null || die
 
 distclean
 $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_0_3.svg" ] && [ -f "$dist_dir/kde_ext_0_3.svg" ] && \
-[ -f "$dist_dir/readme.md" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_0_3.svg" ] && \
+[ -f "$dist_dir/plots_map.md" ] || die
 
 #
 # check that plots are generated for parameter
@@ -68,11 +76,10 @@ $b ls --plot --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 
 distclean 
 $b 'echo {n}' --plot --param n/1,2 > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
-[ -f "$dist_dir/kde_cmp_0.svg" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] && \
+[ -f "$dist_dir/plots_map.md" ] && [ -f "$dist_dir/bar_0.svg" ] && \
+[ -f "$dist_dir/kde_cmp_1_0.svg" ] || die
 
 #
 # check that html report is generated in all basic cases
@@ -90,6 +97,8 @@ $b ls --html --custom-t aaa 'shuf -i 1-100000 -n 1' > /dev/null || die
 distclean 
 $b 'echo {n}' --html --param n/1,2 > /dev/null || die
 [ -f "$dist_dir/index.html" ] || die
+$b 'echo {n}' 'echo 1{n}' --html --param n/1,2 > /dev/null || die
+[ -f "$dist_dir/index.html" ] || die
 
 #
 # check that quicksort example works
@@ -97,12 +106,9 @@ $b 'echo {n}' --html --param n/1,2 > /dev/null || die
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 23 ] || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
-kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
-kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
-bar_0.svg bar_3.svg readme.md"
+[ $(ls "$dist_dir" | wc -l) -eq 21 ] || die
+files="bar_0.svg       kde_0_0.svg     kde_1_0.svg     kde_2_0.svg     kde_3_0.svg     kde_4_0.svg     kde_cmp_1_0.svg kde_cmp_2_0.svg kde_cmp_3_0.svg kde_cmp_4_0.svg plots_map.md
+bar_3.svg       kde_0_3.svg     kde_1_3.svg     kde_2_3.svg     kde_3_3.svg     kde_4_3.svg     kde_cmp_1_3.svg kde_cmp_2_3.svg kde_cmp_3_3.svg kde_cmp_4_3.svg"
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
 done
@@ -113,10 +119,8 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --no-default-meas > /dev/null || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
-bar_0.svg readme.md"
-[ $(ls "$dist_dir" | wc -l) -eq 12 ] || die
+files="bar_0.svg       kde_0_0.svg     kde_1_0.svg     kde_2_0.svg     kde_3_0.svg     kde_4_0.svg     kde_cmp_1_0.svg kde_cmp_2_0.svg kde_cmp_3_0.svg kde_cmp_4_0.svg plots_map.md"
+[ $(ls "$dist_dir" | wc -l) -eq 11 ] || die
 for file in $files ; do
     [ -f "$dist_dir/$file" ] || die
 done
@@ -127,16 +131,10 @@ done
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --plot-src > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 45 ] || die
-files="kde_0_0.svg kde_1_0.svg kde_2_0.svg kde_3_0.svg kde_4_0.svg
-kde_ext_0_0.svg kde_ext_1_0.svg kde_ext_2_0.svg kde_ext_3_0.svg kde_ext_4_0.svg
-kde_0_3.svg kde_1_3.svg kde_2_3.svg kde_3_3.svg kde_4_3.svg
-kde_ext_0_3.svg kde_ext_1_3.svg kde_ext_2_3.svg kde_ext_3_3.svg kde_ext_4_3.svg
-bar_0.svg bar_3.svg"
-for file in $files ; do
-    f=$(echo "$dist_dir/$file" | sed "s/svg/py/")
-    [ -f "$f" ] || die
-done
+files="plots_map.md
+bar_0.svg       kde_0_0.svg     kde_1_0.svg     kde_2_0.svg     kde_3_0.svg     kde_4_0.svg     kde_cmp_1_0.svg kde_cmp_2_0.svg kde_cmp_3_0.svg kde_cmp_4_0.svg
+bar_3.svg       kde_0_3.svg     kde_1_3.svg     kde_2_3.svg     kde_3_3.svg     kde_4_3.svg     kde_cmp_1_3.svg kde_cmp_2_3.svg kde_cmp_3_3.svg kde_cmp_4_3.svg"
+check_all_files 41 "$files"
 
 #
 # check json schema
@@ -155,7 +153,6 @@ if command -v jq &> /dev/null ; then
     cat $j | jq -e '.["settings"]["nresamp"]' > /dev/null || die
     cat $j | jq -e '.["benches"]' > /dev/null || die
     cat $j | jq -e '.["benches"][]' > /dev/null || die
-    cat $j | jq -e '.["benches"][] | .["prepare"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["command"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["run_count"]' > /dev/null || die
     cat $j | jq -e '.["benches"][] | .["meas"][]' > /dev/null || die
@@ -174,7 +171,7 @@ fi
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/100 --plot --regr > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 25 ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 23 ] || die
 
 #
 # check --shell none
@@ -182,9 +179,8 @@ $b 'echo {n} | python3 tests/quicksort.py' --custom t --param-range n/100/500/10
 
 distclean
 $b ls --plot --shell=none > /dev/null || die 
-[ $(ls "$dist_dir" | wc -l) -eq 3 ] && \
-[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_ext_0_0.svg" ] && \
-[ -f "$dist_dir/readme.md" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 2 ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/plots_map.md" ] || die
 
 #
 # check summary plot multiple parameterized commands
@@ -192,8 +188,8 @@ $b ls --plot --shell=none > /dev/null || die
 
 distclean
 $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' --custom t --param-range n/100/500/100 --plot --no-default-meas --regr > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 30 ] && \
-[ -f "$dist_dir/group_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 21 ] && \
+[ -f "$dist_dir/groups_0.svg" ] && [ -f "$dist_dir/group_bar_0.svg" ] || die
 
 #
 # check that no plots for non-number parameters are generated
@@ -201,10 +197,10 @@ $b 'echo {n} | python3 tests/quicksort.py' 'echo {n} | python3 tests/bubble.py' 
 
 distclean
 $b '{cmd}' --param=cmd/ls,pwd --plot > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ] && \
-[ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_0_0.svg" ] && \
-[ -f "$dist_dir/kde_1_0.svg" ] && [ -f "$dist_dir/kde_cmp_0.svg" ] && \
-[ -f "$dist_dir/kde_ext_0_0.svg" ] && [ -f "$dist_dir/kde_ext_1_0.svg" ] || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ] && \
+[ -f "$dist_dir/bar_0.svg" ] && [ -f "$dist_dir/kde_cmp_1_0.svg" ] && \
+[ -f "$dist_dir/kde_0_0.svg" ] && [ -f "$dist_dir/kde_1_0.svg" ] && \
+[ -f "$dist_dir/plots_map.md" ] || die
 
 #
 # check that --csv flag works
@@ -213,18 +209,9 @@ $b '{cmd}' --param=cmd/ls,pwd --plot > /dev/null || die
 distclean
 $b ls pwd --csv > /dev/null || die
 [ $(ls "$dist_dir" | wc -l) -eq 5 ] || die
-[ -f "$dist_dir/bench_0.csv" ] && [ -f "$dist_dir/bench_1.csv" ] && \
-[ -f "$dist_dir/bench_2.csv" ] && [ -f "$dist_dir/bench_raw_0.csv" ] && \
-[ -f "$dist_dir/bench_raw_1.csv" ] || die
-
-#
-# check that baseline works
-#
-
-distclean
-$b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/200/50 --baseline=1 > /dev/null || die
-distclean
-$b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/200/50 --baseline=3 > /dev/null || die
+[ -f "$dist_dir/benches_raw_0.csv" ] && [ -f "$dist_dir/benches_stats_0.csv" ] && \
+[ -f "$dist_dir/bench_raw_0.csv" ] && [ -f "$dist_dir/bench_raw_1.csv" ] && \
+[ -f "$dist_dir/csv_map.md" ] || die
 
 #
 # check that renaming works
@@ -235,19 +222,29 @@ out=$($b ls --rename 1 test || die)
 echo "$out" | grep -q test || die 
 echo "$out" | grep -qv ls || die 
 
-#
-# check that loading results from csv produces the same report
-#
+distclean 
+out=$($b ls --rename-name ls test || die)
+echo "$out" | grep -q test || die 
+echo "$out" | grep -qv ls || die 
 
 distclean 
-$b ls pwd --rename-all=one,two --csv > /tmp/csbench_1
-$b --load-csv $dist_dir/bench_raw_0.csv $dist_dir/bench_raw_1.csv --rename-all=one,two > /tmp/csbench_2
-# FIXME: Due to floating-point rounding diff does not always work
-# diff /tmp/csbench_1 /tmp/csbench_2 || die
+out=$($b ls --rename-all test || die)
+echo "$out" | grep -q test || die 
+echo "$out" | grep -qv ls || die 
 
 #
 # check that renaming works for groups
 #
+
+distclean
+out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename 1 quick)
+echo "$out" | grep -qv 'quicksort.py' || die 
+echo "$out" | grep -q quick || die 
+
+distclean
+out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename-name 'echo {n} | python3 tests/quicksort.py' quick)
+echo "$out" | grep -qv 'quicksort.py' || die 
+echo "$out" | grep -q quick || die 
 
 distclean
 out=$($b 'echo {n} | python3 tests/quicksort.py' --param-range n/100/500/100 --rename-all quick)
@@ -288,10 +285,10 @@ $b ls --no-default-meas --meas stime,utime > /dev/null || die
 $b 'echo {n} | python3 tests/quicksort.py' --custom-x t xxx cat --param-range n/100/500/100 > /dev/null || die
 
 #
-# check --python-output option
+# check --plot-debug option
 #
 
-$b ls --plot --python-output > /dev/null || die 
+$b ls --plot --plot-debug > /dev/null || die 
 
 #
 # check input string multiplexing
@@ -299,7 +296,7 @@ $b ls --plot --python-output > /dev/null || die
 
 distclean
 $b cat --inputs 'hello {t}' --param t/1,2,3 --csv > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 7 ]
+[ $(ls "$dist_dir" | wc -l) -eq 8 ]
 
 #
 # check input file multiplexing 
@@ -309,7 +306,7 @@ distclean
 touch /tmp/a
 touch /tmp/b
 $b cat --input '/tmp/{t}' --param t/a,b --csv > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 6 ]
+[ $(ls "$dist_dir" | wc -l) -eq 7 ]
 
 #
 # check input directory
@@ -319,11 +316,63 @@ mkdir -p /tmp/csbenchdir
 touch /tmp/csbenchdir/a
 touch /tmp/csbenchdir/b
 $b cat --inputd '/tmp/csbenchdir' --csv > /dev/null || die
-[ $(ls "$dist_dir" | wc -l) -eq 6 ]
+[ $(ls "$dist_dir" | wc -l) -eq 7 ]
 
 #
-# check save-bin and --load-bin without parameters
+# check save-bin and --load-bin without parameters (and merging)
 #
+distclean
 $b ls -o /tmp/csbench1 --save-bin > /dev/null || die 
 $b pwd -o /tmp/csbench2 --save-bin > /dev/null || die 
 $b --load-bin /tmp/csbench1 /tmp/csbench2 --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check save-bin and --load-bin with parameters
+#
+distclean
+$b 'echo {n}' 'echo 1{n}' --param n/1,2 -o /tmp/csbench1 --save-bin > /dev/null || die 
+$b --load-bin /tmp/csbench1 --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text with loading just benchmarks
+#
+distclean 
+$b --load-text tests/1.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --load-text with custom measurement
+#
+distclean 
+$b --load-text tests/2.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --load-text with parameters
+#
+distclean 
+$b --load-text tests/3.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text mergin
+#
+distclean 
+$b --load-text tests/1.txt tests/1.txt --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 9 ]
+
+#
+# check --load-text reading from stdin
+#
+distclean 
+cat tests/1.txt | $b --load-text - --plot > /dev/null || die
+[ $(ls "$dist_dir" | wc -l) -eq 5 ]
+
+#
+# check --custom-re option
+#
+distclean
+$b 'echo hello, $(shuf -i 1-1000000 -n 1)' --custom-re meas s 'hello, ([0-9.]+)' --plot > /dev/null || die 
+[ $(ls "$dist_dir" | wc -l) -eq 3 ]

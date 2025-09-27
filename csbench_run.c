@@ -62,11 +62,26 @@
 #include <string.h>
 
 #include <pthread.h>
+#include <regex.h>
 #include <sys/resource.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-struct run_state {
+#define PROGRESS_BAR_MAX_NAME_LEN 20
+// 4 is the numbe of lines we display, plus 1 for blank line where cursor will be
+#define PROGRESS_BAR_INFO_LINES (4 + 1)
+
+struct bench_run_data {
+    const struct bench_run_desc *desc;
+    struct bench *bench;
+    struct progress_bar_comm *comm;
+    // This this is used when running custom measurements
+    size_t *stdout_offsets;
+    // In case of suspension we save the state of running so it can be restored later
+    double time_run;
+};
+
+struct bench_run_state {
     double start_time;
     const struct bench_stop_policy *stop;
     int current_run;
@@ -87,16 +102,13 @@ enum bench_run_result {
 // so there may be inconsistences. But they would not lead to any erroneous
 // behaviour, and only affect consistency of information displayed. Either way,
 // this is not critical.
-struct progress_bar_bench {
+struct progress_bar_comm {
     int bar;
     int finished;
     int aborted;
     int warmup;
     int suspended;
-    union {
-        uint64_t u;
-        double d;
-    } start_time;
+    int has_been_run;
     union {
         uint64_t u;
         double d;
@@ -109,27 +121,66 @@ struct progress_bar_bench {
     pthread_t id;
 } __attribute__((aligned(64)));
 
-struct progress_bar_state {
+enum progress_bar_bench_state {
+    BENCH_STATE_NOT_STARTED,
+    BENCH_STATE_RUNNING,
+    BENCH_STATE_SUSPENDED,
+    BENCH_STATE_FINISHED
+};
+
+struct progress_bar_item_state {
     size_t runs;
+    double estimated_total_time;
+    double update_time;
     double eta;
-    double time;
-    bool last_running;
+};
+
+struct progress_bar_item_visual {
+    char name_buf[256];
+    char info_buf[4096];
+    int percent;
+    enum progress_bar_bench_state state;
+};
+
+enum name_abbreviation {
+    ABBR_NAMES_NO,
+    ABBR_NAMES_BENCHES,
+    ABBR_NAMES_GROUPS
+};
+
+struct progress_bar_visual {
+    size_t term_width, term_height;
+    struct progress_bar *data;
+
+    enum name_abbreviation name_abbr;
+
+    size_t name_align;
+    size_t bar_width;
+    size_t max_benchmarks_displayed;
+
+    bool was_drawn;
+    size_t n_last_drawn_lines;
+
+    size_t line_count;
+    struct progress_bar_item_visual *lines;
+
+    size_t buffer_size;
+    char *buffer;
 };
 
 struct progress_bar {
     pthread_t thread;
-    bool was_drawn;
-    size_t max_name_len;
     size_t count;
-    struct progress_bar_bench *bar_benches;
-    const struct bench *benches;
-    struct progress_bar_state *states;
+    const struct bench_run_data *rds;
+    struct progress_bar_comm *comms;
+    struct progress_bar_item_state *states;
+    struct progress_bar_visual vis;
+    size_t thread_count;
 };
 
 struct run_task {
     struct run_task_queue *q;
-    const struct bench_params *param;
-    struct bench *bench;
+    struct bench_run_data *rd;
 };
 
 struct run_task_queue {
@@ -144,8 +195,7 @@ struct run_task_queue {
 
 struct custom_measurement_task {
     struct custom_measurement_task_queue *q;
-    const struct bench_params *param;
-    struct bench *bench;
+    struct bench_run_data *rd;
 };
 
 struct custom_measurement_task_queue {
@@ -154,23 +204,19 @@ struct custom_measurement_task_queue {
     volatile size_t cursor;
 };
 
-static void
-init_custom_measurement_task_queue(const struct bench_params *params,
-                                   struct bench *benches, size_t count,
-                                   struct custom_measurement_task_queue *q)
+static void init_custom_measurement_task_queue(struct bench_run_data *rds, size_t count,
+                                               struct custom_measurement_task_queue *q)
 {
     memset(q, 0, sizeof(*q));
     q->task_count = count;
     q->tasks = calloc(count, sizeof(*q->tasks));
     for (size_t i = 0; i < count; ++i) {
         q->tasks[i].q = q;
-        q->tasks[i].param = params + i;
-        q->tasks[i].bench = benches + i;
+        q->tasks[i].rd = rds + i;
     }
 }
 
-static void
-free_custom_measurement_task_queue(struct custom_measurement_task_queue *q)
+static void free_custom_measurement_task_queue(struct custom_measurement_task_queue *q)
 {
     free(q->tasks);
 }
@@ -187,26 +233,23 @@ get_custom_measurement_task(struct custom_measurement_task_queue *q)
 // Used by 'should_i_suspend'
 static __thread struct run_task_queue *g_q;
 
-#define lock_mutex(_mutex)                                                     \
-    do {                                                                       \
-        /* Mutex would not fail in normal circumstances, we can just use       \
-         * assert */                                                           \
-        int ret = pthread_mutex_lock(&q->mutex);                               \
-        (void)ret;                                                             \
-        assert(ret == 0);                                                      \
+#define lock_mutex(_mutex)                                                                  \
+    do {                                                                                    \
+        /* Mutex would not fail in normal circumstances, we can just use assert */          \
+        int ret = pthread_mutex_lock(&q->mutex);                                            \
+        (void)ret;                                                                          \
+        assert(ret == 0);                                                                   \
     } while (0)
 
-#define unlock_mutex(_mutex)                                                   \
-    do {                                                                       \
-        /* Mutex would not fail in normal circumstances, we can just use       \
-         * assert */                                                           \
-        int ret = pthread_mutex_unlock(&q->mutex);                             \
-        (void)ret;                                                             \
-        assert(ret == 0);                                                      \
+#define unlock_mutex(_mutex)                                                                \
+    do {                                                                                    \
+        /* Mutex would not fail in normal circumstances, we can just use assert */          \
+        int ret = pthread_mutex_unlock(&q->mutex);                                          \
+        (void)ret;                                                                          \
+        assert(ret == 0);                                                                   \
     } while (0)
 
-static bool init_run_task_queue(const struct bench_params *params,
-                                struct bench *benches, size_t count,
+static bool init_run_task_queue(struct bench_run_data *rds, size_t count,
                                 size_t worker_count, struct run_task_queue *q)
 {
     assert(worker_count <= count);
@@ -217,7 +260,6 @@ static bool init_run_task_queue(const struct bench_params *params,
         csperror("pthread_mutex_init");
         return false;
     }
-
     q->task_count = q->remaining_task_count = count;
     q->tasks = calloc(count, sizeof(*q->tasks));
     q->finished = calloc(count, sizeof(*q->finished));
@@ -225,8 +267,7 @@ static bool init_run_task_queue(const struct bench_params *params,
     q->worker_count = worker_count;
     for (size_t i = 0; i < count; ++i) {
         q->tasks[i].q = q;
-        q->tasks[i].param = params + i;
-        q->tasks[i].bench = benches + i;
+        q->tasks[i].rd = rds + i;
     }
     return true;
 }
@@ -261,8 +302,7 @@ static void run_task_finish(struct run_task *task)
     unlock_mutex(&q->mutex);
 }
 
-static struct run_task *get_run_task(struct run_task_queue *q,
-                                     size_t *task_cursor)
+static struct run_task *get_run_task(struct run_task_queue *q, size_t *task_cursor)
 {
     struct run_task *task = NULL;
     lock_mutex(&q->mutex);
@@ -276,7 +316,10 @@ static struct run_task *get_run_task(struct run_task_queue *q,
         assert(task || (q->worker_count > q->remaining_task_count));
         if (task) {
             size_t idx = task - q->tasks;
-            *task_cursor = (idx + 1) % q->task_count;
+            if (g_shuffle_when_runnig)
+                *task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
+            else
+                *task_cursor = (idx + 1) % q->task_count;
             q->taken[idx] = true;
             assert(!q->finished[task - q->tasks]);
         }
@@ -344,27 +387,26 @@ static void apply_output_policy(enum output_kind policy, int err_pipe_end)
     }
 }
 
-static void exec_cmd_child(const struct bench_params *params, bool use_pmc,
-                           bool is_warmup, int err_pipe_end)
+static void exec_cmd_child(const struct bench_run_desc *desc, bool use_pmc, bool is_warmup,
+                           int err_pipe_end)
 {
-    apply_input_policy(params->stdin_fd, err_pipe_end);
+    apply_input_policy(desc->stdin_fd, err_pipe_end);
     if (is_warmup) {
         apply_output_policy(OUTPUT_POLICY_NULL, err_pipe_end);
-    } else if (params->stdout_fd != -1) {
+    } else if (desc->stdout_fd != -1) {
         // special handling when stdout needs to be piped
         int fd = open("/dev/null", O_WRONLY);
         if (fd == -1) {
             csfdperror(err_pipe_end, "open(\"/dev/null\", O_WRONLY)");
             _exit(-1);
         }
-        if (dup2(fd, STDERR_FILENO) == -1 ||
-            dup2(params->stdout_fd, STDOUT_FILENO) == -1) {
+        if (dup2(fd, STDERR_FILENO) == -1 || dup2(desc->stdout_fd, STDOUT_FILENO) == -1) {
             csfdperror(err_pipe_end, "dup2");
             _exit(-1);
         }
         close(fd);
     } else {
-        apply_output_policy(params->output, err_pipe_end);
+        apply_output_policy(desc->output, err_pipe_end);
     }
     if (use_pmc) {
         sigset_t set;
@@ -376,17 +418,24 @@ static void exec_cmd_child(const struct bench_params *params, bool use_pmc,
             _exit(-1);
         }
     }
-    if (execvp(params->exec, (char **)params->argv) == -1) {
-        csfdperror(err_pipe_end, "execvp");
+    if (execvp(desc->exec, (char **)desc->argv) == -1) {
+        char argv_str[4096] = {0};
+        struct string_writer writer = strwriter(argv_str, sizeof(argv_str));
+        for (char **argv = (char **)desc->argv; *argv != NULL; ++argv) {
+            strwriter_printf(&writer, "%s", *argv);
+            if (argv[1] != NULL)
+                strwriter_printf(&writer, " ");
+        }
+        csfdfmtperror(err_pipe_end, "execvp(\"%s\", \"%s\")", desc->exec, argv_str);
         _exit(-1);
     }
 
     __builtin_unreachable();
 }
 
-static bool exec_cmd_internal(const struct bench_params *params,
-                              struct rusage *rusage, struct perf_cnt *pmc,
-                              bool is_warmup, const int err_pipe[2], int *rc)
+static bool exec_cmd_internal(const struct bench_run_desc *desc, struct rusage *rusage,
+                              struct perf_cnt *pmc, bool is_warmup, const int err_pipe[2],
+                              int *rc)
 {
     bool success = true;
 
@@ -397,8 +446,7 @@ static bool exec_cmd_internal(const struct bench_params *params,
     }
 
     if (pid == 0)
-        exec_cmd_child(params, pmc != NULL ? true : false, is_warmup,
-                       err_pipe[1]);
+        exec_cmd_child(desc, pmc != NULL ? true : false, is_warmup, err_pipe[1]);
 
     if (pmc != NULL && !perf_cnt_collect(pid, pmc)) {
         success = false;
@@ -439,22 +487,20 @@ static bool exec_cmd_internal(const struct bench_params *params,
     return true;
 }
 
-static bool exec_cmd(const struct bench_params *params, struct rusage *rusage,
+static bool exec_cmd(const struct bench_run_desc *desc, struct rusage *rusage,
                      struct perf_cnt *pmc, bool is_warmup, int *rc)
 {
     int err_pipe[2];
     if (!pipe_cloexec(err_pipe))
         return false;
-    bool success =
-        exec_cmd_internal(params, rusage, pmc, is_warmup, err_pipe, rc);
+    bool success = exec_cmd_internal(desc, rusage, pmc, is_warmup, err_pipe, rc);
     close(err_pipe[0]);
     close(err_pipe[1]);
     return success;
 }
 
-static void init_run_state(double time, const struct bench_stop_policy *policy,
-                           size_t run, double time_already_run,
-                           struct run_state *state)
+static void init_run_state(double time, const struct bench_stop_policy *policy, size_t run,
+                           double time_already_run, struct bench_run_state *state)
 {
     memset(state, 0, sizeof(*state));
     state->current_run = run;
@@ -475,7 +521,7 @@ static bool should_run(const struct bench_stop_policy *policy)
     return true;
 }
 
-static bool should_finish_running(struct run_state *state, int advance)
+static bool should_finish_running(struct bench_run_state *state, int advance)
 {
     state->current_run += advance;
 
@@ -502,7 +548,7 @@ static bool should_finish_running(struct run_state *state, int advance)
     return false;
 }
 
-static bool should_suspend_round(struct run_state *state)
+static bool should_suspend_round(struct bench_run_state *state)
 {
     assert(state->stop == &g_round_stop);
     if (state->ignore_suspend)
@@ -519,16 +565,35 @@ static bool should_suspend_round(struct run_state *state)
     return result;
 }
 
-static bool warmup(const struct bench_params *cmd)
+static bool run_prepare_if_needed(const char *prepare)
+{
+    if (prepare && !shell_execute(prepare, -1, -1, -1, true)) {
+        error("failed to execute prepare command");
+        return false;
+    }
+    return true;
+}
+
+static bool run_round_prepare_if_needed(const char *prepare)
+{
+    if (prepare && !shell_execute(prepare, -1, -1, -1, true)) {
+        error("failed to execute round prepare command");
+        return false;
+    }
+    return true;
+}
+
+static bool warmup(const struct bench_run_desc *desc)
 {
     if (!should_run(&g_warmup_stop))
         return true;
 
-    struct run_state state;
+    struct bench_run_state state;
     init_run_state(get_time(), &g_warmup_stop, 0, 0, &state);
     for (;;) {
-        if (!exec_cmd(cmd, NULL, NULL, true, NULL)) {
-            error("failed to execute warmup command");
+        if (!run_prepare_if_needed(desc->prepare))
+            return false;
+        if (!exec_cmd(desc, NULL, NULL, true, NULL)) {
             return false;
         }
         if (should_finish_running(&state, 1))
@@ -552,8 +617,7 @@ static bool warmup(const struct bench_params *cmd)
 // 5. Collect all stdout outputs to a single file if custom measurements are
 //      used and store indexes to be able to identify each run
 // 6. Collect all measurements specified
-static bool exec_and_measure(const struct bench_params *params,
-                             struct bench *bench)
+static bool exec_and_measure(struct bench_run_data *rd)
 {
     struct rusage rusage;
     memset(&rusage, 0, sizeof(rusage));
@@ -564,33 +628,32 @@ static bool exec_and_measure(const struct bench_params *params,
     double wall_clock_start = get_time();
     __asm__ volatile("" ::: "memory");
     int rc = -1;
-    if (!exec_cmd(params, &rusage, pmc, false, &rc))
+    if (!exec_cmd(rd->desc, &rusage, pmc, false, &rc))
         return false;
     __asm__ volatile("" ::: "memory");
     double wall_clock_end = get_time();
 
     if (!g_ignore_failure && rc != 0) {
-        error("command '%s' finished with non-zero exit code (%d)", params->str,
-              rc);
+        error("command '%s' finished with non-zero exit code (%d)", rd->desc->str, rc);
         return false;
     }
 
-    ++bench->run_count;
-    sb_push(bench->exit_codes, rc);
+    ++rd->bench->run_count;
+    sb_push(rd->bench->exit_codes, rc);
     // If we have stdout means we have to save stdout ouput. To do that store
     // offsets and write outputs to one file.
-    if (params->stdout_fd != -1) {
-        off_t position = lseek(params->stdout_fd, 0, SEEK_CUR);
+    if (rd->desc->stdout_fd != -1) {
+        off_t position = lseek(rd->desc->stdout_fd, 0, SEEK_CUR);
         if (position == -1) {
             csperror("lseek");
             return false;
         }
-        sb_push(bench->stdout_offsets, position);
+        sb_push(rd->stdout_offsets, position);
     }
-    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
-        const struct meas *meas = params->meas + meas_idx;
+    for (size_t meas_idx = 0; meas_idx < rd->desc->meas_count; ++meas_idx) {
+        const struct meas *meas = rd->desc->meas + meas_idx;
         // Handled separately
-        if (meas->kind == MEAS_CUSTOM)
+        if (meas->kind == MEAS_CUSTOM || meas->kind == MEAS_CUSTOM_RE)
             continue;
         double val = 0.0;
         switch (meas->kind) {
@@ -598,12 +661,10 @@ static bool exec_and_measure(const struct bench_params *params,
             val = wall_clock_end - wall_clock_start;
             break;
         case MEAS_RUSAGE_STIME:
-            val =
-                rusage.ru_stime.tv_sec + (double)rusage.ru_stime.tv_usec / 1e6;
+            val = rusage.ru_stime.tv_sec + (double)rusage.ru_stime.tv_usec / 1e6;
             break;
         case MEAS_RUSAGE_UTIME:
-            val =
-                rusage.ru_utime.tv_sec + (double)rusage.ru_utime.tv_usec / 1e6;
+            val = rusage.ru_utime.tv_sec + (double)rusage.ru_utime.tv_usec / 1e6;
             break;
         case MEAS_RUSAGE_MAXRSS:
             val = rusage.ru_maxrss;
@@ -622,32 +683,34 @@ static bool exec_and_measure(const struct bench_params *params,
             break;
         case MEAS_PERF_CYCLES:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->cycles;
             break;
         case MEAS_PERF_INS:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->instructions;
             break;
         case MEAS_PERF_BRANCH:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->branches;
             break;
         case MEAS_PERF_BRANCHM:
             assert(pmc);
+            assert(g_use_perf);
             val = pmc->missed_branches;
             break;
         case MEAS_CUSTOM:
-            assert(0);
-            break;
-        case MEAS_LOADED:
-            assert(0);
+        case MEAS_CUSTOM_RE:
+            ASSERT_UNREACHABLE();
         }
-        sb_push(bench->meas[meas_idx], val);
+        sb_push(rd->bench->meas[meas_idx], val);
     }
     return true;
 }
 
-static void progress_bar_at_warmup(struct progress_bar_bench *bench)
+static void progress_bar_at_warmup(struct progress_bar_comm *bench)
 {
     if (!g_progress_bar)
         return;
@@ -655,19 +718,18 @@ static void progress_bar_at_warmup(struct progress_bar_bench *bench)
     atomic_store(&bench->warmup, true);
 }
 
-static void progress_bar_start(struct progress_bar_bench *bench, double time)
+static void progress_bar_start(struct progress_bar_comm *bench, double time)
 {
     if (!g_progress_bar)
         return;
     uint64_t u;
     memcpy(&u, &time, sizeof(u));
-    atomic_store(&bench->start_time.u, u);
     atomic_store(&bench->warmup, false);
     atomic_store(&bench->time.u, 0);
-    atomic_store(&bench->runs, 0);
+    atomic_store(&bench->has_been_run, true);
 }
 
-static void progress_bar_abort(struct progress_bar_bench *bench)
+static void progress_bar_abort(struct progress_bar_comm *bench)
 {
     if (!g_progress_bar)
         return;
@@ -678,15 +740,14 @@ static void progress_bar_abort(struct progress_bar_bench *bench)
     atomic_store(&bench->finished, true);
 }
 
-static void progress_bar_finished(struct progress_bar_bench *bench)
+static void progress_bar_finished(struct progress_bar_comm *bench)
 {
     if (!g_progress_bar)
         return;
     atomic_store(&bench->finished, true);
 }
 
-static void progress_bar_update_time(struct progress_bar_bench *bench,
-                                     int percent, double t)
+static void progress_bar_update_time(struct progress_bar_comm *bench, int percent, double t)
 {
     if (!g_progress_bar)
         return;
@@ -697,17 +758,27 @@ static void progress_bar_update_time(struct progress_bar_bench *bench,
     atomic_fetch_inc(&bench->runs);
 }
 
-static void progress_bar_update_runs(struct progress_bar_bench *bench,
-                                     int percent, size_t runs)
+static void progress_bar_update_runs(struct progress_bar_comm *bench, int percent,
+                                     size_t runs, double time_passed)
 {
     if (!g_progress_bar)
         return;
     atomic_store(&bench->bar, percent);
     atomic_store(&bench->runs, runs);
+    uint64_t u;
+    memcpy(&u, &time_passed, sizeof(u));
+    atomic_store(&bench->time_passed.u, u);
 }
 
-static void progress_bar_suspend(struct progress_bar_bench *bench,
-                                 double time_passed)
+static void progress_bar_inc_runs(struct progress_bar_comm *bench, int percent,
+                                  double time_passed)
+{
+    if (!g_progress_bar)
+        return;
+    progress_bar_update_runs(bench, percent, bench->runs + 1, time_passed);
+}
+
+static void progress_bar_suspend(struct progress_bar_comm *bench, double time_passed)
 {
     if (!g_progress_bar)
         return;
@@ -717,72 +788,60 @@ static void progress_bar_suspend(struct progress_bar_bench *bench,
     atomic_store(&bench->suspended, true);
 }
 
-static bool run_prepare_if_needed(void)
+static enum bench_run_result run_benchmark_exact_runs(struct bench_run_data *rd)
 {
-    if (g_prepare && !shell_execute_and_wait(g_prepare, -1, -1, -1)) {
-        error("failed to execute prepare command");
-        return false;
-    }
-    return true;
-}
-
-static enum bench_run_result
-run_benchmark_exact_runs(const struct bench_params *params, struct bench *bench)
-{
-    struct run_state round_state;
+    struct bench_run_state round_state;
     init_run_state(get_time(), &g_round_stop, 0, 0, &round_state);
-    for (int run_idx = bench->run_count; run_idx < g_bench_stop.runs;
-         ++run_idx) {
-        if (!run_prepare_if_needed())
+    for (int run_idx = rd->bench->run_count; run_idx < g_bench_stop.runs; ++run_idx) {
+        if (!run_prepare_if_needed(rd->desc->prepare))
             return BENCH_RUN_ERROR;
-        if (!exec_and_measure(params, bench))
+        if (!exec_and_measure(rd))
             return BENCH_RUN_ERROR;
         int percent = (run_idx + 1) * 100 / g_bench_stop.runs;
-        progress_bar_update_runs(bench->progress, percent, run_idx + 1);
+        double time = get_time();
+        progress_bar_inc_runs(rd->comm, percent,
+                              time - round_state.start_time + rd->time_run);
         // Check if we should suspend, but only if not this is the last round
-        if (run_idx != g_bench_stop.runs - 1 &&
-            should_suspend_round(&round_state)) {
-            bench->time_run += get_time() - round_state.start_time;
+        if (run_idx != g_bench_stop.runs - 1 && should_suspend_round(&round_state)) {
+            rd->time_run += time - round_state.start_time;
             return BENCH_RUN_SUSPENDED;
         }
     }
-    progress_bar_update_runs(bench->progress, 100, g_bench_stop.runs);
+    progress_bar_update_runs(rd->comm, 100, g_bench_stop.runs,
+                             get_time() - round_state.start_time + rd->time_run);
     return BENCH_RUN_FINISHED;
 }
 
-static enum bench_run_result
-run_benchmark_adaptive_runs(const struct bench_params *params,
-                            struct bench *bench)
+static enum bench_run_result run_benchmark_adaptive_runs(struct bench_run_data *rd)
 {
     double start_time = get_time();
-    struct run_state state, round_state;
-    init_run_state(start_time, &g_bench_stop, bench->run_count, bench->time_run,
-                   &state);
+    struct bench_run_state state, round_state;
+    init_run_state(start_time, &g_bench_stop, rd->bench->run_count, rd->time_run, &state);
     init_run_state(start_time, &g_round_stop, 0, 0, &round_state);
     for (;;) {
-        if (!run_prepare_if_needed())
+        if (!run_prepare_if_needed(rd->desc->prepare))
             return BENCH_RUN_ERROR;
-        if (!exec_and_measure(params, bench))
+        if (!exec_and_measure(rd))
             return BENCH_RUN_ERROR;
 
         double current = get_time();
         double time_in_round_passed = current - start_time;
-        double bench_time_passed = time_in_round_passed + bench->time_run;
+        double bench_time_passed = time_in_round_passed + rd->time_run;
         int progress = bench_time_passed / g_bench_stop.time_limit * 100;
-        progress_bar_update_time(bench->progress, progress, bench_time_passed);
+        progress_bar_update_time(rd->comm, progress, bench_time_passed);
 
         if (should_finish_running(&state, 1))
             goto out;
 
         if (should_suspend_round(&round_state)) {
-            bench->time_run += time_in_round_passed;
+            rd->time_run += time_in_round_passed;
             return BENCH_RUN_SUSPENDED;
         }
     }
     double passed;
 out:
     passed = get_time() - start_time;
-    progress_bar_update_time(bench->progress, 100, passed + bench->time_run);
+    progress_bar_update_time(rd->comm, 100, passed + rd->time_run);
     return BENCH_RUN_FINISHED;
 }
 
@@ -800,34 +859,39 @@ out:
 // During the benchmark run, progress bar is notified about current state
 // of run using atomic variables (lock free and wait free).
 // If the progress bar is disabled nothing concerning it shall be done.
-static enum bench_run_result run_bench(const struct bench_params *params,
-                                       struct bench *bench)
+static enum bench_run_result run_bench(struct bench_run_data *rd)
 {
-    progress_bar_at_warmup(bench->progress);
+    progress_bar_at_warmup(rd->comm);
 
-    if (!warmup(params))
+    if (!run_round_prepare_if_needed(rd->desc->round_prepare)) {
+        progress_bar_abort(rd->comm);
         return BENCH_RUN_ERROR;
+    }
+
+    if (!warmup(rd->desc)) {
+        progress_bar_abort(rd->comm);
+        return BENCH_RUN_ERROR;
+    }
 
     assert(should_run(&g_bench_stop));
-    progress_bar_start(bench->progress, get_time());
+    progress_bar_start(rd->comm, get_time());
     // Check if we should run fixed number of times. We can't unify these cases
     // because they have different logic of handling progress bar status.
     enum bench_run_result result;
-    if (g_bench_stop.runs != 0) {
-        result = run_benchmark_exact_runs(params, bench);
-    } else {
-        result = run_benchmark_adaptive_runs(params, bench);
-    }
+    if (g_bench_stop.runs != 0)
+        result = run_benchmark_exact_runs(rd);
+    else
+        result = run_benchmark_adaptive_runs(rd);
 
     switch (result) {
     case BENCH_RUN_FINISHED:
-        progress_bar_finished(bench->progress);
+        progress_bar_finished(rd->comm);
         break;
     case BENCH_RUN_ERROR:
-        progress_bar_abort(bench->progress);
+        progress_bar_abort(rd->comm);
         break;
     case BENCH_RUN_SUSPENDED:
-        progress_bar_suspend(bench->progress, bench->time_run);
+        progress_bar_suspend(rd->comm, rd->time_run);
         break;
     }
     return result;
@@ -839,12 +903,14 @@ static bool run_benches_single_threaded(struct run_task_queue *q)
     // Tasks are switched round-robin. For this, store in each runner index of
     // next task that should be processed.
     size_t task_cursor = 0;
+    if (g_shuffle_when_runnig)
+        task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
     for (;;) {
         struct run_task *task = get_run_task(q, &task_cursor);
         if (task == NULL)
             break;
 
-        enum bench_run_result result = run_bench(task->param, task->bench);
+        enum bench_run_result result = run_bench(task->rd);
         switch (result) {
         case BENCH_RUN_FINISHED:
             run_task_finish(task);
@@ -869,135 +935,287 @@ static void *run_bench_worker(void *raw)
     return NULL;
 }
 
-static void redraw_progress_bar(struct progress_bar *bar)
+static void write_progress_bar_info(struct progress_bar *bar, size_t line_idx,
+                                    double current_time,
+                                    struct progress_bar_item_visual *line)
+
 {
-    bool abbr_names = bar->max_name_len > 40;
-    int length = 40;
-    if (!bar->was_drawn) {
-        bar->was_drawn = true;
-        if (abbr_names) {
-            for (size_t i = 0; i < bar->count; ++i) {
-                printf("%c = ", (int)('A' + i));
-                printf_colored(ANSI_BOLD, "%s\n", bar->benches[i].name);
+    struct string_writer writer = strwriter(line->info_buf, sizeof(line->info_buf));
+    struct progress_bar_item_state *state = bar->states + line_idx;
+    struct progress_bar_comm comm = {0};
+    {
+        const struct progress_bar_comm *comm_src = bar->comms + line_idx;
+        // explicitly load all atomics to avoid UB (tsan)
+        atomic_fence();
+        comm.bar = atomic_load(&comm_src->bar);
+        comm.finished = atomic_load(&comm_src->finished);
+        comm.aborted = atomic_load(&comm_src->aborted);
+        comm.suspended = atomic_load(&comm_src->suspended);
+        comm.warmup = atomic_load(&comm_src->warmup);
+        comm.has_been_run = atomic_load(&comm_src->has_been_run);
+        comm.runs = atomic_load(&comm_src->runs);
+        comm.time.u = atomic_load(&comm_src->time.u);
+        comm.time_passed.u = atomic_load(&comm_src->time_passed.u);
+        // This is the only non-atomic load, but this field is not updated and only set
+        // during initialization
+        // TODO: maybe even put in different place...
+        memcpy(&comm.id, &comm_src->id, sizeof(comm.id));
+    }
+    if (comm.aborted) {
+        for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
+            const struct output_anchor *anchor = g_output_anchors + j;
+            if (pthread_equal(anchor->id, comm.id)) {
+                assert(anchor->has_message);
+                strwriter_printf_colored(&writer, ANSI_RED, " error: ");
+                strwriter_printf(&writer, "%s", anchor->buffer);
+                break;
+            }
+        }
+        return;
+    }
+
+    line->percent = comm.bar;
+
+    (void)current_time;
+    if (g_bench_stop.runs != 0) {
+        char eta_buf[256] = "N/A     ";
+        if (state->estimated_total_time == 0 && comm.runs != 0) {
+            double time_per_run = comm.time_passed.d / comm.runs;
+            state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
+            state->runs = comm.runs;
+            state->update_time = current_time;
+            double eta = state->estimated_total_time - comm.time_passed.d;
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
+        } else if (state->estimated_total_time == 0) {
+        } else if (comm.suspended || comm.warmup || comm.finished) {
+            double time_per_run = comm.time_passed.d / comm.runs;
+            state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
+            state->update_time = current_time;
+            double eta = state->estimated_total_time - comm.time_passed.d;
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
+        } else {
+            if (comm.runs != state->runs) {
+                double time_per_run = comm.time_passed.d / comm.runs;
+                state->estimated_total_time = (double)g_bench_stop.runs * time_per_run;
+                state->runs = comm.runs;
+                state->update_time = current_time;
+            }
+            double eta = state->estimated_total_time -
+                         (current_time - state->update_time + comm.time_passed.d);
+            state->eta = eta;
+            format_time(eta_buf, sizeof(eta_buf), eta);
+        }
+        char total_buf[256];
+        int l = snprintf(total_buf, sizeof(total_buf), "%zu", (size_t)g_bench_stop.runs);
+        strwriter_printf(&writer, " %*zu/%s eta %s", l, (size_t)comm.runs, total_buf,
+                         eta_buf);
+    } else {
+        char buf1[256], buf2[256];
+        format_time(buf1, sizeof(buf1), comm.time.d);
+        format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
+        strwriter_printf(&writer, " %s/ %s", buf1, buf2);
+
+        state->eta = g_bench_stop.time_limit - comm.time.d;
+    }
+
+    if (comm.warmup) {
+        strwriter_printf_colored(&writer, ANSI_MAGENTA, " W  ");
+        line->state = BENCH_STATE_RUNNING;
+    } else if (comm.finished) {
+        strwriter_printf_colored(&writer, ANSI_BLUE, " F  ");
+        line->state = BENCH_STATE_FINISHED;
+    } else if (comm.suspended || !comm.has_been_run) {
+        strwriter_printf_colored(&writer, ANSI_YELLOW, " S  ");
+        if (!comm.has_been_run)
+            line->state = BENCH_STATE_NOT_STARTED;
+        else
+            line->state = BENCH_STATE_SUSPENDED;
+    } else {
+        strwriter_printf_colored(&writer, ANSI_GREEN, " R  ");
+        line->state = BENCH_STATE_RUNNING;
+    }
+}
+
+static void update_progress_bar(struct progress_bar *bar)
+{
+    struct progress_bar_visual *vis = &bar->vis;
+    double current_time = get_time();
+    for (size_t i = 0; i < bar->count; ++i) {
+        struct progress_bar_item_visual *line = vis->lines + i;
+        write_progress_bar_info(bar, i, current_time, line);
+    }
+}
+
+static void clear_progress_bar_line(struct progress_bar_visual *bar,
+                                    struct string_writer *writer)
+{
+    strwriter_printf(writer, "%*s\r", (int)bar->term_width, "");
+}
+
+static size_t *benchmarks_to_display_at_progress_bar(const struct progress_bar_visual *bar,
+                                                     size_t n_finished, size_t n_running,
+                                                     size_t n_not_started,
+                                                     size_t n_suspended)
+{
+    (void)n_finished;
+    size_t *to_display = NULL;
+    size_t max_displayed = bar->max_benchmarks_displayed;
+    if (bar->line_count < max_displayed) {
+        // Cover simple case where we don't collapse output
+        for (size_t i = 0; i < bar->line_count; ++i)
+            sb_push(to_display, i);
+    } else if (n_running > max_displayed) {
+        // One of the simpler cases: filter out only running benchmarks
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING)
+                sb_push(to_display, i);
+        }
+    } else if (n_running + n_suspended > max_displayed) {
+        // Show all running and part of suspended
+        size_t max_suspended = max_displayed - n_running;
+        size_t shown_suspended = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state == BENCH_STATE_SUSPENDED &&
+                       shown_suspended < max_suspended) {
+                sb_push(to_display, i);
+                ++shown_suspended;
+            }
+        }
+    } else if (n_suspended == 0 && n_running + n_not_started > max_displayed) {
+        size_t max_not_started = max_displayed - n_running;
+        size_t shown_not_started = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state == BENCH_STATE_NOT_STARTED &&
+                       shown_not_started < max_not_started) {
+                sb_push(to_display, i);
+                ++shown_not_started;
             }
         }
     } else {
-        printf("\x1b[%zuA\r", bar->count);
+        size_t max_not_running = max_displayed - n_running;
+        size_t shown_not_running = 0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            if (bar->lines[i].state == BENCH_STATE_RUNNING) {
+                sb_push(to_display, i);
+            } else if (bar->lines[i].state != BENCH_STATE_FINISHED &&
+                       shown_not_running < max_not_running) {
+                sb_push(to_display, i);
+                ++shown_not_running;
+            }
+        }
+    }
+    return to_display;
+}
+
+static void draw_progress_bar(struct progress_bar_visual *bar)
+{
+    struct string_writer writer = strwriter(bar->buffer, bar->buffer_size);
+    size_t previous_drawn_lines = bar->n_last_drawn_lines;
+    bar->n_last_drawn_lines = 0;
+    if (bar->was_drawn)
+        strwriter_printf(&writer, "\x1b[%zuA\r", previous_drawn_lines);
+
+    size_t n_finished = 0;
+    size_t n_running = 0;
+    size_t n_not_started = 0;
+    size_t n_suspended = 0;
+    for (size_t i = 0; i < bar->line_count; ++i) {
+        const struct progress_bar_item_visual *line = bar->lines + i;
+        switch (line->state) {
+        case BENCH_STATE_NOT_STARTED:
+            ++n_not_started;
+            break;
+        case BENCH_STATE_RUNNING:
+            ++n_running;
+            break;
+        case BENCH_STATE_SUSPENDED:
+            ++n_suspended;
+            break;
+        case BENCH_STATE_FINISHED:
+            ++n_finished;
+            break;
+        }
     }
 
-    double current_time = get_time();
-    for (size_t i = 0; i < bar->count; ++i) {
-        struct progress_bar_bench data = {0};
-        // explicitly load all atomics to avoid UB (tsan)
-        atomic_fence();
-        data.bar = atomic_load(&bar->bar_benches[i].bar);
-        data.finished = atomic_load(&bar->bar_benches[i].finished);
-        data.aborted = atomic_load(&bar->bar_benches[i].aborted);
-        data.suspended = atomic_load(&bar->bar_benches[i].suspended);
-        data.warmup = atomic_load(&bar->bar_benches[i].warmup);
-        data.runs = atomic_load(&bar->bar_benches[i].runs);
-        data.time.u = atomic_load(&bar->bar_benches[i].time.u);
-        data.start_time.u = atomic_load(&bar->bar_benches[i].start_time.u);
-        data.time_passed.u = atomic_load(&bar->bar_benches[i].time_passed.u);
-        if (abbr_names)
-            printf("%c ", (int)('A' + i));
-        else
-            printf_colored(ANSI_BOLD, "%*s ", (int)bar->max_name_len,
-                           bar->benches[i].name);
-        char buf[41] = {0};
-        int c = data.bar * length / 100;
-        if (c > length)
-            c = length;
-        for (int j = 0; j < c; ++j)
+    bool should_collapse_progress_bar =
+        bar->line_count > bar->max_benchmarks_displayed ? true : false;
+    size_t *benchmarks_to_show = benchmarks_to_display_at_progress_bar(
+        bar, n_finished, n_running, n_not_started, n_suspended);
+    for (size_t i = 0; i < sb_len(benchmarks_to_show); ++i) {
+        const struct progress_bar_item_visual *line = bar->lines + benchmarks_to_show[i];
+        strwriter_printf_colored(&writer, ANSI_BOLD, "%s ", line->name_buf);
+
+        char buf[256] = {0};
+        assert(sizeof(buf) > bar->bar_width);
+        size_t c = line->percent * bar->bar_width / 100;
+        if (c > bar->bar_width)
+            c = bar->bar_width;
+        for (size_t j = 0; j < c; ++j)
             buf[j] = '#';
-        printf_colored(ANSI_BRIGHT_BLUE, "%s", buf);
-        for (int j = 0; j < length - c; ++j)
+        strwriter_printf_colored(&writer, ANSI_BRIGHT_BLUE, "%s", buf);
+        for (size_t j = 0; j < bar->bar_width - c; ++j)
             buf[j] = '-';
-        buf[length - c] = '\0';
-        printf_colored(ANSI_BLUE, "%s", buf);
-        if (data.aborted) {
-            memcpy(&data.id, &bar->bar_benches[i].id, sizeof(data.id));
-            for (size_t j = 0; j < sb_len(g_output_anchors); ++j) {
-                const struct output_anchor *anchor = g_output_anchors + j;
-                if (pthread_equal(anchor->id, data.id)) {
-                    assert(anchor->has_message);
-                    printf_colored(ANSI_RED, " error: ");
-                    printf("%s", anchor->buffer);
-                    break;
-                }
-            }
-            printf("\n");
-            continue;
-        }
+        buf[bar->bar_width - c] = '\0';
+        strwriter_printf_colored(&writer, ANSI_BLUE, "%s", buf);
 
-        if (g_bench_stop.runs != 0) {
-            char eta_buf[256] = "N/A     ";
-            // I don't hope that anyone would be able to understand ETA
-            // calculating code, but it is roughly divided in three parts.
-            // First, there is some tracker of benchmark time in total
-            // (data.time_passed.d and passed_time variable). It should grow
-            // linearly and reflect the actual time spent running. Next,
-            // we calculate ETA when run count changes using this total passed
-            // time. There are corner cases with this number when benchmark goes
-            // from suspended to running and vice versa. We have to explicitly
-            // recalculate ETA in this case because it will otherwise be
-            // inconsistent (bar->states[i].last_running). Lastly, when
-            // benchmark is actually running, we subtract from ETA time passed
-            // in current round to update it dynamically.
-            if (data.start_time.d != 0 &&
-                (data.suspended || data.warmup || data.finished)) {
-                if (bar->states[i].last_running ||
-                    (bar->states[i].runs != data.runs)) {
-                    bar->states[i].eta = (g_bench_stop.runs - data.runs) *
-                                         data.time_passed.d / data.runs;
-                    bar->states[i].runs = data.runs;
-                }
-                double eta = bar->states[i].eta;
-                if (isfinite(eta))
-                    format_time(eta_buf, sizeof(eta_buf), eta);
-                bar->states[i].last_running = false;
-            } else if (data.start_time.d != 0.0) {
-                // Check if the benchmark updated progress bar since
-                // last time we checked and recalculate ETA accordingly
-                if (!bar->states[i].last_running ||
-                    bar->states[i].runs != data.runs) {
-                    double passed_time =
-                        data.time_passed.d + current_time - data.start_time.d;
-                    bar->states[i].eta = (g_bench_stop.runs - data.runs) *
-                                         passed_time / data.runs;
-                    bar->states[i].time = current_time;
-                    bar->states[i].runs = data.runs;
-                }
-                // Adjust ETA using time that has passed in current run
-                double eta =
-                    bar->states[i].eta - (current_time - bar->states[i].time);
-                if (isfinite(eta))
-                    format_time(eta_buf, sizeof(eta_buf), eta);
-                bar->states[i].last_running = true;
-            }
-            char total_buf[256];
-            snprintf(total_buf, sizeof(total_buf), "%zu",
-                     (size_t)g_bench_stop.runs);
-            printf(" %*zu/%s eta %s", (int)strlen(total_buf), (size_t)data.runs,
-                   total_buf, eta_buf);
-        } else {
-            char buf1[256], buf2[256];
-            format_time(buf1, sizeof(buf1), data.time.d);
-            format_time(buf2, sizeof(buf2), g_bench_stop.time_limit);
-            printf(" %s/ %s", buf1, buf2);
-        }
-
-        if (data.warmup) {
-            printf_colored(ANSI_MAGENTA, " W  ");
-        } else if (data.finished) {
-            printf_colored(ANSI_BLUE, " F  ");
-        } else if (data.suspended || (data.time.u == 0 && data.runs == 0)) {
-            printf_colored(ANSI_YELLOW, " S  ");
-        } else {
-            printf_colored(ANSI_GREEN, " R  ");
-        }
-        printf("\n");
+        strwriter_printf(&writer, " %s\n", line->info_buf);
+        ++bar->n_last_drawn_lines;
     }
+    sb_free(benchmarks_to_show);
+
+    if (should_collapse_progress_bar && n_running != 0) {
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks currently running\n",
+                         (int)bar->name_align, "", n_running);
+        ++bar->n_last_drawn_lines;
+    }
+    if (should_collapse_progress_bar && n_suspended != 0) {
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks suspended\n", (int)bar->name_align, "",
+                         n_suspended);
+        ++bar->n_last_drawn_lines;
+    }
+    if (should_collapse_progress_bar && n_finished != 0) {
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks finished running\n",
+                         (int)bar->name_align, "", n_finished);
+        ++bar->n_last_drawn_lines;
+    }
+    if (should_collapse_progress_bar && n_not_started != 0) {
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s %zu benchmarks not started\n", (int)bar->name_align,
+                         "", n_not_started);
+        ++bar->n_last_drawn_lines;
+    } else if (n_not_started == 0) {
+        double total_eta = 0.0;
+        for (size_t i = 0; i < bar->line_count; ++i) {
+            const struct progress_bar_item_visual *line = bar->lines + i;
+            if (line->state != BENCH_STATE_RUNNING && line->state != BENCH_STATE_SUSPENDED)
+                continue;
+            total_eta += bar->data->states[i].eta;
+        }
+        char eta_buf[256];
+        format_time(eta_buf, sizeof(eta_buf), total_eta / bar->data->thread_count);
+        clear_progress_bar_line(bar, &writer);
+        strwriter_printf(&writer, "%*s total eta %s\n", (int)bar->name_align, "", eta_buf);
+        ++bar->n_last_drawn_lines;
+    }
+    // Clear the lines that were drawn on last iteration but were not drawn on current
+    if (bar->was_drawn && bar->n_last_drawn_lines < previous_drawn_lines) {
+        size_t to_clear = previous_drawn_lines - bar->n_last_drawn_lines;
+        for (size_t i = 0; i < to_clear; ++i) {
+            clear_progress_bar_line(bar, &writer);
+            strwriter_printf(&writer, "\n");
+        }
+        strwriter_printf(&writer, "\x1b[%zuA\r", to_clear);
+    }
+    fwrite(writer.start, writer.cursor - writer.start, 1, stdout);
 }
 
 static void *progress_bar_thread_worker(void *arg)
@@ -1005,54 +1223,167 @@ static void *progress_bar_thread_worker(void *arg)
     assert(g_progress_bar);
     struct progress_bar *bar = arg;
     bool is_finished = false;
-    redraw_progress_bar(bar);
+    bool is_error = false;
+    draw_progress_bar(&bar->vis);
+    bar->vis.was_drawn = true;
     do {
         usleep(g_progress_bar_interval_us);
-        redraw_progress_bar(bar);
+        update_progress_bar(bar);
+        draw_progress_bar(&bar->vis);
         is_finished = true;
-        for (size_t i = 0; i < bar->count && is_finished; ++i)
-            if (!atomic_load(&bar->bar_benches[i].finished))
+        for (size_t i = 0; i < bar->count && is_finished; ++i) {
+            if (!atomic_load(&bar->comms[i].finished))
                 is_finished = false;
-    } while (!is_finished);
-    redraw_progress_bar(bar);
+            if (atomic_load(&bar->comms[i].aborted))
+                is_error = true;
+        }
+    } while (!is_finished && !is_error);
+    if (bar->vis.was_drawn && !is_error) {
+        struct string_writer writer = strwriter(bar->vis.buffer, bar->vis.buffer_size);
+        for (size_t i = 0; i < bar->vis.n_last_drawn_lines; ++i) {
+            clear_progress_bar_line(&bar->vis, &writer);
+            printf("\x1b[1A\r");
+        }
+        fwrite(writer.start, writer.cursor - writer.start, 1, stdout);
+    }
     return NULL;
 }
 
-static void init_progress_bar(struct bench *benches, size_t count,
+static bool init_progress_bar_abbr_group_names(const struct bench_data *data,
+                                               struct progress_bar *bar)
+{
+    if (data->group_count <= 1)
+        return false;
+
+    size_t max_name_len = 0;
+    for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+        const struct bench_group *group = data->groups + grp_idx;
+        char group_name[256];
+        abbreviated_name(group_name, sizeof(group_name), grp_idx);
+        for (size_t i = 0; i < group->bench_count; ++i) {
+            char buf[256];
+            size_t len = snprintf(buf, sizeof(buf), "%s %s=%s", group_name,
+                                  data->param->name, data->param->values[i]);
+            if (len > max_name_len)
+                max_name_len = len;
+        }
+    }
+
+    // Still too long, can't abbreviate this way
+    if (max_name_len > PROGRESS_BAR_MAX_NAME_LEN)
+        return false;
+
+    bar->vis.name_abbr = ABBR_NAMES_GROUPS;
+    bar->vis.name_align = max_name_len;
+    for (size_t grp_idx = 0; grp_idx < data->group_count; ++grp_idx) {
+        const struct bench_group *group = data->groups + grp_idx;
+        char group_name[256];
+        abbreviated_name(group_name, sizeof(group_name), grp_idx);
+        for (size_t i = 0; i < group->bench_count; ++i) {
+            // Here GCC produces warning with -Wformat-truncation which is enabled by default
+            // starting with GCC 7.1. To circumvent we use strwriter
+            char buf[512];
+            struct string_writer w = strwriter(buf, sizeof(buf));
+            strwriter_printf(&w, "%s %s=%s", group_name, data->param->name,
+                             data->param->values[i]);
+            struct progress_bar_item_visual *line = bar->vis.lines + group->bench_idxs[i];
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)max_name_len,
+                     w.start);
+        }
+    }
+
+    return true;
+}
+
+static void init_progress_bar_names(const struct bench_data *data, struct progress_bar *bar)
+{
+    size_t count = bar->count;
+    size_t max_name_len = 0;
+    for (size_t i = 0; i < count; ++i) {
+        size_t name_len = strlen(bar->rds[i].bench->name);
+        if (name_len > max_name_len)
+            max_name_len = name_len;
+    }
+    bool abbr_names = max_name_len > PROGRESS_BAR_MAX_NAME_LEN;
+    if (!abbr_names) {
+        bar->vis.name_align = max_name_len;
+        bar->vis.name_abbr = ABBR_NAMES_NO;
+        for (size_t i = 0; i < count; ++i) {
+            struct progress_bar_item_visual *line = bar->vis.lines + i;
+            snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                     bar->rds[i].bench->name);
+        }
+        return;
+    }
+    // Try to set abbreviated names using groups. If it is not possible too, or there are no
+    // groups just abbreviate individual benchmarks
+    if (init_progress_bar_abbr_group_names(data, bar))
+        return;
+
+    bar->vis.name_abbr = ABBR_NAMES_BENCHES;
+    for (size_t i = 0; i < count; ++i) {
+        // Iterate backward to handle alignment
+        size_t idx = count - i - 1;
+        struct progress_bar_item_visual *line = bar->vis.lines + idx;
+        char buf[256];
+        abbreviated_name(buf, sizeof(buf), idx);
+        snprintf(line->name_buf, sizeof(line->name_buf), "%*s", (int)bar->vis.name_align,
+                 buf);
+        // Update align in case abbreviated name is long
+        size_t len = strlen(line->name_buf);
+        if (len > bar->vis.name_align)
+            bar->vis.name_align = len;
+    }
+}
+
+static void init_progress_bar(const struct bench_data *data, struct bench_run_data *rds,
+                              size_t term_width, size_t term_height, size_t thread_count,
                               struct progress_bar *bar)
 {
     memset(bar, 0, sizeof(*bar));
-    bar->count = count;
-    bar->bar_benches = calloc(count, sizeof(*bar->bar_benches));
-    bar->states = calloc(count, sizeof(*bar->states));
-    bar->benches = benches;
-    for (size_t i = 0; i < count; ++i) {
+    bar->count = data->bench_count;
+    bar->comms = calloc(bar->count, sizeof(*bar->comms));
+    bar->states = calloc(data->bench_count, sizeof(*bar->states));
+    bar->rds = rds;
+    for (size_t i = 0; i < bar->count; ++i) {
         bar->states[i].runs = -1;
-        benches[i].progress = bar->bar_benches + i;
-        size_t name_len = strlen(benches[i].name);
-        if (name_len > bar->max_name_len)
-            bar->max_name_len = name_len;
+        rds[i].comm = bar->comms + i;
     }
+    bar->thread_count = thread_count;
+    bar->vis.term_width = term_width;
+    bar->vis.term_height = term_height;
+    bar->vis.data = bar;
+    bar->vis.max_benchmarks_displayed = data->bench_count;
+    if (term_height - PROGRESS_BAR_INFO_LINES - 1 < data->bench_count)
+        bar->vis.max_benchmarks_displayed = term_height - PROGRESS_BAR_INFO_LINES - 1;
+    bar->vis.bar_width = term_width / 2;
+    if (term_width - bar->vis.bar_width < 30)
+        bar->vis.bar_width = term_width - 30;
+    bar->vis.line_count = bar->count;
+    bar->vis.lines = calloc(bar->count, sizeof(*bar->vis.lines));
+    // We allocate one big buffer where we will write all output and use only a single system
+    // call to put in on screen instead of calling printf repeatedly
+    bar->vis.buffer_size = 64 * 1024;
+    bar->vis.buffer = calloc(bar->vis.buffer_size, 1);
+    init_progress_bar_names(data, bar);
 }
 
 static void free_progress_bar(struct progress_bar *bar)
 {
-    free(bar->bar_benches);
+    free(bar->vis.lines);
+    free(bar->comms);
     free(bar->states);
 }
 
-static bool run_benches_multi_threaded(struct run_task_queue *q,
-                                       size_t thread_count)
+static bool run_benches_multi_threaded(struct run_task_queue *q, size_t thread_count)
 {
     return spawn_threads(run_bench_worker, q, thread_count);
 }
 
-static bool execute_run_tasks(const struct bench_params *params,
-                              struct bench *benches, size_t count,
-                              size_t thread_count)
+static bool execute_run_tasks(struct bench_run_data *rds, size_t count, size_t thread_count)
 {
     struct run_task_queue q;
-    if (!init_run_task_queue(params, benches, count, thread_count, &q))
+    if (!init_run_task_queue(rds, count, thread_count, &q))
         return false;
 
     bool success;
@@ -1093,9 +1424,10 @@ static bool parse_custom_output(int fd, double *valuep)
     return true;
 }
 
-static bool do_custom_measurement(const struct meas *custom, int input_fd,
-                                  int output_fd, double *valuep)
+static bool do_custom_measurement_cmd(const struct meas *meas, int input_fd, int output_fd,
+                                      double *valuep)
 {
+    assert(meas->kind == MEAS_CUSTOM);
     // XXX: This is optimization to not spawn separate process when custom
     // command just forwards input. We could create separate entry in 'enum
     // meas_kind', but this is really not that important case to design against.
@@ -1103,7 +1435,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     // would require noticeable code changes, and I am too lazy for that.
     // Most of the time is spent in spawning processes anyway, so we cut it down
     // significantly either way.
-    if (strcmp(custom->cmd, "cat") == 0) {
+    if (strcmp(meas->cmd, "cat") == 0) {
         double value;
         if (!parse_custom_output(input_fd, &value))
             return false;
@@ -1121,7 +1453,7 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
         return false;
     }
 
-    if (!shell_execute_and_wait(custom->cmd, input_fd, output_fd, -1))
+    if (!shell_execute(meas->cmd, input_fd, output_fd, -1, false))
         return false;
 
     if (lseek(output_fd, 0, SEEK_SET) == (off_t)-1) {
@@ -1137,27 +1469,14 @@ static bool do_custom_measurement(const struct meas *custom, int input_fd,
     return true;
 }
 
-static bool run_custom_measurements(const struct bench_params *params,
-                                    struct bench *bench)
+static bool run_custom_measurements_cmd(struct bench_run_data *rd, void *copy_buffer,
+                                        size_t max_stdout_size,
+                                        const struct meas **meas_list)
 {
     bool success = false;
-    int all_stdout_fd = params->stdout_fd;
-    // If stdout_fd is not set means we have no custom measurements
-    if (all_stdout_fd == -1)
-        return true;
 
-    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
-        csperror("lseek");
-        return false;
-    }
-
-    size_t max_stdout_size = bench->stdout_offsets[0];
-    for (size_t i = 1; i < bench->run_count; ++i) {
-        size_t d = bench->stdout_offsets[i] - bench->stdout_offsets[i - 1];
-        if (d > max_stdout_size)
-            max_stdout_size = d;
-    }
-
+    (void)max_stdout_size;
+    int all_stdout_fd = rd->desc->stdout_fd;
     int input_fd = tmpfile_fd();
     if (input_fd == -1)
         return false;
@@ -1167,22 +1486,12 @@ static bool run_custom_measurements(const struct bench_params *params,
         return false;
     }
 
-    const struct meas **custom_meas_list = NULL;
-    for (size_t meas_idx = 0; meas_idx < params->meas_count; ++meas_idx) {
-        const struct meas *meas = params->meas + meas_idx;
-        if (meas->kind == MEAS_CUSTOM)
-            sb_push(custom_meas_list, meas);
-    }
-    assert(custom_meas_list);
-    void *copy_buffer = malloc(max_stdout_size);
-
-    for (size_t run_idx = 0; run_idx < bench->run_count; ++run_idx) {
+    for (size_t run_idx = 0; run_idx < rd->bench->run_count; ++run_idx) {
         size_t run_stdout_len;
         if (run_idx == 0) {
-            run_stdout_len = bench->stdout_offsets[run_idx];
+            run_stdout_len = rd->stdout_offsets[run_idx];
         } else {
-            run_stdout_len = bench->stdout_offsets[run_idx] -
-                             bench->stdout_offsets[run_idx - 1];
+            run_stdout_len = rd->stdout_offsets[run_idx] - rd->stdout_offsets[run_idx - 1];
         }
         assert(run_stdout_len <= max_stdout_size);
 
@@ -1201,19 +1510,20 @@ static bool run_custom_measurements(const struct bench_params *params,
             goto err;
         }
 
-        for (size_t m = 0; m < sb_len(custom_meas_list); ++m) {
-            const struct meas *meas = custom_meas_list[m];
-            double value;
+        for (size_t i = 0; i < sb_len(meas_list); ++i) {
+            const struct meas *meas = meas_list[i];
             if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
             }
-            if (!do_custom_measurement(meas, input_fd, output_fd, &value))
+            double value;
+            if (!do_custom_measurement_cmd(meas, input_fd, output_fd, &value))
                 goto err;
-            sb_push(bench->meas[meas - params->meas], value);
+            size_t meas_idx = meas - rd->desc->meas;
+            sb_push(rd->bench->meas[meas_idx], value);
         }
         // Reset write cursor before the next loop cycle
-        if (run_idx != bench->run_count - 1) {
+        if (run_idx != rd->bench->run_count - 1) {
             if (lseek(input_fd, 0, SEEK_SET) == -1) {
                 csperror("lseek");
                 goto err;
@@ -1225,8 +1535,190 @@ static bool run_custom_measurements(const struct bench_params *params,
 err:
     close(input_fd);
     close(output_fd);
+    return success;
+}
+
+static char **file_to_line_list(const char *start)
+{
+    char **lines = NULL;
+    const char *cursor = start;
+    for (;;) {
+        const char *next = strchr(cursor, '\n');
+        if (next == NULL) {
+            sb_push(lines, strdup(cursor));
+            break;
+        }
+        size_t len = next - cursor;
+        char *line = malloc(len + 1);
+        memcpy(line, cursor, len);
+        line[len] = '\0';
+        sb_push(lines, line);
+        cursor = next + 1;
+        if (*cursor == '\0')
+            break;
+    }
+    return lines;
+}
+
+static bool run_re_on_file(const struct bench_run_desc *desc, struct bench *bench,
+                           char *file_buffer, const struct meas **meas_list,
+                           regex_t *regexes)
+{
+    bool success = false;
+    size_t meas_count = sb_len(meas_list);
+    char **lines = file_to_line_list(file_buffer);
+    for (size_t meas_idx = 0; meas_idx < meas_count; ++meas_idx) {
+        const struct meas *meas = meas_list[meas_idx];
+        regex_t *re = regexes + meas_idx;
+
+        bool had_match = false;
+        for (size_t line_idx = 0; line_idx < sb_len(lines); ++line_idx) {
+            const char *line = lines[line_idx];
+
+            regmatch_t matches[2];
+            int ret = regexec(re, line, 2, matches, 0);
+            if (ret != 0 && ret != REG_NOMATCH) {
+                char errbuf[4096];
+                regerror(ret, re, errbuf, sizeof(errbuf));
+                error("error executing regex '%s': %s", meas_list[meas_idx]->re, errbuf);
+                goto err;
+            } else if (ret == REG_NOMATCH) {
+                continue;
+            }
+            const regmatch_t *match = matches + 1;
+            size_t off = match->rm_so;
+            size_t len = match->rm_eo - match->rm_so;
+            memcpy(file_buffer, line + off, len);
+            file_buffer[len] = '\0';
+
+            char *end = NULL;
+            double value = strtod(file_buffer, &end);
+            if (end == file_buffer) {
+                error("invalid custom measurement output '%s'", file_buffer);
+                goto err;
+            }
+            sb_push(bench->meas[meas - desc->meas], value);
+
+            had_match = true;
+            break;
+        }
+
+        if (!had_match) {
+            error("measurement '%s' failed to match regex '%s'", meas->name, meas->re);
+            goto err;
+        }
+    }
+    success = true;
+err:
+    for (size_t i = 0; i < sb_len(lines); ++i)
+        free(lines[i]);
+    sb_free(lines);
+    return success;
+}
+
+static bool run_custom_measurements_re(struct bench_run_data *rd, void *copy_buffer,
+                                       size_t max_stdout_size, const struct meas **meas_list)
+{
+    bool success = false;
+    int all_stdout_fd = rd->desc->stdout_fd;
+    size_t meas_count = sb_len(meas_list);
+    (void)max_stdout_size;
+    regex_t *regexes = calloc(meas_count, sizeof(*regexes));
+    for (size_t i = 0; i < meas_count; ++i) {
+        regex_t *re = regexes + i;
+        int ret = regcomp(re, meas_list[i]->re, REG_EXTENDED | REG_NEWLINE);
+        if (ret != 0) {
+            char errbuf[4096];
+            regerror(ret, re, errbuf, sizeof(errbuf));
+            error("error compiling regex '%s': %s", meas_list[i]->re, errbuf);
+        partial_free_regexes:
+            for (size_t j = 0; j < i; ++j)
+                regfree(regexes + j);
+            free(regexes);
+            return false;
+        }
+        if (re->re_nsub != 1) {
+            error("regex '%s' contains %zu subexpressions instead of 1", meas_list[i]->re,
+                  re->re_nsub);
+            // Increase i to free the current regexp too
+            ++i;
+            goto partial_free_regexes;
+        }
+    }
+
+    for (size_t run_idx = 0; run_idx < rd->bench->run_count; ++run_idx) {
+        size_t run_stdout_len;
+        if (run_idx == 0) {
+            run_stdout_len = rd->stdout_offsets[run_idx];
+        } else {
+            run_stdout_len = rd->stdout_offsets[run_idx] - rd->stdout_offsets[run_idx - 1];
+        }
+        assert(run_stdout_len <= max_stdout_size);
+
+        ssize_t nr = read(all_stdout_fd, copy_buffer, run_stdout_len);
+        if (nr != (ssize_t)run_stdout_len) {
+            csperror("read");
+            goto err;
+        }
+        // copy_buffer size is sufficient to hold null terminator for all stdout
+        // sizes
+        ((char *)copy_buffer)[nr] = '\0';
+
+        if (!run_re_on_file(rd->desc, rd->bench, copy_buffer, meas_list, regexes))
+            goto err;
+    }
+
+    success = true;
+err:
+    for (size_t i = 0; i < meas_count; ++i)
+        regfree(regexes + i);
+    free(regexes);
+    return success;
+}
+
+static bool run_custom_measurements(struct bench_run_data *rd)
+{
+    int all_stdout_fd = rd->desc->stdout_fd;
+    // If stdout_fd is not set means we have no custom measurements
+    if (all_stdout_fd == -1)
+        return true;
+
+    if (lseek(all_stdout_fd, 0, SEEK_SET) == -1) {
+        csperror("lseek");
+        return false;
+    }
+
+    size_t max_stdout_size = rd->stdout_offsets[0];
+    for (size_t i = 1; i < rd->bench->run_count; ++i) {
+        size_t d = rd->stdout_offsets[i] - rd->stdout_offsets[i - 1];
+        if (d > max_stdout_size)
+            max_stdout_size = d;
+    }
+    void *copy_buffer = malloc(max_stdout_size + 1);
+
+    const struct meas **custom_meas_list = NULL;
+    const struct meas **custom_re_meas_list = NULL;
+    for (size_t meas_idx = 0; meas_idx < rd->desc->meas_count; ++meas_idx) {
+        const struct meas *meas = rd->desc->meas + meas_idx;
+        if (meas->kind == MEAS_CUSTOM)
+            sb_push(custom_meas_list, meas);
+        else if (meas->kind == MEAS_CUSTOM_RE)
+            sb_push(custom_re_meas_list, meas);
+    }
+
+    assert(custom_meas_list || custom_re_meas_list);
+
+    bool success = true;
+    if (custom_meas_list != NULL)
+        success =
+            run_custom_measurements_cmd(rd, copy_buffer, max_stdout_size, custom_meas_list);
+    if (custom_re_meas_list != NULL)
+        success = success && run_custom_measurements_re(rd, copy_buffer, max_stdout_size,
+                                                        custom_re_meas_list);
+
     free(copy_buffer);
     sb_free(custom_meas_list);
+    sb_free(custom_re_meas_list);
     return success;
 }
 
@@ -1238,18 +1730,17 @@ static void *custom_measurement_bench_worker(void *arg)
         struct custom_measurement_task *task = get_custom_measurement_task(q);
         if (!task)
             break;
-        if (!run_custom_measurements(task->param, task->bench))
+        if (!run_custom_measurements(task->rd))
             return (void *)-1;
     }
     return NULL;
 }
 
-static bool execute_custom_measurement_tasks(const struct bench_params *params,
-                                             struct bench *benches,
-                                             size_t count, size_t thread_count)
+static bool execute_custom_measurement_tasks(struct bench_run_data *rds, size_t count,
+                                             size_t thread_count)
 {
     struct custom_measurement_task_queue q;
-    init_custom_measurement_task_queue(params, benches, count, &q);
+    init_custom_measurement_task_queue(rds, count, &q);
     bool success = false;
     if (thread_count == 1) {
         const void *result = custom_measurement_bench_worker(&q);
@@ -1258,8 +1749,7 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
         else
             success = false;
     } else {
-        success =
-            spawn_threads(custom_measurement_bench_worker, &q, thread_count);
+        success = spawn_threads(custom_measurement_bench_worker, &q, thread_count);
     }
     free_custom_measurement_task_queue(&q);
     return success;
@@ -1282,16 +1772,44 @@ static bool execute_custom_measurement_tasks(const struct bench_params *params,
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
-static bool run_benches_internal(const struct bench_params *params,
-                                 struct bench *benches, size_t count)
+static bool run_benches_internal(struct bench_data *data, struct bench_run_data *rds,
+                                 size_t thread_count)
 {
     bool success = false;
     struct progress_bar *progress_bar = NULL;
     if (g_progress_bar) {
+        size_t term_width = 0, term_height = 0;
+        if (!get_term_win_size(&term_height, &term_width))
+            return false;
+        // This would only happen if --progress-bar=always is set with a non-tty stdin, just
+        // provde default values
+        if (term_width == 0)
+            term_width = 80;
+        if (term_height == 0)
+            term_height = 40;
         progress_bar = calloc(1, sizeof(*progress_bar));
-        init_progress_bar(benches, count, progress_bar);
-        if (pthread_create(&progress_bar->thread, NULL,
-                           progress_bar_thread_worker, progress_bar) != 0) {
+        init_progress_bar(data, rds, term_width, term_height, thread_count, progress_bar);
+        switch (progress_bar->vis.name_abbr) {
+        case ABBR_NAMES_NO:
+            break;
+        case ABBR_NAMES_BENCHES:
+            for (size_t i = 0; i < progress_bar->count; ++i) {
+                printf("%s = ", progress_bar->vis.lines[i].name_buf);
+                printf_colored(ANSI_BOLD, "%s\n", data->benches[i].name);
+            }
+            break;
+        case ABBR_NAMES_GROUPS:
+            for (size_t i = 0; i < data->group_count; ++i) {
+                char group_name[256];
+                abbreviated_name(group_name, sizeof(group_name), i);
+                printf("%s = %s\n", group_name, data->groups[i].name);
+            }
+            break;
+        }
+        // Flush stdout because from now on progress bar will be writing there
+        fflush(stdout);
+        if (pthread_create(&progress_bar->thread, NULL, progress_bar_thread_worker,
+                           progress_bar) != 0) {
             error("failed to spawn thread");
             free_progress_bar(progress_bar);
             free(progress_bar);
@@ -1299,21 +1817,13 @@ static bool run_benches_internal(const struct bench_params *params,
         }
     }
 
-    size_t thread_count = g_threads;
-    if (count < thread_count)
-        thread_count = count;
-    assert(thread_count > 0);
-
     if (g_progress_bar) {
         sb_resize(g_output_anchors, thread_count);
         if (thread_count == 1)
             g_output_anchors[0].id = pthread_self();
     }
 
-    if (!execute_run_tasks(params, benches, count, thread_count))
-        goto out;
-
-    if (!execute_custom_measurement_tasks(params, benches, count, thread_count))
+    if (!execute_run_tasks(rds, data->bench_count, thread_count))
         goto out;
 
     success = true;
@@ -1330,13 +1840,33 @@ out:
     return success;
 }
 
-bool run_benches(const struct bench_params *params, struct bench *benches,
-                 size_t count)
+bool run_benches(struct bench_data *data)
 {
+    bool success = false;
+    struct bench_run_data *rds = calloc(data->bench_count, sizeof(*rds));
+    for (size_t i = 0; i < data->bench_count; ++i) {
+        struct bench_run_data *d = rds + i;
+        d->bench = data->benches + i;
+        d->desc = data->run_descs + i;
+    }
+
+    size_t thread_count = g_threads;
+    if (data->bench_count < thread_count)
+        thread_count = data->bench_count;
+    assert(thread_count > 0);
+
     if (g_use_perf && !init_perf())
-        return false;
-    bool success = run_benches_internal(params, benches, count);
+        goto err;
+
+    success = run_benches_internal(data, rds, thread_count);
+    success =
+        success && execute_custom_measurement_tasks(rds, data->bench_count, thread_count);
+
     if (g_use_perf)
         deinit_perf();
+err:
+    for (size_t i = 0; i < data->bench_count; ++i)
+        sb_free(rds[i].stdout_offsets);
+    free(rds);
     return success;
 }

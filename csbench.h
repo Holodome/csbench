@@ -121,7 +121,7 @@ struct units {
 
 enum meas_kind {
     MEAS_CUSTOM,
-    MEAS_LOADED,
+    MEAS_CUSTOM_RE,
     MEAS_WALL,
     MEAS_RUSAGE_UTIME,
     MEAS_RUSAGE_STIME,
@@ -139,9 +139,11 @@ enum meas_kind {
 struct meas {
     // Measurement name that will be used in reports
     const char *name;
-    // If measurement is MEAS_CUSTOM, cotains command string to be exucted in
+    // If measurement is MEAS_CUSTOM, contains command string to be executed in
     // shell to do custom measurement.
     const char *cmd;
+    // If measurement is MEAS_CUSTOM_RE, contains regular expresion.
+    const char *re;
     struct units units;
     enum meas_kind kind;
     bool is_secondary;
@@ -149,16 +151,16 @@ struct meas {
 };
 
 // Variable which can be substitued in command string.
-struct bench_var {
+struct bench_param {
     const char *name;
     const char **values;
     size_t value_count;
 };
 
-struct bench_var_group {
+struct bench_group {
     const char *name;
-    size_t cmd_count;
-    size_t *cmd_idxs; // [cmd_count]
+    size_t bench_count;
+    size_t *bench_idxs; // [bench_count]
 };
 
 // Bootstrap estimate of certain statistic. Contains lower and upper bounds, as
@@ -219,25 +221,24 @@ struct bench {
     int *exit_codes;
     size_t meas_count;
     double **meas; // [meas_count]
+};
 
-    // The following fields are runtime only information, can be thrown away
-    // later
-    struct progress_bar_bench *progress;
-    // This this is used when running custom measurements
-    size_t *stdout_offsets;
-    // In case of suspension we save the state of running so it can be restored
-    // later
-    double time_run;
+struct bench_data_storage {
+    bool has_param;
+    struct bench_param param;
+    size_t meas_count;
+    struct meas *meas; // [meas_count]
 };
 
 struct bench_data {
     size_t meas_count;
-    const struct meas *meas; // [meas_count]
     size_t bench_count;
-    struct bench *benches; // [bench_count]
     size_t group_count;
-    const struct bench_var_group *groups; // [group_count]
-    const struct bench_var *var;
+    const struct bench_param *param;
+    const struct meas *meas;          // [meas_count]
+    struct bench_run_desc *run_descs; // [bench_count]
+    struct bench *benches;            // [bench_count]
+    struct bench_group *groups;       // [group_count]
 };
 
 struct bench_analysis {
@@ -271,12 +272,16 @@ struct ols_regress {
     double a;
     double b;
     double c;
+
+    double r;
+    double r2;
     double rms;
 };
 
 struct group_analysis {
-    const struct bench_var_group *group;
-    struct cmd_in_group_data *data; // [var->value_count]
+    size_t grp_idx;
+    const struct bench_group *group;
+    struct cmd_in_group_data *data; // [value_count]
     // Pointers to 'data' elements
     const struct cmd_in_group_data *slowest;
     const struct cmd_in_group_data *fastest;
@@ -312,24 +317,45 @@ struct meas_analysis {
     const struct meas *meas;
     size_t meas_idx;
     // Array of bench_analysis->meas[meas_idx]
-    const struct distr **benches; // [bench_count]
+    const struct distr **benches;          // [bench_count]
+    struct group_analysis *group_analyses; // [group_count]
     // Indexes of commands sorted by their time (first is the fastest)
     size_t *bench_by_mean_time; // [bench_count]
     // Indexes of fastest command for each value
-    size_t **val_benches_by_mean_time;     // [val_count][group_count]
-    struct group_analysis *group_analyses; // [group_count]
-    // Comparison
-    size_t bench_speedups_reference;
-    struct speedup *bench_speedups;        // [bench_count]
-    size_t *val_bench_speedups_references; // [val_count]
-    struct speedup **val_bench_speedups;   // [val_count][group_count]
-    // Group indexes sorted by relative speed
-    size_t *groups_by_speed; // [group_count]
-    size_t groups_speedup_reference;
-    struct speedup *group_speedups; // [group_count]
-    // P-values in reference to either fastests command or baseline
-    double *p_values;      // [bench_count]
-    double **var_p_values; // [val_count][group_count]
+    size_t **val_benches_by_mean_time; // [val_count][group_count]
+    // Groups sorted by average speedups
+    size_t *groups_by_avg_speed; // [group_count]
+    // Groups sorted by time sum
+    size_t *groups_by_total_speed; // [group_count]
+    // Comparisons
+    // Individual benchmarks
+    struct {
+        size_t ref;
+        struct speedup *speedups; // [bench_count]
+        double *p_values;         // [bench_count]
+    } bench_cmp;
+    // Per-value
+    struct {
+        size_t ref;
+        struct speedup *speedups; // [group_count]
+        double *p_values;         // [group_count]
+    } *pval_cmps;                 // [val_count]
+    // Groups on average
+    struct {
+        size_t ref;
+        struct speedup *speedups; // [group_count]
+        struct {
+            double *p_values;         // [group_count]
+            struct speedup *speedups; // [group_count]
+        } *pval_cmps;                 // [val_count]
+    } group_avg_cmp;
+    // Groups in total
+    // Estimates of times it took to execute one group
+    struct {
+        struct point_err_est *times; // [group_count]
+        size_t ref;
+        struct speedup *speedups; // [group_count]
+    } group_sum_cmp;
 };
 
 // This structure hold results of benchmarking across all measurements and
@@ -338,25 +364,16 @@ struct meas_analysis {
 // different visualization paths, like plots, html report or command line
 // report.
 struct analysis {
-    // This pointer is const because respective memory is owned by 'struct
-    // run_info' instance'
-    const struct bench_var_group *groups; // [group_count]
-    const struct bench_var *var;
     size_t bench_count;
     size_t meas_count;
     size_t group_count;
     size_t primary_meas_count;
+    const struct bench_group *groups;      // [group_count]
+    const struct bench_param *param;       // [bench_count]
     const struct bench *benches;           // [bench_count]
     struct bench_analysis *bench_analyses; // [bench_count]
     const struct meas *meas;               // [meas_count]
     struct meas_analysis *meas_analyses;   // [meas_count]
-};
-
-struct run_info {
-    struct bench_params *params;
-    struct bench_var_group *groups;
-    const struct meas *meas;
-    const struct bench_var *var;
 };
 
 struct bench_stop_policy {
@@ -368,8 +385,8 @@ struct bench_stop_policy {
 
 // Description of one benchmark, read-only information that is
 // used to run it and choose what information to collect.
-struct bench_params {
-    const char *name;
+struct bench_run_desc {
+    /* const char *name; */
     // Command string that is executed
     const char *str;
     // 'exec' argument to execve
@@ -384,6 +401,10 @@ struct bench_params {
     int stdin_fd;
     // If not -1, pipe stdout to this file
     int stdout_fd;
+    // Shell command to be executed before each run
+    const char *prepare;
+    // Shell cimmand to be executed before each round
+    const char *round_prepare;
 };
 
 struct output_anchor {
@@ -392,8 +413,9 @@ struct output_anchor {
     bool has_message;
 };
 
-// Instruction to rename certain benchmark. 'n' refers to individual benchmark
-// when variable is not used, otherwise it refers to benchmark group.
+// Instruction to rename certain benchmark. 'n' refers to individual
+// benchmark when parameter is not used, otherwise it refers to benchmark
+// group.
 struct rename_entry {
     size_t n;
     const char *old_name;
@@ -407,24 +429,17 @@ struct settings {
     struct meas *meas;
     struct input_policy input;
     enum output_kind output;
-    bool has_var;
-    struct bench_var var;
+    bool has_param;
+    struct bench_param param;
     struct rename_entry *rename_list;
+    const char *prepare;
+    const char *round_prepare;
 };
 
 enum app_mode {
     APP_BENCH,
-    APP_LOAD_CSV,
+    APP_LOAD_TEXT,
     APP_LOAD_BIN
-};
-
-struct bench_binary_data_storage {
-    bool has_var;
-    struct bench_var var;
-    size_t meas_count;
-    struct meas *meas; // [meas_count]
-    size_t group_count;
-    struct bench_var_group *groups; // [group_count]
 };
 
 // Decide how output should be sorted
@@ -445,30 +460,103 @@ enum statistical_test {
     STAT_TEST_TTEST,
 };
 
-#define sb_header(_a)                                                          \
-    ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
+enum plot_backend {
+    PLOT_BACKEND_DEFAULT,
+    PLOT_BACKEND_MATPLOTLIB,
+    PLOT_BACKEND_GNUPLOT
+};
+
+#define make_kde_cmp_small_params(_a, _b, _meas)                                            \
+    (struct kde_cmp_params)                                                                 \
+    {                                                                                       \
+        _a, _b, _meas, NULL, NULL, NULL                                                     \
+    }
+#define make_kde_cmp_params(_a, _b, _meas, _a_name, _b_name, _title)                        \
+    (struct kde_cmp_params)                                                                 \
+    {                                                                                       \
+        _a, _b, _meas, _a_name, _b_name, _title                                             \
+    }
+
+struct kde_cmps_params {
+    const struct analysis *al;
+    size_t a_idx;
+    size_t b_idx;
+};
+
+struct plot_maker_ctx {
+    const char *image_filename;
+    FILE *f;
+    size_t *gnuplot_data_idx;
+};
+
+struct plot_maker {
+    enum plot_backend kind;
+    const char *src_extension;
+
+    bool (*bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
+    bool (*group_bar)(const struct meas_analysis *al, struct plot_maker_ctx *ctx);
+    bool (*group_regr)(const struct meas_analysis *al, size_t idx,
+                       struct plot_maker_ctx *ctx);
+    bool (*kde_small)(const struct distr *distr, const struct meas *meas,
+                      struct plot_maker_ctx *ctx);
+    bool (*kde)(const struct distr *distr, const struct meas *meas, const char *name,
+                struct plot_maker_ctx *ctx);
+    bool (*kde_cmp_small)(const struct meas_analysis *al, size_t bench_idx,
+                          struct plot_maker_ctx *ctx);
+    bool (*kde_cmp)(const struct meas_analysis *al, size_t bench_idx,
+                    struct plot_maker_ctx *ctx);
+    bool (*kde_cmp_per_val_small)(const struct meas_analysis *al, size_t grp_idx,
+                                  size_t val_idx, struct plot_maker_ctx *ctx);
+    bool (*kde_cmp_per_val)(const struct meas_analysis *al, size_t grp_idx, size_t val_idx,
+                            struct plot_maker_ctx *ctx);
+    bool (*kde_cmp_group)(const struct meas_analysis *al, size_t bench_idx,
+                          struct plot_maker_ctx *ctx);
+};
+
+enum {
+    MAKE_PLOT_KDE = 0x1,
+    MAKE_PLOT_KDE_SMALL = 0x2,
+    MAKE_PLOT_KDE_CMP = 0x4,
+    MAKE_PLOT_KDE_CMP_SMALL = 0x8,
+    MAKE_PLOT_BAR = 0x10,
+    MAKE_PLOT_GROUP_REGR = 0x20,
+    MAKE_PLOT_ALL_GROUPS_REGR = 0x40,
+    MAKE_PLOT_KDE_CMP_ALL_GROUPS = 0x80,
+    MAKE_PLOT_KDE_CMP_PER_VAL = 0x100,
+    MAKE_PLOT_KDE_CMP_PER_VAL_SMALL = 0x200,
+};
+
+enum parse_time_str_result {
+    PARSE_TIME_STR_OK,
+    PARSE_TIME_STR_ERR_FORMAT,
+    PARSE_TIME_STR_ERR_UNITS,
+    PARSE_TIME_STR_ERR_NEG,
+};
+
+struct string_writer {
+    char *start;
+    char *cursor;
+    char *end;
+};
+
+#define sb_header(_a) ((struct sb_header *)((char *)(_a) - sizeof(struct sb_header)))
 #define sb_size(_a) (sb_header(_a)->size)
 #define sb_capacity(_a) (sb_header(_a)->capacity)
 
-#define sb_needgrow(_a, _n)                                                    \
-    (((_a) == NULL) || (sb_size(_a) + (_n) >= sb_capacity(_a)))
+#define sb_needgrow(_a, _n) (((_a) == NULL) ? true : (sb_size(_a) + (_n) >= sb_capacity(_a)))
 #define sb_maybegrow(_a, _n) (sb_needgrow(_a, _n) ? sb_grow(_a, _n) : 0)
-#define sb_grow(_a, _b)                                                        \
-    (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
-#define sb_reserve(_a, _n)                                                     \
-    ((_a) != NULL                                                              \
-         ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a))     \
-                                   : 0)                                        \
-         : sb_grow((_a), (_n)))
+#define sb_grow(_a, _b) (*(void **)(&(_a)) = sb_grow_impl((_a), (_b), sizeof(*(_a))))
+#define sb_reserve(_a, _n)                                                                  \
+    ((_a) != NULL ? (sb_capacity(_a) < (_n) ? sb_grow((_a), (_n) - sb_capacity(_a)) : 0)    \
+                  : sb_grow((_a), (_n)))
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
-#define sb_ensure(_a, _n)                                                      \
-    (((_a) == NULL || sb_size(_a) < (_n)) ? sb_resize(_a, _n) : 0)
+#define sb_ensure(_a, _n) (((_a) == NULL || sb_size(_a) < (_n)) ? sb_resize(_a, _n) : 0)
 
 #define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
-#define sb_pushfront(_a, _v)                                                   \
-    (sb_maybegrow(_a, 1),                                                      \
-     memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++), (_a)[0] = (_v))
+#define sb_pushfront(_a, _v)                                                                \
+    (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),           \
+     (_a)[0] = (_v))
 #define sb_last(_a) ((_a)[sb_size(_a) - 1])
 #define sb_len(_a) (((_a) != NULL) ? sb_size(_a) : 0)
 #define sb_pop(_a) ((_a)[--sb_size(_a)])
@@ -497,6 +585,13 @@ enum statistical_test {
 #define atomic_fetch_inc(_at) __atomic_fetch_add(_at, 1, __ATOMIC_SEQ_CST)
 #define atomic_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
 
+// We use this macro to facilitate two kinds of behaviour:
+// On release control should never reach it, but luckily on MacOS even then we
+// get abort. On debug with UBSan we get nice printout to terminal.
+// Also the compiler knows that this code path is unreachable, so we don't have
+// to make useless returns to make compiler happy.
+#define ASSERT_UNREACHABLE() __builtin_unreachable()
+
 //
 // csbench.c
 //
@@ -510,19 +605,25 @@ extern bool g_csv;
 extern bool g_plot_src;
 extern bool g_use_perf;
 extern bool g_progress_bar;
-// Use linear regression to estimate slope when doing parameterized benchmark.
+// Use linear regression to estimate slope when doing parameterized
+// benchmark.
 extern bool g_regr;
-extern bool g_python_output;
+extern bool g_plot_debug;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
-// Number of resamples to use in bootstrapping when estimating distributions.
+extern bool g_clear_out_dir;
+extern bool g_shuffle_when_runnig;
+// Number of resamples to use in bootstrapping when estimating
+// distributions.
 extern int g_nresamp;
 extern int g_progress_bar_interval_us;
 extern int g_threads;
 // Index of benchmark that should be used as baseline or -1.
 extern int g_baseline;
+extern int g_desired_plots;
 extern enum sort_mode g_sort_mode;
 extern enum statistical_test g_stat_test;
+extern enum plot_backend g_plot_backend_override;
 extern enum app_mode g_mode;
 extern struct bench_stop_policy g_warmup_stop;
 extern struct bench_stop_policy g_bench_stop;
@@ -532,12 +633,14 @@ extern const char *g_json_export_filename;
 extern const char *g_out_dir;
 extern const char *g_shell;
 extern const char *g_common_argstring;
-extern const char *g_prepare;
 extern const char *g_inputd;
 extern const char *g_override_bin_name;
 extern const char *g_baseline_name;
+extern const char *g_python_executable;
 
 void free_bench_data(struct bench_data *data);
+
+extern const struct meas BUILTIN_MEASUREMENTS[];
 
 //
 // csbench_cli.c
@@ -550,15 +653,13 @@ void free_settings(struct settings *settings);
 // csbench_serialize.c
 //
 
-bool load_meas_csv(const struct meas *user_specified_meas,
-                   size_t user_specified_meas_count, const char **file_list,
-                   struct meas **meas_list);
-bool load_bench_data_csv(const char **files, struct bench_data *data);
-
 bool save_bench_data_binary(const struct bench_data *data, FILE *f);
 bool load_bench_data_binary(const char **file_list, struct bench_data *data,
-                            struct bench_binary_data_storage *storage);
-void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
+                            struct bench_data_storage *storage);
+void free_bench_data_storage(struct bench_data_storage *storage);
+
+bool load_bench_data_text(const char **file_list, struct bench_data *data,
+                          struct bench_data_storage *storage);
 
 //
 // csbench_analyze.c
@@ -566,18 +667,30 @@ void free_bench_binary_data_storage(struct bench_binary_data_storage *storage);
 
 bool do_analysis_and_make_report(const struct bench_data *data);
 
+double ols_approx(const struct ols_regress *regress, double n);
+
 //
 // csbench_run.c
 //
 
-bool run_benches(const struct bench_params *params, struct bench *benches,
-                 size_t count);
+bool run_benches(struct bench_data *data);
 
 //
 // csbench_report.c
 //
 
 bool make_report(const struct analysis *al);
+
+size_t ith_bench_idx(size_t i, const struct meas_analysis *al);
+size_t ith_per_val_group_idx(size_t i, size_t val_idx, const struct meas_analysis *al);
+size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al);
+size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al);
+
+//
+// cesbench_html.c
+//
+
+bool make_html_report(const struct analysis *al);
 
 //
 // csbench_perf.c
@@ -587,47 +700,36 @@ bool init_perf(void);
 void deinit_perf(void);
 void perf_signal_cleanup(void);
 // collect performance counters for process specified by 'pid'.
-// That process is considered blocked on sigwait() when this function is called,
-// to wake up process this function sends it SIGUSR1.
-// This function runs and collects performance counters until process
-// has finished, and consolidates results. Process can still be waited
-// after this function has finished executing.
+// That process is considered blocked on sigwait() when this function is
+// called, to wake up process this function sends it SIGUSR1. This function
+// runs and collects performance counters until process has finished, and
+// consolidates results. Process can still be waited after this function has
+// finished executing.
 bool perf_cnt_collect(pid_t pid, struct perf_cnt *cnt);
 
 //
 // csbench_plot.c
 //
 
-void bar_plot(const struct meas_analysis *analysis, const char *output_filename,
-              FILE *f);
-void group_bar_plot(const struct meas_analysis *analysis,
-                    const char *output_filename, FILE *f);
-void group_plot(const struct group_analysis *analyses, size_t count,
-                const struct meas *meas, const struct bench_var *var,
-                const char *output_filename, FILE *f);
-void kde_plot(const struct distr *distr, const struct meas *meas,
-              const char *output_filename, FILE *f);
-void kde_plot_ext(const struct distr *distr, const struct meas *meas,
-                  const char *output_filename, FILE *f);
-void kde_cmp_plot(const struct distr *a, const struct distr *b,
-                  const struct meas *meas, const char *output_filename,
-                  FILE *f);
+bool get_plot_backend(enum plot_backend *backend);
+void init_plot_maker(enum plot_backend backend, struct plot_maker *maker);
 
 //
 // csbench_utils.c
 //
 
 #define printf_colored(...) fprintf_colored(stdout, __VA_ARGS__)
-__attribute__((format(printf, 3, 4))) void
-fprintf_colored(FILE *f, const char *how, const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) void fprintf_colored(FILE *f, const char *how,
+                                                           const char *fmt, ...);
 __attribute__((format(printf, 1, 2))) void error(const char *fmt, ...);
 void errorv(const char *fmt, va_list args);
 void csperror(const char *msg);
 void csfmtperror(const char *fmt, ...);
+void csfdperror(int fd, const char *msg);
+void csfdfmtperror(int fd, const char *fmt, ...);
 
 bool pipe_cloexec(int fd[2]);
 bool check_and_handle_err_pipe(int read_end, int timeout);
-void csfdperror(int fd, const char *msg);
 
 void *sb_grow_impl(void *arr, size_t inc, size_t stride);
 
@@ -635,53 +737,36 @@ double get_time(void);
 
 bool units_is_time(const struct units *units);
 const char *units_str(const struct units *units);
+enum parse_time_str_result parse_time_str(const char *str, enum units_kind target_units,
+                                          double *value);
+
+void parse_units_str(const char *str, struct units *units);
+bool parse_meas_str(const char *str, enum meas_kind *kind);
 
 int format_time(char *dst, size_t sz, double t);
 int format_memory(char *dst, size_t sz, double t);
-void format_meas(char *buf, size_t buf_size, double value,
-                 const struct units *units);
+void format_meas(char *buf, size_t buf_size, double value, const struct units *units);
 
 const char *outliers_variance_str(double fraction);
 const char *big_o_str(enum big_o complexity);
 
-void estimate_distr(const double *data, size_t count, size_t nresamp,
-                    struct distr *distr);
-
-// Statistical testing routines. Return p-values.
-// Welch's t-test
-double ttest(const double *a, size_t n1, const double *b, size_t n2,
-             size_t nresamp);
-// Mann–Whitney U test
-double mwu(const double *a, size_t n1, const double *b, size_t n2);
-
-double ols_approx(const struct ols_regress *regress, double n);
-void ols(const double *x, const double *y, size_t count,
-         struct ols_regress *result);
-
-// Fisher–Yates shuffle algorithm
-void shuffle(size_t *arr, size_t count);
-
 bool process_wait_finished_correctly(pid_t pid, bool silent);
-bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd,
-                   pid_t *pid);
-bool shell_execute_and_wait(const char *cmd, int stdin_fd, int stdout_fd,
-                            int stderr_fd);
+bool shell_launch(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, pid_t *pid);
+bool shell_launch_stdin_pipe(const char *cmd, FILE **in_pipe, int stdout_fd, int stderr_fd,
+                             pid_t *pid);
+bool shell_execute(const char *cmd, int stdin_fd, int stdout_fd, int stderr_fd, bool silent);
+bool rm_rf_dir(const char *name);
+
+bool get_term_win_size(size_t *rows, size_t *cols);
 
 int tmpfile_fd(void);
 
-// Hand-writte strlcpy. Even if strlcpy is available on given platform,
-// we resort to this for portability.
-size_t csstrlcpy(char *dst, const char *src, size_t size);
-
-__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode,
-                                                          const char *fmt, ...);
-__attribute__((format(printf, 3, 4))) int open_fd_fmt(int flags, mode_t mode,
-                                                      const char *fmt, ...);
+__attribute__((format(printf, 2, 3))) FILE *open_file_fmt(const char *mode, const char *fmt,
+                                                          ...);
 
 const char **parse_comma_separated_list(const char *str);
 
-bool spawn_threads(void *(*worker_fn)(void *), void *param,
-                   size_t thread_count);
+bool spawn_threads(void *(*worker_fn)(void *), void *param, size_t thread_count);
 
 void init_rng_state(void);
 
@@ -694,6 +779,27 @@ static inline uint32_t pcg32_fast(uint64_t *state)
     return (uint32_t)(x >> (22 + count));
 }
 
+static inline struct string_writer strwriter(char *buf, size_t buf_size)
+{
+    struct string_writer writer;
+    writer.start = buf;
+    writer.cursor = buf;
+    writer.end = buf + buf_size;
+    // Make sure that even if we don't call printf output is valid
+    if (buf_size)
+        *buf = '\0';
+    return writer;
+}
+
+void strwriter_vprintf(struct string_writer *writer, const char *fmt, va_list args);
+__attribute__((format(printf, 2, 3))) void strwriter_printf(struct string_writer *writer,
+                                                            const char *fmt, ...);
+__attribute__((format(printf, 3, 4))) void
+strwriter_printf_colored(struct string_writer *writer, const char *how, const char *fmt,
+                         ...);
+
+void abbreviated_name(char *buf, size_t buf_size, size_t idx);
+
 // This is global interface for allocating and deallocating strings.
 // This program is not string-heavy, most of the times they arise during
 // configuration parsing and benchmark initialization.
@@ -702,26 +808,64 @@ static inline uint32_t pcg32_fast(uint64_t *state)
 // strings in global arena and then free at once. This way all strings are
 // treated as read-only, so we can safely assign them without copying.
 //
-// XXX: Marked as const to force the behaviour we want. User should not modify
-// strings directly and instead work using this interface.
+// XXX: Marked as const to force the behaviour we want. User should not
+// modify strings directly and instead work using this interface.
 void cs_free_strings(void);
 const char *csstrdup(const char *str);
 const char *csmkstr(const char *str, size_t len);
-const char *csstripend(const char *str);
 char *csstralloc(size_t len);
 __attribute__((format(printf, 1, 2))) const char *csfmt(const char *fmt, ...);
 
 #ifdef __linux__
-#define cssort_compar(_name)                                                   \
-    int _name(const void *ap, const void *bp, void *statep)
+#define cssort_compar(_name) int _name(const void *ap, const void *bp, void *statep)
 #elif defined(__APPLE__)
-#define cssort_compar(_name)                                                   \
-    int _name(void *statep, const void *ap, const void *bp)
+#define cssort_compar(_name) int _name(void *statep, const void *ap, const void *bp)
 #else
 #error
 #endif
 typedef cssort_compar(cssort_compar_fn);
-void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar,
-                void *arg);
+void cssort_ext(void *base, size_t nmemb, size_t size, cssort_compar_fn *compar, void *arg);
+
+//
+// Misc definitions
+//
+
+static inline const char *bench_name(const struct analysis *al, size_t bench_idx)
+{
+    return al->benches[bench_idx].name;
+}
+
+static inline const char *bench_group_name(const struct analysis *al, size_t grp_idx)
+{
+    return al->groups[grp_idx].name;
+}
+
+#define foreach_bench_idx(_idx, _al)                                                        \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_bench_idx(0, (_al));                           \
+         CSUNIQIFY(i) < (_al)->base->bench_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->bench_count                     \
+                                    ? ith_bench_idx(CSUNIQIFY(i), (_al))                    \
+                                    : 0)
+
+#define foreach_group_by_avg_idx(_idx, _al)                                                 \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_avg_idx(0, (_al));                    \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_group_by_avg_idx(CSUNIQIFY(i), (_al))             \
+                                    : 0)
+
+#define foreach_group_by_total_idx(_idx, _al)                                               \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_group_by_total_idx(0, (_al));                  \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_group_by_total_idx(CSUNIQIFY(i), (_al))           \
+                                    : 0)
+
+#define foreach_per_val_group_idx(_idx, _val, _al)                                          \
+    for (size_t CSUNIQIFY(i) = 0, _idx = ith_per_val_group_idx(0, (_val), (_al));           \
+         CSUNIQIFY(i) < (_al)->base->group_count;                                           \
+         ++CSUNIQIFY(i), _idx = CSUNIQIFY(i) < (_al)->base->group_count                     \
+                                    ? ith_per_val_group_idx(CSUNIQIFY(i), (_val), (_al))    \
+                                    : 0)
 
 #endif // CSBENCH_H

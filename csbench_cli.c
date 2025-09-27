@@ -1,3 +1,5 @@
+// csbench
+// command-line benchmarking tool
 // Ilya Vinogradov 2024
 // https://github.com/Holodome/csbench
 //
@@ -61,24 +63,27 @@
 #include <dirent.h>
 #include <unistd.h>
 
-#define OPT_ARR(...)                                                           \
-    (const char *[]) { __VA_ARGS__, NULL }
+#define OPT_ARR(...)                                                                        \
+    (const char *[])                                                                        \
+    {                                                                                       \
+        __VA_ARGS__, NULL                                                                   \
+    }
 
-static const struct meas BUILTIN_MEASUREMENTS[] = {
-    /* MEAS_CUSTOM */ {"", NULL, {0}, 0, false, 0},
-    /* MEAS_LOADED */ {"", NULL, {0}, 0, false, 0},
-    {"wall clock time", NULL, {MU_S, ""}, MEAS_WALL, false, 0},
-    {"usrtime", NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
-    {"systime", NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
-    {"maxrss", NULL, {MU_B, ""}, MEAS_RUSAGE_MAXRSS, true, 0},
-    {"minflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MINFLT, true, 0},
-    {"majflt", NULL, {MU_NONE, ""}, MEAS_RUSAGE_MAJFLT, true, 0},
-    {"nvcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NVCSW, true, 0},
-    {"nivcsw", NULL, {MU_NONE, ""}, MEAS_RUSAGE_NIVCSW, true, 0},
-    {"cycles", NULL, {MU_NONE, ""}, MEAS_PERF_CYCLES, true, 0},
-    {"ins", NULL, {MU_NONE, ""}, MEAS_PERF_INS, true, 0},
-    {"b", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCH, true, 0},
-    {"bm", NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
+const struct meas BUILTIN_MEASUREMENTS[] = {
+    /* MEAS_CUSTOM */ {"", NULL, NULL, {0}, 0, false, 0},
+    /* MEAS_CUSTOM_RE */ {"", NULL, NULL, {0}, 0, false, 0},
+    {"wall clock time", NULL, NULL, {MU_S, ""}, MEAS_WALL, false, 0},
+    {"usrtime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_UTIME, true, 0},
+    {"systime", NULL, NULL, {MU_S, ""}, MEAS_RUSAGE_STIME, true, 0},
+    {"maxrss", NULL, NULL, {MU_B, ""}, MEAS_RUSAGE_MAXRSS, true, 0},
+    {"minflt", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_MINFLT, true, 0},
+    {"majflt", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_MAJFLT, true, 0},
+    {"nvcsw", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_NVCSW, true, 0},
+    {"nivcsw", NULL, NULL, {MU_NONE, ""}, MEAS_RUSAGE_NIVCSW, true, 0},
+    {"cycles", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_CYCLES, true, 0},
+    {"ins", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_INS, true, 0},
+    {"b", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_BRANCH, true, 0},
+    {"bm", NULL, NULL, {MU_NONE, ""}, MEAS_PERF_BRANCHM, true, 0},
 };
 
 static void print_tabulated(const char *s)
@@ -148,167 +153,175 @@ static void print_help_and_exit(int rc)
     printf_colored(ANSI_BOLD_UNDERLINE, "Arguments:\n");
     printf("  <command>...\n");
     print_tabulated(
-        "The command to benchmark. Can be a shell command line, like "
-        "'ls $(pwd) && echo 1', or a direct executable invocation, like 'sleep "
-        "0.5'. Former is not available when --shell none is specified. Can "
-        "contain parameters in the form 'sleep {n}', see --param-* family of "
-        "options. If multiple commands are given, their comparison will be "
-        "performed.");
+        "The command to benchmark. Can be a shell command line, like 'ls $(pwd) "
+        "&& echo 1', or a direct executable invocation, like 'sleep 0.5'. Former "
+        "is not available when --shell none is specified. Can contain parameters "
+        "in the form 'sleep {n}', see --param-* family of options. If multiple "
+        "commands are given, their comparison will be performed.");
     printf("\n");
     printf_colored(ANSI_BOLD_UNDERLINE, "Options:\n");
+    printf_colored(ANSI_BOLD, "\nBenchmark stop condition options:\n");
     print_opt("-R, --runs", OPT_ARR("NUM"),
-              "Run each benchmark exactly <NUM> times in total (not "
-              "including warmup).");
-    print_opt("-T, --time-limit", OPT_ARR("NUM"),
-              "Run each benchmark for at least <NUM> seconds in total.");
-    print_opt("--min-runs", OPT_ARR("NUM"),
-              "Run each benchmark at least <NUM> times.");
-    print_opt("--max-runs", OPT_ARR("NUM"),
-              "Run each benchmark at most <NUM> times.");
-    print_opt("--warmup-runs", OPT_ARR("NUM"),
-              "Perform exactly <NUM> warmup runs.");
-    print_opt("-W, --warmup", OPT_ARR("NUM"),
-              "Perform warmup for at least <NUM> seconds.");
-    print_opt("--min-warmup-runs", OPT_ARR("NUM"),
-              "Perform at least <NUM> warmup runs.");
-    print_opt("--max-warmup-runs", OPT_ARR("NUM"),
-              "Perform at most <NUM> warmup runs.");
+              "Run each benchmark exactly <NUM> times in total (not including warmup).");
+    print_opt("-T, --time-limit", OPT_ARR("DURATION"),
+              "Run each benchmark for at least <DURATION> in total.");
+    print_opt("--min-runs", OPT_ARR("NUM"), "Run each benchmark at least <NUM> times.");
+    print_opt("--max-runs", OPT_ARR("NUM"), "Run each benchmark at most <NUM> times.");
+    printf_colored(ANSI_BOLD, "\nWarmup options:\n");
+    print_opt("--warmup-runs", OPT_ARR("NUM"), "Perform exactly <NUM> warmup runs.");
+    print_opt("-W, --warmup", OPT_ARR("DURATION"),
+              "Perform warmup for at least <DURATION>.");
+    print_opt("--min-warmup-runs", OPT_ARR("NUM"), "Perform at least <NUM> warmup runs.");
+    print_opt("--max-warmup-runs", OPT_ARR("NUM"), "Perform at most <NUM> warmup runs.");
     print_opt("--no-warmup", OPT_ARR(NULL), "Disable warmup.");
+    printf_colored(ANSI_BOLD, "\nRound options:\n");
     print_opt("--round-runs", OPT_ARR("NUM"),
               "In a single round perform exactly <NUM> warmup runs.");
-    print_opt(
-        "--round-time", OPT_ARR("NUM"),
-        "Each benchmark will will be run for at least <NUM> seconds in row.");
+    print_opt("--round-time", OPT_ARR("DURATION"),
+              "Each benchmark will will be run for at least <DURATION> in row.");
     print_opt("--min-round-runs", OPT_ARR("NUM"),
               "In a single round perform at least <NUM> warmup runs.");
     print_opt("--max-round-runs", OPT_ARR("NUM"),
               "In a single round perform at most <NUM> warmup runs.");
-    print_opt("--no-round", OPT_ARR(NULL),
-              "Do not split execution into rounds.");
-    print_opt("--common-args", OPT_ARR("STR"),
-              "Append <STR> to each benchmark command.");
-    print_opt(
-        "-S, --shell", OPT_ARR("SHELL"),
-        "Set the shell to be used for executing benchmark commands. Can be "
-        "both name of shell executable, like \"bash\", or a command like "
-        "\"bash --norc\". Either way, arguments \"-c\" and benchmark command "
-        "string are appended to shell argument list. Alternatively, "
-        "<SHELL> can be set to \"none\". This way commands will be "
-        "executed directly using execve(2) system call, avoiding shell process "
-        "startup time overhead.");
-    print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none");
-    print_opt("-P, --prepare", OPT_ARR("CMD"),
-              "Execute <CMD> before each benchmark run.");
+    print_opt("--no-round", OPT_ARR(NULL), "Do not split execution into rounds.");
+    printf_colored(ANSI_BOLD, "\nBenchmark setup options:\n");
+    print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
+    print_opt("-S, --shell", OPT_ARR("SHELL"),
+              "Set the shell to be used for executing benchmark commands. Can be both name "
+              "of shell executable, like \"bash\", or a command like \"bash --norc\". "
+              "Either way, arguments \"-c\" and benchmark command string are appended to "
+              "shell argument list. Alternatively, <SHELL> can be set to \"none\", or "
+              "\"inherit\". If set to \"none\", commands will be executed directly using "
+              "execve system call, avoiding shell process startup time overhead. If set to "
+              "\"inherit\", uses the shell set in SHELL variable of calling process.");
+    print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
+    print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
+    print_opt("--round-prepare", OPT_ARR("CMD"),
+              "Execute <CMD> in the beggining of each round, before the warmup.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
-              "Execute benchmarks in parallel using <NUM> system threads "
-              "(default: 1).");
-    print_opt(
-        "-i, --ignore-failure", OPT_ARR(NULL),
-        "Do not abort benchmarking when command finishes with non-zero exit "
-        "code.");
+              "Execute benchmarks in parallel using <NUM> system threads (default: 1).");
+    print_opt("-i, --ignore-failure", OPT_ARR(NULL),
+              "Do not abort benchmarking when command finishes with non-zero exit code.");
     print_opt("-s, --simple", OPT_ARR(NULL),
-              "Preset to run benchmark using all available processors for 1 "
-              "second without warmup and rounds.");
-    print_opt(
-        "--input", OPT_ARR("FILE"),
-        "Specify file that will be used as input for all benchmark commands.");
+              "Preset to run benchmark using all available processors for 1 second without "
+              "warmup and rounds.");
+    print_opt("--shuffle-runs", OPT_ARR(NULL),
+              "Randomize the order in which benchmarks are run.");
+    printf_colored(ANSI_BOLD, "\nCommand input and output options:\n");
+    print_opt("--input", OPT_ARR("FILE"),
+              "Specify file that will be used as input for all benchmark commands.");
     print_opt("--inputs", OPT_ARR("STR"),
-              "Specify string that will be used as input for all benchmark "
-              "commands.");
+              "Specify string that will be used as input for all benchmark commands.");
     print_opt("--inputd", OPT_ARR("DIR"),
-              "Specify directory, all files from which will be used as input "
-              "for all benchmark commands.");
+              "Specify directory, all files from which will be used as input for all "
+              "benchmark commands.");
     print_opt("--no-input", OPT_ARR(NULL), "Disable input (default).");
     print_opt("--output", OPT_ARR("KIND"),
-              "Control where stdout and stderr of benchmark commands is "
-              "redirected. <KIND> can be \"null\", or \"inherit\"");
-    print_opt("--meas", OPT_ARR("MEAS"),
-              "Specify list of built-in measurement to collect. <MEAS> is a "
-              "comma-separated list of measurement names, which can be of the "
-              "following: \"wall\", \"stime\", \"utime\", \"maxrss\", "
-              "\"minflt\", \"majflt\", \"nvcsw\", \"nivcsw\", \"cycles\", "
-              "\"branches\", \"branch-misses\"");
+              "Control where stdout and stderr of benchmark commands is redirected. <KIND> "
+              "can be \"null\", or \"inherit\".");
+    printf_colored(ANSI_BOLD, "\nMeasurement options:\n");
+    print_opt(
+        "--meas", OPT_ARR("MEAS"),
+        "Specify list of built-in measurement to collect. <MEAS> is a comma-separated "
+        "list of measurement names, which can be of the following: \"wall\", \"stime\", "
+        "\"utime\", \"maxrss\", \"minflt\", \"majflt\", \"nvcsw\", \"nivcsw\", \"cycles\", "
+        "\"branches\", \"branch-misses\".");
     print_opt("--custom", OPT_ARR("NAME"),
-              "Add custom measurement with name <NAME>. This measurement "
-              "parses stdout of each command as a single real number and "
-              "interprets it in seconds.");
-    print_opt("--custom-t", OPT_ARR("NAME", "CMD"),
-              "Add custom measurement with name <NAME>, This measurement pipes "
-              "stdout of each command to <CMD>, parses its output as a single "
-              "real number and interprets it in seconds.");
-    print_opt("--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
-              "Add custom measurement with name <NAME>, This measurement pipes "
-              "stdout of each command to <CMD>, parses its output as a single "
-              "real number and interprets it in <UNITS>.");
-    print_opt("--no-default-meas", OPT_ARR(NULL),
-              "Do not use default measurements.");
-    print_opt("--param", OPT_ARR("STR"),
-              "<STR> is of the format <i>/<v>. Add benchmark parameter with "
-              "name <i>. <v> is a comma-separated list of parameter values.");
-    print_opt("--param-range", OPT_ARR("STR"),
-              "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark "
-              "parameter with name <i>, whose values are in range from <n> to "
-              "<m> with step <s>. <s> is optional, default is 1.");
-    print_opt("--load-csv", OPT_ARR(NULL),
-              "Load benchmark data from CSV files listed in command-line. "
-              "<command>... is interpreted as a list of CSV files.");
+              "Add custom measurement with name <NAME>. This measurement parses stdout of "
+              "each command as a single real number and interprets it in seconds.");
+    print_opt(
+        "--custom-t", OPT_ARR("NAME", "CMD"),
+        "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
+        "command to <CMD>, parses its output as a single real number and interprets it "
+        "in seconds.");
+    print_opt(
+        "--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
+        "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
+        "command to <CMD>, parses its output as a single real number and interprets it "
+        "in <UNITS>. <UNITS> can be one of ns, us, ms, s, b, kb, mb, gb, none.");
+    print_opt("--custom-re", OPT_ARR("NAME", "UNITS", "RE"),
+              "Add custom measurement with name <NAME>, This measurement uses regular "
+              "expression <RE> to extract data from stdout of each command, parses first "
+              "subexpression as a single real number and interprets it in <UNITS>.");
+    print_opt("--no-default-meas", OPT_ARR(NULL), "Do not use default measurements.");
+    printf_colored(ANSI_BOLD, "\nParameterization options:\n");
+    print_opt(
+        "--param", OPT_ARR("STR"),
+        "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
+        "a comma-separated list of parameter values.");
+    print_opt(
+        "--param-range", OPT_ARR("STR"),
+        "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
+        "<i>, whose values are in range from <n> to <m> with step <s>. <s> is optional, "
+        "default is 1.");
+    printf_colored(ANSI_BOLD, "\nAlternative mode options:\n");
+    print_opt("--load-text", OPT_ARR(NULL),
+              "Load benchmark data from text files in custom format listed in command-line. "
+              "<command>... is interpreted as a list of file names.");
     print_opt("--load-bin", OPT_ARR(NULL),
-              "Load benchmark data from files in custom binary format. "
-              "<command>... is interpreted as a list of files, or directories "
-              "which contain file \"data.csbench\".");
-    print_opt("--nrs", OPT_ARR("NUM"),
-              "Use <NUM> resamples when computing confidence intervals using "
-              "bootstrapping.");
-    print_opt("--stat-test", OPT_ARR("TEST"),
-              "Specify statistical test to be used to calculate p-values. "
-              "Possible values for <TEST> are \"mwu\" and \"t-test\". Default "
-              "is \"mwu\".");
+              "Load benchmark data from files in custom binary format. <command>... is "
+              "interpreted as a list of files, or directories which contain file "
+              "\"data.csbench\".");
+    printf_colored(ANSI_BOLD, "\nAnalysis options:\n");
+    print_opt(
+        "--nrs", OPT_ARR("NUM"),
+        "Use <NUM> resamples when computing confidence intervals using bootstrapping.");
+    print_opt(
+        "--stat-test", OPT_ARR("TEST"),
+        "Specify statistical test to be used to calculate p-values. Possible values for "
+        "<TEST> are \"mwu\" and \"t-test\". Default is \"mwu\".");
     print_opt("--regr", OPT_ARR(NULL),
-              "Perform linear regression of measurements in terms of benchmark "
-              "parameters.");
-    print_opt("--baseline", OPT_ARR("NUM"),
-              "Use benchmark with number <NUM> (starting from 1) as baseline "
-              "in comparisons.");
+              "Perform linear regression of measurements in terms of benchmark parameters.");
+    printf_colored(ANSI_BOLD, "\nOutput options:\n");
+    print_opt(
+        "--baseline", OPT_ARR("NUM"),
+        "Use benchmark with number <NUM> (starting from 1) as baseline in comparisons.");
     print_opt("--baseline-name", OPT_ARR("NAME"),
               "Use benchmark with name <NAME> as baseline in comparisons.");
-    print_opt(
-        "--rename", OPT_ARR("NUM", "NAME"),
-        "Rename benchmark with number <NUM> (starting from 1) to <NAME>.");
+    print_opt("--rename", OPT_ARR("NUM", "NAME"),
+              "Rename benchmark with number <NUM> (starting from 1) to <NAME>.");
     print_opt("--rename-name", OPT_ARR("OLD_NAME", "NAME"),
               "Rename benchmark with name <OLD_NAME> to <NAME>.");
     print_opt("--rename-all", OPT_ARR("NAMES"),
               "Rename all benchmarks. <NAMES> is a comma-separated list of new "
               "names.");
-    print_opt("--sort", OPT_ARR("METHOD"),
-              "Specify order of benchmarks in reports. Possible values for "
-              "<METHOD> are: \"auto\" - sort by speed if baseline is not set, "
-              "keep original order otherwise; \"command\" - keep original "
-              "order, \"mean-time\" - sort by mean time (default: \"auto\").");
+    print_opt(
+        "--sort", OPT_ARR("METHOD"),
+        "Specify order of benchmarks in reports. Possible values for <METHOD> are: \"auto\" "
+        "- "
+        "sort by speed if baseline is not set, keep original order otherwise; \"command\" - "
+        "keep original order, \"mean-time\" - sort by mean time (default: \"auto\").");
     print_opt("-o, --out-dir", OPT_ARR("DIR"),
               "Place all outputs to directory <DIR> (default: \".csbench\").");
     print_opt("--plot", OPT_ARR(NULL), "Generate plots.");
-    print_opt("--plot-src", OPT_ARR(NULL),
-              "Save python sources used to generate plots.");
+    print_opt("--plot-src", OPT_ARR(NULL), "Save python sources used to generate plots.");
+    print_opt("--plot-backend", OPT_ARR("BACKEND"),
+              "Select backend used to generate plots. Possible values for <BACKEND> are: "
+              "\"auto\", \"matplotlib\", \"gnuplot\" (default: \"auto\").");
     print_opt("--html", OPT_ARR(NULL), "Generate HTML report.");
     print_opt("--csv", OPT_ARR(NULL), "Save benchmark results to CSV files.");
     print_opt("--json", OPT_ARR("FILE"),
               "Export benchmark results to <FILE> in JSON format.");
     print_opt("--save-bin", OPT_ARR(NULL),
-              "Save data in custom binary format. It can be later loaded with "
-              "--load-bin.");
-    print_opt("--save-bin-name", OPT_ARR("NAME"),
-              "Override file that --save-bin will save to. <NAME> is new file "
-              "name (default: \".csbench/data.csbench\").");
+              "Save data in custom binary format. It can be later loaded with --load-bin.");
+    print_opt(
+        "--save-bin-name", OPT_ARR("NAME"),
+        "Override file that --save-bin will save to. <NAME> is new file name (default: "
+        "\".csbench/data.csbench\").");
+    printf_colored(ANSI_BOLD, "\nMiscellaneous options:\n");
     print_opt("--color", OPT_ARR("WHEN"),
-              "Use colored output. Possible values for <WHEN> are \"never\", "
-              "\"auto\", \"always\" (default: \"auto\")");
+              "Use colored output. Possible values for <WHEN> are \"never\", \"auto\", "
+              "\"always\" (default: \"auto\").");
     print_opt("--progress-bar", OPT_ARR("WHEN"),
-              "Display dynamically updated progress bar when running "
-              "benchmarks. Possible values for <WHEN> are \"never\", "
-              "\"auto\", \"always\" (default: \"auto\").");
-    print_opt("--progress-bar-interval", OPT_ARR("US"),
-              "Set redraw interval of progress bar to <US> microseconds "
-              "(default: 100000).");
+              "Display dynamically updated progress bar when running benchmarks. Possible "
+              "values for <WHEN> are \"never\", \"auto\", \"always\" (default: \"auto\").");
+    print_opt("--progress-bar-interval", OPT_ARR("TIME"),
+              "Set redraw interval of progress bar to <TIME> (default: 100ms).");
+    print_opt("--plot-debug", OPT_ARR(NULL),
+              "Do not silence output of program which is used to make plots.");
+    print_opt("--python-executable", OPT_ARR("EXE"),
+              "Use <EXE> as python executable when making plots (default: \"python3\").");
+    print_opt("--clear-out", OPT_ARR(NULL), "Clear out directory before execution.");
     print_opt("--help", OPT_ARR(NULL), "Print help message.");
     print_opt("--version", OPT_ARR(NULL), "Print version.");
     exit(rc);
@@ -320,8 +333,8 @@ static void print_version_and_exit(void)
     exit(EXIT_SUCCESS);
 }
 
-static bool parse_param_range_string(const char *settings, const char **namep,
-                                     double *lowp, double *highp, double *stepp)
+static bool parse_param_range_string(const char *settings, const char **namep, double *lowp,
+                                     double *highp, double *stepp)
 {
     const char *cursor = settings;
     const char *settings_end = settings + strlen(settings);
@@ -365,8 +378,7 @@ static bool parse_param_range_string(const char *settings, const char **namep,
     return true;
 }
 
-static const char **range_to_var_value_list(double low, double high,
-                                            double step)
+static const char **range_to_value_list(double low, double high, double step)
 {
     assert(high > low);
     const char **result = NULL;
@@ -400,69 +412,19 @@ static bool parse_comma_separated_settings(const char *str, const char **namep,
     return true;
 }
 
-static void parse_units_str(const char *str, struct units *units)
-{
-    if (strcmp(str, "s") == 0) {
-        units->kind = MU_S;
-    } else if (strcmp(str, "ms") == 0) {
-        units->kind = MU_MS;
-    } else if (strcmp(str, "us") == 0) {
-        units->kind = MU_US;
-    } else if (strcmp(str, "ns") == 0) {
-        units->kind = MU_NS;
-    } else if (strcmp(str, "b") == 0) {
-        units->kind = MU_B;
-    } else if (strcmp(str, "kb") == 0) {
-        units->kind = MU_KB;
-    } else if (strcmp(str, "mb") == 0) {
-        units->kind = MU_MB;
-    } else if (strcmp(str, "gb") == 0) {
-        units->kind = MU_GB;
-    } else if (strcmp(str, "none") == 0) {
-        units->kind = MU_NONE;
-    } else {
-        units->kind = MU_CUSTOM;
-        units->str = str;
-    }
-}
-
 static void parse_meas_list(const char *opts, enum meas_kind **meas_list)
 {
     const char **list = parse_comma_separated_list(opts);
     for (size_t i = 0; i < sb_len(list); ++i) {
         const char *opt = list[i];
         enum meas_kind kind;
-        if (strcmp(opt, "wall") == 0) {
-            kind = MEAS_WALL;
-        } else if (strcmp(opt, "stime") == 0) {
-            kind = MEAS_RUSAGE_STIME;
-        } else if (strcmp(opt, "utime") == 0) {
-            kind = MEAS_RUSAGE_UTIME;
-        } else if (strcmp(opt, "maxrss") == 0) {
-            kind = MEAS_RUSAGE_MAXRSS;
-        } else if (strcmp(opt, "minflt") == 0) {
-            kind = MEAS_RUSAGE_MINFLT;
-        } else if (strcmp(opt, "majflt") == 0) {
-            kind = MEAS_RUSAGE_MAJFLT;
-        } else if (strcmp(opt, "nvcsw") == 0) {
-            kind = MEAS_RUSAGE_NVCSW;
-        } else if (strcmp(opt, "nivcsw") == 0) {
-            kind = MEAS_RUSAGE_NIVCSW;
-        } else if (strcmp(opt, "cycles") == 0) {
-            kind = MEAS_PERF_CYCLES;
-            g_use_perf = true;
-        } else if (strcmp(opt, "instructions") == 0) {
-            kind = MEAS_PERF_INS;
-            g_use_perf = true;
-        } else if (strcmp(opt, "branches") == 0) {
-            kind = MEAS_PERF_BRANCH;
-            g_use_perf = true;
-        } else if (strcmp(opt, "branch-misses") == 0) {
-            kind = MEAS_PERF_BRANCHM;
-            g_use_perf = true;
-        } else {
+        if (!parse_meas_str(opt, &kind)) {
             error("invalid measurement name: '%s'", opt);
             exit(EXIT_FAILURE);
+        }
+        if (kind == MEAS_PERF_CYCLES || kind == MEAS_PERF_INS || kind == MEAS_PERF_BRANCH ||
+            kind == MEAS_PERF_BRANCHM) {
+            g_use_perf = true;
         }
         sb_push(*meas_list, kind);
     }
@@ -475,7 +437,7 @@ static size_t simple_get_thread_count(void)
     if (!pipe_cloexec(pipe_fd))
         return 1;
 
-    if (!shell_execute_and_wait("nproc", -1, pipe_fd[1], -1)) {
+    if (!shell_execute("nproc", -1, pipe_fd[1], -1, false)) {
         close(pipe_fd[0]);
         close(pipe_fd[1]);
         return 1;
@@ -510,8 +472,7 @@ static bool get_input_files_from_dir(const char *dirname, const char ***filesp)
     bool success = false;
     DIR *dir = opendir(dirname);
     if (dir == NULL) {
-        csfmtperror("failed to open directory '%s' (designated for input)",
-                    dirname);
+        csfmtperror("failed to open directory '%s' (designated for input)", dirname);
         return false;
     }
 
@@ -586,8 +547,8 @@ static bool opt_arg(char **argv, int *cursor, const char *opt, const char **arg)
     return false;
 }
 
-static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
-                              const char *name, double *valuep)
+static bool opt_time(char **argv, int *cursorp, const char **opt_strs, enum units_kind units,
+                     const char *name, double *valuep)
 {
     const char *str;
     const char *opt_str = NULL;
@@ -598,13 +559,18 @@ static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
         if (opt_arg(argv, cursorp, opt_str, &str))
             break;
     }
-    char *str_end;
-    double value = strtod(str, &str_end);
-    if (str_end == str) {
-        error("invalid %s argument", opt_str);
+    double value;
+    enum parse_time_str_result result = parse_time_str(str, units, &value);
+    switch (result) {
+    case PARSE_TIME_STR_OK:
+        break;
+    case PARSE_TIME_STR_ERR_FORMAT:
+        error("invalid %s format", name);
         exit(EXIT_FAILURE);
-    }
-    if (value < 0.0) {
+    case PARSE_TIME_STR_ERR_UNITS:
+        error("invalid %s time units", name);
+        exit(EXIT_FAILURE);
+    case PARSE_TIME_STR_ERR_NEG:
         error("%s must be positive number or zero", name);
         exit(EXIT_FAILURE);
     }
@@ -612,8 +578,8 @@ static bool opt_double_nonneg(char **argv, int *cursorp, const char **opt_strs,
     return true;
 }
 
-static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs,
-                        const char *name, int *valuep)
+static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs, const char *name,
+                        int *valuep)
 {
     const char *str;
     const char *opt_str = NULL;
@@ -638,8 +604,7 @@ static bool opt_int_pos(char **argv, int *cursorp, const char **opt_strs,
     return true;
 }
 
-static bool opt_bool(char **argv, int *cursorp, const char *opt_str,
-                     bool *valuep)
+static bool opt_bool(char **argv, int *cursorp, const char *opt_str, bool *valuep)
 {
     if (strcmp(argv[*cursorp], opt_str) == 0) {
         *valuep = true;
@@ -658,54 +623,59 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
     if (argc == 1)
         print_help_and_exit(EXIT_SUCCESS);
 
+    memset(settings, 0, sizeof(*settings));
+
     int cursor = 1;
     const char *str;
+    double dbl;
     while (cursor < argc) {
-        if (strcmp(argv[cursor], "--help") == 0 ||
-            strcmp(argv[cursor], "-h") == 0) {
+        if (strcmp(argv[cursor], "--help") == 0 || strcmp(argv[cursor], "-h") == 0) {
             print_help_and_exit(EXIT_SUCCESS);
         } else if (strcmp(argv[cursor], "--version") == 0) {
             print_version_and_exit();
-        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--warmup", "-W"),
-                                     "warmup time limit",
-                                     &g_warmup_stop.time_limit)) {
-        } else if (opt_double_nonneg(argv, &cursor,
-                                     OPT_ARR("--time-limit", "-T"),
-                                     "time limit", &g_bench_stop.time_limit)) {
-        } else if (opt_double_nonneg(argv, &cursor, OPT_ARR("--round-time"),
-                                     "round time limit",
-                                     &g_round_stop.time_limit)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--warmup-runs"),
-                               "warmup run count", &g_warmup_stop.runs)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--runs", "-R"),
-                               "run count", &g_bench_stop.runs)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--round-runs"),
-                               "round run count", &g_round_stop.runs)) {
+        } else if (opt_time(argv, &cursor, OPT_ARR("--warmup", "-W"), MU_S,
+                            "warmup time limit", &dbl)) {
+            g_warmup_stop.time_limit = dbl;
+        } else if (opt_time(argv, &cursor, OPT_ARR("--time-limit", "-T"), MU_S, "time limit",
+                            &dbl)) {
+            g_bench_stop.time_limit = dbl;
+        } else if (opt_time(argv, &cursor, OPT_ARR("--round-time"), MU_S, "round time limit",
+                            &dbl)) {
+            g_round_stop.time_limit = dbl;
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--warmup-runs"), "warmup run count",
+                               &g_warmup_stop.runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--runs", "-R"), "run count",
+                               &g_bench_stop.runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--round-runs"), "round run count",
+                               &g_round_stop.runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-warmup-runs"),
-                               "minimal warmup run count",
-                               &g_warmup_stop.min_runs)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-runs"),
-                               "minimal run count", &g_bench_stop.min_runs)) {
+                               "minimal warmup run count", &g_warmup_stop.min_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-runs"), "minimal run count",
+                               &g_bench_stop.min_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--min-round-runs"),
-                               "minimal round run count",
-                               &g_round_stop.min_runs)) {
+                               "minimal round run count", &g_round_stop.min_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-warmup-runs"),
-                               "maximum warmup run count",
-                               &g_warmup_stop.max_runs)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-runs"),
-                               "maximum run count", &g_bench_stop.max_runs)) {
+                               "maximum warmup run count", &g_warmup_stop.max_runs)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-runs"), "maximum run count",
+                               &g_bench_stop.max_runs)) {
         } else if (opt_int_pos(argv, &cursor, OPT_ARR("--max-round-runs"),
-                               "maximum round run count",
-                               &g_round_stop.max_runs)) {
-        } else if (opt_arg(argv, &cursor, "--prepare", &g_prepare)) {
-        } else if (opt_arg(argv, &cursor, "--common-args",
-                           &g_common_argstring)) {
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"),
-                               "resamples count", &g_nresamp)) {
+                               "maximum round run count", &g_round_stop.max_runs)) {
+        } else if (opt_arg(argv, &cursor, "--prepare", &settings->prepare)) {
+        } else if (opt_arg(argv, &cursor, "--round-prepare", &settings->round_prepare)) {
+        } else if (opt_arg(argv, &cursor, "--common-args", &g_common_argstring)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--nrs"), "resamples count",
+                               &g_nresamp)) {
         } else if (opt_arg(argv, &cursor, "--shell", &g_shell) ||
                    opt_arg(argv, &cursor, "-S", &g_shell)) {
-            if (strcmp(g_shell, "none") == 0)
+            if (strcmp(g_shell, "none") == 0) {
                 g_shell = NULL;
+            } else if (strcmp(g_shell, "inherit") == 0) {
+                g_shell = getenv("SHELL");
+                if (g_shell == NULL) {
+                    error("--shell is set to \"inherit\", but SHELL variable is not set");
+                    exit(EXIT_FAILURE);
+                }
+            }
         } else if (strcmp(argv[cursor], "-N") == 0) {
             ++cursor;
             g_shell = NULL;
@@ -739,7 +709,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             settings->input.kind = INPUT_POLICY_STRING;
             settings->input.string = str;
         } else if (opt_arg(argv, &cursor, "--inputd", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -750,10 +720,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 exit(EXIT_FAILURE);
             settings->input.kind = INPUT_POLICY_FILE;
             settings->input.file = "{file}";
-            settings->var.name = "file";
-            settings->var.values = files;
-            settings->var.value_count = sb_len(files);
-            settings->has_var = true;
+            settings->param.name = "file";
+            settings->param.values = files;
+            settings->param.value_count = sb_len(files);
+            settings->has_param = true;
             g_inputd = str;
         } else if (opt_arg(argv, &cursor, "--custom", &str)) {
             struct meas meas;
@@ -764,7 +734,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (strcmp(argv[cursor], "--custom-t") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--custom-t requires 2 arguments");
+                error("--custom-t requires 2 arguments: <NAME> <CMD>");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -773,11 +743,12 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             memset(&meas, 0, sizeof(meas));
             meas.name = name;
             meas.cmd = cmd;
+            meas.kind = MEAS_CUSTOM;
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--custom-x") == 0) {
             ++cursor;
             if (cursor + 2 >= argc) {
-                error("--custom-x requires 3 arguments");
+                error("--custom-x requires 3 arguments: <NAME> <UNITS> <CMD>");
                 exit(EXIT_FAILURE);
             }
             const char *name = argv[cursor++];
@@ -787,12 +758,29 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             memset(&meas, 0, sizeof(meas));
             meas.name = name;
             meas.cmd = cmd;
+            meas.kind = MEAS_CUSTOM;
+            parse_units_str(units, &meas.units);
+            sb_push(meas_list, meas);
+        } else if (strcmp(argv[cursor], "--custom-re") == 0) {
+            ++cursor;
+            if (cursor + 2 >= argc) {
+                error("--custom-re requires 3 arguments: <NAME> <UNITS> <RE>");
+                exit(EXIT_FAILURE);
+            }
+            const char *name = argv[cursor++];
+            const char *units = argv[cursor++];
+            const char *re = argv[cursor++];
+            struct meas meas;
+            memset(&meas, 0, sizeof(meas));
+            meas.name = name;
+            meas.re = re;
+            meas.kind = MEAS_CUSTOM_RE;
             parse_units_str(units, &meas.units);
             sb_push(meas_list, meas);
         } else if (strcmp(argv[cursor], "--rename") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--rename requires 2 arguments");
+                error("--rename requires 2 arguments: <N> <NAME>");
                 exit(EXIT_FAILURE);
             }
             const char *n = argv[cursor++];
@@ -814,7 +802,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (strcmp(argv[cursor], "--rename-name") == 0) {
             ++cursor;
             if (cursor + 1 >= argc) {
-                error("--rename-name requires 2 arguments");
+                error("--rename-name requires 2 arguments: <OLD> <NEW>");
                 exit(EXIT_FAILURE);
             }
             const char *old_name = argv[cursor++];
@@ -837,7 +825,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             sb_free(list);
             g_rename_all_used = true;
         } else if (opt_arg(argv, &cursor, "--param-range", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -847,13 +835,13 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 error("invalid --param-range argument");
                 exit(EXIT_FAILURE);
             }
-            const char **value_list = range_to_var_value_list(low, high, step);
-            settings->var.name = name;
-            settings->var.values = value_list;
-            settings->var.value_count = sb_len(value_list);
-            settings->has_var = true;
+            const char **value_list = range_to_value_list(low, high, step);
+            settings->param.name = name;
+            settings->param.values = value_list;
+            settings->param.value_count = sb_len(value_list);
+            settings->has_param = true;
         } else if (opt_arg(argv, &cursor, "--param", &str)) {
-            if (settings->has_var) {
+            if (settings->has_param) {
                 error("multiple benchmark parameters are forbidden");
                 exit(EXIT_FAILURE);
             }
@@ -863,19 +851,18 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 exit(EXIT_FAILURE);
             }
             const char **value_list = parse_comma_separated_list(param_list);
-            settings->var.name = name;
-            settings->var.values = value_list;
-            settings->var.value_count = sb_len(value_list);
-            settings->has_var = true;
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"),
-                               "job count", &g_threads)) {
-        } else if (opt_int_pos(argv, &cursor,
-                               OPT_ARR("--progress-bar-interval"),
-                               "progress bar redraw interval",
-                               &g_progress_bar_interval_us)) {
-        } else if (opt_arg(argv, &cursor, "--save-bin-name",
-                           &g_override_bin_name)) {
+            settings->param.name = name;
+            settings->param.values = value_list;
+            settings->param.value_count = sb_len(value_list);
+            settings->has_param = true;
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--jobs", "-j"), "job count",
+                               &g_threads)) {
+        } else if (opt_time(argv, &cursor, OPT_ARR("--progress-bar-interval"), MU_US,
+                            "progress bar redraw interval", &dbl)) {
+            g_progress_bar_interval_us = dbl;
+        } else if (opt_arg(argv, &cursor, "--save-bin-name", &g_override_bin_name)) {
         } else if (opt_arg(argv, &cursor, "--json", &g_json_export_filename)) {
+        } else if (opt_arg(argv, &cursor, "--python-executable", &g_python_executable)) {
         } else if (opt_arg(argv, &cursor, "--out-dir", &g_out_dir) ||
                    opt_arg(argv, &cursor, "-o", &g_out_dir)) {
         } else if (opt_arg(argv, &cursor, "--sort", &str)) {
@@ -891,17 +878,25 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             }
         } else if (opt_bool(argv, &cursor, "--html", &g_html)) {
             g_plot = true;
+            g_desired_plots |= MAKE_PLOT_KDE | MAKE_PLOT_KDE_SMALL | MAKE_PLOT_KDE_CMP |
+                               MAKE_PLOT_KDE_CMP_SMALL | MAKE_PLOT_BAR |
+                               MAKE_PLOT_GROUP_REGR | MAKE_PLOT_ALL_GROUPS_REGR |
+                               MAKE_PLOT_KDE_CMP_ALL_GROUPS | MAKE_PLOT_KDE_CMP_PER_VAL |
+                               MAKE_PLOT_KDE_CMP_PER_VAL_SMALL;
+        } else if (opt_bool(argv, &cursor, "--clear-out", &g_clear_out_dir)) {
         } else if (opt_bool(argv, &cursor, "--save-bin", &g_save_bin)) {
         } else if (opt_bool(argv, &cursor, "--plot", &g_plot)) {
+            g_desired_plots |= MAKE_PLOT_KDE | MAKE_PLOT_KDE_CMP | MAKE_PLOT_BAR |
+                               MAKE_PLOT_GROUP_REGR | MAKE_PLOT_ALL_GROUPS_REGR |
+                               MAKE_PLOT_KDE_CMP_ALL_GROUPS | MAKE_PLOT_KDE_CMP_PER_VAL;
         } else if (opt_bool(argv, &cursor, "--plot-src", &g_plot_src)) {
         } else if (opt_bool(argv, &cursor, "--no-default-meas", &no_wall)) {
-        } else if (opt_bool(argv, &cursor, "--ignore-failure",
-                            &g_ignore_failure) ||
+        } else if (opt_bool(argv, &cursor, "--ignore-failure", &g_ignore_failure) ||
                    opt_bool(argv, &cursor, "-i", &g_ignore_failure)) {
         } else if (opt_bool(argv, &cursor, "--csv", &g_csv)) {
+        } else if (opt_bool(argv, &cursor, "--shuffle-runs", &g_shuffle_when_runnig)) {
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
-        } else if (opt_bool(argv, &cursor, "--python-output",
-                            &g_python_output)) {
+        } else if (opt_bool(argv, &cursor, "--plot-debug", &g_plot_debug)) {
         } else if (strcmp(argv[cursor], "--no-warmup") == 0) {
             ++cursor;
             // XXX: This is kind of a hack, but whatever
@@ -912,9 +907,9 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             // XXX: This is kind of a hack, but whatever
             // Checked in `should_finish_running`
             g_round_stop.min_runs = INT_MAX;
-        } else if (strcmp(argv[cursor], "--load-csv") == 0) {
+        } else if (strcmp(argv[cursor], "--load-text") == 0) {
             ++cursor;
-            g_mode = APP_LOAD_CSV;
+            g_mode = APP_LOAD_TEXT;
         } else if (strcmp(argv[cursor], "--load-bin") == 0) {
             ++cursor;
             g_mode = APP_LOAD_BIN;
@@ -926,11 +921,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
             g_bench_stop.time_limit = 1.0;
         } else if (opt_arg(argv, &cursor, "--meas", &str)) {
             parse_meas_list(str, &rusage_opts);
-        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--baseline"),
-                               "baseline number", &g_baseline)) {
+        } else if (opt_int_pos(argv, &cursor, OPT_ARR("--baseline"), "baseline number",
+                               &g_baseline)) {
             g_baseline_name = NULL;
-        } else if (opt_arg(argv, &cursor, "--baseline-name",
-                           &g_baseline_name)) {
+        } else if (opt_arg(argv, &cursor, "--baseline-name", &g_baseline_name)) {
             g_baseline = -1;
         } else if (opt_arg(argv, &cursor, "--color", &str)) {
             if (strcmp(str, "auto") == 0) {
@@ -944,6 +938,17 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 g_colored_output = true;
             } else {
                 error("invalid --color option");
+                exit(EXIT_FAILURE);
+            }
+        } else if (opt_arg(argv, &cursor, "--plot-backend", &str)) {
+            if (strcmp(str, "auto") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_DEFAULT;
+            } else if (strcmp(str, "matplotlib") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_MATPLOTLIB;
+            } else if (strcmp(str, "gnuplot") == 0) {
+                g_plot_backend_override = PLOT_BACKEND_GNUPLOT;
+            } else {
+                error("invalid --plot-backend option");
                 exit(EXIT_FAILURE);
             }
         } else if (opt_arg(argv, &cursor, "--progress-bar", &str)) {
@@ -960,8 +965,14 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
                 error("invalid --progress_bar option");
                 exit(EXIT_FAILURE);
             }
+        } else if (strcmp(argv[cursor], "--") == 0) {
+            ++cursor;
+            while (cursor < argc) {
+                sb_push(settings->args, argv[cursor++]);
+            }
+            break;
         } else {
-            if (*argv[cursor] == '-') {
+            if (*argv[cursor] == '-' && argv[cursor][1] != '\0') {
                 error("unknown option %s", argv[cursor]);
                 exit(EXIT_FAILURE);
             }
@@ -995,10 +1006,10 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
 
 void free_settings(struct settings *settings)
 {
-    if (settings->has_var) {
-        struct bench_var *var = &settings->var;
-        assert(sb_len(var->values) == var->value_count);
-        sb_free(var->values);
+    if (settings->has_param) {
+        struct bench_param *param = &settings->param;
+        assert(sb_len(param->values) == param->value_count);
+        sb_free(param->values);
     }
     sb_free(settings->args);
     sb_free(settings->meas);
