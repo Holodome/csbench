@@ -26,7 +26,7 @@ jobs:
         run: |
           gcc csbench_amalgamated.c -lm -lpthread
       - name: upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: csbench_amalgamated.c
           path: csbench_amalgamated.c
