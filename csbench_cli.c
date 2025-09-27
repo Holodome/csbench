@@ -160,18 +160,21 @@ static void print_help_and_exit(int rc)
         "commands are given, their comparison will be performed.");
     printf("\n");
     printf_colored(ANSI_BOLD_UNDERLINE, "Options:\n");
+    printf_colored(ANSI_BOLD, "\nBenchmark stop condition options:\n");
     print_opt("-R, --runs", OPT_ARR("NUM"),
               "Run each benchmark exactly <NUM> times in total (not including warmup).");
     print_opt("-T, --time-limit", OPT_ARR("DURATION"),
               "Run each benchmark for at least <DURATION> in total.");
     print_opt("--min-runs", OPT_ARR("NUM"), "Run each benchmark at least <NUM> times.");
     print_opt("--max-runs", OPT_ARR("NUM"), "Run each benchmark at most <NUM> times.");
+    printf_colored(ANSI_BOLD, "\nWarmup options:\n");
     print_opt("--warmup-runs", OPT_ARR("NUM"), "Perform exactly <NUM> warmup runs.");
     print_opt("-W, --warmup", OPT_ARR("DURATION"),
               "Perform warmup for at least <DURATION>.");
     print_opt("--min-warmup-runs", OPT_ARR("NUM"), "Perform at least <NUM> warmup runs.");
     print_opt("--max-warmup-runs", OPT_ARR("NUM"), "Perform at most <NUM> warmup runs.");
     print_opt("--no-warmup", OPT_ARR(NULL), "Disable warmup.");
+    printf_colored(ANSI_BOLD, "\nRound options:\n");
     print_opt("--round-runs", OPT_ARR("NUM"),
               "In a single round perform exactly <NUM> warmup runs.");
     print_opt("--round-time", OPT_ARR("DURATION"),
@@ -181,6 +184,7 @@ static void print_help_and_exit(int rc)
     print_opt("--max-round-runs", OPT_ARR("NUM"),
               "In a single round perform at most <NUM> warmup runs.");
     print_opt("--no-round", OPT_ARR(NULL), "Do not split execution into rounds.");
+    printf_colored(ANSI_BOLD, "\nBenchmark setup options:\n");
     print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
     print_opt("-S, --shell", OPT_ARR("SHELL"),
               "Set the shell to be used for executing benchmark commands. Can be both name "
@@ -203,6 +207,7 @@ static void print_help_and_exit(int rc)
               "warmup and rounds.");
     print_opt("--shuffle-runs", OPT_ARR(NULL),
               "Randomize the order in which benchmarks are run.");
+    printf_colored(ANSI_BOLD, "\nCommand input and output options:\n");
     print_opt("--input", OPT_ARR("FILE"),
               "Specify file that will be used as input for all benchmark commands.");
     print_opt("--inputs", OPT_ARR("STR"),
@@ -214,6 +219,7 @@ static void print_help_and_exit(int rc)
     print_opt("--output", OPT_ARR("KIND"),
               "Control where stdout and stderr of benchmark commands is redirected. <KIND> "
               "can be \"null\", or \"inherit\".");
+    printf_colored(ANSI_BOLD, "\nMeasurement options:\n");
     print_opt(
         "--meas", OPT_ARR("MEAS"),
         "Specify list of built-in measurement to collect. <MEAS> is a comma-separated "
@@ -232,12 +238,13 @@ static void print_help_and_exit(int rc)
         "--custom-x", OPT_ARR("NAME", "UNITS", "CMD"),
         "Add custom measurement with name <NAME>, This measurement pipes stdout of each "
         "command to <CMD>, parses its output as a single real number and interprets it "
-        "in <UNITS>.");
+        "in <UNITS>. <UNITS> can be one of ns, us, ms, s, b, kb, mb, gb, none.");
     print_opt("--custom-re", OPT_ARR("NAME", "UNITS", "RE"),
               "Add custom measurement with name <NAME>, This measurement uses regular "
               "expression <RE> to extract data from stdout of each command, parses first "
               "subexpression as a single real number and interprets it in <UNITS>.");
     print_opt("--no-default-meas", OPT_ARR(NULL), "Do not use default measurements.");
+    printf_colored(ANSI_BOLD, "\nParameterization options:\n");
     print_opt(
         "--param", OPT_ARR("STR"),
         "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
@@ -247,6 +254,7 @@ static void print_help_and_exit(int rc)
         "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
         "<i>, whose values are in range from <n> to <m> with step <s>. <s> is optional, "
         "default is 1.");
+    printf_colored(ANSI_BOLD, "\nAlternative mode options:\n");
     print_opt("--load-text", OPT_ARR(NULL),
               "Load benchmark data from text files in custom format listed in command-line. "
               "<command>... is interpreted as a list of file names.");
@@ -254,6 +262,7 @@ static void print_help_and_exit(int rc)
               "Load benchmark data from files in custom binary format. <command>... is "
               "interpreted as a list of files, or directories which contain file "
               "\"data.csbench\".");
+    printf_colored(ANSI_BOLD, "\nAnalysis options:\n");
     print_opt(
         "--nrs", OPT_ARR("NUM"),
         "Use <NUM> resamples when computing confidence intervals using bootstrapping.");
@@ -263,6 +272,7 @@ static void print_help_and_exit(int rc)
         "<TEST> are \"mwu\" and \"t-test\". Default is \"mwu\".");
     print_opt("--regr", OPT_ARR(NULL),
               "Perform linear regression of measurements in terms of benchmark parameters.");
+    printf_colored(ANSI_BOLD, "\nOutput options:\n");
     print_opt(
         "--baseline", OPT_ARR("NUM"),
         "Use benchmark with number <NUM> (starting from 1) as baseline in comparisons.");
@@ -298,6 +308,7 @@ static void print_help_and_exit(int rc)
         "--save-bin-name", OPT_ARR("NAME"),
         "Override file that --save-bin will save to. <NAME> is new file name (default: "
         "\".csbench/data.csbench\").");
+    printf_colored(ANSI_BOLD, "\nMiscellaneous options:\n");
     print_opt("--color", OPT_ARR("WHEN"),
               "Use colored output. Possible values for <WHEN> are \"never\", \"auto\", "
               "\"always\" (default: \"auto\").");
