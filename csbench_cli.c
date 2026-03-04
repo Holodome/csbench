@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -197,7 +197,7 @@ static void print_help_and_exit(int rc)
     print_opt("-N", OPT_ARR(NULL), "An alias to --shell=none.");
     print_opt("-P, --prepare", OPT_ARR("CMD"), "Execute <CMD> before each benchmark run.");
     print_opt("--round-prepare", OPT_ARR("CMD"),
-              "Execute <CMD> in the beggining of each round, before the warmup.");
+              "Execute <CMD> in the beginning of each round, before the warmup.");
     print_opt("-j, --jobs", OPT_ARR("NUM"),
               "Execute benchmarks in parallel using <NUM> system threads (default: 1).");
     print_opt("-i, --ignore-failure", OPT_ARR(NULL),
@@ -894,7 +894,7 @@ void parse_cli_args(int argc, char **argv, struct settings *settings)
         } else if (opt_bool(argv, &cursor, "--ignore-failure", &g_ignore_failure) ||
                    opt_bool(argv, &cursor, "-i", &g_ignore_failure)) {
         } else if (opt_bool(argv, &cursor, "--csv", &g_csv)) {
-        } else if (opt_bool(argv, &cursor, "--shuffle-runs", &g_shuffle_when_runnig)) {
+        } else if (opt_bool(argv, &cursor, "--shuffle-runs", &g_shuffle_when_running)) {
         } else if (opt_bool(argv, &cursor, "--regr", &g_regr)) {
         } else if (opt_bool(argv, &cursor, "--plot-debug", &g_plot_debug)) {
         } else if (strcmp(argv[cursor], "--no-warmup") == 0) {

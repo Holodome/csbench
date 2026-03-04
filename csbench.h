@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -150,7 +150,7 @@ struct meas {
     size_t primary_idx;
 };
 
-// Variable which can be substitued in command string.
+// Variable which can be substituted in command string.
 struct bench_param {
     const char *name;
     const char **values;
@@ -213,7 +213,7 @@ struct distr {
 };
 
 // Runtime information about benchmark. When running, this structure is being
-// filled accordinly with results of execution and, in particular, measurement
+// filled accordingly with results of execution and, in particular, measurement
 // values. This is later passed down for analysis.
 struct bench {
     const char *name;
@@ -403,7 +403,7 @@ struct bench_run_desc {
     int stdout_fd;
     // Shell command to be executed before each run
     const char *prepare;
-    // Shell cimmand to be executed before each round
+    // Shell command to be executed before each round
     const char *round_prepare;
 };
 
@@ -552,7 +552,11 @@ struct string_writer {
 #define sb_resize(_a, _n) (sb_reserve(_a, _n), sb_size(_a) = (_n))
 #define sb_ensure(_a, _n) (((_a) == NULL || sb_size(_a) < (_n)) ? sb_resize(_a, _n) : 0)
 
-#define sb_free(_a) free((_a) != NULL ? sb_header(_a) : NULL)
+#define sb_free(_a)                                                                         \
+    do {                                                                                    \
+        free((_a) != NULL ? sb_header(_a) : NULL);                                          \
+        (_a) = NULL;                                                                        \
+    } while (0)
 #define sb_push(_a, _v) (sb_maybegrow(_a, 1), (_a)[sb_size(_a)++] = (_v))
 #define sb_pushfront(_a, _v)                                                                \
     (sb_maybegrow(_a, 1), memmove((_a) + 1, (_a), sizeof(*(_a)) * sb_size(_a)++),           \
@@ -612,7 +616,7 @@ extern bool g_plot_debug;
 extern bool g_save_bin;
 extern bool g_rename_all_used;
 extern bool g_clear_out_dir;
-extern bool g_shuffle_when_runnig;
+extern bool g_shuffle_when_running;
 // Number of resamples to use in bootstrapping when estimating
 // distributions.
 extern int g_nresamp;
@@ -687,7 +691,7 @@ size_t ith_group_by_avg_idx(size_t i, const struct meas_analysis *al);
 size_t ith_group_by_total_idx(size_t i, const struct meas_analysis *al);
 
 //
-// cesbench_html.c
+// csbench_html.c
 //
 
 bool make_html_report(const struct analysis *al);

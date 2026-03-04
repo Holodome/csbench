@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -464,7 +464,7 @@ static void classify_outliers(struct distr *distr)
 }
 
 static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
-                                  size_t nresamp, struct est *meane, struct est *st_deve)
+                                  size_t nresamp, struct est *mean_est, struct est *st_dev_est)
 {
     double *tmp_means = malloc(sizeof(*tmp) * nresamp * 2);
     double *tmp_rss = tmp_means + nresamp;
@@ -472,13 +472,13 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
     for (size_t i = 0; i < count; ++i)
         sum += src[i];
     double mean = sum / count;
-    meane->point = mean;
+    mean_est->point = mean;
     double rss = 0;
     for (size_t i = 0; i < count; ++i) {
         double a = src[i] - mean;
         rss += a * a;
     }
-    st_deve->point = sqrt(rss / (count - 1));
+    st_dev_est->point = sqrt(rss / (count - 1));
     for (size_t sample = 0; sample < nresamp; ++sample) {
         resample(src, count, tmp);
         sum = 0;
@@ -495,10 +495,10 @@ static void bootstrap_mean_st_dev(const double *src, size_t count, double *tmp,
     }
     qsort(tmp_means, nresamp, sizeof(*tmp_means), compare_doubles);
     qsort(tmp_rss, nresamp, sizeof(*tmp_rss), compare_doubles);
-    meane->lower = tmp_means[25 * nresamp / 1000];
-    meane->upper = tmp_means[975 * nresamp / 1000];
-    st_deve->lower = sqrt(tmp_rss[25 * nresamp / 1000] / (count - 1));
-    st_deve->upper = sqrt(tmp_rss[975 * nresamp / 1000] / (count - 1));
+    mean_est->lower = tmp_means[25 * nresamp / 1000];
+    mean_est->upper = tmp_means[975 * nresamp / 1000];
+    st_dev_est->lower = sqrt(tmp_rss[25 * nresamp / 1000] / (count - 1));
+    st_dev_est->upper = sqrt(tmp_rss[975 * nresamp / 1000] / (count - 1));
     free(tmp_means);
 }
 

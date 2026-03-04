@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -102,7 +102,7 @@ bool g_plot_debug = false;
 bool g_save_bin = false;
 bool g_rename_all_used = false;
 bool g_clear_out_dir = false;
-bool g_shuffle_when_runnig = false;
+bool g_shuffle_when_running = false;
 int g_nresamp = 10000;
 int g_progress_bar_interval_us = 100000;
 int g_threads = 1;
@@ -116,7 +116,7 @@ struct bench_stop_policy g_warmup_stop = {0.1, 0, 1, 10};
 struct bench_stop_policy g_bench_stop = {5.0, 0, 5, 0};
 struct bench_stop_policy g_round_stop = {0, 0, INT_MAX, 0};
 // XXX: Mark this as volatile because we rely that this variable is changed
-// atomically when creating and destorying threads. Elements of this array could
+// atomically when creating and destroying threads. Elements of this array could
 // only be written by a single thread, and reads are synchronized, so the data
 // itself does not need to be volatile.
 struct output_anchor *volatile g_output_anchors = NULL;

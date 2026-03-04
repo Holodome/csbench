@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -286,7 +286,7 @@ static bool load_bench_data_binary_file_internal(FILE *f, const char *filename,
     struct csbench_binary_header header;
     read_raw__(&header, sizeof(header), 1, f);
     if (header.magic != CSBENCH_MAGIC) {
-        error("invlaid magic number in csbench data file '%s'", filename);
+        error("invalid magic number in csbench data file '%s'", filename);
         return false;
     }
     if (header.version != 1) {

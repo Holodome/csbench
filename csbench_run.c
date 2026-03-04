@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -68,7 +68,7 @@
 #include <unistd.h>
 
 #define PROGRESS_BAR_MAX_NAME_LEN 20
-// 4 is the numbe of lines we display, plus 1 for blank line where cursor will be
+// 4 is the number of lines we display, plus 1 for blank line where cursor will be
 #define PROGRESS_BAR_INFO_LINES (4 + 1)
 
 struct bench_run_data {
@@ -95,7 +95,7 @@ enum bench_run_result {
     BENCH_RUN_SUSPENDED
 };
 
-// This structure contains information that is continiously updated by working
+// This structure contains information that is continuously updated by working
 // threads when running a benchmark when progress bar is enabled.
 // It is used to track completion status. This structure is read by progress bar
 // thread to update display in console. Reads are not synchronized with writes,
@@ -316,7 +316,7 @@ static struct run_task *get_run_task(struct run_task_queue *q, size_t *task_curs
         assert(task || (q->worker_count > q->remaining_task_count));
         if (task) {
             size_t idx = task - q->tasks;
-            if (g_shuffle_when_runnig)
+            if (g_shuffle_when_running)
                 *task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
             else
                 *task_cursor = (idx + 1) % q->task_count;
@@ -903,7 +903,7 @@ static bool run_benches_single_threaded(struct run_task_queue *q)
     // Tasks are switched round-robin. For this, store in each runner index of
     // next task that should be processed.
     size_t task_cursor = 0;
-    if (g_shuffle_when_runnig)
+    if (g_shuffle_when_running)
         task_cursor = pcg32_fast(&g_rng_state) % q->task_count;
     for (;;) {
         struct run_task *task = get_run_task(q, &task_cursor);
@@ -1431,7 +1431,7 @@ static bool do_custom_measurement_cmd(const struct meas *meas, int input_fd, int
     // XXX: This is optimization to not spawn separate process when custom
     // command just forwards input. We could create separate entry in 'enum
     // meas_kind', but this is really not that important case to design against.
-    // Going furhter, we could avoid using file descriptors at all, but this
+    // Going further, we could avoid using file descriptors at all, but this
     // would require noticeable code changes, and I am too lazy for that.
     // Most of the time is spent in spawning processes anyway, so we cut it down
     // significantly either way.
@@ -1758,17 +1758,17 @@ static bool execute_custom_measurement_tasks(struct bench_run_data *rds, size_t 
 // Execute benchmarks, possibly in parallel using worker threads.
 // When parallel execution is used, thread pool is created, threads from
 // which select a benchmark to run in random order. We shuffle the
-// benchmarks here in orderd to get asymptotically OK runtime, as incorrect
+// benchmarks here in ordered to get asymptotically OK runtime, as incorrect
 // order of tasks in parallel execution can degrade performance (queueing
 // theory).
 //
 // Parallel execution is controlled using 'g_threads' global variable.
 //
 // This function also optionally spawns the thread printing interactive
-// progress bar. Logic conserning progress bar may be cumbersome:
+// progress bar. Logic concerning progress bar may be cumbersome:
 // 1. A new thread is spawned, which wakes ones in a while and checks atomic
 //  variables storing states of benchmarks
-// 2. Each of benchmarks updates its state in corresponding atomic varibales
+// 2. Each of benchmarks updates its state in corresponding atomic variables
 // 3. Output of benchmarks when progress bar is used is captured (anchored),
 //   see 'error' and 'csperror' functions. This is done in order to not corrupt
 //   the output in case such message is printed.
@@ -1782,7 +1782,7 @@ static bool run_benches_internal(struct bench_data *data, struct bench_run_data 
         if (!get_term_win_size(&term_height, &term_width))
             return false;
         // This would only happen if --progress-bar=always is set with a non-tty stdin, just
-        // provde default values
+        // provide default values
         if (term_width == 0)
             term_width = 80;
         if (term_height == 0)

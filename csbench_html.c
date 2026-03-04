@@ -11,7 +11,7 @@
 //
 //    MIT License
 //
-//    Copyright (c) 2024 Ilya Vinogradov
+//    Copyright (c) 2024-2026 Ilya Vinogradov
 //
 //    Permission is hereby granted, free of charge, to any
 //    person obtaining a copy of this software and associated
@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024 Ilya Vinogradov
+//    Copyright 2024-2026 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -92,9 +92,9 @@ static void html_speedup_explain_small(const struct speedup *sp, const char *hre
     fprintf(f, "</a>");
 }
 
-static void html_cmp_mean_stdev(const struct distr *a_distr, const struct distr *b_distr,
-                                const char *a_name, const char *b_name,
-                                const struct meas *meas, FILE *f)
+static void html_cmp_mean_stddev(const struct distr *a_distr, const struct distr *b_distr,
+                                 const char *a_name, const char *b_name,
+                                 const struct meas *meas, FILE *f)
 {
     fprintf(f,
             "<table>"
@@ -195,7 +195,7 @@ static void html_toc_bench_meas(const struct meas_analysis *al, FILE *f)
     if (g_regr) {
         fprintf(f,
                 "<li>"
-                /**/ "<a href=\"#regrs-%zu\">regrssion analysis</a>"
+                /**/ "<a href=\"#regrs-%zu\">regression analysis</a>"
                 "</li>",
                 meas_idx);
     }
@@ -998,7 +998,7 @@ static void html_compare_benches_kdes(const struct meas_analysis *al, FILE *f)
                 bench_idx, meas_idx  //
         );
 
-        html_cmp_mean_stdev(a_distr, b_distr, a_name, b_name, al->meas, f);
+        html_cmp_mean_stddev(a_distr, b_distr, a_name, b_name, al->meas, f);
         const struct speedup *speedup = al->bench_cmp.speedups + bench_idx;
         html_speedup_explain(speedup, a_name, b_name, f);
         double p_value = al->bench_cmp.p_values[bench_idx];
@@ -1014,7 +1014,7 @@ static void html_compare_benches_kdes(const struct meas_analysis *al, FILE *f)
     fprintf(f, "</div>"); // kde-cmps
 }
 
-static void html_comapre_groups_group_cmp_nav(const struct meas_analysis *al, FILE *f)
+static void html_compare_groups_group_cmp_nav(const struct meas_analysis *al, FILE *f)
 {
     const struct analysis *base = al->base;
     size_t meas_idx = al->meas_idx;
@@ -1139,7 +1139,7 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
             /******/ "<h2>comparisons</h2>"
             /******/ "<h4>groups comparison</h4>",
             meas_idx);
-    html_comapre_groups_group_cmp_nav(al, f);
+    html_compare_groups_group_cmp_nav(al, f);
     html_compare_groups_per_val_nav(al, f);
     fprintf(f,
             "</div>" // col
@@ -1233,7 +1233,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                     grp_idx, val_idx, meas_idx  //
             );
 
-            html_cmp_mean_stdev(a_distr, b_distr, a_name, b_name, al->meas, f);
+            html_cmp_mean_stddev(a_distr, b_distr, a_name, b_name, al->meas, f);
             const struct speedup *speedup = al->pval_cmps[val_idx].speedups + grp_idx;
             html_speedup_explain(speedup, a_name, b_name, f);
             double p_value = al->pval_cmps[val_idx].p_values[grp_idx];
