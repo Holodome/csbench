@@ -39,7 +39,7 @@
 //
 // Apache License (Version 2.0) Notice
 //
-//    Copyright 2024-2026 Ilya Vinogradov
+//    Copyright 2024 Ilya Vinogradov
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
 //    You may obtain a copy of the License at
@@ -797,16 +797,16 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
         f,
         "<div class=\"row\">"
         /**/ "<div class=\"col\">"
-        /****/ "<h3>%s kde plot</h3>"
+        /****/ "<h5>%s kde plot</h5>"
         /****/ "<a href=\"kde_%zu_%zu.svg\">"
         /******/ "<img src=\"kde_small_%zu_%zu.svg\">"
         /****/ "</a>"
         "</div>"
         "<div class=\"col\">"
-        /**/ "<h3>statistics</h3>"
+        /**/ "<h5>statistics</h5>"
         /**/ "<div class=\"stats\">"
         /****/ "<p>%zu runs</p>"
-        /****/ "<h5>quantiles</h5>"
+        /****/ "<h6>quantiles</h6>"
         /****/ "<table>"
         /******/ "<thead><tr>"
         /********/ "<th>min</th><th>median</th><th>max</th>"
@@ -827,7 +827,7 @@ static void html_distr(const struct bench_analysis *analysis, size_t bench_idx,
         /********/ "</tbody>"
         /******/ "</table>"
         /****/ "</details>"
-        /****/ "<h5>bootstrap estimates</h5>"
+        /****/ "<h6>bootstrap estimates</h6>"
         /****/ "<table>"
         /******/ "<thead><tr>"
         /********/ "<th></th>"
@@ -916,7 +916,8 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
             "<div id=\"cmps-%zu\">"
             /**/ "<div class=\"row\">"
             /****/ "<div class=\"col\">"
-            /******/ "<h2>comparisons</h2>",
+            /******/ "<h2>comparisons</h2>"
+            /******/ "<div class=\"off-4\">",
             meas_idx);
     size_t ref_idx = al->bench_cmp.ref;
     switch (g_sort_mode) {
@@ -959,6 +960,7 @@ static void html_compare_benches_nav(const struct meas_analysis *al, FILE *f)
     fprintf(f,
             "</tbody>"
             "</table>"
+            "</div>" // off-5
             "</div>" // col
             "</div>" // row
             "</div>" // #cmps
@@ -990,7 +992,7 @@ static void html_compare_benches_kdes(const struct meas_analysis *al, FILE *f)
                 /******/ "</a>"
                 /****/ "</div>" // col
                 /****/ "<div class=\"col\">"
-                /******/ "<h3>statistics</h3>"
+                /******/ "<h4>statistics</h4>"
                 /******/ "<div class=\"stats\">",
                 bench_idx, meas_idx, //
                 a_name, b_name,      //
@@ -1083,7 +1085,8 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al, FILE
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div>"
-                "<h4><tt>%s=%s</tt></h4>",
+                "<h5><tt>%s=%s</tt></h5>"
+                "<div class=\"off-5\">",
                 param->name, param->values[val_idx]);
         switch (g_sort_mode) {
         case SORT_RAW:
@@ -1121,6 +1124,7 @@ static void html_compare_groups_per_val_nav(const struct meas_analysis *al, FILE
         }
         fprintf(f, "</tbody>"
                    "</table>"
+                   "</div>"
                    "</div>");
     }
     fprintf(f, "</tr></thead>"
@@ -1137,9 +1141,13 @@ static void html_compare_groups_nav(const struct meas_analysis *al, FILE *f)
             /**/ "<div class=\"row\">"
             /****/ "<div class=\"col\">"
             /******/ "<h2>comparisons</h2>"
-            /******/ "<h4>groups comparison</h4>",
+            /******/ "<h4>groups comparison</h4>"
+            /******/ "<div class=\"off-4\">",
             meas_idx);
     html_compare_groups_group_cmp_nav(al, f);
+    fprintf(f,
+            "</div>" // off-4
+    );
     html_compare_groups_per_val_nav(al, f);
     fprintf(f,
             "</div>" // col
@@ -1171,7 +1179,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
             const char *b_name = bench_group_name(base, grp_idx);
             fprintf(f,
                     "<div id=\"cmpg-%zu-%zu\">"
-                    /**/ "<h3><tt>%s</tt> vs <tt>%s</tt></h3>"
+                    /**/ "<h5><tt>%s</tt> vs <tt>%s</tt></h5>"
                     /**/ "<img src=\"kde_cmp_all_groups_%zu_%zu.svg\">",
                     grp_idx, meas_idx, //
                     a_name, b_name,    //
@@ -1181,14 +1189,18 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                 f,
                 "<h5>Average difference by geometric mean of per-value differences:</h5>");
             {
+                fprintf(f, "<div class=\"off-5\">");
                 const struct speedup *speedup = al->group_avg_cmp.speedups + grp_idx;
                 html_speedup_explain(speedup, a_name, b_name, f);
+                fprintf(f, "</div>");
             }
             fprintf(f, "<h5>Average difference by sum of per-value measurements:</h5>");
             {
                 // TODO: This has to use other order
+                fprintf(f, "<div class=\"off-5\">");
                 const struct speedup *speedup = al->group_sum_cmp.speedups + grp_idx;
                 html_speedup_explain(speedup, a_name, b_name, f);
+                fprintf(f, "</div>");
             }
             fprintf(f, "</div>");
         }
@@ -1202,7 +1214,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         fprintf(f,
                 "<div id=\"pval-cmps-%zu-%zu\">"
-                "<h4><tt>%s=%s</tt></h4>",
+                "<h5><tt>%s=%s</tt></h5>",
                 val_idx, meas_idx,                  //
                 param->name, param->values[val_idx] //
         );
@@ -1217,7 +1229,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
             const struct distr *b_distr = al->benches[b_bench_idx];
             fprintf(f,
                     "<div id=\"cmp-%zu-%zu-%zu\">"
-                    /**/ "<h4><tt>%s</tt> vs <tt>%s</tt></h4>"
+                    /**/ "<h6><tt>%s</tt> vs <tt>%s</tt></h6>"
                     /**/ "<div class=\"row\">"
                     /****/ "<div class=\"col\">"
                     /******/ "<a href=\"kde_pval_cmp_%zu_%zu_%zu.svg\">"
@@ -1225,7 +1237,7 @@ static void html_compare_groups_kdes(const struct meas_analysis *al, FILE *f)
                     /******/ "</a>"
                     /****/ "</div>" // col
                     /****/ "<div class=\"col\">"
-                    /******/ "<h3>statistics</h3>"
+                    /******/ "<h5>statistics</h5>"
                     /******/ "<div class=\"stats\">",
                     grp_idx, val_idx, meas_idx, //
                     a_name, b_name,             //
@@ -1273,17 +1285,26 @@ static void html_report(const struct analysis *al, FILE *f)
                "<meta name=\"viewport\" content=\"width=device-width, "
                "initial-scale=1.0\">"
                "<title>csbench</title>"
-               "<style>body { margin: 40px auto; max-width: 960px; line-height: "
-               "1.6; color: #454545; padding: 0 10px; font: 14px Helvetica Neue }"
-               "h1, h2, h3, h4 { line-height: 1.2; text-align: center }"
-               ".est-bound { opacity: 0.5 }"
-               "a { color: #07a }"
-               "a:visited { color: #941352 }"
-               "th, td { padding-right: 3px; padding-bottom: 3px }"
-               "th { font-weight: 200 }"
-               ".col { flex: 50%% }"
-               ".row { display: flex }"
-               ".offset-text { margin-left: 20px }"
+               "<style>body { margin: 40px auto; max-width: 1200px; line-height: "
+               "1.6; color: #454545; padding: 0 10px; font: 14px Helvetica Neue; }"
+               "h1, h2, h3 { line-height: 1.2; text-align: center; }"
+               "h1 { margin-left: 0; font-size: 2rem; } h2 { margin-left: 0.5rem; font-size: 1.8rem; }"
+               "h3 { margin-left: 1rem; font-size: 1.6rem; } h4 { margin-left: 2rem; font-size: 1.4rem; }"
+               "h5 { margin-left: 3rem; font-size: 1.2rem; } h6 { margin-left: 4rem; font-size: 1rem; }"
+               ".est-bound { opacity: 0.5; }"
+               "a { color: #07a; }"
+               "a:visited { color: #941352; }"
+               "th, td { padding-right: 3px; padding-bottom: 3px; }"
+               "th { font-weight: 200; }"
+               ".col { flex: 80%%; }"
+               ".row { display: flex; }"
+               ".off-1 { margin-left: 0.5rem; }"
+               ".off-2 { margin-left: 1rem; }"
+               ".off-3 { margin-left: 2rem; }"
+               ".off-4 { margin-left: 3rem; }"
+               ".off-5 { margin-left: 4rem; }"
+               ".off-6 { margin-left: 5rem; }"
+               ".offset-text { margin-left: 20px; }"
                "</style></head>");
     fprintf(f, "<body>");
     html_toc(al, f);

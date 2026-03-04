@@ -1,4 +1,4 @@
-CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -Werror -g -O0
+CFLAGS += -std=c99 -Wall -Wextra -pedantic -O2 -Werror
 LDFLAGS += -lm -lpthread 
 
 ifdef DEBUG
@@ -30,6 +30,6 @@ clean:
 	rm -f csbench
 
 amalgamated:
-	./scripts/amalgamated.pl
+	./scripts/amalgamated.py
 
 .PHONY: all install clean amalgamated
