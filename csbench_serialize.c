@@ -93,7 +93,8 @@ struct parsed_text_file {
     char *meas_name;
     char *meas_units;
     char *extract_str;
-    size_t line_count;
+    size_t total_line_count;
+    size_t text_line_count;
     struct parsed_text_data_line *lines;
 };
 
@@ -640,6 +641,9 @@ static bool handle_text_header_tok(const char *tok, struct parsed_text_file *fil
         if (!keyword_val(tok, "meas", file->filename, val_buf, sizeof(val_buf), &has_match))
             return false;
         if (has_match) {
+            if (file->meas_name != NULL) {
+                goto duplicate;
+            }
             file->meas_name = strdup(val_buf);
             return true;
         }
@@ -648,6 +652,9 @@ static bool handle_text_header_tok(const char *tok, struct parsed_text_file *fil
         if (!keyword_val(tok, "units", file->filename, val_buf, sizeof(val_buf), &has_match))
             return false;
         if (has_match) {
+            if (file->meas_units != NULL) {
+                goto duplicate;
+            }
             file->meas_units = strdup(val_buf);
             return true;
         }
@@ -657,11 +664,17 @@ static bool handle_text_header_tok(const char *tok, struct parsed_text_file *fil
                          &has_match))
             return false;
         if (has_match) {
+            if (file->extract_str != NULL) {
+                goto duplicate;
+            }
             file->extract_str = strdup(val_buf);
             return true;
         }
     }
     error("invalid header keyword '%s' found in file '%s'", tok, file->filename);
+    return false;
+duplicate:
+    error("duplicate keyword '%s' found in file '%s'", tok, file->filename);
     return false;
 }
 
@@ -721,7 +734,8 @@ static bool parse_text_line(const char *line, struct parsed_text_file *file)
 {
     const char *comma = strchr(line, ',');
     if (comma == NULL) {
-        error("invalid line format in file '%s'", file->filename);
+        error("invalid line format in file '%s:%zu': expected at least one comma",
+              file->filename, file->total_line_count + 1);
         return false;
     }
 
@@ -734,12 +748,20 @@ static bool parse_text_line(const char *line, struct parsed_text_file *file)
     double *values = NULL;
     const char *cursor = comma + 1;
     char *str_end = NULL;
+
+    if (strchr(cursor, ',') == NULL) {
+        error("invalid data format in file '%s:%zu': expected at least one data element",
+              file->filename, file->total_line_count + 1);
+        goto err;
+    }
+
     for (;;) {
         comma = strchr(cursor, ',');
         if (comma == NULL) {
             double v = strtod(cursor, &str_end);
             if (str_end == cursor) {
-                error("invalid data format in file '%s'", file->filename);
+                error("invalid data format in file '%s:%zu': invalid number syntax",
+                      file->filename, file->total_line_count + 1);
                 goto err;
             }
             sb_push(values, v);
@@ -747,7 +769,8 @@ static bool parse_text_line(const char *line, struct parsed_text_file *file)
         }
         size_t len = comma - cursor;
         if (len > sizeof(buf) - 1) {
-            error("invalid data format in file '%s'", file->filename);
+            error("invalid data format in file '%s:%zu': too long identifier",
+                  file->filename, file->total_line_count + 1);
             goto err;
         }
         memcpy(buf, cursor, len);
@@ -755,7 +778,8 @@ static bool parse_text_line(const char *line, struct parsed_text_file *file)
 
         double v = strtod(cursor, &str_end);
         if (str_end == cursor) {
-            error("invalid data format in file '%s'", file->filename);
+            error("invalid data format in file '%s:%zu': invalid number syntax",
+                  file->filename, file->total_line_count + 1);
             goto err;
         }
         sb_push(values, v);
@@ -767,7 +791,7 @@ static bool parse_text_line(const char *line, struct parsed_text_file *file)
     data.value_count = sb_len(values);
     data.values = values;
     sb_push(file->lines, data);
-    ++file->line_count;
+    ++file->text_line_count;
     return true;
 err:
     free(name);
@@ -780,13 +804,14 @@ static bool load_parsed_text_file_internal(FILE *f, struct parsed_text_file *fil
     bool success = false;
     char *line = NULL;
 
-    for (size_t line_idx = 0;; ++line_idx) {
+    for (;; ++file->total_line_count) {
         size_t len = 0;
         errno = 0;
         ssize_t nread = getline(&line, &len, f);
         if (nread == -1) {
             if (errno != 0) {
-                csfmtperror("failed to read line from file '%s'", file->filename);
+                csfmtperror("failed to read line %zu from file '%s'",
+                            file->total_line_count + 1, file->filename);
                 goto err;
             }
             break;
@@ -795,7 +820,7 @@ static bool load_parsed_text_file_internal(FILE *f, struct parsed_text_file *fil
             line[nread - i - 1] = '\0';
 
         bool parsed = false;
-        if (line_idx == 0 && line[0] == '#')
+        if (file->total_line_count == 0 && line[0] == '#')
             parsed = parse_text_header(line, file);
         else
             parsed = parse_text_line(line, file);
@@ -814,7 +839,7 @@ static void free_parsed_text_file(struct parsed_text_file *file)
     free(file->meas_name);
     free(file->meas_units);
     free(file->extract_str);
-    for (size_t i = 0; i < file->line_count; ++i) {
+    for (size_t i = 0; i < file->text_line_count; ++i) {
         struct parsed_text_data_line *line = file->lines + i;
         if (line->name)
             free(line->name);
@@ -900,6 +925,10 @@ static bool validate_extract_str(const char *extract_str, const char *filename,
             }
             has_name = true;
         } else {
+            if (pat_len == 0) {
+                error("empty parameter in file '%s'", filename);
+                return false;
+            }
             if (has_param) {
                 error("multiple extract str parameter substitutions found in file '%s'",
                       filename);
@@ -911,6 +940,11 @@ static bool validate_extract_str(const char *extract_str, const char *filename,
             }
             memcpy(param_name_buf, pat_start, pat_len);
             param_name_buf[pat_len] = '\0';
+
+            if (strchr(param_name_buf, '{') != NULL) {
+                error("parameter value contains special characters in file '%s'", filename);
+                return false;
+            }
             has_param = true;
         }
         cursor = pat_end + 1;
@@ -929,12 +963,24 @@ static bool validate_extract_str(const char *extract_str, const char *filename,
     return true;
 }
 
+static bool char_should_be_escaped_in_regex(int c)
+{
+    // note no {} here
+    static const char chars[] = "()[]*.?+^$\\|";
+    return strchr(chars, c) != NULL;
+}
+
 static char *extract_str_to_regex(const char *src, bool *name_is_first)
 {
     char *regex_str = NULL;
     for (size_t subst_idx = 0;;) {
         if (*src == '\0')
             break;
+        if (char_should_be_escaped_in_regex(*src)) {
+            sb_push(regex_str, '\\');
+            sb_push(regex_str, *src++);
+            continue;
+        }
         if (*src == '{') {
             ++src;
             sb_push(regex_str, '(');
@@ -1051,7 +1097,7 @@ static bool get_extract_str_data(const struct parsed_text_file *parsed,
     }
 
     memset(data, 0, sizeof(*data));
-    for (size_t line_idx = 0; line_idx < parsed->line_count; ++line_idx) {
+    for (size_t line_idx = 0; line_idx < parsed->text_line_count; ++line_idx) {
         const struct parsed_text_data_line *line = parsed->lines + line_idx;
         char name_buf[256], param_buf[256];
         if (!extract_name_and_param(&regex, regex_str, name_is_first, line->name,
@@ -1136,7 +1182,7 @@ static bool init_extract_str_use(const struct parsed_text_file *parsed,
         grp->bench_idxs = calloc(val_count, sizeof(*grp->bench_idxs));
     }
 
-    for (size_t line_idx = 0; line_idx < parsed->line_count; ++line_idx) {
+    for (size_t line_idx = 0; line_idx < parsed->text_line_count; ++line_idx) {
         const char *name = ex_data.benches[line_idx].name;
         const char *value = ex_data.benches[line_idx].value;
 
@@ -1174,8 +1220,8 @@ static bool convert_parsed_text_file(const struct parsed_text_file *parsed,
     data->meas_count = storage->meas_count;
     data->meas = storage->meas;
     data->group_count = 0;
-    data->bench_count = parsed->line_count;
-    sb_resize(data->benches, parsed->line_count);
+    data->bench_count = parsed->text_line_count;
+    sb_resize(data->benches, parsed->text_line_count);
 
     if (parsed->extract_str && !init_extract_str_use(parsed, data, storage))
         return false;
