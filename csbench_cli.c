@@ -183,7 +183,7 @@ static void print_help_and_exit(int rc)
               "In a single round perform at least <NUM> warmup runs.");
     print_opt("--max-round-runs", OPT_ARR("NUM"),
               "In a single round perform at most <NUM> warmup runs.");
-    print_opt("--no-round", OPT_ARR(NULL), "Do not split execution into rounds.");
+    print_opt("--no-rounds", OPT_ARR(NULL), "Do not split execution into rounds.");
     printf_colored(ANSI_BOLD, "\nBenchmark setup options:\n");
     print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
     print_opt("-S, --shell", OPT_ARR("SHELL"),
@@ -494,6 +494,11 @@ static bool get_input_files_from_dir(const char *dirname, const char ***filesp)
 
         const char *path = csstrdup(name);
         sb_push(files, path);
+    }
+
+    if (sb_len(files) == 0) {
+        error("directory '%s' designated for input is empty", dirname);
+        goto err;
     }
 
     qsort(files, sb_len(files), sizeof(*files), string_cmp);
