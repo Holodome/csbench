@@ -971,6 +971,9 @@ static bool init_benches(const struct settings *settings,
                 struct bench *bench = data->benches + bench_idx;
                 if (!init_run_desc(cmd, data->meas, data->meas_count, desc)) {
                     free(group->bench_idxs);
+                    sb_free(data->groups);
+                    sb_free(data->benches);
+                    sb_free(data->run_descs);
                     return false;
                 }
                 bench->name =

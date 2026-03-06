@@ -1370,6 +1370,7 @@ static void init_progress_bar(const struct bench_data *data, struct bench_run_da
 
 static void free_progress_bar(struct progress_bar *bar)
 {
+    free(bar->vis.buffer);
     free(bar->vis.lines);
     free(bar->comms);
     free(bar->states);
