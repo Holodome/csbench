@@ -290,14 +290,15 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
         fprintf(f, "</ol>");
     }
     if (base->group_count > 1) {
+        bool need_list = base->group_count > 2;
         fprintf(f,
                 "<li>"
                 /**/ "<a href=\"#cmps-%zu\">comparisons</a>"
                 /**/ "<ol>"
                 /****/ "<li>"
                 /******/ "<a href=\"#grp-cmps-%zu\">groups comparison</a>"
-                /******/ "<ol>",
-                meas_idx, meas_idx);
+                /******/ "%s",
+                meas_idx, meas_idx, need_list ? "<ol>" : "&nbsp;");
         {
             size_t ref_idx = al->group_avg_cmp.ref;
             foreach_group_by_avg_idx (grp_idx, al) {
@@ -306,29 +307,31 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                 const char *a_name = bench_group_name(base, ref_idx);
                 const char *b_name = bench_group_name(base, grp_idx);
                 fprintf(f,
-                        "<li>"
+                        "%s"
                         /**/ "<a href=\"#cmpg-%zu-%zu\">"
                         /****/ "<tt>%s</tt> vs <tt>%s</tt>"
                         /**/ "</a>"
-                        "</li>",
-                        grp_idx, meas_idx, //
-                        a_name, b_name     //
-                );
+                        "%s",
+                        need_list ? "<li>" : "", //
+                        grp_idx, meas_idx,       //
+                        a_name, b_name,          //
+                        need_list ? "</li>" : "");
             }
         }
         fprintf(f,
-                "</ol>"
+                "%s"
                 "</li>"
                 "<li>"
                 /**/ "<a href=\"#pval-cmps-%zu\">per-value-comparisons</a>"
                 /**/ "<ol>",
-                meas_idx);
+                need_list ? "</ol>" : "", meas_idx);
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx) {
             fprintf(f,
                     "<li>"
                     /**/ "<a href=\"#pval-cmps-%zu-%zu\"><tt>%s=%s</tt></a>"
-                    /**/ "<ol>",
-                    val_idx, meas_idx, param->name, param->values[val_idx]);
+                    /**/ "%s",
+                    val_idx, meas_idx, param->name, param->values[val_idx], //
+                    need_list ? "<ol>" : "&nbsp;");
             size_t ref_idx = al->pval_cmps[val_idx].ref;
             foreach_group_by_avg_idx (grp_idx, al) {
                 if (ref_idx == grp_idx)
@@ -336,18 +339,20 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                 const char *a_name = bench_group_name(base, ref_idx);
                 const char *b_name = bench_group_name(base, grp_idx);
                 fprintf(f,
-                        "<li>"
+                        "%s"
                         /**/ "<a href=\"#cmp-%zu-%zu-%zu\">"
                         /****/ "<tt>%s</tt> vs <tt>%s</tt>"
                         /**/ "</a>"
-                        "</li>",
-                        grp_idx, val_idx, meas_idx, //
-                        a_name, b_name              //
-                );
+                        "%s",
+                        need_list ? "<li>" : "", grp_idx, val_idx, meas_idx, //
+                        a_name, b_name,                                      //
+                        need_list ? "</li>" : "");
             }
 
-            fprintf(f, "</ol>"
-                       "</li>");
+            fprintf(f,
+                    "%s"
+                    "</li>",
+                    need_list ? "</ol>" : "");
         }
 
         fprintf(f, "</ol>"
@@ -363,9 +368,12 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
     foreach_group_by_avg_idx (grp_idx, al) {
         fprintf(f,
                 "<li>"
+                "<details>"
+                "<summary>"
                 "<a href=\"#bench-group-%zu-%zu\">"
                 /**/ "<tt>%s</tt>"
-                "</a>",
+                "</a>"
+                "</summary>",
                 grp_idx, meas_idx,              //
                 bench_group_name(base, grp_idx) //
         );
@@ -381,6 +389,7 @@ static void html_toc_group_meas(const struct meas_analysis *al, FILE *f)
                     param->name, param->values[val_idx] //
             );
         fprintf(f, "</ol>"
+                   "</details>"
                    "</li>");
     }
     fprintf(f, "</ol>"
@@ -633,6 +642,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
     foreach_group_by_avg_idx (grp_idx, al) {
         fprintf(f,
                 "<li>"
+                "<details>"
+                "<summary>"
                 "<a href=\"#bench-group-%zu-%zu\">"
                 /**/ "<tt>%s</tt>"
                 "</a>",
@@ -656,7 +667,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
         case SORT_DEFAULT:
             ASSERT_UNREACHABLE();
         }
-        fprintf(f, "<ol>");
+        fprintf(f, "</summary>"
+                   "<ol>");
         for (size_t val_idx = 0; val_idx < val_count; ++val_idx)
             fprintf(f,
                     "<li>"
@@ -668,8 +680,10 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
                     param->name, param->values[val_idx] //
             );
         fprintf(f, "</ol>"
+                   "</details>"
                    "</li>");
     }
+    bool need_list = base->group_count > 2;
     fprintf(f, "</ol>"
                "<p>per-value comparisons:</p>"
                "<ol>");
@@ -677,8 +691,8 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
         fprintf(f,
                 "<li>"
                 "<tt>%s=%s</tt>"
-                "<ul>",
-                param->name, param->values[val_idx]);
+                "%s",
+                param->name, param->values[val_idx], need_list ? "<ul>" : "&nbsp;");
         size_t ref_idx = al->pval_cmps[val_idx].ref;
         foreach_per_val_group_idx (grp_idx, val_idx, al) {
             if (grp_idx == ref_idx)
@@ -688,16 +702,22 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmp-%zu-%zu-%zu", grp_idx, val_idx, meas_idx);
-            fprintf(f, "<li>");
+            if (need_list)
+                fprintf(f, "<li>");
             html_speedup_explain_small(speedup, href, a_name, b_name, f);
-            fprintf(f, "</li>");
+            if (need_list)
+                fprintf(f, "</li>");
         }
-        fprintf(f, "</ul>"
-                   "</li>");
+        fprintf(f,
+                "%s"
+                "</li>",
+                need_list ? "</ul>" : "");
     }
-    fprintf(f, "</ol>"
-               "<p>in total (avg):</p>"
-               "<ul>");
+    fprintf(f,
+            "</ol>"
+            "<br>in total (avg):"
+            "%s",
+            need_list ? "<ul>" : "&nbsp;");
     {
         size_t ref_idx = al->group_avg_cmp.ref;
         foreach_group_by_avg_idx (grp_idx, al) {
@@ -708,14 +728,18 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmpg-%zu-%zu", grp_idx, meas_idx);
-            fprintf(f, "<li>");
+            if (need_list)
+                fprintf(f, "<li>");
             html_speedup_explain_small(speedup, href, a_name, b_name, f);
-            fprintf(f, "</li>");
+            if (need_list)
+                fprintf(f, "</li>");
         }
     }
-    fprintf(f, "</ul>"
-               "<p>in total (sum):</p>"
-               "<ul>");
+    fprintf(f,
+            "%s"
+            "<br>in total (sum):"
+            "%s",
+            need_list ? "</ul>" : "", need_list ? "<ul>" : "&nbsp;");
     {
         size_t ref_idx = al->group_sum_cmp.ref;
         foreach_group_by_avg_idx (grp_idx, al) {
@@ -726,16 +750,19 @@ static void html_group_summary(const struct meas_analysis *al, FILE *f)
             const char *b_name = bench_group_name(base, grp_idx);
             char href[256];
             snprintf(href, sizeof(href), "#cmpg-%zu-%zu", grp_idx, meas_idx);
-            fprintf(f, "<li>");
+            if (need_list)
+                fprintf(f, "<li>");
             html_speedup_explain_small(speedup, href, a_name, b_name, f);
-            fprintf(f, "</li>");
+            if (need_list)
+                fprintf(f, "</li>");
         }
     }
     fprintf(f,
-            "</ul>"
+            "%s"
             "</div>" // col
             "</div>" // row
-            "</div>");
+            "</div>",
+            need_list ? "</ul>" : "");
 }
 
 static void html_summary(const struct meas_analysis *al, FILE *f)
@@ -1288,9 +1315,12 @@ static void html_report(const struct analysis *al, FILE *f)
                "<style>body { margin: 40px auto; max-width: 1200px; line-height: "
                "1.6; color: #454545; padding: 0 10px; font: 14px Helvetica Neue; }"
                "h1, h2, h3 { line-height: 1.2; text-align: center; }"
-               "h1 { margin-left: 0; font-size: 2rem; } h2 { margin-left: 0.5rem; font-size: 1.8rem; }"
-               "h3 { margin-left: 1rem; font-size: 1.6rem; } h4 { margin-left: 2rem; font-size: 1.4rem; }"
-               "h5 { margin-left: 3rem; font-size: 1.2rem; } h6 { margin-left: 4rem; font-size: 1rem; }"
+               "h1 { margin-left: 0; font-size: 2rem; } h2 { margin-left: 0.5rem; "
+               "font-size: 1.8rem; }"
+               "h3 { margin-left: 1rem; font-size: 1.6rem; } h4 { margin-left: 2rem; "
+               "font-size: 1.4rem; }"
+               "h5 { margin-left: 3rem; font-size: 1.2rem; } h6 { margin-left: 4rem; "
+               "font-size: 1rem; }"
                ".est-bound { opacity: 0.5; }"
                "a { color: #07a; }"
                "a:visited { color: #941352; }"
@@ -1305,6 +1335,10 @@ static void html_report(const struct analysis *al, FILE *f)
                ".off-5 { margin-left: 4rem; }"
                ".off-6 { margin-left: 5rem; }"
                ".offset-text { margin-left: 20px; }"
+               // Safari can't handle <details> inside <li> properly. It is still ugly after
+               // this fix, but at least there is no overlap.
+               "@supports (-webkit-hyphens: none) { li details { margin-left: 1.5em; }}"
+               "img { max-width: 100%%; height: auto; display: block; }"
                "</style></head>");
     fprintf(f, "<body>");
     html_toc(al, f);
