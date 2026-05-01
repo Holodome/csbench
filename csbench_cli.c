@@ -176,13 +176,13 @@ static void print_help_and_exit(int rc)
     print_opt("--no-warmup", OPT_ARR(NULL), "Disable warmup.");
     printf_colored(ANSI_BOLD, "\nRound options:\n");
     print_opt("--round-runs", OPT_ARR("NUM"),
-              "In a single round perform exactly <NUM> warmup runs.");
+              "In a single round perform exactly <NUM> measurement runs.");
     print_opt("--round-time", OPT_ARR("DURATION"),
               "Each benchmark will will be run for at least <DURATION> in row.");
     print_opt("--min-round-runs", OPT_ARR("NUM"),
-              "In a single round perform at least <NUM> warmup runs.");
+              "In a single round perform at least <NUM> measurement runs.");
     print_opt("--max-round-runs", OPT_ARR("NUM"),
-              "In a single round perform at most <NUM> warmup runs.");
+              "In a single round perform at most <NUM> measurement runs.");
     print_opt("--no-rounds", OPT_ARR(NULL), "Do not split execution into rounds.");
     printf_colored(ANSI_BOLD, "\nBenchmark setup options:\n");
     print_opt("--common-args", OPT_ARR("STR"), "Append <STR> to each benchmark command.");
@@ -204,7 +204,7 @@ static void print_help_and_exit(int rc)
               "Do not abort benchmarking when command finishes with non-zero exit code.");
     print_opt("-s, --simple", OPT_ARR(NULL),
               "Preset to run benchmark using all available processors for 1 second without "
-              "warmup and rounds.");
+              "warmup and rounds (-T 1 --no-warmup --jobs=$(nproc)).");
     print_opt("--shuffle-runs", OPT_ARR(NULL),
               "Randomize the order in which benchmarks are run.");
     printf_colored(ANSI_BOLD, "\nCommand input and output options:\n");
@@ -248,7 +248,7 @@ static void print_help_and_exit(int rc)
     print_opt(
         "--param", OPT_ARR("STR"),
         "<STR> is of the format <i>/<v>. Add benchmark parameter with name <i>. <v> is "
-        "a comma-separated list of parameter values.");
+        "a comma-separated list of parameter values. Multiple parameters are not supported.");
     print_opt(
         "--param-range", OPT_ARR("STR"),
         "<STR> is of the format <i>/<n>/<m>[/<s>]. Add benchmark parameter with name "
